@@ -6,6 +6,9 @@ const MOODS = {
   excited: { primary: '#fcd34d', secondary: '#f59e0b', glow: 'rgba(252,211,77,0.26)', ring: 'rgba(252,211,77,0.16)', label: 'excited' },
   thinking: { primary: '#d8b4fe', secondary: '#8b5cf6', glow: 'rgba(216,180,254,0.25)', ring: 'rgba(216,180,254,0.14)', label: 'thinking' },
   surprised: { primary: '#f9a8d4', secondary: '#ec4899', glow: 'rgba(249,168,212,0.25)', ring: 'rgba(249,168,212,0.14)', label: 'surprised' },
+  flirty: { primary: '#fb7185', secondary: '#e11d48', glow: 'rgba(251,113,133,0.28)', ring: 'rgba(251,113,133,0.16)', label: 'flirty' },
+  smug: { primary: '#fdba74', secondary: '#ea580c', glow: 'rgba(253,186,116,0.26)', ring: 'rgba(253,186,116,0.14)', label: 'smug' },
+  annoyed: { primary: '#94a3b8', secondary: '#475569', glow: 'rgba(148,163,184,0.22)', ring: 'rgba(148,163,184,0.12)', label: 'annoyed' },
 };
 
 const DEFAULT_MEMORY = {
@@ -56,7 +59,38 @@ const els = {
   refreshMemory: document.getElementById('refreshMemory'),
   clearAllMemories: document.getElementById('clearAllMemories'),
   modelSelect: document.getElementById('modelSelect'),
+  imageInput: document.getElementById('imageInput'),
+  imageBtn: document.getElementById('imageBtn'),
+  imagePreview: document.getElementById('imagePreview'),
+  imagePreviewImg: document.getElementById('imagePreviewImg'),
+  imagePreviewRemove: document.getElementById('imagePreviewRemove'),
 };
+
+let pendingImage = null;
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function attachImage(dataUrl) {
+  pendingImage = dataUrl;
+  if (els.imagePreviewImg) els.imagePreviewImg.src = dataUrl;
+  if (els.imagePreview) els.imagePreview.hidden = false;
+  if (els.imageBtn) els.imageBtn.classList.add('has-image');
+}
+
+function clearPendingImage() {
+  pendingImage = null;
+  if (els.imagePreview) els.imagePreview.hidden = true;
+  if (els.imagePreviewImg) els.imagePreviewImg.src = '';
+  if (els.imageBtn) els.imageBtn.classList.remove('has-image');
+  if (els.imageInput) els.imageInput.value = '';
+}
 
 function parseMood(text) {
   const str = String(text || '');
@@ -91,22 +125,46 @@ const MOOD_SPRITES = {
     { src: '/sprites/penny-mood-surprised.png', label: 'FLUSTERED', pos: '66% 14%' },
     { src: '/sprites/penny-mood-surprised-2.png', label: 'CAUGHT OFF GUARD', pos: '52% 8%' },
   ],
+  flirty: [
+    { src: '/sprites/penny-mood-flirty.png', label: 'DANGEROUS', pos: '56% 12%' },
+    { src: '/sprites/penny-mood-flirty-2.png', label: 'COME HERE', pos: '52% 10%' },
+  ],
+  smug: [
+    { src: '/sprites/penny-mood-smug.png', label: 'GOTTEM', pos: '62% 10%' },
+    { src: '/sprites/penny-mood-smug-2.png', label: 'TOO EASY', pos: '52% 10%' },
+  ],
+  annoyed: [
+    { src: '/sprites/penny-mood-annoyed.png', label: 'REALLY?', pos: '52% 12%' },
+    { src: '/sprites/penny-mood-annoyed-2.png', label: 'DRAMA QUEEN', pos: '58% 10%' },
+  ],
 };
 
-function pickSprite(mood) {
+/** Chibi mood sprites — shared by sidebar main display and chat bubble avatars. */
+const CHIBI_AVATARS = {
+  calm: '/sprites/decor/chibi-avatar-calm.png',
+  happy: '/sprites/decor/chibi-avatar-happy.png',
+  excited: '/sprites/decor/chibi-avatar-excited.png',
+  thinking: '/sprites/decor/chibi-avatar-thinking.png',
+  surprised: '/sprites/decor/chibi-avatar-surprised.png',
+  flirty: '/sprites/decor/chibi-avatar-flirty.png',
+  smug: '/sprites/decor/chibi-avatar-smug.png',
+  annoyed: '/sprites/decor/chibi-avatar-annoyed.png',
+};
+
+function pickChibiHudLabel(mood) {
   const variants = MOOD_SPRITES[mood] || MOOD_SPRITES.calm;
-  return variants[Math.floor(Math.random() * variants.length)];
+  return variants[Math.floor(Math.random() * variants.length)].label;
 }
 
 function companionFaceHtml(mood) {
-  const sprite = pickSprite(mood);
+  const src = CHIBI_AVATARS[mood] || CHIBI_AVATARS.calm;
+  const label = pickChibiHudLabel(mood);
   return `
-    <div class="penny-display penny-${mood}">
-      <img src="${sprite.src}" class="penny-art" alt="Penny" draggable="false"
-           style="object-position: ${sprite.pos}" />
+    <div class="penny-display penny-chibi penny-${mood}">
+      <img src="${src}" class="penny-art penny-art-chibi" alt="Penny" draggable="false" />
       <div class="penny-hud">
         <span class="penny-hud-left">PENNY.EXE</span>
-        <span class="penny-hud-right">${sprite.label}</span>
+        <span class="penny-hud-right">${label}</span>
       </div>
       <div class="penny-hud-bottom">${mood.toUpperCase()}</div>
     </div>
@@ -142,17 +200,45 @@ function updateBrainModeUi(meta = null) {
 let _lastSpriteKey = '';
 let _spriteTimer = null;
 
+const INTENSITY_SCALES = [1, 1.3, 1.6];
+
+function getIntensity() {
+  return Math.min(2, Math.floor(state.turns / 4));
+}
+
+function applyIntensityClass() {
+  const core = document.querySelector('.core');
+  if (!core) return;
+  const level = getIntensity();
+  core.classList.remove('intensity-0', 'intensity-1', 'intensity-2');
+  core.classList.add(`intensity-${level}`);
+}
+
+function triggerGlitch() {
+  const core = document.querySelector('.core');
+  if (!core) return;
+  core.classList.add('mood-glitch');
+  if (window._particleBurst) window._particleBurst();
+  setTimeout(() => core.classList.remove('mood-glitch'), 320);
+}
+
 function renderSprite(mood, palette) {
   const container = els.coreFace;
-  if (mood === _lastSpriteKey) return;
+  const intensity = getIntensity();
+  const spriteKey = `${mood}:${intensity}`;
+  if (spriteKey === _lastSpriteKey) return;
 
   const html = companionFaceHtml(mood);
+  const isFirstRender = !container.querySelector('.penny-display');
 
-  if (!container.querySelector('.penny-display')) {
+  if (isFirstRender) {
     container.innerHTML = html;
-    _lastSpriteKey = mood;
+    _lastSpriteKey = spriteKey;
+    applyIntensityClass();
     return;
   }
+
+  triggerGlitch();
 
   if (_spriteTimer) { clearTimeout(_spriteTimer); _spriteTimer = null; }
 
@@ -161,13 +247,14 @@ function renderSprite(mood, palette) {
 
   _spriteTimer = setTimeout(() => {
     container.innerHTML = html;
+    applyIntensityClass();
     container.style.transition = 'opacity 180ms ease-in';
     container.style.opacity = '1';
     _spriteTimer = setTimeout(() => {
       container.style.transition = '';
       _spriteTimer = null;
     }, 200);
-    _lastSpriteKey = mood;
+    _lastSpriteKey = spriteKey;
   }, 110);
 }
 
@@ -210,6 +297,10 @@ function updateBackendStatusUi(status = null) {
   els.backendModel.textContent = lmStudio.error || lmStudio.hint || 'not detected';
 }
 
+function pennyAvatarSrc() {
+  return CHIBI_AVATARS[state.mood] || CHIBI_AVATARS.calm;
+}
+
 function renderMessages() {
   els.chat.innerHTML = '';
   els.intro.hidden = state.messages.length !== 0;
@@ -217,10 +308,16 @@ function renderMessages() {
     const item = document.createElement('div');
     item.className = `msg-row ${msg.role}`;
     if (msg.role === 'assistant') {
-      const label = document.createElement('div');
-      label.className = 'msg-label';
-      label.textContent = 'PENNY';
-      item.appendChild(label);
+      const header = document.createElement('div');
+      header.className = 'msg-header';
+      header.innerHTML = `<img class="msg-avatar" src="${pennyAvatarSrc()}" alt="" /><span class="msg-label">PENNY</span>`;
+      item.appendChild(header);
+    }
+    if (msg.image && msg.role === 'user') {
+      const imgWrap = document.createElement('div');
+      imgWrap.className = 'msg-image';
+      imgWrap.innerHTML = `<img src="${msg.image}" alt="Attached" />`;
+      item.appendChild(imgWrap);
     }
     const bubble = document.createElement('div');
     bubble.className = `bubble ${msg.role}`;
@@ -231,7 +328,7 @@ function renderMessages() {
   if (state.loading) {
     const loading = document.createElement('div');
     loading.className = 'msg-row assistant';
-    loading.innerHTML = `<div class="msg-label">PENNY</div><div class="bubble assistant loading-bubble"><span></span><span></span><span></span></div>`;
+    loading.innerHTML = `<div class="msg-header"><img class="msg-avatar" src="${pennyAvatarSrc()}" alt="" /><span class="msg-label">PENNY</span></div><div class="bubble assistant loading-bubble"><span></span><span></span><span></span></div>`;
     els.chat.appendChild(loading);
   }
   els.chat.parentElement.scrollTop = els.chat.parentElement.scrollHeight;
@@ -251,7 +348,11 @@ function renderMemory() {
 }
 
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ memory: state.memory, messages: state.messages.slice(-16), mood: state.mood, turns: state.turns }));
+  const msgs = state.messages.slice(-16).map(m => {
+    if (m.image) return { role: m.role, content: m.content, hadImage: true };
+    return m;
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ memory: state.memory, messages: msgs, mood: state.mood, turns: state.turns }));
 }
 
 function loadState() {
@@ -408,10 +509,15 @@ async function consolidateMemory() {
 async function sendMessage() {
   const userText = els.composer.value.trim();
   if (!userText || state.loading) return;
-  state.messages.push({ role: 'user', content: userText });
-  els.composer.value = ''; state.loading = true; state.presence = 'thinking'; renderMessages(); updateTheme(); saveState();
+  const imageData = pendingImage || null;
+  const msgObj = { role: 'user', content: userText };
+  if (imageData) msgObj.image = imageData;
+  state.messages.push(msgObj);
+  els.composer.value = ''; clearPendingImage(); state.loading = true; state.presence = 'thinking'; renderMessages(); updateTheme(); saveState();
   try {
-    const res = await fetch('/api/penny/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: state.memory.sessionId, messages: state.messages, memories: state.memory }) });
+    const body = { sessionId: state.memory.sessionId, messages: state.messages, memories: state.memory };
+    if (imageData) body.image = imageData;
+    const res = await fetch('/api/penny/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       updateBrainModeUi(data.meta || { requestedMode: state.memory.brainMode, usedFallback: false, shadowError: data.detail || data.error || `Request failed: ${res.status}` });
@@ -435,6 +541,14 @@ async function sendMessage() {
 
 for (const tab of els.tabs) tab.addEventListener('click', () => switchPanel(tab.dataset.panel));
 els.send.addEventListener('click', sendMessage);
+
+if (els.imageBtn) els.imageBtn.addEventListener('click', () => els.imageInput?.click());
+if (els.imageInput) els.imageInput.addEventListener('change', async () => {
+  const file = els.imageInput.files?.[0];
+  if (!file) return;
+  try { attachImage(await fileToBase64(file)); } catch {}
+});
+if (els.imagePreviewRemove) els.imagePreviewRemove.addEventListener('click', clearPendingImage);
 
 const EMOJI_SET = [
   '😊','😂','🥺','😍','🥰','😘','😏','🤭','😳','🫠',
@@ -518,14 +632,165 @@ loadDurableMemory();
 loadBackendStatus();
 loadAvailableModels();
 
+(function bootSequence() {
+  const overlay = document.getElementById('bootOverlay');
+  if (!overlay) return;
+  setTimeout(() => {
+    overlay.classList.add('done');
+    setTimeout(() => overlay.remove(), 600);
+  }, 1800);
+})();
+
+(function idleEvents() {
+  const core = document.querySelector('.core');
+  if (!core) return;
+
+  function randomFlicker() {
+    core.classList.add('idle-flicker');
+    setTimeout(() => core.classList.remove('idle-flicker'), 80);
+  }
+
+  function randomInterference() {
+    core.classList.add('idle-interference');
+    setTimeout(() => core.classList.remove('idle-interference'), 200);
+  }
+
+  setInterval(() => {
+    const roll = Math.random();
+    if (roll < 0.3) randomFlicker();
+    else if (roll < 0.5) randomInterference();
+  }, 4000);
+})();
+
 const _debugMode = new URLSearchParams(window.location.search).get('debug') === '1';
 if (!_debugMode) {
   const memTab = document.querySelector('.tab[data-panel="memory"]');
   if (memTab) memTab.style.display = 'none';
 }
 
-window.__pennyDebug = (mood) => {
+window.__pennyDebug = (mood, turns) => {
   if (mood && MOODS[mood]) state.mood = mood;
+  if (turns !== undefined) state.turns = Number(turns) || 0;
   _lastSpriteKey = '';
   updateTheme();
 };
+
+(function initParallax() {
+  const core = document.querySelector('.core');
+  if (!core) return;
+  const MAX_SHIFT = 12;
+
+  document.addEventListener('mousemove', (e) => {
+    const display = core.querySelector('.penny-display');
+    if (!display) return;
+    const rect = core.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = (e.clientX - cx) / (window.innerWidth / 2);
+    const dy = (e.clientY - cy) / (window.innerHeight / 2);
+    const x = Math.max(-1, Math.min(1, dx)) * MAX_SHIFT;
+    const y = Math.max(-1, Math.min(1, dy)) * MAX_SHIFT;
+    const s = INTENSITY_SCALES[getIntensity()] || 1;
+    display.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
+  });
+})();
+
+(function initParticles() {
+  const canvas = document.getElementById('particleCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const particles = [];
+  const COUNT = 35;
+
+  function resize() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * devicePixelRatio;
+    canvas.height = rect.height * devicePixelRatio;
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+  }
+
+  function spawn(burst) {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    if (burst) {
+      const cx = rect.width / 2;
+      const cy = rect.height * 0.4;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 1.5 + 0.5;
+      return {
+        x: cx + (Math.random() - 0.5) * 40,
+        y: cy + (Math.random() - 0.5) * 40,
+        r: Math.random() * 2.5 + 1,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 0.3,
+        alpha: Math.random() * 0.6 + 0.3,
+        life: Math.random() * 60 + 30,
+        age: 0,
+        burst: true,
+      };
+    }
+    return {
+      x: Math.random() * rect.width,
+      y: Math.random() * rect.height,
+      r: Math.random() * 1.5 + 0.5,
+      vx: (Math.random() - 0.5) * 0.15,
+      vy: -(Math.random() * 0.2 + 0.05),
+      alpha: Math.random() * 0.4 + 0.1,
+      life: Math.random() * 400 + 200,
+      age: 0,
+    };
+  }
+
+  for (let i = 0; i < COUNT; i++) particles.push(spawn());
+
+  window._particleBurst = function () {
+    for (let i = 0; i < 20; i++) particles.push(spawn(true));
+  };
+
+  function frame() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const palette = MOODS[state.mood] || MOODS.calm;
+    const color = palette.primary;
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.burst) p.vy += 0.02;
+      p.age++;
+
+      const progress = p.age / p.life;
+      const fadeAlpha = progress < 0.1
+        ? progress / 0.1
+        : progress > 0.7
+          ? (1 - progress) / 0.3
+          : 1;
+      const a = p.alpha * fadeAlpha;
+
+      if (p.age >= p.life || p.y < -10 || p.x < -10 || p.x > w + 10 || p.y > h + 10) {
+        if (p.burst) {
+          particles.splice(i, 1);
+        } else {
+          particles[i] = spawn();
+          particles[i].y = h + 5;
+        }
+        continue;
+      }
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = a;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  window.addEventListener('resize', resize);
+  requestAnimationFrame(frame);
+})();

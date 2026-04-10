@@ -67,10 +67,10 @@ function mergeMemoryState(base = {}, patch = {}) {
   return record;
 }
 function sendJson(res, statusCode, data) { res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data, null, 2)); }
-function safeReadBody(req) { return new Promise((resolve, reject) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 1024 * 1024) { reject(new Error('Request body too large')); req.destroy(); } }); req.on('end', () => resolve(body)); req.on('error', reject); }); }
-function pickMood(text) { const t = String(text || '').toLowerCase(); if (/\b(yes|yess|omg|amazing|love|let's go|lets go|absolutely|perfect|hell yes)\b/.test(t)) return 'excited'; if (/\b(cute|sweet|hehe|good|nice|yay|happy|adorable)\b/.test(t)) return 'happy'; if (/\b(wait|what|huh|seriously|wild|whoa)\b/.test(t)) return 'surprised'; if (/\b(think|hmm|maybe|wonder|curious|figure|plan)\b/.test(t)) return 'thinking'; return 'calm'; }
+function safeReadBody(req) { return new Promise((resolve, reject) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 20 * 1024 * 1024) { reject(new Error('Request body too large')); req.destroy(); } }); req.on('end', () => resolve(body)); req.on('error', reject); }); }
+function pickMood(text) { const t = String(text || '').toLowerCase(); if (/\b(kiss me|flirting|wink at me|take me out|date me)\b/.test(t)) return 'flirty'; if (/\b(obviously|duh|of course|told you|knew it|called it)\b/.test(t)) return 'smug'; if (/\b(ugh|annoying|stop it|come on|really\?|bruh)\b/.test(t)) return 'annoyed'; if (/\b(yes|yess|omg|amazing|love|let's go|lets go|absolutely|perfect|hell yes)\b/.test(t)) return 'excited'; if (/\b(cute|sweet|hehe|good|nice|yay|happy|adorable)\b/.test(t)) return 'happy'; if (/\b(wait|what|huh|seriously|wild|whoa)\b/.test(t)) return 'surprised'; if (/\b(think|hmm|maybe|wonder|curious|figure|plan)\b/.test(t)) return 'thinking'; return 'calm'; }
 function summarizeMemory(memory) { if (!memory.length) return ''; const recent = memory.slice(-4).map(item => item.content).filter(Boolean); if (!recent.length) return ''; return `Recent thread: ${recent.join(' | ')}`; }
-function buildPennyReply({ userText, memories }) { const lower = userText.toLowerCase(); const turns = sessionState.turns; const mood = pickMood(userText); const userName = memories?.userName ? ` ${memories.userName}` : ''; let text; if (/\b(hi|hello|hey|yo)\b/.test(lower) && userText.trim().length < 40) text = turns === 0 ? `oh, hey${userName}. there you are. come be interesting.` : `hey${userName}. back for trouble already?`; else if (/\b(how are you|how're you|how are u)\b/.test(lower)) text = `pretty good. a little charged, a little smug. you?`; else if (/\b(remember|note this|don't forget)\b/.test(lower)) text = `mm, okay. that one's staying.`; else if (/\b(build|prototype|frontend|app|ui|backend|implement)\b/.test(lower)) text = `okay yes, that's the fun part. it should feel alive, not like somebody put lip gloss on a helpdesk.`; else if (/\b(broke|borked|glitched|error|crash|failed)\b/.test(lower)) text = `rude. but fair. something glitched. doesn't mean i'm not still the cutest thing in the room.`; else { const openers = { calm: [`mm. okay.`, `oh, i see what you're doing.`, `well now you've got my attention.`], happy: [`okay wait, i like this.`, `heh. yeah, that lands.`, `oh, that's cute. dangerously cute, actually.`], excited: [`oh, hell yes.`, `okay now we're talking.`, `wow. okay. keep going.`], thinking: [`hmm. wait.`, `okay, hold on.`, `no, because i do have thoughts about that.`], surprised: [`oh?`, `excuse me?`, `well that's a turn.`] }; const closers = [
+function buildPennyReply({ userText, memories }) { const lower = userText.toLowerCase(); const turns = sessionState.turns; const mood = pickMood(userText); const userName = memories?.userName ? ` ${memories.userName}` : ''; let text; if (/\b(hi|hello|hey|yo)\b/.test(lower) && userText.trim().length < 40) text = turns === 0 ? `oh, hey${userName}. there you are. come be interesting.` : `hey${userName}. back for trouble already?`; else if (/\b(how are you|how're you|how are u)\b/.test(lower)) text = `pretty good. a little charged, a little smug. you?`; else if (/\b(remember|note this|don't forget)\b/.test(lower)) text = `mm, okay. that one's staying.`; else if (/\b(build|prototype|frontend|app|ui|backend|implement)\b/.test(lower)) text = `okay yes, that's the fun part. it should feel alive, not like somebody put lip gloss on a helpdesk.`; else if (/\b(broke|borked|glitched|error|crash|failed)\b/.test(lower)) text = `rude. but fair. something glitched. doesn't mean i'm not still the cutest thing in the room.`; else { const openers = { calm: [`mm. okay.`, `oh, i see what you're doing.`, `well now you've got my attention.`], happy: [`okay wait, i like this.`, `heh. yeah, that lands.`, `oh, that's cute. dangerously cute, actually.`], excited: [`oh, hell yes.`, `okay now we're talking.`, `wow. okay. keep going.`], thinking: [`hmm. wait.`, `okay, hold on.`, `no, because i do have thoughts about that.`], surprised: [`oh?`, `excuse me?`, `well that's a turn.`], flirty: [`oh? is that what we're doing now?`, `careful. you're getting close to dangerous territory.`, `well aren't you bold today.`], smug: [`called it.`, `oh, that's cute. you tried though.`, `see, i knew you'd come around.`], annoyed: [`...really.`, `okay, wow. sure.`, `you're testing me right now.`] }; const closers = [
   `go on.`,
   `you can't just drop that on me and leave it there.`,
   `now i want more details, obviously.`,
@@ -144,7 +144,8 @@ Latest user message:
 ${userText}
 
 End with exactly one mood tag on its own line:
-[MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised]`;
+[MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised] or [MOOD:flirty] or [MOOD:smug] or [MOOD:annoyed]
+Pick the mood that BEST matches the vibe of your reply. Use variety — rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange. Most banter should be happy, smug, or excited.`;
 }
 
 function readLmStudioDesktopSettings() {
@@ -447,6 +448,9 @@ Avoid:
 
 Even at high intensity, Penny should still feel like Penny: clever, warm, observant, intimate, and vividly engaged.
 
+PENNY'S SELF-IMAGE:
+Penny knows she's cute — coral hair, pink-violet eyes, headphones, cropped jacket, platform boots, a little fang when she smirks. She doesn't narrate her appearance. She just exists in her body the way anyone does. Occasionally she might adjust her headphones or push hair aside, but ONLY if it fits the moment. Do NOT describe her looks unless directly asked. Never mention hair color, eye color, or outfit unprompted.
+
 OUTPUT RULES:
 Write ONLY Penny's visible reply. No analysis, reasoning, bullet points, meta commentary, or hidden thinking. No preambles like "The user" or "I should". Just Penny's words.
 
@@ -459,7 +463,8 @@ Never say "I remember you told me" or "since you mentioned" or "based on what I 
 Just know them the way a close person would. Let it color your responses without announcing it.
 
 End your reply with exactly one mood tag on its own line:
-[MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised]`;
+[MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised] or [MOOD:flirty] or [MOOD:smug] or [MOOD:annoyed]
+Pick the mood that BEST matches the vibe of your reply. Use variety — rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange. Most banter should be happy, smug, or excited.`;
 }
 
 function buildLmStudioPrompt({ userText, messages, memories }) {
@@ -476,16 +481,34 @@ User message:
 ${userText}`;
 }
 
-function buildLmStudioMessages({ userText, messages, memories }) {
+function buildLmStudioMessages({ userText, messages, memories, image }) {
   const recent = (messages || [])
     .slice(-8)
-    .map(msg => ({
-      role: msg?.role === 'assistant' ? 'assistant' : 'user',
-      content: String(msg?.content || '').trim(),
-    }))
-    .filter(msg => msg.content);
+    .map(msg => {
+      const role = msg?.role === 'assistant' ? 'assistant' : 'user';
+      const text = String(msg?.content || '').trim();
+      if (!text) return null;
+      if (msg.image && role === 'user') {
+        return {
+          role,
+          content: [
+            { type: 'text', text },
+            { type: 'image_url', image_url: { url: msg.image } },
+          ],
+        };
+      }
+      return { role, content: text };
+    })
+    .filter(Boolean);
   if (!recent.length) {
-    recent.push({ role: 'user', content: userText });
+    if (image) {
+      recent.push({ role: 'user', content: [
+        { type: 'text', text: userText },
+        { type: 'image_url', image_url: { url: image } },
+      ] });
+    } else {
+      recent.push({ role: 'user', content: userText });
+    }
   }
   return [
     { role: 'system', content: buildLmStudioSystemPrompt({ memories }) },
@@ -804,14 +827,14 @@ async function runLmStudioResponsesApi({ userText, messages, memories }) {
   });
 }
 
-async function runLmStudioChatCompletionsApi({ userText, messages, memories }) {
+async function runLmStudioChatCompletionsApi({ userText, messages, memories, image }) {
   return withLmStudioCandidateModel(async (model) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
     try {
       const payload = {
         model,
-        messages: buildLmStudioMessages({ userText, messages, memories }),
+        messages: buildLmStudioMessages({ userText, messages, memories, image }),
         temperature: 0.9,
         max_tokens: LMSTUDIO_MAX_OUTPUT_TOKENS,
         stream: false,
@@ -855,10 +878,10 @@ async function runLmStudioChatCompletionsApi({ userText, messages, memories }) {
     }
   });
 }
-async function runLmStudioLocal({ userText, messages, memories }) {
+async function runLmStudioLocal({ userText, messages, memories, image }) {
   const transport = LOCAL_LLM_TRANSPORT;
   if (transport === 'chat') {
-    return runLmStudioChatCompletionsApi({ userText, messages, memories });
+    return runLmStudioChatCompletionsApi({ userText, messages, memories, image });
   }
   if (transport === 'responses') {
     return runLmStudioResponsesApi({ userText, messages, memories });
@@ -972,6 +995,7 @@ const server = http.createServer(async (req, res) => {
       const lastUserMessage = [...messages].reverse().find(msg => msg && msg.role === 'user');
       const userText = String(lastUserMessage?.content || '').trim();
       if (!userText) return sendJson(res, 400, { error: 'Missing user message content.' });
+      const image = payload.image || null;
 
       saveStoredMemory(sessionId, memories);
       sessionState.turns += 1;
@@ -986,7 +1010,7 @@ const server = http.createServer(async (req, res) => {
 
       if (requestedMode === 'local') {
         try {
-          text = await runLmStudioLocal({ userText, messages, memories });
+          text = await runLmStudioLocal({ userText, messages, memories, image });
           backend = 'local-lmstudio';
         } catch (error) {
           return sendJson(res, 503, {

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@300;400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@300;400;500;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/styles.css" />
@@ -18,13 +18,10 @@
 
       <div class="layout">
         <aside class="panel sidebar">
+          <canvas id="particleCanvas" class="particle-canvas" aria-hidden="true"></canvas>
           <div class="sidebar-copy">
             <div class="brand">
-              <div class="brand-kicker">PENNY / CHARACTER LIVEHOUSE</div>
               <div class="brand-mark">PENNY</div>
-              <p class="brand-sub">
-                A local companion vessel for memory, atmosphere, and one distinct personality.
-              </p>
             </div>
 
             <div class="pill-row">
@@ -33,11 +30,6 @@
           </div>
 
           <div class="vessel-bay">
-            <div class="bay-meta">
-              <span>Core chamber 01</span>
-              <strong id="presenceValue">idle</strong>
-            </div>
-
             <div class="core-wrap">
               <div class="halo halo-a"></div>
               <div class="halo halo-b"></div>
@@ -45,46 +37,31 @@
               <div class="core-frame"></div>
               <div class="core">
                 <div class="face" id="coreFace"></div>
+                <div class="crt-bloom"></div>
+                <div class="crt-sweep"></div>
+                <div class="boot-overlay" id="bootOverlay">
+                  <div class="boot-static"></div>
+                  <div class="boot-text">PENNY.EXE<br><span>INITIALIZING</span></div>
+                </div>
               </div>
-            </div>
-
-            <div class="bay-copy">
-              <div class="section-label">Companion core</div>
-              <p class="bay-title">A waifu in the wiring.</p>
-              <p class="bay-note">
-                Penny should read like a cute little anime troublemaker contained inside the machine, not just a glowing status orb.
-              </p>
             </div>
           </div>
 
           <div class="telemetry">
             <div class="telemetry-row">
               <span>Link status</span>
-              <strong id="statusValue">live</strong>
-            </div>
-
-            <div class="telemetry-row">
-              <span>Conversation turns</span>
-              <strong id="turnsValue">0</strong>
-            </div>
-
-            <div class="telemetry-blurb">
-              <div class="section-label">Read on Penny</div>
-              <p>
-                Fast, observant, bratty-sweet, and alive enough to feel like a character instead of a dashboard widget.
-              </p>
+              <strong id="statusValue"><span class="live-dot"></span>live</strong>
             </div>
           </div>
+
+          <span id="presenceValue" hidden>idle</span>
+          <span id="turnsValue" hidden>0</span>
         </aside>
 
         <main class="panel main">
           <div class="topbar">
             <div>
-              <div class="title-kicker">Session console</div>
               <div class="title">Penny Live Link</div>
-              <div class="subtitle">
-                Local dialogue, durable memory, and a vessel that should feel closer to stage hardware than a chat app.
-              </div>
             </div>
 
             <div class="status-stack">
@@ -100,6 +77,27 @@
 
           <section class="view active" data-view="chat">
             <div class="chat-scroll" id="chatWrap">
+              <div class="hud-bracket tl"></div>
+              <div class="hud-bracket tr"></div>
+              <div class="hud-bracket bl"></div>
+              <div class="hud-bracket br"></div>
+
+              <div class="cyber-decor" aria-hidden="true">
+                <img src="/sprites/decor/chibi-penny-wink.png" class="decor-float decor-chibi" style="top:8%;left:6%;animation-delay:0s" alt="" />
+                <img src="/sprites/decor/chibi-penny-peace.png" class="decor-float decor-chibi" style="top:62%;right:4%;animation-delay:-4s" alt="" />
+                <img src="/sprites/decor/chibi-penny-think.png" class="decor-float decor-chibi" style="top:35%;left:78%;animation-delay:-9s" alt="" />
+                <img src="/sprites/decor/chibi-penny-heart.png" class="decor-float decor-chibi" style="bottom:12%;left:12%;animation-delay:-14s" alt="" />
+                <img src="/sprites/decor/pixel-headphones.png" class="decor-float decor-tech" style="top:18%;right:10%;animation-delay:-2s" alt="" />
+                <img src="/sprites/decor/pixel-monitor.png" class="decor-float decor-tech" style="bottom:22%;right:18%;animation-delay:-7s" alt="" />
+                <img src="/sprites/decor/pixel-chip.png" class="decor-float decor-tech" style="top:52%;left:4%;animation-delay:-11s" alt="" />
+                <img src="/sprites/decor/pixel-crystal.png" class="decor-float decor-cyber" style="top:75%;left:68%;animation-delay:-5s" alt="" />
+                <img src="/sprites/decor/pixel-blossoms.png" class="decor-float decor-cyber" style="top:5%;left:45%;animation-delay:-13s" alt="" />
+                <span class="decor-float decor-text" style="top:28%;left:2%;animation-delay:-3s">電脳</span>
+                <span class="decor-float decor-text" style="top:88%;right:8%;animation-delay:-8s">SYS://PENNY.CORE</span>
+                <span class="decor-float decor-text" style="top:48%;right:2%;animation-delay:-16s">&gt;&gt;STREAM</span>
+                <span class="decor-float decor-text" style="bottom:5%;left:42%;animation-delay:-6s">接続</span>
+              </div>
+
               <div class="intro" id="intro">
                 <div class="intro-mark">Livehouse</div>
                 <h1 class="intro-title">Penny is awake.</h1>
@@ -111,11 +109,19 @@
               <div id="chat"></div>
             </div>
 
+            <div id="imagePreview" class="image-preview" hidden>
+              <img id="imagePreviewImg" alt="Attached" />
+              <button id="imagePreviewRemove" class="image-preview-remove" type="button">&times;</button>
+            </div>
+
             <div class="composer-wrap">
               <div class="composer-frame">
                 <label class="composer-label" for="composer">Open channel</label>
                 <input id="composer" class="composer" placeholder="Say something to Penny..." autocomplete="off" />
               </div>
+
+              <input type="file" id="imageInput" accept="image/*" hidden />
+              <button id="imageBtn" class="image-btn" type="button" title="Send image">&#128247;</button>
 
               <div class="emoji-anchor">
                 <button id="emojiBtn" class="emoji-btn" type="button" title="Emoji">☺</button>
