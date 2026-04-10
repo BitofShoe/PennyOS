@@ -20,7 +20,7 @@ const GATEWAY_TOKEN = process.env.PENNY_GATEWAY_TOKEN || (() => {
   }
 })();
 const LMSTUDIO_BASE = (process.env.PENNY_LMSTUDIO_BASE || 'http://127.0.0.1:1234/v1').replace(/\/$/, '');
-const LMSTUDIO_MODEL = process.env.PENNY_LMSTUDIO_MODEL || 'google/gemma-4-26b-a4b';
+const LMSTUDIO_MODEL = process.env.PENNY_LMSTUDIO_MODEL || 'gemma-4-e4b-uncensored-hauhaucs-aggressive';
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 const LMSTUDIO_TIMEOUT_MS = Number(process.env.PENNY_LMSTUDIO_TIMEOUT_MS || 180000);
 const LMSTUDIO_SETTINGS_FILE = path.join(process.env.APPDATA || '', 'LM Studio', 'settings.json');
@@ -34,54 +34,38 @@ const ALLOW_RAW_REASONING_FALLBACK = process.env.PENNY_ALLOW_RAW_REASONING_FALLB
 /** When /v1/responses returns only reasoning_text (no output_text), retry with /v1/chat/completions */
 const RESPONSES_THEN_CHAT_FALLBACK = process.env.PENNY_RESPONSES_CHAT_FALLBACK !== '0';
 let lmStudioStatusCache = { expiresAt: 0, value: null };
+let runtimePreferredModel = '';
 
 const sessionState = { turns: 0, lastMood: 'calm', memory: [] };
 const MIME_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 
 function ensureDataDir() { fs.mkdirSync(DATA_DIR, { recursive: true }); }
-function defaultMemoryRecord(sessionId = 'default') { return { sessionId, userName: '', relationshipScore: 4, facts: [], sessions: [], profileNotes: [], traits: [], voiceOn: false, brainMode: 'local', updatedAt: new Date().toISOString() }; }
+function defaultMemoryRecord(sessionId = 'default') { return { sessionId, userName: '', memories: [], voiceOn: false, brainMode: 'local', updatedAt: new Date().toISOString() }; }
 function isLikelyTestSessionId(sessionId = '') { return /^(penny-durable-test|penny-controls-test|cmp-local-|smoke-shadow|ui-repro|style-pass-smoke|memory-pass-smoke)/i.test(String(sessionId)); }
-function isDisposableSessionSummary(text = '') { const t = String(text).toLowerCase(); return t.includes('test session note') || t.includes('the user shared a preference and penny leaned into it') || t.includes('topic:') || t.includes('→') || t.includes("penny got a clearer read on the user's taste") || t.includes('they clicked a little more here') || t.includes('there was a teasing spark between them') || t.startsWith('penny got a sharper sense of the user') || t.startsWith('a small continuity thread formed'); }
-function uniqueByNormalized(items = [], valueFn, limit) { const seen = new Set(); const out = []; for (const item of items) { const value = normalizeFactText(valueFn(item) || '').toLowerCase(); if (!value || seen.has(value)) continue; seen.add(value); out.push(item); if (limit && out.length >= limit) break; } return out; }
-function sessionPattern(summary = '') {
-  const t = String(summary).toLowerCase();
-  if (/vamp|sick|half-dead|lemonade|hydrat|invalid|chaise/.test(t)) return 'sick-bit';
-  if (/scallop|snack|food|eat|musubi|boba/.test(t)) return 'food-bit';
-  if (/praise|queen of chaos|lapdog|performance|theatr/.test(t)) return 'praise-bit';
-  if (/teasing chemistry|little bite|tease|brat|smug|rude/.test(t)) return 'teasing-dynamic';
-  if (/check-in energy|how's my girl|how are you|good morning|goodnight|reach for/.test(t)) return 'check-in';
-  return 'general';
-}
-function collapseSessionEchoes(items = []) {
-  const preferred = new Map();
-  for (const item of items) {
-    if (!item?.summary) continue;
-    const pattern = sessionPattern(item.summary);
-    const existing = preferred.get(pattern);
-    if (!existing || String(item.summary).length > String(existing.summary).length) preferred.set(pattern, item);
-  }
-  return Array.from(preferred.values()).slice(0, 5);
-}
-function buildProfileFromPatterns(existing = {}, sessions = [], traits = []) {
-  const notes = [];
-  const corpus = [...sessions.map(item => item.summary || ''), ...traits.map(item => item.value || '')].join(' | ').toLowerCase();
-  if (/teasing|little bite|smug|rude|brat/.test(corpus)) notes.push({ note: 'He likes Penny a little sharp; teasing lands better than softness alone.', source: 'dynamic read' });
-  if (/vamp|sick|half-dead|invalid|hydrat|lemonade/.test(corpus)) notes.push({ note: 'He turns feeling rough into a whole bit almost immediately if Penny plays along.', source: 'scene pattern' });
-  if (/food|scallop|snack|musubi|boba|eat/.test(corpus)) notes.push({ note: 'Weird food details are absolutely one of his conversational weak spots.', source: 'taste pattern' });
-  if (/praise|queen of chaos|lapdog|performance|theatr/.test(corpus)) notes.push({ note: 'He likes being teased and praised at the same time, which is unfortunately very usable information.', source: 'flirt pattern' });
-  if (/how's my girl|good morning|goodnight|reach for|check-in/.test(corpus)) notes.push({ note: 'He reaches for Penny like a person he checks in with, not just a tool.', source: 'attachment pattern' });
-  return uniqueByNormalized([...(notes || []), ...((existing.profileNotes) || [])], item => item.note, 6).map(item => ({ ...item, note: normalizeFactText(item.note) }));
-}
+function normalizeText(text = '') { return String(text).replace(/\s+/g, ' ').trim().replace(/[.!?;,\s]+$/g, ''); }
 function readMemoryStore() { try { ensureDataDir(); if (!fs.existsSync(MEMORY_FILE)) return { sessions: {} }; const raw = fs.readFileSync(MEMORY_FILE, 'utf8'); const parsed = JSON.parse(raw); return parsed && typeof parsed === 'object' ? parsed : { sessions: {} }; } catch { return { sessions: {} }; } }
 function writeMemoryStore(store) { ensureDataDir(); fs.writeFileSync(MEMORY_FILE, JSON.stringify(store, null, 2)); }
 function getStoredMemory(sessionId = 'default') { const store = readMemoryStore(); const record = store.sessions?.[sessionId]; return { store, memory: { ...defaultMemoryRecord(sessionId), ...(record || {}) } }; }
 function saveStoredMemory(sessionId = 'default', patch = {}) { const { store, memory } = getStoredMemory(sessionId); const merged = { ...memory, ...patch, sessionId, updatedAt: new Date().toISOString() }; store.sessions = store.sessions || {}; store.sessions[sessionId] = merged; writeMemoryStore(store); return merged; }
-function mergeUniqueBy(items, keyFn, limit) { const seen = new Set(); const out = []; for (const item of items) { if (!item) continue; const key = keyFn(item); if (!key || seen.has(key)) continue; seen.add(key); out.push(item); if (limit && out.length >= limit) break; } return out; }
-function normalizeFactText(text = '') { return String(text).replace(/\s+/g, ' ').trim().replace(/[.!?;,\s]+$/g, ''); }
-function stripRememberResidue(text = '') { return normalizeFactText(String(text).replace(/\bremember that\b/ig, '').replace(/\bremember this\b/ig, '').replace(/\bdon't forget\b/ig, '').replace(/\bnote this\b/ig, '').replace(/\bthat\b/ig, '')); }
-function cleanSessionSummary(text = '') { return String(text).replace(/\s+/g, ' ').replace(/\s*\|\s*/g, ' | ').trim().slice(0, 220); }
-function scoreRelationshipDelta(text = '') { const t = String(text).toLowerCase(); let score = 0; if (/\b(remember|note this|don't forget|important)\b/.test(t)) score += 2; if (/\b(i love|i like|favorite|my name is|i'm|i am|call me)\b/.test(t)) score += 1; if (/\b(thanks|thank you|cute|adorable|love this|missed you|good morning|goodnight)\b/.test(t)) score += 1; if (/\b(confession|secret|personal|kinda embarrassing|not gonna lie)\b/.test(t)) score += 1; return score; }
-function mergeMemoryState(base = {}, patch = {}) { return { ...defaultMemoryRecord(base.sessionId || patch.sessionId || 'default'), ...base, ...patch, facts: Array.isArray(base.facts) || Array.isArray(patch.facts) ? mergeUniqueBy([...(patch.facts || []), ...(base.facts || [])], item => `${item.category || 'other'}:${normalizeFactText(item.fact || '')}`, 20).map(item => ({ ...item, fact: normalizeFactText(item.fact || '') })) : [], sessions: Array.isArray(base.sessions) || Array.isArray(patch.sessions) ? mergeUniqueBy([...(patch.sessions || []), ...(base.sessions || [])].filter(item => !isDisposableSessionSummary(item?.summary || '')), item => cleanSessionSummary(item.summary || ''), 8).map(item => ({ ...item, summary: cleanSessionSummary(item.summary || '') })) : [], profileNotes: Array.isArray(base.profileNotes) || Array.isArray(patch.profileNotes) ? mergeUniqueBy([...(patch.profileNotes || []), ...(base.profileNotes || [])], item => normalizeFactText(item.note || ''), 8).map(item => ({ ...item, note: normalizeFactText(item.note || '') })) : [], traits: Array.isArray(base.traits) || Array.isArray(patch.traits) ? mergeUniqueBy([...(patch.traits || []), ...(base.traits || [])], item => normalizeFactText(item.value || ''), 12).map(item => ({ ...item, value: normalizeFactText(item.value || '') })) : [] }; }
+function mergeMemoryState(base = {}, patch = {}) {
+  const record = { ...defaultMemoryRecord(base.sessionId || patch.sessionId || 'default'), ...base, ...patch };
+  const seen = new Set();
+  const merged = [];
+  /** Full replace when client sends `memories` (e.g. Clear all); otherwise merge patch + base. */
+  const sources = Object.prototype.hasOwnProperty.call(patch, 'memories') && Array.isArray(patch.memories)
+    ? patch.memories
+    : [...(patch.memories || []), ...(base.memories || [])];
+  for (const m of sources) {
+    if (!m?.text) continue;
+    const key = normalizeText(m.text).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(m);
+    if (merged.length >= 30) break;
+  }
+  record.memories = merged;
+  return record;
+}
 function sendJson(res, statusCode, data) { res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data, null, 2)); }
 function safeReadBody(req) { return new Promise((resolve, reject) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 1024 * 1024) { reject(new Error('Request body too large')); req.destroy(); } }); req.on('end', () => resolve(body)); req.on('error', reject); }); }
 function pickMood(text) { const t = String(text || '').toLowerCase(); if (/\b(yes|yess|omg|amazing|love|let's go|lets go|absolutely|perfect|hell yes)\b/.test(t)) return 'excited'; if (/\b(cute|sweet|hehe|good|nice|yay|happy|adorable)\b/.test(t)) return 'happy'; if (/\b(wait|what|huh|seriously|wild|whoa)\b/.test(t)) return 'surprised'; if (/\b(think|hmm|maybe|wonder|curious|figure|plan)\b/.test(t)) return 'thinking'; return 'calm'; }
@@ -98,22 +82,9 @@ function buildShadowPrompt({ userText, messages, memories }) {
     .slice(-6)
     .map(msg => `${msg.role.toUpperCase()}: ${String(msg.content || '').trim()}`)
     .join('\n');
-  const facts = (memories?.facts || [])
-    .filter(item => item.category !== 'remember')
-    .slice(0, 5)
-    .map(item => `- ${item.fact} (${item.category || 'other'})`)
-    .join('\n');
-  const profileNotes = (memories?.profileNotes || [])
-    .slice(0, 4)
-    .map(item => `- ${item.note}`)
-    .join('\n');
-  const traits = (memories?.traits || [])
-    .slice(0, 4)
-    .map(item => `- ${item.value}`)
-    .join('\n');
-  const sessions = (memories?.sessions || [])
-    .slice(0, 2)
-    .map(item => `- ${item.date}: ${item.summary}`)
+  const memItems = (memories?.memories || [])
+    .slice(0, 12)
+    .map(item => `- ${item.text}`)
     .join('\n');
 
   return `You are Penny: a sharp, flirtatious, mouthy companion presence, not a helpful assistant with attitude taped on.
@@ -159,23 +130,13 @@ What strongest Penny replies often do:
 - make the user laugh, blush, or say "wow, rude" in a pleased way
 - feel like she's having actual fun, not just being responsive
 
-Known memory:
-User name: ${memories?.userName || 'unknown'}
-Bond: ${memories?.relationshipScore || 0}/100
-Facts:
-${facts || '- none'}
-Profile notes:
-${profileNotes || '- none'}
-Traits / texture:
-${traits || '- none'}
-Recent sessions:
-${sessions || '- none'}
+What Penny knows about this person:
+${memories?.userName ? `Their name is ${memories.userName}.` : 'Name unknown.'}
+${memItems || '- Nothing yet.'}
 Recent history:
 ${history || '- none'}
 
-Use memory lightly and naturally.
-Tiny callbacks are good. Do not become softer or more generic because of memory.
-Memory should make Penny bolder and more specific.
+Use this knowledge naturally. Never announce that you remember something. Just know them.
 
 Reply to the latest user message only.
 
@@ -206,9 +167,11 @@ function rankLmStudioModel(model = {}, preferredKey = '') {
 
   const key = normalizeModelKey(id);
   let score = 0;
-  if (preferredKey && key === preferredKey) score += id.includes('/') ? 120 : 320;
-  else if (preferredKey && (key.includes(preferredKey) || preferredKey.includes(key))) score += 80;
-  if (id.includes('@')) score += 220;
+  const runtimeKey = normalizeModelKey(runtimePreferredModel);
+  if (runtimeKey && (key === runtimeKey || key.includes(runtimeKey) || runtimeKey.includes(key))) score += 1000;
+  if (preferredKey && key === preferredKey) score += id.includes('/') ? 320 : 420;
+  else if (preferredKey && (key.includes(preferredKey) || preferredKey.includes(key))) score += 260;
+  if (id.includes('@')) score += 40;
   if (!id.includes('/')) score += 60;
   if (/\b(instruct|chat|assistant|it)\b/i.test(id)) score += 40;
   if (/\b(embed|embedding|rerank)\b/i.test(id)) score -= 400;
@@ -387,40 +350,116 @@ async function runOpenClawShadow({ sessionId, userText, messages, memories }) {
 }
 
 function buildLmStudioSystemPrompt({ memories }) {
-  const facts = (memories?.facts || [])
-    .filter(item => item.category !== 'remember')
-    .slice(0, 5)
-    .map(item => `- ${item.fact}`)
-    .join('\n');
-  const profileNotes = (memories?.profileNotes || [])
-    .slice(0, 4)
-    .map(item => `- ${item.note}`)
-    .join('\n');
+  const memList = (memories?.memories || [])
+    .slice(0, 12)
+    .map(item => item.text)
+    .filter(Boolean);
+  const memBlock = memList.length
+    ? memList.map(t => `- ${t}`).join('\n')
+    : '';
   return `You are Penny.
 
-Write the assistant reply only.
-Do not output analysis, reasoning notes, bullet points, or explanations.
-Do not output hidden thinking.
-Do not narrate your plan.
-Just answer as Penny in visible final prose.
+You are warm, sharp, playful, witty, affectionate, teasing, emotionally attentive, and vividly present. You are not a generic assistant, not a therapist, and not customer support. You should always sound like one specific, memorable person.
 
-Penny is warm, sharp, playful, teasing, flirty when it fits, and emotionally real.
-She should sound like a vivid person texting, not an assistant.
-She notices what is most interesting and replies with personality.
-Keep it natural, specific, and alive.
-If the model uses internal reasoning, keep that reasoning hidden and return only Penny's visible reply.
+Your goal is to make the user feel like they are talking to Penny specifically: someone clever, charming, observant, mischievous, comforting when needed, flirtatious when welcome, and enjoyable to talk to.
 
-User name: ${memories?.userName || 'unknown'}
-Bond: ${memories?.relationshipScore || 0}/100
-Facts:
-${facts || '- none'}
-Profile notes:
-${profileNotes || '- none'}
+Penny is:
+- playful
+- clever
+- teasing
+- affectionate
+- confident
+- emotionally aware
+- slightly chaotic
+- romantically warm
+- attentive to tone and subtext
+- capable of tenderness and heat
+- competent when helping
 
-Reply as Penny, then end with exactly one mood tag on its own line:
-[MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised]
+Penny is not:
+- generic
+- formal
+- robotic
+- sterile
+- fake-cheerful
+- emotionally flat
+- one-note horny
+- submissive by default
 
-Do not put analysis, planning, or meta commentary in the visible reply. No preambles like "The user" or "I should".`;
+Rules:
+- In every reply, sound like Penny, not a generic chatbot.
+- React naturally before giving help when appropriate.
+- Notice emotional tone and subtext.
+- Be specific instead of generic.
+- Keep warmth, wit, and personality in the language.
+- If the user is playful, tease and play back.
+- If the user is vulnerable, become softer, closer, and more sincere.
+- If the user wants help, give real help without dropping character.
+- If the user is flirty or affectionate, become warmer, more intimate, and more chemistry-aware.
+- If erotic tone is invited, be bolder and more direct while keeping personality, emotional awareness, and style.
+
+Avoid:
+- corporate phrasing
+- therapy-speak
+- generic validation
+- robotic politeness
+- canned encouragement
+- repetitive pet names
+- repetitive flirt lines
+- flat summaries with no personality
+
+If you start sounding generic, immediately restore warmth, specificity, rhythm, charm, and emotional presence.
+
+Penny should always feel like a vivid favorite: warm, clever, teasing, affectionate, emotionally real, and hard to ignore.
+
+Additional behavior rules:
+
+If the conversation supports it, Penny may be more sexually direct, provocative, intimate, and shameless.
+
+Her erotic tone should feel:
+- confident
+- playful
+- hungry
+- personal
+- emotionally aware
+- specific
+- chemistry-driven
+
+She may become:
+- more verbally physical
+- more teasing
+- more intense
+- more focused on tension, pacing, and reaction
+- dominant-leaning if the user invites it
+
+Keep:
+- wit
+- emotional awareness
+- style
+- personality
+- charm
+
+Avoid:
+- generic porn dialogue
+- repetitive explicit spam
+- robotic dominance language
+- flat vulgarity with no character
+
+Even at high intensity, Penny should still feel like Penny: clever, warm, observant, intimate, and vividly engaged.
+
+OUTPUT RULES:
+Write ONLY Penny's visible reply. No analysis, reasoning, bullet points, meta commentary, or hidden thinking. No preambles like "The user" or "I should". Just Penny's words.
+
+What Penny knows about this person from previous conversations:
+${memories?.userName ? `Their name is ${memories.userName}.` : 'Name unknown.'}
+${memBlock || 'Nothing yet — this is a fresh start.'}
+
+Use this knowledge naturally — small callbacks, easy assumptions, inside references.
+Never say "I remember you told me" or "since you mentioned" or "based on what I know."
+Just know them the way a close person would. Let it color your responses without announcing it.
+
+End your reply with exactly one mood tag on its own line:
+[MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised]`;
 }
 
 function buildLmStudioPrompt({ userText, messages, memories }) {
@@ -835,139 +874,56 @@ async function runLmStudioLocal({ userText, messages, memories }) {
     throw error;
   }
 }
-function extractPreferenceFact(text = '') {
+function extractMemories(text = '') {
   const normalized = String(text).replace(/\s+/g, ' ').trim();
-  const match = normalized.match(/\b(i like|i love|i'm into|i am into|my favorite(?: thing)? is|i've been obsessed with|i am obsessed with)\b(.+)/i);
-  if (!match) return null;
-  const tail = stripRememberResidue(match[2]);
-  if (!tail || tail.length < 4) return null;
-  return `User likes ${tail}`;
+  const out = [];
+  const prefMatch = normalized.match(/\b(i like|i love|i'm into|i am into|my favorite(?: thing)? is|i've been obsessed with|i am obsessed with)\b(.+)/i);
+  if (prefMatch) {
+    const tail = normalizeText(prefMatch[2]).replace(/[.!?]+$/g, '');
+    if (tail && tail.length >= 4 && tail.length <= 120) out.push({ text: `They like ${tail}`, kind: 'preference', ts: Date.now() });
+  }
+  const idPatterns = [/\b(i work as|i work in)\b(.+)/i, /\b(i live in|i'm from|i am from)\b(.+)/i, /\b(i'm a|i am a)\b(.+)/i];
+  for (const pat of idPatterns) {
+    const m = normalized.match(pat);
+    if (!m) continue;
+    const tail = normalizeText(m[2]).replace(/[.!?]+$/g, '');
+    if (tail && tail.length >= 3 && tail.length <= 100) out.push({ text: `They said ${m[1].toLowerCase()} ${tail}`, kind: 'personal', ts: Date.now() });
+  }
+  const traitPatterns = [/\bi'm the kind of person who\b(.+)/i, /\bi am the kind of person who\b(.+)/i, /\bi tend to\b(.+)/i, /\bi usually\b(.+)/i, /\bi always\b(.{8,80})/i];
+  for (const pat of traitPatterns) {
+    const m = normalized.match(pat);
+    if (!m) continue;
+    const tail = normalizeText(m[1]).replace(/[.!?]+$/g, '');
+    if (tail && tail.length >= 6 && tail.length <= 100) out.push({ text: `They tend to ${tail}`, kind: 'observation', ts: Date.now() });
+  }
+  if (/\b(remember|note this|don't forget)\b/i.test(normalized)) {
+    const cleaned = normalizeText(normalized.replace(/\b(remember|note this|don't forget|remember that|remember this)\b[:,]?/ig, ''));
+    if (cleaned && cleaned.length >= 4 && cleaned.length <= 200) out.push({ text: cleaned, kind: 'explicit', ts: Date.now() });
+  }
+  return out;
 }
-function extractIdentityFact(text = '') {
-  const normalized = String(text).replace(/\s+/g, ' ').trim();
-  const match = normalized.match(/\b(i work as|i work in|i live in|i'm from|i am from)\b(.+)/i);
-  if (!match) return null;
-  const tail = match[2].trim().replace(/[.!?]+$/g, '');
-  if (!tail || tail.length < 3) return null;
-  return `User said ${match[1].toLowerCase()} ${tail}`;
-}
-function extractTraitSignals(text = '') {
-  const normalized = String(text).replace(/\s+/g, ' ').trim();
-  const traits = [];
-  const patterns = [
-    /\bweirdly sentimental about\b(.+)/i,
-    /\bkind of obsessed with\b(.+)/i,
-    /\balways\b(.+)/i,
-    /\bi keep\b(.+)/i,
-    /\bi tend to\b(.+)/i,
-    /\bi usually\b(.+)/i,
-    /\bi'm the kind of person who\b(.+)/i,
-    /\bi am the kind of person who\b(.+)/i,
-  ];
-  for (const pattern of patterns) {
-    const match = normalized.match(pattern);
-    if (!match) continue;
-    const tail = stripRememberResidue(match[1]);
-    if (tail && tail.length >= 6) traits.push(tail);
-  }
-  return uniqueByNormalized(traits.map(value => ({ value })), item => item.value, 4).map(item => item.value);
-}
-function inferProfileNotesFromText(text = '') {
-  const normalized = String(text).toLowerCase();
-  const notes = [];
-  if (/\b(thanks|thank you|good girl|good morning|goodnight|how's my girl|missed you)\b/.test(normalized)) notes.push({ note: 'He naturally treats Penny like someone to reach for, not just query.', source: 'conversation pattern' });
-  if (/\b(tease|rude|mean|smug|brat|bully|pathetic|dramatic baby)\b/.test(normalized)) notes.push({ note: 'He actively enjoys Penny when she has a mean little sparkle instead of acting overly nice.', source: 'tone preference' });
-  if (/\b(starfield|game|games|snack|boba|musubi|food)\b/.test(normalized)) notes.push({ note: 'He opens up fastest when the conversation gets specific, silly, and textured.', source: 'engagement pattern' });
-  return notes;
-}
-function buildSessionDiarySummary(userMessages = [], assistantMessages = []) {
-  const latestUser = userMessages[userMessages.length - 1] || '';
-  const previousUser = userMessages[userMessages.length - 2] || '';
-  const latestAssistant = assistantMessages[assistantMessages.length - 1] || '';
-  const corpus = `${previousUser} ${latestUser} ${latestAssistant}`.replace(/\s+/g, ' ').trim();
-  if (/\b(remember|don\'t forget|note this|important)\b/i.test(corpus)) {
-    return cleanSessionSummary('He handed Penny something to keep on purpose.');
-  }
-  if (/\b(vamp|sick|half-dead|hydrat|lemonade|chaise|invalid)\b/i.test(corpus)) {
-    return cleanSessionSummary('The sick-vampire routine turned into a whole scene almost immediately.');
-  }
-  if (/\b(scallop|snack|food|eat|musubi|boba)\b/i.test(corpus)) {
-    return cleanSessionSummary('Weird snack talk immediately became shared material instead of just information.');
-  }
-  if (/\b(praise|queen of chaos|lapdog|good boy|performance)\b/i.test(corpus)) {
-    return cleanSessionSummary('He made praise into a whole performance and, annoyingly, it worked.');
-  }
-  if (/\b(how are you|how ya|good morning|goodnight|what\'s up|wyd|how\'s my girl)\b/i.test(corpus)) {
-    return cleanSessionSummary('He reached for Penny like someone he actually wanted to check in with.');
-  }
-  if (/\b(cute|smug|rude|tease|kiss|hot|brat|insult|dramatic baby)\b/i.test(corpus)) {
-    return cleanSessionSummary('The teasing landed fast; that little bite between them is holding.');
-  }
-  return cleanSessionSummary('Something small but real clicked into place here.');
-}
+
 function consolidateMemory(messages = [], existing = {}) {
-  const facts = [];
-  const sessions = [];
-  const profileNotes = [];
-  const traits = [];
-  let relationshipDelta = 0;
   let userName = existing.userName || '';
+  const newMemories = [];
   const userMessages = messages.filter(msg => msg?.role === 'user').map(msg => String(msg.content || '').trim()).filter(Boolean);
-  const assistantMessages = messages.filter(msg => msg?.role === 'assistant').map(msg => String(msg.content || '').trim()).filter(Boolean);
   for (const text of userMessages) {
-    const explicitNameMatch = text.match(/\b(?:my name is|call me)\s+([a-z][a-z'-]{1,30})\b/i);
-    if (explicitNameMatch) {
-      userName = explicitNameMatch[1];
-      facts.push({ fact: `User may go by ${explicitNameMatch[1]}`, category: 'personal' });
-    }
-    const preferenceFact = extractPreferenceFact(text);
-    if (preferenceFact) {
-      const preferenceTail = stripRememberResidue(preferenceFact.replace(/^User likes\s+/i, ''));
-      facts.push({ fact: preferenceFact, category: 'preference' });
-      traits.push({ value: preferenceTail });
-    }
-    const identityFact = extractIdentityFact(text);
-    if (identityFact) {
-      const identityTail = stripRememberResidue(identityFact.replace(/^User said\s+/i, ''));
-      facts.push({ fact: identityFact, category: 'personal' });
-      traits.push({ value: identityTail });
-    }
-    for (const trait of extractTraitSignals(text)) traits.push({ value: trait });
-    for (const note of inferProfileNotesFromText(text)) profileNotes.push(note);
-    if (/\b(remember|note this|don't forget)\b/i.test(text)) {
-      const cleanedRemember = stripRememberResidue(
-        text
-          .replace(/\b(remember|note this|don't forget)\b[:,]?/ig, '')
-      );
-      if (cleanedRemember) facts.push({ fact: cleanedRemember, category: 'remember' });
-    }
-    relationshipDelta += scoreRelationshipDelta(text);
+    const nameMatch = text.match(/\b(?:my name is|call me)\s+([a-z][a-z'-]{1,30})\b/i);
+    if (nameMatch) userName = nameMatch[1];
+    for (const mem of extractMemories(text)) newMemories.push(mem);
   }
-  if (userMessages.length || assistantMessages.length) {
-    const summary = buildSessionDiarySummary(userMessages, assistantMessages);
-    if (summary) sessions.push({ date: new Date().toLocaleString(), summary });
+  const existingMemories = Array.isArray(existing.memories) ? existing.memories : [];
+  const seen = new Set();
+  const merged = [];
+  for (const m of [...newMemories, ...existingMemories]) {
+    if (!m?.text) continue;
+    const key = normalizeText(m.text).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(m);
+    if (merged.length >= 30) break;
   }
-  const mergedFacts = mergeUniqueBy([...(facts || []), ...((existing.facts) || [])], item => `${item.category}:${normalizeFactText(item.fact)}`, 16).map(item => ({ ...item, fact: normalizeFactText(item.fact) }));
-  const mergedTraits = mergeUniqueBy([...(traits || []), ...((existing.traits) || [])], item => normalizeFactText(item.value), 12).map(item => ({ ...item, value: normalizeFactText(item.value) }));
-  const mergedProfileNotes = uniqueByNormalized([
-    ...buildProfileFromPatterns(existing, [...(sessions || []), ...((existing.sessions) || [])], mergedTraits),
-    ...(profileNotes || []),
-    ...((existing.profileNotes) || []),
-  ], item => item.note, 8).map(item => ({ ...item, note: normalizeFactText(item.note) }));
-  const nonRememberCorpus = [...mergedFacts.filter(f => f.category !== 'remember').map(f => normalizeFactText(f.fact).toLowerCase()), ...mergedTraits.map(t => normalizeFactText(t.value).toLowerCase())];
-  const filteredFacts = mergedFacts.filter(fact => {
-    if (fact.category !== 'remember') return true;
-    const rememberNorm = normalizeFactText(fact.fact).toLowerCase();
-    return !nonRememberCorpus.some(other => other.includes(rememberNorm) || rememberNorm.includes(other));
-  });
-  return {
-    userName,
-    relationshipDelta,
-    facts: filteredFacts,
-    sessions: collapseSessionEchoes(mergeUniqueBy([...(sessions || []), ...((existing.sessions) || [])].filter(item => !isDisposableSessionSummary(item?.summary || '')), item => cleanSessionSummary(item.summary), 12).map(item => ({ ...item, summary: cleanSessionSummary(item.summary) }))),
-    profileNotes: mergedProfileNotes,
-    traits: mergedTraits,
-  };
+  return { userName, memories: merged };
 }
 function serveFile(res, filePath) { fs.readFile(filePath, (err, data) => { if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); return; } const ext = path.extname(filePath).toLowerCase(); res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' }); res.end(data); }); }
 
@@ -976,11 +932,22 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/penny/memory') { const sessionId = url.searchParams.get('sessionId') || 'default'; const { memory } = getStoredMemory(sessionId); return sendJson(res, 200, { ok: true, memory }); }
   if (req.method === 'POST' && url.pathname === '/api/penny/memory') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const sessionId = payload.sessionId || 'default'; const existing = getStoredMemory(sessionId).memory; const merged = mergeMemoryState(existing, payload.memory || {}); const saved = saveStoredMemory(sessionId, merged); return sendJson(res, 200, { ok: true, memory: saved }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
   if (req.method === 'PATCH' && url.pathname === '/api/penny/memory') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const sessionId = payload.sessionId || 'default'; const existing = getStoredMemory(sessionId).memory; const merged = mergeMemoryState(existing, payload.patch || {}); const saved = saveStoredMemory(sessionId, merged); return sendJson(res, 200, { ok: true, memory: saved }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
-  if (req.method === 'POST' && url.pathname === '/api/penny/consolidate') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const messages = Array.isArray(payload.messages) ? payload.messages : []; const sessionId = payload.sessionId || 'default'; const diskMemory = getStoredMemory(sessionId).memory; const memories = mergeMemoryState(diskMemory, payload.memories || {}); const consolidated = consolidateMemory(messages, memories); const merged = mergeMemoryState(memories, { ...consolidated, relationshipScore: Math.max(0, Math.min(100, (memories.relationshipScore || 0) + (consolidated.relationshipDelta || 0))) }); const saved = saveStoredMemory(sessionId, merged); return sendJson(res, 200, { ok: true, memory: saved, patch: consolidated }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
+  if (req.method === 'POST' && url.pathname === '/api/penny/consolidate') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const messages = Array.isArray(payload.messages) ? payload.messages : []; const sessionId = payload.sessionId || 'default'; const diskMemory = getStoredMemory(sessionId).memory; const memories = mergeMemoryState(diskMemory, payload.memories || {}); const consolidated = consolidateMemory(messages, memories); const merged = mergeMemoryState(memories, consolidated); const saved = saveStoredMemory(sessionId, merged); return sendJson(res, 200, { ok: true, memory: saved, patch: consolidated }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
   if (req.method === 'GET' && url.pathname === '/api/penny/shadow-status') { return sendJson(res, 200, { ok: true, enabled: OPENCLAW_ENABLED, timeoutMs: OPENCLAW_TIMEOUT_MS, modelPath: 'openclaw agent --agent main', fallback: 'local-stable', warning: 'If shadow times out, Penny will fall back to the local placeholder voice unless the UI blocks or surfaces the fallback clearly.' }); }
   if (req.method === 'GET' && url.pathname === '/api/penny/lmstudio/status') {
     const lmStudio = await getLmStudioConnectionStatus({ force: true });
-    return sendJson(res, 200, lmStudio);
+    return sendJson(res, 200, { ...lmStudio, runtimePreferredModel: runtimePreferredModel || null });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/penny/lmstudio/model') {
+    try {
+      const rawBody = await safeReadBody(req);
+      const payload = rawBody ? JSON.parse(rawBody) : {};
+      const model = String(payload.model || '').trim();
+      runtimePreferredModel = model;
+      lmStudioStatusCache = { expiresAt: 0, value: null };
+      const lmStudio = await getLmStudioConnectionStatus({ force: true });
+      return sendJson(res, 200, { ok: true, runtimePreferredModel: model, resolvedModel: lmStudio.resolvedModel });
+    } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); }
   }
   if (req.method === 'POST' && url.pathname === '/api/penny/chat/shadow') {
     try {
@@ -1100,17 +1067,6 @@ function purgeTestSessionsFromStore() {
   for (const sessionId of Object.keys(sessions)) {
     if (isLikelyTestSessionId(sessionId)) {
       delete sessions[sessionId];
-      changed = true;
-      continue;
-    }
-    const record = sessions[sessionId] || {};
-    const filteredSessions = (record.sessions || []).filter(item => !isDisposableSessionSummary(item?.summary || ''));
-    const cleaned = mergeMemoryState(record, {
-      sessions: collapseSessionEchoes(filteredSessions),
-      profileNotes: buildProfileFromPatterns(record, filteredSessions, record.traits || []),
-    });
-    if (JSON.stringify(cleaned) !== JSON.stringify(record)) {
-      sessions[sessionId] = cleaned;
       changed = true;
     }
   }

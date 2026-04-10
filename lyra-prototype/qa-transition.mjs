@@ -1,5 +1,6 @@
 /**
- * Penny sprite transition capture (Playwright + window.__pennyDebug).
+ * Mood crossfade capture (Playwright + window.__pennyDebug).
+ * Raster sprites use opacity crossfade only (no transform slide).
  *
  * Run from repo root (no playwright in root package.json):
  *   node qa-transition.mjs
@@ -30,28 +31,19 @@ const SETTLE_MS = Number(process.env.PENNY_QA_SETTLE_MS || 350);
 
 const scenarios = [
   {
-    id: 'calm0-calm3',
-    note: 'calm t=0 → calm t=3 (1.28 → 2.36 scale)',
-    steps: [
-      ['calm', 0],
-      ['calm', 3],
-    ],
+    id: 'calm-happy',
+    note: 'calm → happy',
+    steps: ['calm', 'happy'],
   },
   {
-    id: 'calm0-surprised3',
-    note: 'calm t=0 → surprised t=3 (cross-mood + close-up)',
-    steps: [
-      ['calm', 0],
-      ['surprised', 3],
-    ],
+    id: 'calm-surprised',
+    note: 'calm → surprised',
+    steps: ['calm', 'surprised'],
   },
   {
-    id: 'excited3-thinking3',
-    note: 'excited t=3 → thinking t=3 (close-up → close-up)',
-    steps: [
-      ['excited', 3],
-      ['thinking', 3],
-    ],
+    id: 'excited-thinking',
+    note: 'excited → thinking',
+    steps: ['excited', 'thinking'],
   },
 ];
 
@@ -90,29 +82,23 @@ function loadChromium() {
 /**
  * @param {import('playwright').Page} page
  * @param {string} mood
- * @param {number} turns
  */
-async function pennyDebug(page, mood, turns) {
-  await page.evaluate(
-    ([m, t]) => {
-      window.__pennyDebug(m, t);
-    },
-    [mood, turns]
-  );
+async function pennyDebug(page, mood) {
+  await page.evaluate((m) => window.__pennyDebug(m), mood);
 }
 
 /**
  * @param {import('playwright').Page} page
- * @param {{ id: string, steps: [string, number][] }} scenario
+ * @param {{ id: string, steps: [string, string] }} scenario
  */
 async function runScenario(page, scenario) {
   const { id, steps } = scenario;
   const [a, b] = steps;
 
-  await pennyDebug(page, ...a);
+  await pennyDebug(page, a);
   await page.waitForTimeout(SETTLE_MS);
 
-  await pennyDebug(page, ...b);
+  await pennyDebug(page, b);
 
   let elapsed = 0;
   for (let i = 0; i < MID_SAMPLES_MS.length; i++) {

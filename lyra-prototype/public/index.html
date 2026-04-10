@@ -29,7 +29,6 @@
 
             <div class="pill-row">
               <div class="pill" id="moodPill">calm</div>
-              <div class="pill ghost" id="bondPill">just met</div>
             </div>
           </div>
 
@@ -67,12 +66,6 @@
             <div class="telemetry-row">
               <span>Conversation turns</span>
               <strong id="turnsValue">0</strong>
-            </div>
-
-            <div class="bond-module">
-              <div class="section-label">Bond index</div>
-              <div class="bond-bar"><span id="bondBar"></span></div>
-              <p class="bond-copy" id="bondNote">Still doing the whole "figuring each other out" thing.</p>
             </div>
 
             <div class="telemetry-blurb">
@@ -124,6 +117,13 @@
                 <input id="composer" class="composer" placeholder="Say something to Penny..." autocomplete="off" />
               </div>
 
+              <div class="emoji-anchor">
+                <button id="emojiBtn" class="emoji-btn" type="button" title="Emoji">☺</button>
+                <div id="emojiPicker" class="emoji-picker" hidden>
+                  <div class="emoji-grid" id="emojiGrid"></div>
+                </div>
+              </div>
+
               <button id="send" class="send-btn" type="button">Transmit</button>
             </div>
           </section>
@@ -132,45 +132,20 @@
             <div class="panel-scroll">
               <div class="memory-toolbar">
                 <div>
-                  <div class="section-label">Memory lattice</div>
+                  <div class="section-label">Memory debug</div>
                   <div class="memory-toolbar-note">
-                    Sticky facts, Penny's read on you, and only the continuity crumbs worth keeping.
+                    What Penny has picked up from conversations. She uses these subtly — you shouldn't notice unless you look here.
                   </div>
                 </div>
 
-                <button id="refreshMemory" class="secondary-btn tiny" type="button">Refresh</button>
+                <div class="memory-toolbar-actions">
+                  <button id="refreshMemory" class="secondary-btn tiny" type="button">Refresh</button>
+                  <button id="clearAllMemories" class="secondary-btn tiny danger" type="button">Clear all</button>
+                </div>
               </div>
 
-              <div class="memory-grid">
-                <section class="memory-block">
-                  <div class="memory-card-head">
-                    <div class="inner-title">What Penny knows</div>
-                    <button id="clearFacts" class="secondary-btn tiny danger" type="button">Clear facts</button>
-                  </div>
-                  <div id="factList" class="list-block empty">
-                    No sticky facts yet. Stable details and actual preferences will collect here.
-                  </div>
-                </section>
-
-                <section class="memory-block">
-                  <div class="memory-card-head">
-                    <div class="inner-title">Penny's read on you</div>
-                    <button id="clearProfileNotes" class="secondary-btn tiny danger" type="button">Clear read</button>
-                  </div>
-                  <div id="profileNoteList" class="list-block empty">
-                    No read yet. This is where Penny's impression starts feeling personal instead of archival.
-                  </div>
-                </section>
-
-                <section class="memory-block memory-span-2">
-                  <div class="memory-card-head">
-                    <div class="inner-title">Recent echoes</div>
-                    <button id="clearSessions" class="secondary-btn tiny danger" type="button">Clear echoes</button>
-                  </div>
-                  <div id="sessionList" class="list-block empty">
-                    No recent echoes yet. Only the strongest continuity crumbs should survive here.
-                  </div>
-                </section>
+              <div id="memoryList" class="list-block empty">
+                Nothing stored yet. Penny will start picking things up as you talk.
               </div>
             </div>
           </section>
@@ -219,6 +194,13 @@
                     <strong id="backendModel">pending</strong>
                   </div>
                 </div>
+
+                <label class="field">
+                  <span>Active model</span>
+                  <select id="modelSelect" class="input-lite">
+                    <option value="">loading models...</option>
+                  </select>
+                </label>
 
                 <div class="card-note" id="brainModeNote">
                   Shadow brain is the default. If the smarter path is unavailable, Penny can still fall back locally instead of faceplanting.
