@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Penny Companion Prototype</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@300;400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="shell" data-mood="calm">
+      <div class="stage-grid" aria-hidden="true"></div>
+
+      <div class="layout">
+        <aside class="panel sidebar">
+          <div class="sidebar-copy">
+            <div class="brand">
+              <div class="brand-kicker">PENNY / CHARACTER LIVEHOUSE</div>
+              <div class="brand-mark">PENNY</div>
+              <p class="brand-sub">
+                A local companion vessel for memory, atmosphere, and one distinct personality.
+              </p>
+            </div>
+
+            <div class="pill-row">
+              <div class="pill" id="moodPill">calm</div>
+              <div class="pill ghost" id="bondPill">just met</div>
+            </div>
+          </div>
+
+          <div class="vessel-bay">
+            <div class="bay-meta">
+              <span>Core chamber 01</span>
+              <strong id="presenceValue">idle</strong>
+            </div>
+
+            <div class="core-wrap">
+              <div class="halo halo-a"></div>
+              <div class="halo halo-b"></div>
+              <div class="halo halo-c"></div>
+              <div class="core-frame"></div>
+              <div class="core">
+                <div class="face" id="coreFace"></div>
+              </div>
+            </div>
+
+            <div class="bay-copy">
+              <div class="section-label">Companion core</div>
+              <p class="bay-title">A waifu in the wiring.</p>
+              <p class="bay-note">
+                Penny should read like a cute little anime troublemaker contained inside the machine, not just a glowing status orb.
+              </p>
+            </div>
+          </div>
+
+          <div class="telemetry">
+            <div class="telemetry-row">
+              <span>Link status</span>
+              <strong id="statusValue">live</strong>
+            </div>
+
+            <div class="telemetry-row">
+              <span>Conversation turns</span>
+              <strong id="turnsValue">0</strong>
+            </div>
+
+            <div class="bond-module">
+              <div class="section-label">Bond index</div>
+              <div class="bond-bar"><span id="bondBar"></span></div>
+              <p class="bond-copy" id="bondNote">Still doing the whole "figuring each other out" thing.</p>
+            </div>
+
+            <div class="telemetry-blurb">
+              <div class="section-label">Read on Penny</div>
+              <p>
+                Fast, observant, bratty-sweet, and alive enough to feel like a character instead of a dashboard widget.
+              </p>
+            </div>
+          </div>
+        </aside>
+
+        <main class="panel main">
+          <div class="topbar">
+            <div>
+              <div class="title-kicker">Session console</div>
+              <div class="title">Penny Live Link</div>
+              <div class="subtitle">
+                Local dialogue, durable memory, and a vessel that should feel closer to stage hardware than a chat app.
+              </div>
+            </div>
+
+            <div class="status-stack">
+              <div class="status-live" id="statusValueTop">live</div>
+            </div>
+          </div>
+
+          <div class="tabbar">
+            <button class="tab active" data-panel="chat" type="button">Chat</button>
+            <button class="tab" data-panel="memory" type="button">Memory</button>
+            <button class="tab" data-panel="settings" type="button">Settings</button>
+          </div>
+
+          <section class="view active" data-view="chat">
+            <div class="chat-scroll" id="chatWrap">
+              <div class="intro" id="intro">
+                <div class="intro-mark">Livehouse</div>
+                <h1 class="intro-title">Penny is awake.</h1>
+                <p class="intro-sub">
+                  The vessel is online. Keep the model local, keep the character intact, and start a conversation worth having.
+                </p>
+              </div>
+
+              <div id="chat"></div>
+            </div>
+
+            <div class="composer-wrap">
+              <div class="composer-frame">
+                <label class="composer-label" for="composer">Open channel</label>
+                <input id="composer" class="composer" placeholder="Say something to Penny..." autocomplete="off" />
+              </div>
+
+              <button id="send" class="send-btn" type="button">Transmit</button>
+            </div>
+          </section>
+
+          <section class="view" data-view="memory">
+            <div class="panel-scroll">
+              <div class="memory-toolbar">
+                <div>
+                  <div class="section-label">Memory lattice</div>
+                  <div class="memory-toolbar-note">
+                    Sticky facts, Penny's read on you, and only the continuity crumbs worth keeping.
+                  </div>
+                </div>
+
+                <button id="refreshMemory" class="secondary-btn tiny" type="button">Refresh</button>
+              </div>
+
+              <div class="memory-grid">
+                <section class="memory-block">
+                  <div class="memory-card-head">
+                    <div class="inner-title">What Penny knows</div>
+                    <button id="clearFacts" class="secondary-btn tiny danger" type="button">Clear facts</button>
+                  </div>
+                  <div id="factList" class="list-block empty">
+                    No sticky facts yet. Stable details and actual preferences will collect here.
+                  </div>
+                </section>
+
+                <section class="memory-block">
+                  <div class="memory-card-head">
+                    <div class="inner-title">Penny's read on you</div>
+                    <button id="clearProfileNotes" class="secondary-btn tiny danger" type="button">Clear read</button>
+                  </div>
+                  <div id="profileNoteList" class="list-block empty">
+                    No read yet. This is where Penny's impression starts feeling personal instead of archival.
+                  </div>
+                </section>
+
+                <section class="memory-block memory-span-2">
+                  <div class="memory-card-head">
+                    <div class="inner-title">Recent echoes</div>
+                    <button id="clearSessions" class="secondary-btn tiny danger" type="button">Clear echoes</button>
+                  </div>
+                  <div id="sessionList" class="list-block empty">
+                    No recent echoes yet. Only the strongest continuity crumbs should survive here.
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <section class="view" data-view="settings">
+            <div class="panel-scroll settings-stack">
+              <section class="settings-block">
+                <div class="section-label">Companion controls</div>
+                <div class="settings-title">Tune the vessel, not the personality.</div>
+
+                <label class="field">
+                  <span>Your name</span>
+                  <input id="nameInput" class="input-lite" placeholder="optional" />
+                </label>
+
+                <label class="check-row">
+                  <input id="voiceToggle" type="checkbox" />
+                  <span>Read Penny's replies out loud when possible</span>
+                </label>
+
+                <div class="mode-block">
+                  <div class="mode-title">Brain mode</div>
+
+                  <label class="check-row compact">
+                    <input id="brainModeShadow" name="brainMode" type="radio" />
+                    <span>Shadow brain</span>
+                  </label>
+
+                  <label class="check-row compact">
+                    <input id="brainModeLocal" name="brainMode" type="radio" />
+                    <span>Local LM Studio</span>
+                  </label>
+                </div>
+              </section>
+
+              <section class="settings-block">
+                <div class="section-label">Local brain diagnostics</div>
+                <div class="diagnostics">
+                  <div class="diag-row">
+                    <span>Local link</span>
+                    <strong id="backendReachability">checking</strong>
+                  </div>
+
+                  <div class="diag-row">
+                    <span>Resolved model</span>
+                    <strong id="backendModel">pending</strong>
+                  </div>
+                </div>
+
+                <div class="card-note" id="brainModeNote">
+                  Shadow brain is the default. If the smarter path is unavailable, Penny can still fall back locally instead of faceplanting.
+                </div>
+
+                <div class="storage-block">
+                  <div class="section-label">Storage</div>
+                  <p class="storage-note">
+                    Browser cache is just the local shell. Structured memory also lives on disk inside the prototype.
+                  </p>
+
+                  <div class="button-stack">
+                    <button id="newChat" class="secondary-btn" type="button">New chat</button>
+                    <button id="clearMemory" class="secondary-btn danger" type="button">Wipe memory</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

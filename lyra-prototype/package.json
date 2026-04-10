@@ -1,0 +1,11 @@
+{
+  "name": "lyra-companion-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-contained premium companion prototype for Lyra/OpenClaw.",
+  "scripts": {
+    "start": "node server.js",
+    "start:durable": "powershell -ExecutionPolicy Bypass -File .\\start-lyra.ps1",
+    "stop": "powershell -ExecutionPolicy Bypass -File .\\stop-lyra.ps1"
+  }
+}

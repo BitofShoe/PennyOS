@@ -1,0 +1,10 @@
+.openclaw/
+node_modules/
+.env
+.env.*
+*.log
+
+lyra-prototype/.playwright-cli/
+lyra-prototype/.qa-pw/
+lyra-prototype/qa-transitions/
+lyra-prototype/qa-*.png
