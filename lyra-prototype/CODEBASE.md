@@ -1,4 +1,4 @@
-# Codebase Guide
+﻿# Codebase Guide
 
 This file is the practical map of the repo: what is source, what is support material, what is generated junk, and where to touch things for common changes.
 
@@ -17,27 +17,29 @@ This project is a local-first Penny companion prototype:
 
 ### Core runtime
 
-- [server.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/server.js)
-  Main backend. This is the operational center of gravity.
-- [package.json](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/package.json)
-  Minimal npm script entrypoints.
-- [start-lyra.ps1](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/start-lyra.ps1)
-  Background launcher.
-- [stop-lyra.ps1](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/stop-lyra.ps1)
-  Background stopper.
+- [server.js](./server.js)
+Main backend. This is the operational center of gravity.
+- [package.json](./package.json)
+Minimal npm script entrypoints.
+- [start-lyra.ps1](./start-lyra.ps1)
+Background launcher.
+- [stop-lyra.ps1](./stop-lyra.ps1)
+Background stopper.
 
 ### Current high-value docs
 
-- [README.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/README.md)
-  Quick run/use notes.
-- [ARCHITECTURE.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/ARCHITECTURE.md)
-  Runtime architecture overview.
-- [LOCAL_LLAMA_THREAD_FINDINGS.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/LOCAL_LLAMA_THREAD_FINDINGS.md)
-  Outside-eye review notes on maintainability patterns that do and do not fit this repo.
-- [OPENCLAW_SHADOW_EVAL.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/OPENCLAW_SHADOW_EVAL.md)
-  Current verdict on shadow mode.
-- [PENNY_MODEL_EVAL.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/PENNY_MODEL_EVAL.md)
-  Model and QA harness notes.
+- [README.md](./README.md)
+Quick run/use notes.
+- [ARCHITECTURE.md](./ARCHITECTURE.md)
+Runtime architecture overview.
+- [LOCAL_LLAMA_THREAD_FINDINGS.md](./LOCAL_LLAMA_THREAD_FINDINGS.md)
+Outside-eye review notes on maintainability patterns that do and do not fit this repo.
+- [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)
+Current verdict on shadow mode.
+- [PENNY_MODEL_EVAL.md](./PENNY_MODEL_EVAL.md)
+Model and QA harness notes.
+- [server-js-section-map.md](./server-js-section-map.md)
+`server.js` function â†’ responsibility bands, route table, and suggested module split order.
 
 ### Planning / handoff docs
 
@@ -58,14 +60,14 @@ Browser-side app.
 
 Key files:
 
-- [public/index.html](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/index.html)
-  HTML shell.
-- [public/app.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/app.js)
-  Frontend logic, chat streaming, settings, mood updates, persistence.
-- [public/styles.css](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/styles.css)
-  Visual styling.
+- [public/index.html](./public/index.html)
+HTML shell.
+- [public/app.js](./public/app.js)
+Frontend logic, chat streaming, settings, mood updates, persistence.
+- [public/styles.css](./public/styles.css)
+Visual styling.
 - `public/sprites/`
-  Penny mood art and decor assets.
+Penny mood art and decor assets.
 
 Touch this area when:
 
@@ -80,18 +82,18 @@ Voice system workspace.
 
 Substructure:
 
-- [penny-voice/canon-sources.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/penny-voice/canon-sources.md)
-  What counts as source material.
+- [penny-voice/canon-sources.md](./penny-voice/canon-sources.md)
+What counts as source material.
 - `penny-voice/distilled/`
-  Distilled sidecars and influence summaries.
+Distilled sidecars and influence summaries.
 - `penny-voice/runtime/`
-  Live prompt-facing runtime assets.
+Live prompt-facing runtime assets.
 
 The runtime files are the important ones for normal behavior:
 
-- [penny-operational-blend.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/penny-voice/runtime/penny-operational-blend.md)
-- [penny-chat-directives.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/penny-voice/runtime/penny-chat-directives.md)
-- [penny-voice-examples.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/penny-voice/runtime/penny-voice-examples.md)
+- [penny-operational-blend.md](./penny-voice/runtime/penny-operational-blend.md)
+- [penny-chat-directives.md](./penny-voice/runtime/penny-chat-directives.md)
+- [penny-voice-examples.md](./penny-voice/runtime/penny-voice-examples.md)
 
 Touch this area when:
 
@@ -107,12 +109,12 @@ This is not the live runtime prompt stack. It is source/reference material.
 
 High-signal files in this folder:
 
-- [PENNY'S_BRAIN.md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/PENNY'S_BRAIN.md>)
-- [Operational system prompt source](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/PENNY — OPERATIONAL SYSTEM PROMPT.md>)
-- [Romantic overlay source](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/PENNY — ROMANTIC OVERLAY.md>)
-- [High-intensity overlay source](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/PENNY — HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md>)
-- [Personality Reference (1).md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/Personality Reference (1).md>)
-- [BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md>)
+- [PENNY'S_BRAIN.md](<./Penny's Playground/PENNY'S_BRAIN.md>)
+- [Operational system prompt source](./Penny's Playground/PENNY â€” OPERATIONAL SYSTEM PROMPT.md)
+- [Romantic overlay source](./Penny's Playground/PENNY â€” ROMANTIC OVERLAY.md)
+- [High-intensity overlay source](./Penny's Playground/PENNY â€” HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md)
+- [Personality Reference (1).md](<./Penny's Playground/Personality Reference (1).md>)
+- [BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md](<./Penny's Playground/BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md>)
 
 Touch this area when:
 
@@ -138,14 +140,14 @@ Operational and QA helpers.
 
 Important scripts:
 
-- [scripts/ensure-lmstudio-penny-preset.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/ensure-lmstudio-penny-preset.js)
-  Reasserts the LM Studio Penny preset/default behavior.
-- [scripts/eval-penny-models.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/eval-penny-models.js)
-  Comparative multi-model evaluation harness.
-- [scripts/qa-penny-voice-redo.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/qa-penny-voice-redo.js)
-  Lighter personality QA harness.
+- [scripts/ensure-lmstudio-penny-preset.js](./scripts/ensure-lmstudio-penny-preset.js)
+Reasserts the LM Studio Penny preset/default behavior.
+- [scripts/eval-penny-models.js](./scripts/eval-penny-models.js)
+Comparative multi-model evaluation harness.
+- [scripts/qa-penny-voice-redo.js](./scripts/qa-penny-voice-redo.js)
+Lighter personality QA harness.
 - `scripts/strip_sprite_backgrounds.py`
-  Asset utility.
+Asset utility.
 
 Touch this area when:
 
@@ -160,9 +162,9 @@ Durable runtime state.
 Important contents:
 
 - `penny-memory.json`
-  Main durable memory store.
+Main durable memory store.
 - various QA/eval memory files
-  Disposable artifacts from benchmarking or smoke tests.
+Disposable artifacts from benchmarking or smoke tests.
 
 Treat this directory carefully. It is runtime state, not source code.
 
@@ -252,13 +254,13 @@ This repo has a lot of text files. Not all of them mean the same thing.
 Use this hierarchy:
 
 1. Live behavior
-   `server.js`, `public/*`, runtime files in `penny-voice/runtime/`
+  `server.js`, `public/*`, runtime files in `penny-voice/runtime/`
 2. Operational docs
-   `README.md`, `ARCHITECTURE.md`, `CODEBASE.md`, eval docs
+  `README.md`, `ARCHITECTURE.md`, `CODEBASE.md`, eval docs
 3. Refinement source material
-   `Penny's Playground/*`, raw `Personality *.md`, distilled sidecars
+  `Penny's Playground/*`, raw `Personality *.md`, distilled sidecars
 4. Artifact noise
-   `output/*`, many QA files, logs, temp files
+  `output/*`, many QA files, logs, temp files
 
 ## Current codebase pain points
 
@@ -273,9 +275,9 @@ These matter when navigating the repo:
 
 If you are trying to understand the repo quickly, read in this order:
 
-1. [README.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/README.md)
-2. [ARCHITECTURE.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/ARCHITECTURE.md)
-3. [CODEBASE.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/CODEBASE.md)
+1. [README.md](./README.md)
+2. [ARCHITECTURE.md](./ARCHITECTURE.md)
+3. [CODEBASE.md](./CODEBASE.md)
 4. `server.js`
 5. `public/app.js`
 6. `penny-voice/runtime/*`

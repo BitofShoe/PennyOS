@@ -6,35 +6,35 @@ It is intentionally blunt about what is "real architecture" versus "current mono
 
 ## Related docs
 
-- [CODEBASE.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/CODEBASE.md)
-  Practical repo map and "where to touch what" guide.
-- [OPENCLAW_SHADOW_EVAL.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/OPENCLAW_SHADOW_EVAL.md)
-  Current verdict on whether shadow mode is actually worth keeping around.
-- [LOCAL_LLAMA_THREAD_FINDINGS.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/LOCAL_LLAMA_THREAD_FINDINGS.md)
-  Outside review notes pulled from the LocalLLaMA maintainability discussion and compared against this repo.
-- [PENNY'S_BRAIN.md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/PENNY'S_BRAIN.md>)
-  Higher-level Penny intent and personality source material.
-- [Operational system prompt source](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/PENNY — OPERATIONAL SYSTEM PROMPT.md>)
-  Legacy/source operational prompt material.
-- [Romantic overlay source](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/PENNY — ROMANTIC OVERLAY.md>)
-  Legacy/source romantic blend material.
-- [High-intensity overlay source](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/PENNY — HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md>)
-  Legacy/source high-intensity overlay material.
+- [CODEBASE.md](./CODEBASE.md)
+Practical repo map and "where to touch what" guide.
+- [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)
+Current verdict on whether shadow mode is actually worth keeping around.
+- [LOCAL_LLAMA_THREAD_FINDINGS.md](./LOCAL_LLAMA_THREAD_FINDINGS.md)
+Outside review notes pulled from the LocalLLaMA maintainability discussion and compared against this repo.
+- [PENNY'S_BRAIN.md](./Penny's Playground/PENNY'S_BRAIN.md)
+Higher-level Penny intent and personality source material.
+- [Operational system prompt source](./Penny's Playground/PENNY â€” OPERATIONAL SYSTEM PROMPT.md)
+Legacy/source operational prompt material.
+- [Romantic overlay source](./Penny's Playground/PENNY â€” ROMANTIC OVERLAY.md)
+Legacy/source romantic blend material.
+- [High-intensity overlay source](./Penny's Playground/PENNY â€” HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md)
+Legacy/source high-intensity overlay material.
 
 ## System shape
 
 Today the app is a single-process local web application with one large Node server and one browser UI:
 
 - `server.js`
-  Main backend, API surface, durable memory handling, LM Studio transport selection, direct-tool routing, tool loop, semantic render pass, shadow lane, static file serving.
+Main backend, API surface, durable memory handling, LM Studio transport selection, direct-tool routing, tool loop, semantic render pass, shadow lane, static file serving.
 - `public/index.html`
-  Single-page shell for the Penny UI.
+Single-page shell for the Penny UI.
 - `public/app.js`
-  Frontend state, SSE chat streaming, panel switching, mood/sprite updates, settings, local browser persistence.
+Frontend state, SSE chat streaming, panel switching, mood/sprite updates, settings, local browser persistence.
 - `public/styles.css`
-  UI styling and animation.
+UI styling and animation.
 - `penny-voice/runtime/*`
-  The prompt-facing voice system actually injected into Penny's live runtime.
+The prompt-facing voice system actually injected into Penny's live runtime.
 
 This is not a distributed system. It is a local-first prototype with a monolithic server.
 
@@ -43,17 +43,19 @@ This is not a distributed system. It is a local-first prototype with a monolithi
 There are two conceptual chat lanes:
 
 1. Main lane: LM Studio
+
 - This is Penny's real primary brain.
 - The browser talks to `POST /api/penny/chat`.
 - The backend resolves the actually loaded LM Studio model, builds the prompt, and returns a reply.
 
-2. Optional lane: OpenClaw shadow
+1. Optional lane: OpenClaw shadow
+
 - This is experimental and secondary.
 - It is not the default brain.
 - In the current implementation, the shadow path is just a prompt handoff to `openclaw/main`.
 - It does not currently expose the richer OpenClaw browser/exec/task features through Penny's main runtime path.
 
-See also: [OPENCLAW_SHADOW_EVAL.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/OPENCLAW_SHADOW_EVAL.md)
+See also: [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)
 
 ## Request flow
 
@@ -86,9 +88,9 @@ Raw source docs and distilled sidecars are for refinement work, not normal runti
 
 If you need the older canon/source stack that informed the runtime blend, start with:
 
-- [penny-voice/canon-sources.md](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/penny-voice/canon-sources.md)
-- [Personality Reference (1).md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/Personality Reference (1).md>)
-- [BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Penny's Playground/BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md>)
+- [penny-voice/canon-sources.md](./penny-voice/canon-sources.md)
+- [Personality Reference (1).md](./Penny's Playground/Personality Reference (1).md)
+- [BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md](./Penny's Playground/BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md)
 
 ### 2. Durable memory
 
@@ -218,15 +220,15 @@ This is intentionally dependency-light, but the tradeoff is that `public/app.js`
 Important scripts:
 
 - `start-lyra.ps1`
-  Starts Penny in the background and writes PID / meta files.
+Starts Penny in the background and writes PID / meta files.
 - `stop-lyra.ps1`
-  Stops the background Penny server.
+Stops the background Penny server.
 - `scripts/ensure-lmstudio-penny-preset.js`
-  Reasserts the LM Studio preset/default state Penny expects.
+Reasserts the LM Studio preset/default state Penny expects.
 - `scripts/eval-penny-models.js`
-  Comparative model harness.
+Comparative model harness.
 - `scripts/qa-penny-voice-redo.js`
-  Lighter voice QA harness.
+Lighter voice QA harness.
 
 ## Speed realities
 

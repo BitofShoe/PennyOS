@@ -1,48 +1,67 @@
 # Penny Companion Prototype
 
-A self-contained local prototype for a distinct Penny companion presence.
+Local-first Penny companion app with:
 
-## What it includes
+- a single-page browser UI
+- a single Node backend
+- LM Studio as the main chat brain
+- durable disk-backed memory
+- runtime voice assets under `penny-voice/runtime/`
+- an optional experimental OpenClaw shadow lane
 
-- animated Penny companion core UI
-- mood-aware visual states
-- chat / memory / settings panels
-- durable disk-backed Penny memory + browser cache fallback
-- bond meter
-- local backend route: `POST /api/penny/chat`
-- stable local Penny backend route (temporary stabilization mode)
-- no frontend API keys
-- no external npm dependencies required
+If you landed here from the wider `workspace-main/` ritual docs, start with [CODEBASE.md](./CODEBASE.md) for the actual runnable app map.
+
+## Start here
+
+Read these in order if you need the current truth:
+
+1. [CODEBASE.md](./CODEBASE.md)
+2. [ARCHITECTURE.md](./ARCHITECTURE.md)
+3. [server-js-section-map.md](./server-js-section-map.md)
+
+## Current runtime truth
+
+- `server.js` is still the main backend monolith.
+- `public/app.js` is still the main frontend monolith.
+- Penny's live prompt stack comes from `penny-voice/runtime/`, not the giant raw personality docs.
+- LM Studio is Penny's real primary brain.
+- OpenClaw shadow exists, but it is optional and experimental.
+- Browser storage uses the `penny:v3` key for local vessel/settings continuity.
+- Durable memory lives on disk in `data/penny-memory.json`.
+
+## Project layout
+
+- `server.js`
+Main backend: routes, memory persistence, LM Studio routing, tools, semantic render, and static file serving.
+- `public/`
+Browser UI shell, styles, sprites, and client logic.
+- `penny-voice/runtime/`
+Live runtime voice assets injected into prompts.
+- `lib/`
+Extracted pure-ish helpers that now have cheap regression tests.
+- `scripts/`
+QA, eval, and LM Studio helper scripts.
+- `data/`
+Durable runtime state.
+
+For the fuller map, use [CODEBASE.md](./CODEBASE.md).
 
 ## Run
 
-### Durable launcher (recommended)
+### Durable launcher
 
-Stable default mode:
+Recommended:
 
 ```powershell
 cd C:\Users\malac\.openclaw\workspace-main\lyra-prototype
 powershell -ExecutionPolicy Bypass -File .\start-lyra.ps1
 ```
 
-Optional shadow-test mode (keeps normal chat route local-stable; only enables `/api/penny/chat/shadow`):
-
-```powershell
-cd C:\Users\malac\.openclaw\workspace-main\lyra-prototype
-powershell -ExecutionPolicy Bypass -File .\start-lyra.ps1 -Shadow
-```
-
-Optional custom shadow timeout:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\start-lyra.ps1 -Shadow -ShadowTimeoutMs 12000
-```
-
 Then open:
 
-- <http://localhost:4317>
+- [http://localhost:4317](http://localhost:4317)
 
-To stop it later:
+Stop it later with:
 
 ```powershell
 cd C:\Users\malac\.openclaw\workspace-main\lyra-prototype
@@ -56,38 +75,66 @@ cd C:\Users\malac\.openclaw\workspace-main\lyra-prototype
 npm start
 ```
 
-## Notes
+## Useful commands
 
-This build is no longer using the old deterministic fake-reply core.
+```powershell
+npm test
+npm run eval:probes
+npm run qa:voice-redo
+npm run eval:models
+npm run preset:lmstudio
+```
 
-Current backend path:
-- browser UI sends to `/api/penny/chat`
-- local Node server generates a stable Penny-style reply
-- UI parses the hidden mood tag and updates the vessel
-- browser storage preserves lightweight continuity
-- server also saves structured Penny memory to `data/penny-memory.json`
+## Memory model
 
-There is still a browser-local cache for:
-- lightweight remembered facts
-- recent session notes
-- bond / relationship score
-- user name
-- voice toggle
+Penny stores two different kinds of continuity:
 
-That cache is for vessel continuity, not the final long-term memory architecture.
+- Browser-side vessel/settings state in `localStorage`
+This is lightweight UI continuity like voice toggle, selected brain mode, and other client-side preferences.
+- Durable server-side memory in `data/penny-memory.json`
+This is the actual local memory store used for prompt relevance and longer continuity.
 
-## Shadow mode notes
+The browser cache is not the source of truth for long-term memory.
 
-- `PENNY_OPENCLAW_ENABLED=1` enables Penny's optional experimental OpenClaw lane.
-- LM Studio remains Penny's main chat brain on `/api/penny/chat`.
-- On the main chat route, selecting `brainMode=shadow` sends the turn through the OpenClaw shadow lane and blocks the reply if that lane fails. It should not silently fake success.
-- The legacy `/api/penny/chat/shadow` route still exists for isolated experiments and currently falls back to a local Penny placeholder reply if OpenClaw errors.
-- Keep shadow parked unless it proves it adds real agentic/browser/PC value that the LM Studio lane does not already cover well.
+## LM Studio notes
 
-## Planned next steps
+- Penny resolves the actually loaded LM Studio model instead of blindly trusting the configured pretty model id.
+- Depending on the loaded model, Penny may use native stateful chat, chat completions, or responses-style fallbacks.
+- Large local models can be slow, especially on first turn and on image turns.
+- The max output token cap is a ceiling, not a target. Raising it prevents clipping; it does not force Penny to ramble if the model naturally stops earlier.
 
-1. validate shadow mode repeatedly under intentional start conditions
-2. compare response quality / contamination / timeout behavior
-3. only then consider selective promotion of the OpenClaw path
-4. optional voice input
-5. ambient idle / always-on shell behaviors
+## Shadow mode
+
+- `PENNY_OPENCLAW_ENABLED=1` enables the optional shadow lane.
+- LM Studio remains Penny's main chat brain.
+- Shadow mode should stay parked unless it proves a real capability win.
+
+See [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md) for the current verdict.
+
+## Local security posture
+
+This is a localhost-oriented prototype. Treat it that way:
+
+- keep it bound to local/private use
+- do not expose the raw server to the public internet
+- be careful with tool-enabled routes, because this app can inspect and edit project files by design
+
+## Known limits
+
+- `server.js` is still too large and still owns too many subsystems.
+- `public/app.js` is also large and stateful.
+- Local 31B models can be painfully slow on commodity hardware, especially for image turns and long generations.
+- The docs are more honest than the codebase is modular, which is useful but also a trap if you stop there.
+
+## Source material vs runtime assets
+
+Use this hierarchy:
+
+1. Runtime behavior
+  `server.js`, `public/*`, `penny-voice/runtime/*`
+2. Operational docs
+  `README.md`, `ARCHITECTURE.md`, `CODEBASE.md`, eval docs
+3. Canon/source material
+  `Penny's Playground/*`, raw `Personality *.md`, distilled sidecars
+
+Do not load the giant raw personality files into normal runtime prompt context unless you are doing deliberate refinement work.
