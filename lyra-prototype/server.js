@@ -1301,7 +1301,7 @@ async function getLmStudioConnectionStatus({ force = false } = {}) {
     const candidateModels = loadedCandidates.length
       ? loadedCandidates
       : (runtimeCandidates.length ? runtimeCandidates : fallbackCandidates);
-    const resolvedModel = candidateModels[0] || '';
+    const resolvedModel = loadedCandidates[0] || runtimeCandidates[0] || '';
     const availableModels = loadedCandidates.length
       ? loadedCandidates
       : runtimeModels.map(item => item.id);
@@ -4390,7 +4390,17 @@ async function streamLmStudioChatCompletionsApi({ userText, messages, memories, 
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
-        onEvent: ({ data }) => {
+        onEvent: ({ event, data }) => {
+          if (event === 'error') {
+            const detail = typeof data?.error === 'string'
+              ? data.error
+              : typeof data?.error?.message === 'string'
+                ? data.error.message
+                : typeof data?.message === 'string'
+                  ? data.message
+                  : JSON.stringify(data);
+            throw new Error(`LM Studio chat/completions stream error: ${detail}`);
+          }
           if (typeof data === 'string') {
             if (data === '[DONE]') return;
             if (data) {
@@ -4860,24 +4870,33 @@ const server = http.createServer(async (req, res) => {
         try {
           sendEventStream(res, 'status', { stage: 'accepted', label: 'link open' });
           if (requestedMode === 'local') {
-            const result = await streamLmStudioLocalSmart({
-              userText,
-              messages,
-              memories,
-              image,
-              file: fileAttachment,
-              abortSignal: clientAbortController.signal,
-              onEvent: (evt) => {
-                if (clientClosed) return;
-                if (evt?.type === 'message.delta') {
-                  sendEventStream(res, 'message.delta', { content: evt.content || '', text: evt.text || '' });
-                } else if (evt?.type === 'status') {
-                  sendEventStream(res, 'status', { stage: evt.stage || '', label: evt.label || '' });
-                } else if (evt?.type === 'tool') {
-                  sendEventStream(res, 'tool', evt);
-                }
-              },
-            });
+            const result = image
+              ? await runLmStudioLocalSmart({
+                  userText,
+                  messages,
+                  memories,
+                  image,
+                  file: fileAttachment,
+                  abortSignal: clientAbortController.signal,
+                })
+              : await streamLmStudioLocalSmart({
+                  userText,
+                  messages,
+                  memories,
+                  image,
+                  file: fileAttachment,
+                  abortSignal: clientAbortController.signal,
+                  onEvent: (evt) => {
+                    if (clientClosed) return;
+                    if (evt?.type === 'message.delta') {
+                      sendEventStream(res, 'message.delta', { content: evt.content || '', text: evt.text || '' });
+                    } else if (evt?.type === 'status') {
+                      sendEventStream(res, 'status', { stage: evt.stage || '', label: evt.label || '' });
+                    } else if (evt?.type === 'tool') {
+                      sendEventStream(res, 'tool', evt);
+                    }
+                  },
+                });
             text = result.text;
             toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
             backend = toolsUsed.length ? 'local-lmstudio-tools' : 'local-lmstudio';
@@ -4898,6 +4917,10 @@ const server = http.createServer(async (req, res) => {
           }
 
           text = retagAssistantReply(text, extractReplyMoodTag(text) || sessionState.lastMood);
+          if (requestedMode === 'local' && image && !clientClosed) {
+            sendEventStream(res, 'status', { stage: 'image.reply.ready', label: 'replying' });
+            sendEventStream(res, 'message.delta', { content: text, text });
+          }
           if (requestedMode === 'shadow' && !clientClosed) {
             sendEventStream(res, 'message.delta', { content: text, text });
           }
