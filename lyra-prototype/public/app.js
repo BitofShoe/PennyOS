@@ -16,7 +16,21 @@ const DEFAULT_MEMORY = {
   userName: '',
   voiceOn: false,
   brainMode: 'local',
+  lmStudioThread: null,
   sessionId: `penny-local-${Math.random().toString(36).slice(2, 10)}`,
+};
+const IMAGE_RULES = {
+  maxInputBytes: 12 * 1024 * 1024,
+  targetBytes: 1100 * 1024,
+  hardMaxBytes: 1600 * 1024,
+  maxDimension: 1536,
+  minDimension: 480,
+  qualitySteps: [0.9, 0.82, 0.74, 0.66, 0.58],
+};
+const FILE_RULES = {
+  maxInputBytes: 220 * 1024,
+  maxPayloadChars: 180000,
+  allowedExtensions: ['.txt', '.md', '.json', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.css', '.html', '.svg', '.yml', '.yaml', '.log', '.ps1', '.sh', '.env'],
 };
 
 const state = {
@@ -43,6 +57,8 @@ const els = {
   statusValueTop: document.getElementById('statusValueTop'),
   coreFace: document.getElementById('coreFace'),
   shell: document.getElementById('shell'),
+  chatWrap: document.getElementById('chatWrap'),
+  cyberDecor: document.querySelector('.cyber-decor'),
   intro: document.getElementById('intro'),
   tabs: Array.from(document.querySelectorAll('.tab')),
   views: Array.from(document.querySelectorAll('.view')),
@@ -64,40 +80,199 @@ const els = {
   imagePreview: document.getElementById('imagePreview'),
   imagePreviewImg: document.getElementById('imagePreviewImg'),
   imagePreviewRemove: document.getElementById('imagePreviewRemove'),
+  fileInput: document.getElementById('fileInput'),
+  fileBtn: document.getElementById('fileBtn'),
+  filePreview: document.getElementById('filePreview'),
+  filePreviewName: document.getElementById('filePreviewName'),
+  filePreviewMeta: document.getElementById('filePreviewMeta'),
+  filePreviewRemove: document.getElementById('filePreviewRemove'),
+  composerNotice: document.getElementById('composerNotice'),
 };
 
 let pendingImage = null;
+let pendingFile = null;
 
-function fileToBase64(file) {
+function formatBytes(bytes = 0) {
+  const size = Number(bytes) || 0;
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+function setComposerNotice(text = '', tone = 'muted') {
+  if (!els.composerNotice) return;
+  els.composerNotice.textContent = text;
+  els.composerNotice.dataset.tone = tone;
+  els.composerNotice.hidden = !text;
+}
+function estimateDataUrlBytes(dataUrl = '') {
+  const base64 = String(dataUrl || '').split(',', 2)[1] || '';
+  return Math.floor((base64.length * 3) / 4);
+}
+function loadImageElement(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('That image could not be opened.'));
+    };
+    img.src = objectUrl;
   });
 }
+function fileExtension(name = '') {
+  const match = String(name || '').toLowerCase().match(/(\.[a-z0-9]+)$/i);
+  return match ? match[1] : '';
+}
+function looksLikeSupportedTextFile(file) {
+  const ext = fileExtension(file?.name || '');
+  const type = String(file?.type || '').toLowerCase();
+  if (FILE_RULES.allowedExtensions.includes(ext)) return true;
+  if (!type) return false;
+  return type.startsWith('text/')
+    || type.includes('json')
+    || type.includes('javascript')
+    || type.includes('typescript')
+    || type.includes('xml')
+    || type.includes('yaml');
+}
+async function prepareFileAttachment(file) {
+  if (!file) throw new Error('Pick a file first.');
+  if (!looksLikeSupportedTextFile(file)) {
+    throw new Error('File attach is for text/code files right now. Use the camera button for images.');
+  }
+  if (file.size > FILE_RULES.maxInputBytes) {
+    throw new Error(`That file is too large. Keep attached text/code files under ${formatBytes(FILE_RULES.maxInputBytes)}.`);
+  }
+  const text = (await file.text()).replace(/\r\n/g, '\n');
+  if (text.includes('\u0000')) {
+    throw new Error('That file looks binary. Attach a text/code file instead.');
+  }
+  if (text.length > FILE_RULES.maxPayloadChars) {
+    throw new Error('That file is too long to ship in one turn. Trim it down or attach a smaller excerpt.');
+  }
+  return {
+    name: file.name,
+    type: file.type || 'text/plain',
+    size: file.size || new Blob([text]).size,
+    text,
+    lineCount: text ? text.split('\n').length : 0,
+  };
+}
+async function prepareImageAttachment(file) {
+  if (!file || !String(file.type || '').startsWith('image/')) {
+    throw new Error('Pick a real image file first.');
+  }
+  if (file.size > IMAGE_RULES.maxInputBytes) {
+    throw new Error(`That file is too big to prep locally. Keep it under ${formatBytes(IMAGE_RULES.maxInputBytes)} before upload.`);
+  }
+  const img = await loadImageElement(file);
+  let width = Math.max(1, img.naturalWidth || img.width || 1);
+  let height = Math.max(1, img.naturalHeight || img.height || 1);
+  const scaleDown = Math.min(1, IMAGE_RULES.maxDimension / Math.max(width, height));
+  width = Math.max(1, Math.round(width * scaleDown));
+  height = Math.max(1, Math.round(height * scaleDown));
 
-function attachImage(dataUrl) {
-  pendingImage = dataUrl;
-  if (els.imagePreviewImg) els.imagePreviewImg.src = dataUrl;
-  if (els.imagePreview) els.imagePreview.hidden = false;
-  if (els.imageBtn) els.imageBtn.classList.add('has-image');
+  let best = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) throw new Error('Image prep failed: canvas context unavailable.');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(img, 0, 0, width, height);
+
+    for (const quality of IMAGE_RULES.qualitySteps) {
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      const bytes = estimateDataUrlBytes(dataUrl);
+      const candidate = {
+        dataUrl,
+        mime: 'image/jpeg',
+        width,
+        height,
+        bytes,
+        sourceName: file.name,
+      };
+      if (!best || bytes < best.bytes) best = candidate;
+      if (bytes <= IMAGE_RULES.targetBytes) return candidate;
+    }
+
+    if (best && best.bytes <= IMAGE_RULES.hardMaxBytes) return best;
+
+    const shrinkRatio = Math.max(0.68, Math.sqrt(IMAGE_RULES.targetBytes / Math.max(best?.bytes || 1, 1)) * 0.96);
+    const minScale = IMAGE_RULES.minDimension / Math.max(width, height);
+    const nextScale = Math.max(shrinkRatio, minScale);
+    const nextWidth = Math.max(1, Math.round(width * nextScale));
+    const nextHeight = Math.max(1, Math.round(height * nextScale));
+    if ((nextWidth === width && nextHeight === height) || (width <= IMAGE_RULES.minDimension && height <= IMAGE_RULES.minDimension)) break;
+    width = nextWidth;
+    height = nextHeight;
+  }
+
+  if (best && best.bytes <= IMAGE_RULES.hardMaxBytes) return best;
+  throw new Error(`Couldn't shrink that image enough. Keep the final upload under ${formatBytes(IMAGE_RULES.hardMaxBytes)}.`);
 }
 
-function clearPendingImage() {
+function attachImage(image) {
+  pendingImage = image;
+  if (els.imagePreviewImg) els.imagePreviewImg.src = image.dataUrl;
+  if (els.imagePreview) els.imagePreview.hidden = false;
+  if (els.imageBtn) els.imageBtn.classList.add('has-image');
+  setComposerNotice(`Image ready - ${image.width}x${image.height} - ${formatBytes(image.bytes)}`, 'ok');
+}
+
+function attachFile(file) {
+  pendingFile = file;
+  if (els.filePreviewName) els.filePreviewName.textContent = file.name;
+  if (els.filePreviewMeta) els.filePreviewMeta.textContent = `${file.lineCount} lines - ${formatBytes(file.size)}`;
+  if (els.filePreview) els.filePreview.hidden = false;
+  if (els.fileBtn) els.fileBtn.classList.add('has-file');
+  setComposerNotice(`File ready - ${file.name} - ${file.lineCount} lines`, 'ok');
+}
+
+function clearPendingImage({ keepNotice = false } = {}) {
   pendingImage = null;
   if (els.imagePreview) els.imagePreview.hidden = true;
   if (els.imagePreviewImg) els.imagePreviewImg.src = '';
   if (els.imageBtn) els.imageBtn.classList.remove('has-image');
   if (els.imageInput) els.imageInput.value = '';
+  if (!keepNotice) setComposerNotice('');
+}
+function clearPendingFile({ keepNotice = false } = {}) {
+  pendingFile = null;
+  if (els.filePreview) els.filePreview.hidden = true;
+  if (els.filePreviewName) els.filePreviewName.textContent = '';
+  if (els.filePreviewMeta) els.filePreviewMeta.textContent = '';
+  if (els.fileBtn) els.fileBtn.classList.remove('has-file');
+  if (els.fileInput) els.fileInput.value = '';
+  if (!keepNotice) setComposerNotice('');
+}
+function clearPendingAttachments() {
+  clearPendingImage({ keepNotice: true });
+  clearPendingFile({ keepNotice: true });
+  setComposerNotice('');
 }
 
-function parseMood(text) {
+function parseMood(text, fallbackMood = '') {
   const str = String(text || '');
   const all = [...str.matchAll(/\[MOOD:(\w+)\]/g)];
   const lastTag = all.length ? all[all.length - 1][1] : null;
-  const mood = lastTag && MOODS[lastTag] ? lastTag : 'calm';
+  const mood = lastTag && MOODS[lastTag]
+    ? lastTag
+    : (fallbackMood && MOODS[fallbackMood] ? fallbackMood : 'calm');
   return { mood, text: str.replace(/\s*\[MOOD:\w+\]\s*/g, '').trim() };
+}
+
+function stripDraftMood(text) {
+  return String(text || '')
+    .replace(/\s*\[MOOD:\w+\]\s*$/g, '')
+    .replace(/\s*\[MOOD:[^\]]*$/g, '')
+    .trimEnd();
 }
 
 function escapeHtml(text) {
@@ -106,36 +281,36 @@ function escapeHtml(text) {
 
 const MOOD_SPRITES = {
   calm: [
-    { src: '/sprites/penny-mood-calm.png', label: 'ONLINE', pos: '62% 14%' },
-    { src: '/sprites/penny-mood-calm-2.png', label: 'READING YOU', pos: '58% 12%' },
+    { src: '/sprites/decor/chibi-avatar-calm.png', label: 'RIGHT HERE', pill: 'KNOWING', pos: '50% 48%' },
+    { src: '/sprites/decor/chibi-penny-think.png', label: 'SETTLE IN', pill: 'SETTLED', pos: '50% 44%' },
   ],
   happy: [
-    { src: '/sprites/penny-mood-happy.png', label: 'CHARM MODE', pos: '52% 10%' },
-    { src: '/sprites/penny-mood-happy-2.png', label: 'SOFT SPOT', pos: '62% 10%' },
+    { src: '/sprites/decor/chibi-avatar-happy.png', label: 'CHARM MODE', pill: 'CHARMED', pos: '50% 48%' },
+    { src: '/sprites/decor/chibi-penny-heart.png', label: 'SOFT SPOT', pill: 'SOFT', pos: '50% 43%' },
   ],
   excited: [
-    { src: '/sprites/penny-mood-excited.png', label: 'MAX HYPE', pos: '50% 12%' },
-    { src: '/sprites/penny-mood-excited-2.png', label: 'GOTCHA', pos: '52% 8%' },
+    { src: '/sprites/decor/chibi-avatar-excited.png', label: 'SPARKED UP', pill: 'SPARKED', pos: '50% 48%' },
+    { src: '/sprites/decor/chibi-penny-peace.png', label: 'OH, HELL YES', pill: 'FIRED UP', pos: '50% 48%' },
   ],
   thinking: [
-    { src: '/sprites/penny-mood-thinking.png', label: 'LOCKED IN', pos: '52% 12%' },
-    { src: '/sprites/penny-mood-thinking-2.png', label: 'PROCESSING', pos: '64% 10%' },
+    { src: '/sprites/decor/chibi-avatar-thinking.png', label: 'LOCKED IN', pill: 'LOCKED IN', pos: '50% 48%' },
+    { src: '/sprites/decor/chibi-penny-think.png', label: 'DOING THE MATH', pill: 'FOCUSED', pos: '50% 44%' },
   ],
   surprised: [
-    { src: '/sprites/penny-mood-surprised.png', label: 'FLUSTERED', pos: '66% 14%' },
-    { src: '/sprites/penny-mood-surprised-2.png', label: 'CAUGHT OFF GUARD', pos: '52% 8%' },
+    { src: '/sprites/decor/chibi-avatar-surprised.png', label: 'WAIT, WHAT?', pill: 'STARTLED', pos: '50% 48%' },
+    { src: '/sprites/decor/chibi-penny-peace.png', label: 'DID NOT SEE THAT COMING', pill: 'WHOA', pos: '50% 48%' },
   ],
   flirty: [
-    { src: '/sprites/penny-mood-flirty.png', label: 'DANGEROUS', pos: '56% 12%' },
-    { src: '/sprites/penny-mood-flirty-2.png', label: 'COME HERE', pos: '52% 10%' },
+    { src: '/sprites/decor/chibi-avatar-flirty.png', label: 'COME HERE', pill: 'TEASING', pos: '50% 48%' },
+    { src: '/sprites/decor/chibi-penny-heart.png', label: 'YOU ASKED FOR THIS', pill: 'DANGEROUS', pos: '50% 43%' },
   ],
   smug: [
-    { src: '/sprites/penny-mood-smug.png', label: 'GOTTEM', pos: '62% 10%' },
-    { src: '/sprites/penny-mood-smug-2.png', label: 'TOO EASY', pos: '52% 10%' },
+    { src: '/sprites/decor/chibi-avatar-smug.png', label: 'TOLD YOU', pill: 'SMUG', pos: '50% 48%' },
+    { src: '/sprites/decor/chibi-penny-wink.png', label: 'TOO EASY', pill: 'TOO EASY', pos: '50% 48%' },
   ],
   annoyed: [
-    { src: '/sprites/penny-mood-annoyed.png', label: 'REALLY?', pos: '52% 12%' },
-    { src: '/sprites/penny-mood-annoyed-2.png', label: 'DRAMA QUEEN', pos: '58% 10%' },
+    { src: '/sprites/decor/chibi-avatar-annoyed.png', label: 'REALLY NOW?', pill: 'ANNOYED', pos: '50% 48%' },
+    { src: '/sprites/decor/chibi-penny-think.png', label: 'TRY ME', pill: 'TRY ME', pos: '50% 44%' },
   ],
 };
 
@@ -151,17 +326,289 @@ const CHIBI_AVATARS = {
   annoyed: '/sprites/decor/chibi-avatar-annoyed.png',
 };
 
+/** Small stamps beside each chat row — scroll with the thread (unlike fixed .cyber-decor). */
+const CHAT_DECOR_CHIBI = [
+  '/sprites/decor/chibi-penny-wink.png',
+  '/sprites/decor/chibi-penny-peace.png',
+  '/sprites/decor/chibi-penny-think.png',
+  '/sprites/decor/chibi-penny-heart.png',
+];
+const CHAT_DECOR_TECH = [
+  '/sprites/decor/pixel-headphones.png',
+  '/sprites/decor/pixel-monitor.png',
+  '/sprites/decor/pixel-chip.png',
+  '/sprites/decor/pixel-crystal.png',
+  '/sprites/decor/pixel-blossoms.png',
+];
+const IDLE_DECOR_TEXT = [
+  'PENNY.EXE',
+  'OPEN_CHANNEL',
+  'THREAD_OPEN',
+  'LINK_OK',
+  'BUFFER',
+  '>>STREAM',
+  'SIGNAL',
+  'NODE_SYNC',
+  'SYS://PENNY.CORE',
+  'VECTOR',
+];
+const IDLE_DECOR_CHIBI_POOL = [...new Set([...Object.values(CHIBI_AVATARS), ...CHAT_DECOR_CHIBI])];
+const IDLE_DECOR_TECH_POOL = [...new Set(CHAT_DECOR_TECH)];
+
+function chatDecorSrcs(index, role) {
+  const seed = index * 17 + (role === 'user' ? 11 : 3);
+  const tech = CHAT_DECOR_TECH[seed % CHAT_DECOR_TECH.length];
+  if (role === 'user') return [tech];
+  const chibi = CHAT_DECOR_CHIBI[(seed + 2) % CHAT_DECOR_CHIBI.length];
+  return [chibi, tech];
+}
+
+function appendMessageDecor(item, index, role) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-decor';
+  wrap.setAttribute('aria-hidden', 'true');
+  for (const src of chatDecorSrcs(index, role)) {
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = '';
+    img.className = 'msg-decor-img';
+    img.draggable = false;
+    wrap.appendChild(img);
+  }
+  item.appendChild(wrap);
+}
+
+const idleDecorState = {
+  rafId: 0,
+  lastTs: 0,
+  width: 0,
+  height: 0,
+  items: [],
+  resizeTimer: 0,
+};
+
+function randomBetween(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function classifyIdleDecorClass(src = '') {
+  if (/pixel-(crystal|blossoms)\.png$/i.test(src)) return 'decor-cyber';
+  if (/pixel-/i.test(src)) return 'decor-tech';
+  return 'decor-chibi';
+}
+
+function createIdleDecorImage(src = '') {
+  const img = document.createElement('img');
+  img.src = src;
+  img.alt = '';
+  img.draggable = false;
+  img.className = `decor-float decor-screensaver ${classifyIdleDecorClass(src)}`;
+  return img;
+}
+
+function createIdleDecorText(text = '') {
+  const span = document.createElement('span');
+  span.className = 'decor-float decor-text decor-screensaver';
+  span.textContent = text;
+  return span;
+}
+
+function ensureIdleDecorPopulation() {
+  const container = els.cyberDecor;
+  if (!container || container.dataset.screensaverSeeded === '1') return;
+  container.dataset.screensaverSeeded = '1';
+
+  for (const node of container.querySelectorAll('.decor-float')) {
+    node.classList.add('decor-screensaver');
+  }
+
+  const extraNodes = [];
+  for (let i = 0; i < 5; i += 1) {
+    extraNodes.push(createIdleDecorImage(IDLE_DECOR_CHIBI_POOL[i % IDLE_DECOR_CHIBI_POOL.length]));
+  }
+  for (let i = 0; i < 4; i += 1) {
+    extraNodes.push(createIdleDecorImage(IDLE_DECOR_TECH_POOL[i % IDLE_DECOR_TECH_POOL.length]));
+  }
+  for (let i = 0; i < 3; i += 1) {
+    extraNodes.push(createIdleDecorText(IDLE_DECOR_TEXT[i % IDLE_DECOR_TEXT.length]));
+  }
+
+  for (const node of extraNodes) {
+    container.appendChild(node);
+  }
+}
+
+function measureIdleDecorNode(node) {
+  const rect = node.getBoundingClientRect();
+  const fallbackWidth = node.classList.contains('decor-chibi')
+    ? 192
+    : node.classList.contains('decor-text')
+      ? 180
+      : node.classList.contains('decor-cyber')
+        ? 100
+        : 112;
+  const width = rect.width || fallbackWidth;
+  const height = rect.height || (node.classList.contains('decor-text') ? 28 : fallbackWidth * 0.72);
+  return { width, height };
+}
+
+function applyIdleDecorFrame(item, timestamp = 0) {
+  const sway = Math.sin((timestamp * 0.001 * item.wobbleSpeed) + item.phase) * item.wobble;
+  const opacity = Math.max(0.08, Math.min(0.34, item.baseOpacity + Math.cos((timestamp * 0.00075) + item.phase) * 0.028));
+  item.node.style.transform = `translate3d(${item.x.toFixed(1)}px, ${item.y.toFixed(1)}px, 0) scale(${item.scale.toFixed(3)}) rotate(${(item.rotation + sway).toFixed(2)}deg)`;
+  item.node.style.opacity = opacity.toFixed(3);
+}
+
+function seedIdleDecorMotion() {
+  const container = els.cyberDecor;
+  if (!container) return;
+  const bounds = container.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return;
+
+  idleDecorState.width = bounds.width;
+  idleDecorState.height = bounds.height;
+  idleDecorState.items = [];
+
+  const nodes = Array.from(container.querySelectorAll('.decor-float'));
+  const now = performance.now();
+  for (const node of nodes) {
+    const { width, height } = measureIdleDecorNode(node);
+    const maxX = Math.max(0, bounds.width - width);
+    const maxY = Math.max(0, bounds.height - height);
+    const speedX = node.classList.contains('decor-chibi') ? randomBetween(10, 15) : node.classList.contains('decor-text') ? randomBetween(7, 12) : randomBetween(11, 17);
+    const speedY = node.classList.contains('decor-chibi') ? randomBetween(8, 13) : node.classList.contains('decor-text') ? randomBetween(6, 10) : randomBetween(9, 14);
+    const item = {
+      node,
+      x: randomBetween(0, maxX),
+      y: randomBetween(0, maxY),
+      vx: speedX * (Math.random() > 0.5 ? 1 : -1),
+      vy: speedY * (Math.random() > 0.5 ? 1 : -1),
+      width,
+      height,
+      scale: node.classList.contains('decor-chibi')
+        ? randomBetween(0.7, 1.02)
+        : node.classList.contains('decor-text')
+          ? randomBetween(0.84, 1.06)
+          : randomBetween(0.78, 1.03),
+      rotation: randomBetween(-6, 6),
+      spin: randomBetween(-2.6, 2.6),
+      baseOpacity: node.classList.contains('decor-chibi')
+        ? randomBetween(0.16, 0.29)
+        : node.classList.contains('decor-text')
+          ? randomBetween(0.12, 0.2)
+          : randomBetween(0.1, 0.18),
+      phase: randomBetween(0, Math.PI * 2),
+      wobble: node.classList.contains('decor-text') ? randomBetween(0.45, 1.2) : randomBetween(0.7, 1.8),
+      wobbleSpeed: randomBetween(0.45, 1.2),
+    };
+    node.style.left = '0px';
+    node.style.top = '0px';
+    node.style.right = 'auto';
+    node.style.bottom = 'auto';
+    idleDecorState.items.push(item);
+    applyIdleDecorFrame(item, now);
+  }
+}
+
+function syncIdleDecorBounds() {
+  const container = els.cyberDecor;
+  const scrollHost = els.chatWrap || els.chat?.parentElement;
+  if (!container || !scrollHost) return false;
+  const targetHeight = Math.max(scrollHost.scrollHeight, scrollHost.clientHeight);
+  const targetWidth = scrollHost.clientWidth;
+  if (!targetHeight || !targetWidth) return false;
+  const nextHeight = `${Math.ceil(targetHeight)}px`;
+  const nextWidth = `${Math.ceil(targetWidth)}px`;
+  const changed = container.style.height !== nextHeight || container.style.width !== nextWidth;
+  container.style.height = nextHeight;
+  container.style.width = nextWidth;
+  return changed;
+}
+
+function tickIdleDecor(timestamp) {
+  if (!idleDecorState.items.length) {
+    idleDecorState.rafId = 0;
+    return;
+  }
+
+  if (!idleDecorState.lastTs) idleDecorState.lastTs = timestamp;
+  const dt = Math.min(0.05, Math.max(0.001, (timestamp - idleDecorState.lastTs) / 1000));
+  idleDecorState.lastTs = timestamp;
+
+  const container = els.cyberDecor;
+  if (!container) {
+    idleDecorState.rafId = 0;
+    return;
+  }
+
+  const boundsChanged = syncIdleDecorBounds();
+  const bounds = container.getBoundingClientRect();
+  if (bounds.width && bounds.height && (boundsChanged || Math.abs(bounds.width - idleDecorState.width) > 1 || Math.abs(bounds.height - idleDecorState.height) > 1)) {
+    seedIdleDecorMotion();
+  }
+
+  for (const item of idleDecorState.items) {
+    const maxX = Math.max(0, idleDecorState.width - item.width);
+    const maxY = Math.max(0, idleDecorState.height - item.height);
+    item.x += item.vx * dt;
+    item.y += item.vy * dt;
+    item.rotation += item.spin * dt;
+
+    if (item.x <= 0 || item.x >= maxX) {
+      item.x = Math.min(maxX, Math.max(0, item.x));
+      item.vx *= -1;
+      item.spin *= -1;
+    }
+    if (item.y <= 0 || item.y >= maxY) {
+      item.y = Math.min(maxY, Math.max(0, item.y));
+      item.vy *= -1;
+    }
+
+    applyIdleDecorFrame(item, timestamp);
+  }
+
+  idleDecorState.rafId = window.requestAnimationFrame(tickIdleDecor);
+}
+
+function startIdleDecorScreensaver() {
+  if (!els.cyberDecor) return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  ensureIdleDecorPopulation();
+  syncIdleDecorBounds();
+  seedIdleDecorMotion();
+  if (!idleDecorState.rafId) {
+    idleDecorState.lastTs = 0;
+    idleDecorState.rafId = window.requestAnimationFrame(tickIdleDecor);
+  }
+}
+
+window.addEventListener('resize', () => {
+  if (!els.cyberDecor) return;
+  window.clearTimeout(idleDecorState.resizeTimer);
+  idleDecorState.resizeTimer = window.setTimeout(() => {
+    seedIdleDecorMotion();
+  }, 120);
+});
+
 function pickChibiHudLabel(mood) {
   const variants = MOOD_SPRITES[mood] || MOOD_SPRITES.calm;
   return variants[Math.floor(Math.random() * variants.length)].label;
 }
 
+function getMoodSpriteVariant(mood) {
+  const variants = MOOD_SPRITES[mood] || MOOD_SPRITES.calm;
+  const index = 0;
+  return { ...(variants[index] || variants[0]), index };
+}
+
 function companionFaceHtml(mood) {
-  const src = CHIBI_AVATARS[mood] || CHIBI_AVATARS.calm;
-  const label = pickChibiHudLabel(mood);
+  const variant = getMoodSpriteVariant(mood);
+  const src = variant?.src || CHIBI_AVATARS[mood] || CHIBI_AVATARS.calm;
+  const label = variant?.label || pickChibiHudLabel(mood);
+  const pos = variant?.pos || '50% 46%';
   return `
-    <div class="penny-display penny-chibi penny-${mood}">
-      <img src="${src}" class="penny-art penny-art-chibi" alt="Penny" draggable="false" />
+    <div class="penny-display penny-chibi penny-${mood}" data-variant="${variant?.index ?? 0}">
+      <img src="${src}" class="penny-art penny-art-chibi" style="object-position:${pos}" alt="Penny" draggable="false" />
       <div class="penny-hud">
         <span class="penny-hud-left">PENNY.EXE</span>
         <span class="penny-hud-right">${label}</span>
@@ -179,8 +626,8 @@ function updateBrainModeUi(meta = null) {
   if (!els.brainModeNote) return;
   if (!meta) {
     els.brainModeNote.textContent = mode === 'shadow'
-      ? 'Shadow brain uses the OpenClaw lane. It is still experimental.'
-      : 'Local brain mode now talks directly to LM Studio.';
+      ? 'Shadow uses the optional OpenClaw lane. It is still experimental and not Penny\'s main chat brain.'
+      : 'LM Studio is Penny\'s main brain right now. Shadow stays optional and experimental.';
     return;
   }
   if (meta.requestedMode === 'shadow' && meta.usedFallback) {
@@ -193,8 +640,8 @@ function updateBrainModeUi(meta = null) {
     return;
   }
   els.brainModeNote.textContent = mode === 'local'
-    ? 'Local LM Studio brain handled the last reply.'
-    : 'Shadow brain is selected; if it fails, Penny will block the reply instead of silently faking it.';
+    ? 'LM Studio handled the last reply.'
+    : 'Shadow is selected. This lane is experimental, and Penny will block the reply if OpenClaw fails.';
 }
 
 let _lastSpriteKey = '';
@@ -225,7 +672,8 @@ function triggerGlitch() {
 function renderSprite(mood, palette) {
   const container = els.coreFace;
   const intensity = getIntensity();
-  const spriteKey = `${mood}:${intensity}`;
+  const variant = getMoodSpriteVariant(mood);
+  const spriteKey = `${mood}:${intensity}:${variant?.src || 'default'}`;
   if (spriteKey === _lastSpriteKey) return;
 
   const html = companionFaceHtml(mood);
@@ -289,7 +737,9 @@ function updateBackendStatusUi(status = null) {
     els.backendReachability.textContent = status?.localLlmTransport
       ? `ready / ${status.localLlmTransport}`
       : 'ready';
-    els.backendModel.textContent = lmStudio.resolvedModel || lmStudio.configuredModel || 'available';
+    const pick = lmStudio.resolvedModel || lmStudio.configuredModel || 'available';
+    const hint = !lmStudio.resolvedModel && lmStudio.configuredModel ? ' (env default)' : '';
+    els.backendModel.textContent = `${pick}${hint}`;
     return;
   }
 
@@ -297,20 +747,26 @@ function updateBackendStatusUi(status = null) {
   els.backendModel.textContent = lmStudio.error || lmStudio.hint || 'not detected';
 }
 
-function pennyAvatarSrc() {
-  return CHIBI_AVATARS[state.mood] || CHIBI_AVATARS.calm;
+function pennyAvatarSrc(mood = state.mood) {
+  return CHIBI_AVATARS[mood] || CHIBI_AVATARS.calm;
 }
 
 function renderMessages() {
   els.chat.innerHTML = '';
-  els.intro.hidden = state.messages.length !== 0;
-  for (const msg of state.messages) {
+  if (els.intro) els.intro.hidden = true;
+  if (els.cyberDecor) {
+    els.cyberDecor.dataset.scene = state.messages.length === 0 && !state.loading ? 'empty' : 'thread';
+  }
+  const hasStreamingDraft = state.messages[state.messages.length - 1]?.role === 'assistant' && state.messages[state.messages.length - 1]?.streaming;
+  for (let i = 0; i < state.messages.length; i++) {
+    const msg = state.messages[i];
+    const msgMood = msg.role === 'assistant' && msg.mood && MOODS[msg.mood] ? msg.mood : state.mood;
     const item = document.createElement('div');
-    item.className = `msg-row ${msg.role}`;
+    item.className = `msg-row ${msg.role}${msg.streaming ? ' streaming' : ''}`;
     if (msg.role === 'assistant') {
       const header = document.createElement('div');
       header.className = 'msg-header';
-      header.innerHTML = `<img class="msg-avatar" src="${pennyAvatarSrc()}" alt="" /><span class="msg-label">PENNY</span>`;
+      header.innerHTML = `<img class="msg-avatar" src="${pennyAvatarSrc(msgMood)}" alt="" /><span class="msg-label">PENNY</span>`;
       item.appendChild(header);
     }
     if (msg.image && msg.role === 'user') {
@@ -319,19 +775,99 @@ function renderMessages() {
       imgWrap.innerHTML = `<img src="${msg.image}" alt="Attached" />`;
       item.appendChild(imgWrap);
     }
+    if ((msg.file || msg.fileMeta) && msg.role === 'user') {
+      const file = msg.file || msg.fileMeta;
+      const fileWrap = document.createElement('div');
+      fileWrap.className = 'msg-file';
+      fileWrap.innerHTML = `
+        <span class="msg-file-icon" aria-hidden="true">&#128206;</span>
+        <div class="msg-file-copy">
+          <strong>${escapeHtml(file.name || 'Attached file')}</strong>
+          <small>${escapeHtml(file.lineCount ? `${file.lineCount} lines` : formatBytes(file.size || 0))}</small>
+        </div>
+      `;
+      item.appendChild(fileWrap);
+    }
     const bubble = document.createElement('div');
-    bubble.className = `bubble ${msg.role}`;
-    bubble.innerHTML = escapeHtml(msg.content).replace(/\n/g, '<br>');
+    bubble.className = `bubble ${msg.role}${msg.streaming ? ' streaming' : ''}`;
+    const content = msg.streaming ? stripDraftMood(msg.content) : msg.content;
+    bubble.innerHTML = content
+      ? escapeHtml(content).replace(/\n/g, '<br>')
+      : (msg.streaming ? '<span class="stream-caret" aria-hidden="true"></span>' : '');
     item.appendChild(bubble);
+    const toolLabels = Array.isArray(msg.toolsUsed) ? msg.toolsUsed.map(tool => tool?.label || tool?.name).filter(Boolean) : [];
+    if (msg.toolStatus || toolLabels.length) {
+      const meta = document.createElement('div');
+      meta.className = `msg-meta${msg.toolStatus ? ' live' : ''}`;
+      meta.textContent = msg.toolStatus || `checked ${toolLabels.join(' • ')}`;
+      item.appendChild(meta);
+    }
+    appendMessageDecor(item, i, msg.role);
     els.chat.appendChild(item);
   }
-  if (state.loading) {
+  if (state.loading && !hasStreamingDraft) {
     const loading = document.createElement('div');
     loading.className = 'msg-row assistant';
-    loading.innerHTML = `<div class="msg-header"><img class="msg-avatar" src="${pennyAvatarSrc()}" alt="" /><span class="msg-label">PENNY</span></div><div class="bubble assistant loading-bubble"><span></span><span></span><span></span></div>`;
+    loading.innerHTML = `<div class="msg-header"><img class="msg-avatar" src="${pennyAvatarSrc('thinking')}" alt="" /><span class="msg-label">PENNY</span></div><div class="bubble assistant loading-bubble"><span></span><span></span><span></span></div>`;
+    appendMessageDecor(loading, state.messages.length, 'assistant');
     els.chat.appendChild(loading);
   }
+  syncIdleDecorBounds();
   els.chat.parentElement.scrollTop = els.chat.parentElement.scrollHeight;
+}
+
+function updateStreamingAssistantBubble(text = '') {
+  const rows = els.chat.querySelectorAll('.msg-row.assistant');
+  const row = rows[rows.length - 1];
+  if (!row) return;
+  const bubble = row.querySelector('.bubble.assistant');
+  if (!bubble) return;
+  const visible = stripDraftMood(text);
+  bubble.classList.add('streaming');
+  row.classList.add('streaming');
+  bubble.innerHTML = visible
+    ? escapeHtml(visible).replace(/\n/g, '<br>')
+    : '<span class="stream-caret" aria-hidden="true"></span>';
+  syncIdleDecorBounds();
+  els.chat.parentElement.scrollTop = els.chat.parentElement.scrollHeight;
+}
+
+async function readPennyEventStream(response, handlers = {}) {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('Streaming is not supported by this browser response.');
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const flushFrame = (frameText) => {
+    const frame = String(frameText || '').trim();
+    if (!frame) return;
+    let event = 'message';
+    const dataLines = [];
+    for (const rawLine of frame.split(/\r?\n/)) {
+      if (rawLine.startsWith('event:')) event = rawLine.slice(6).trim();
+      else if (rawLine.startsWith('data:')) dataLines.push(rawLine.slice(5).trimStart());
+    }
+    if (!dataLines.length) return;
+    const dataText = dataLines.join('\n');
+    let data = dataText;
+    try {
+      data = JSON.parse(dataText);
+    } catch {}
+    handlers.onEvent?.(event, data);
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    buffer = buffer.replace(/\r\n/g, '\n');
+    let idx;
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      flushFrame(buffer.slice(0, idx));
+      buffer = buffer.slice(idx + 2);
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) flushFrame(buffer);
 }
 
 function renderMemory() {
@@ -349,8 +885,20 @@ function renderMemory() {
 
 function saveState() {
   const msgs = state.messages.slice(-16).map(m => {
-    if (m.image) return { role: m.role, content: m.content, hadImage: true };
-    return m;
+    const base = { ...m };
+    if (m.image) {
+      delete base.image;
+      base.hadImage = true;
+    }
+    if (m.file) {
+      base.fileMeta = {
+        name: m.file.name,
+        size: m.file.size,
+        lineCount: m.file.lineCount,
+      };
+      delete base.file;
+    }
+    return base;
   });
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ memory: state.memory, messages: msgs, mood: state.mood, turns: state.turns }));
 }
@@ -361,7 +909,7 @@ function loadState() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     state.memory = { ...structuredClone(DEFAULT_MEMORY), ...(parsed.memory || {}) };
-    if (state.memory.brainMode !== 'local' && state.memory.brainMode !== 'shadow') state.memory.brainMode = 'shadow';
+    if (state.memory.brainMode !== 'local' && state.memory.brainMode !== 'shadow') state.memory.brainMode = 'local';
     state.messages = Array.isArray(parsed.messages) ? parsed.messages : [];
     state.mood = parsed.mood && MOODS[parsed.mood] ? parsed.mood : 'calm';
     state.turns = Number(parsed.turns || state.messages.filter(m => m.role === 'assistant').length || 0);
@@ -387,6 +935,10 @@ function switchPanel(panel) {
   state.panel = panel;
   for (const tab of els.tabs) tab.classList.toggle('active', tab.dataset.panel === panel);
   for (const view of els.views) view.classList.toggle('active', view.dataset.view === panel);
+  if (panel === 'settings') {
+    loadBackendStatus();
+    loadAvailableModels();
+  }
 }
 
 function maybeSpeak(text) {
@@ -405,7 +957,18 @@ function applyMemory(memory) {
     ...memory,
     memories: Array.isArray(memory.memories) ? memory.memories : state.memory.memories,
   };
-  if (state.memory.brainMode !== 'local' && state.memory.brainMode !== 'shadow') state.memory.brainMode = 'shadow';
+  if (state.memory.brainMode !== 'local' && state.memory.brainMode !== 'shadow') state.memory.brainMode = 'local';
+}
+function reportMemoryIssue(action, error) {
+  const detail = error?.message || String(error || 'unknown memory error');
+  console.warn(`[penny memory] ${action}: ${detail}`);
+}
+function buildChatMemoryPayload() {
+  return {
+    userName: state.memory.userName || '',
+    voiceOn: !!state.memory.voiceOn,
+    brainMode: state.memory.brainMode === 'shadow' ? 'shadow' : 'local',
+  };
 }
 
 async function memoryRequest(method, body, query = '') {
@@ -417,9 +980,11 @@ async function memoryRequest(method, body, query = '') {
 async function syncMemoryToDisk() {
   state.syncingMemory = true; updateTheme();
   try {
-    const data = await memoryRequest('POST', { sessionId: state.memory.sessionId, memory: state.memory });
+    const data = await memoryRequest('POST', { sessionId: state.memory.sessionId, memory: buildChatMemoryPayload() });
     applyMemory(data.memory); renderMemory(); saveState();
-  } catch {} finally { state.syncingMemory = false; updateTheme(); }
+  } catch (error) {
+    reportMemoryIssue('sync failed', error);
+  } finally { state.syncingMemory = false; updateTheme(); }
 }
 
 async function loadDurableMemory() {
@@ -429,7 +994,9 @@ async function loadDurableMemory() {
     if (!res.ok) throw new Error('load failed');
     const data = await res.json();
     applyMemory(data.memory); renderMemory(); saveState();
-  } catch {} finally { state.syncingMemory = false; updateTheme(); }
+  } catch (error) {
+    reportMemoryIssue('load failed', error);
+  } finally { state.syncingMemory = false; updateTheme(); }
 }
 
 async function patchMemory(patch) {
@@ -437,7 +1004,9 @@ async function patchMemory(patch) {
   try {
     const data = await memoryRequest('PATCH', { sessionId: state.memory.sessionId, patch });
     applyMemory(data.memory); renderMemory(); saveState();
-  } catch {} finally { state.syncingMemory = false; updateTheme(); }
+  } catch (error) {
+    reportMemoryIssue('patch failed', error);
+  } finally { state.syncingMemory = false; updateTheme(); }
 }
 
 async function loadBackendStatus() {
@@ -459,23 +1028,74 @@ async function loadBackendStatus() {
   }
 }
 
+function fillModelSelectOptions(selectEl, modelIds, selectedId) {
+  selectEl.innerHTML = '';
+  for (const id of modelIds) {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = id;
+    if (id === selectedId) opt.selected = true;
+    selectEl.appendChild(opt);
+  }
+}
+
+function normalizeModelPickKey(value = '') {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function modelIdsLookEquivalent(a = '', b = '') {
+  const left = String(a || '').trim();
+  const right = String(b || '').trim();
+  if (!left || !right) return false;
+  const fullLeft = normalizeModelPickKey(left);
+  const fullRight = normalizeModelPickKey(right);
+  if (!fullLeft || !fullRight) return false;
+  if (fullLeft === fullRight || fullLeft.includes(fullRight) || fullRight.includes(fullLeft)) return true;
+
+  const shortLeft = normalizeModelPickKey(left.includes('/') ? left.split('/').slice(1).join('/') : left);
+  const shortRight = normalizeModelPickKey(right.includes('/') ? right.split('/').slice(1).join('/') : right);
+  return !!shortLeft && !!shortRight && (shortLeft === shortRight || shortLeft.includes(shortRight) || shortRight.includes(shortLeft));
+}
+
+function findBestModelMatch(modelIds, ...preferredIds) {
+  for (const preferredId of preferredIds) {
+    const target = String(preferredId || '').trim();
+    if (!target) continue;
+    const direct = modelIds.find(id => id === target);
+    if (direct) return direct;
+    const alias = modelIds.find(id => modelIdsLookEquivalent(id, target));
+    if (alias) return alias;
+  }
+  return '';
+}
+
 async function loadAvailableModels() {
   if (!els.modelSelect) return;
   try {
     const res = await fetch('/api/penny/lmstudio/status');
     if (!res.ok) return;
     const data = await res.json();
-    const models = (data.availableModels || []).filter(id => !/\b(embed|embedding|rerank)\b/i.test(id));
+    const isEmbed = (id) => /\b(embed|embedding|rerank)\b/i.test(id);
+    let models = (data.installedModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
+    if (!models.length) {
+      models = (data.availableModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
+    }
+    if (!models.length && Array.isArray(data.candidateModels)) {
+      models = data.candidateModels.filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
+    }
+    if (!models.length && data.configuredModel) {
+      const c = String(data.configuredModel).trim();
+      if (c && !isEmbed(c)) models = [c];
+    }
     if (!models.length) {
       els.modelSelect.innerHTML = '<option value="">no models loaded</option>';
       return;
     }
     const resolved = data.resolvedModel || '';
     const runtime = data.runtimePreferredModel || '';
-    const selected = runtime || resolved || models[0];
-    els.modelSelect.innerHTML = models.map(id =>
-      `<option value="${id}"${id === selected ? ' selected' : ''}>${id}</option>`
-    ).join('');
+    const selected = findBestModelMatch(models, runtime, resolved, data.configuredModel)
+      || models[0];
+    fillModelSelectOptions(els.modelSelect, models, selected);
   } catch {}
 }
 
@@ -499,43 +1119,116 @@ async function consolidateMemory() {
   if (state.consolidating) return;
   state.consolidating = true; updateTheme();
   try {
-    const res = await fetch('/api/penny/consolidate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: state.memory.sessionId, messages: state.messages.slice(-8), memories: state.memory }) });
+    const res = await fetch('/api/penny/consolidate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: state.memory.sessionId, messages: serializeMessagesForApi(8), memories: buildChatMemoryPayload() }) });
     if (!res.ok) throw new Error('Consolidation failed');
     const data = await res.json();
     applyMemory(data.memory); renderMemory(); saveState();
-  } catch {} finally { state.consolidating = false; updateTheme(); }
+  } catch (error) {
+    reportMemoryIssue('consolidation failed', error);
+  } finally { state.consolidating = false; updateTheme(); }
+}
+
+function serializeMessagesForApi(limit = 16) {
+  return state.messages
+    .filter(msg => !msg.streaming)
+    .slice(-limit)
+    .map(msg => ({
+      role: msg.role === 'assistant' ? 'assistant' : 'user',
+      content: String(msg.content || ''),
+    }));
 }
 
 async function sendMessage() {
   const userText = els.composer.value.trim();
-  if (!userText || state.loading) return;
-  const imageData = pendingImage || null;
+  if (state.loading) return;
+  if (!userText) {
+    if (pendingImage || pendingFile) setComposerNotice('Add a short prompt so Penny knows what to do with the attachment.', 'warn');
+    return;
+  }
+  const imageData = pendingImage?.dataUrl || null;
+  const fileData = pendingFile ? { ...pendingFile } : null;
   const msgObj = { role: 'user', content: userText };
   if (imageData) msgObj.image = imageData;
+  if (fileData) msgObj.file = { name: fileData.name, size: fileData.size, lineCount: fileData.lineCount, type: fileData.type };
   state.messages.push(msgObj);
-  els.composer.value = ''; clearPendingImage(); state.loading = true; state.presence = 'thinking'; renderMessages(); updateTheme(); saveState();
+  const assistantDraft = { role: 'assistant', content: '', streaming: true, toolsUsed: [], mood: 'thinking' };
+  state.messages.push(assistantDraft);
+  els.composer.value = ''; clearPendingAttachments(); state.loading = true; state.presence = 'thinking'; renderMessages(); updateTheme(); saveState();
   try {
-    const body = { sessionId: state.memory.sessionId, messages: state.messages, memories: state.memory };
+    const body = { sessionId: state.memory.sessionId, messages: serializeMessagesForApi(), memories: buildChatMemoryPayload(), stream: true };
     if (imageData) body.image = imageData;
-    const res = await fetch('/api/penny/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const data = await res.json().catch(() => ({}));
+    if (fileData) body.file = fileData;
+    const res = await fetch('/api/penny/chat?stream=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const contentType = res.headers.get('content-type') || '';
     if (!res.ok) {
+      const data = contentType.includes('application/json') ? await res.json().catch(() => ({})) : {};
       updateBrainModeUi(data.meta || { requestedMode: state.memory.brainMode, usedFallback: false, shadowError: data.detail || data.error || `Request failed: ${res.status}` });
       throw new Error(data.detail || data.error || `Request failed: ${res.status}`);
     }
-    const parsed = parseMood(data.text || 'Something glitched.');
-    state.messages.push({ role: 'assistant', content: parsed.text });
-    state.mood = parsed.mood; state.presence = 'present'; state.turns = data.meta?.turns || state.turns + 1; applyMemory(data.memory); maybeSpeak(parsed.text); updateBrainModeUi(data.meta || null);
+    let streamedText = '';
+    let finalData = null;
+    await readPennyEventStream(res, {
+      onEvent(event, data) {
+        if (event === 'status') {
+          state.presence = data?.label || state.presence;
+          updateTheme();
+          return;
+        }
+        if (event === 'message.delta') {
+          streamedText = typeof data?.text === 'string' && data.text ? data.text : `${streamedText}${data?.content || ''}`;
+          const last = state.messages[state.messages.length - 1];
+          if (last?.role === 'assistant') last.content = stripDraftMood(streamedText);
+          updateStreamingAssistantBubble(streamedText);
+          return;
+        }
+        if (event === 'tool') {
+          const last = state.messages[state.messages.length - 1];
+          if (last?.role === 'assistant') {
+            last.toolStatus = data?.label || `using ${data?.name || 'tool'}`;
+          }
+          state.presence = data?.state === 'running' ? 'tooling' : state.presence;
+          renderMessages();
+          updateTheme();
+          return;
+        }
+        if (event === 'done') {
+          finalData = data;
+          return;
+        }
+        if (event === 'error') {
+          throw new Error(data?.detail || data?.error || 'Streaming request failed.');
+        }
+      },
+    });
+    if (!finalData) throw new Error('Stream ended without a final Penny payload.');
+    const parsed = parseMood(finalData.text || streamedText || 'Something glitched.', finalData.meta?.mood || '');
+    const last = state.messages[state.messages.length - 1];
+    if (last?.role === 'assistant') {
+      last.content = parsed.text;
+      last.mood = parsed.mood;
+      last.toolsUsed = Array.isArray(finalData.meta?.toolsUsed) ? finalData.meta.toolsUsed : [];
+      delete last.toolStatus;
+      delete last.streaming;
+    } else {
+      state.messages.push({ role: 'assistant', content: parsed.text, mood: parsed.mood, toolsUsed: Array.isArray(finalData.meta?.toolsUsed) ? finalData.meta.toolsUsed : [] });
+    }
+    state.mood = parsed.mood; state.presence = 'present'; state.turns = finalData.meta?.turns || state.turns + 1; applyMemory(finalData.memory); maybeSpeak(parsed.text); updateBrainModeUi(finalData.meta || null);
   } catch (error) {
     const prefix = state.memory.brainMode === 'shadow'
       ? 'Shadow brain did not return a reply.'
       : 'Local LLM did not return a reply.';
-    state.messages.push({ role: 'assistant', content: `${prefix} ${error?.message || 'Try again in a moment.'}` });
+    const last = state.messages[state.messages.length - 1];
+    if (last?.role === 'assistant' && last.streaming) {
+      last.content = `${prefix} ${error?.message || 'Try again in a moment.'}`;
+      delete last.toolStatus;
+      delete last.streaming;
+    } else {
+      state.messages.push({ role: 'assistant', content: `${prefix} ${error?.message || 'Try again in a moment.'}` });
+    }
     state.mood = 'thinking'; state.presence = 'error';
   } finally {
     state.loading = false; renderMessages(); renderMemory(); updateTheme(); saveState(); els.composer.focus();
     loadBackendStatus();
-    if (state.messages.length >= 2) setTimeout(() => consolidateMemory(), 120);
   }
 }
 
@@ -546,16 +1239,64 @@ if (els.imageBtn) els.imageBtn.addEventListener('click', () => els.imageInput?.c
 if (els.imageInput) els.imageInput.addEventListener('change', async () => {
   const file = els.imageInput.files?.[0];
   if (!file) return;
-  try { attachImage(await fileToBase64(file)); } catch {}
+  try {
+    const prepared = await prepareImageAttachment(file);
+    attachImage(prepared);
+  } catch (error) {
+    clearPendingImage({ keepNotice: true });
+    setComposerNotice(error?.message || 'Image prep failed. Try a smaller file.', 'error');
+  }
 });
 if (els.imagePreviewRemove) els.imagePreviewRemove.addEventListener('click', clearPendingImage);
+if (els.fileBtn) els.fileBtn.addEventListener('click', () => els.fileInput?.click());
+if (els.fileInput) els.fileInput.addEventListener('change', async () => {
+  const file = els.fileInput.files?.[0];
+  if (!file) return;
+  try {
+    const prepared = await prepareFileAttachment(file);
+    attachFile(prepared);
+  } catch (error) {
+    clearPendingFile({ keepNotice: true });
+    setComposerNotice(error?.message || 'File prep failed. Try a smaller text/code file.', 'error');
+  }
+});
+if (els.filePreviewRemove) els.filePreviewRemove.addEventListener('click', clearPendingFile);
 
-const EMOJI_SET = [
-  '😊','😂','🥺','😍','🥰','😘','😏','🤭','😳','🫠',
-  '🔥','💀','✨','💖','❤️','💕','🫶','👀','🙄','😤',
-  '🤔','😴','🥲','😈','👑','🎮','🎵','💫','⚡','🌸',
-  '👍','👎','✌️','🤝','💪','🫡','🙈','🐱','🦊','🍑',
-];
+function isFlagEmoji(s) {
+  const cps = [...s].map((c) => c.codePointAt(0));
+  return cps.length >= 2 && cps.every((p) => p >= 0x1f1e6 && p <= 0x1f1ff);
+}
+
+function buildEmojiSet() {
+  const picto = /\p{Extended_Pictographic}/u;
+  const out = [];
+  const seen = new Set();
+  const add = (ch) => {
+    if (!ch || seen.has(ch) || isFlagEmoji(ch)) return;
+    seen.add(ch);
+    out.push(ch);
+  };
+  const scan = (from, to) => {
+    for (let cp = from; cp <= to && out.length < 400; cp++) {
+      if (cp >= 0xd800 && cp <= 0xdfff) continue;
+      if (cp >= 0x1f1e6 && cp <= 0x1f1ff) continue;
+      const ch = String.fromCodePoint(cp);
+      if (!picto.test(ch)) continue;
+      add(ch);
+    }
+  };
+  scan(0x1f600, 0x1f64f);
+  scan(0x1f300, 0x1f5ff);
+  scan(0x1f680, 0x1f6ff);
+  scan(0x1f900, 0x1f9ff);
+  scan(0x1fa70, 0x1faff);
+  scan(0x2600, 0x26ff);
+  scan(0x2700, 0x27bf);
+  ['\u2764\uFE0F', '\u2728', '\u2B50', '\u26A1', '\u231A', '\u231B'].forEach(add);
+  return out;
+}
+
+const EMOJI_SET = buildEmojiSet();
 const emojiBtn = document.getElementById('emojiBtn');
 const emojiPicker = document.getElementById('emojiPicker');
 const emojiGrid = document.getElementById('emojiGrid');
@@ -625,6 +1366,7 @@ els.clearMemory?.addEventListener('click', async () => {
 loadState();
 applyDebugSpriteOverrides();
 renderMessages();
+startIdleDecorScreensaver();
 renderMemory();
 updateTheme();
 updateBrainModeUi();

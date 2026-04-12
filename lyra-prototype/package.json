@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "start:durable": "powershell -ExecutionPolicy Bypass -File .\\start-lyra.ps1",
-    "stop": "powershell -ExecutionPolicy Bypass -File .\\stop-lyra.ps1"
+    "stop": "powershell -ExecutionPolicy Bypass -File .\\stop-lyra.ps1",
+    "qa:voice-redo": "node scripts/qa-penny-voice-redo.js",
+    "eval:models": "node scripts/eval-penny-models.js",
+    "preset:lmstudio": "node scripts/ensure-lmstudio-penny-preset.js"
   }
 }

@@ -78,10 +78,11 @@ That cache is for vessel continuity, not the final long-term memory architecture
 
 ## Shadow mode notes
 
-- `PENNY_OPENCLAW_ENABLED=1` enables the guarded OpenClaw shadow lane.
-- This does **not** replace `/api/penny/chat`; normal Penny chat stays on `local-stable`.
-- Shadow testing only affects `/api/penny/chat/shadow`.
-- If OpenClaw hangs or errors, the shadow route falls back to a local Penny reply.
+- `PENNY_OPENCLAW_ENABLED=1` enables Penny's optional experimental OpenClaw lane.
+- LM Studio remains Penny's main chat brain on `/api/penny/chat`.
+- On the main chat route, selecting `brainMode=shadow` sends the turn through the OpenClaw shadow lane and blocks the reply if that lane fails. It should not silently fake success.
+- The legacy `/api/penny/chat/shadow` route still exists for isolated experiments and currently falls back to a local Penny placeholder reply if OpenClaw errors.
+- Keep shadow parked unless it proves it adds real agentic/browser/PC value that the LM Studio lane does not already cover well.
 
 ## Planned next steps
 

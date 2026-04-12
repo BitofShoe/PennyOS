@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@300;400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=20260411d" />
   </head>
   <body>
     <div class="app-shell" id="shell" data-mood="calm">
@@ -87,24 +87,28 @@
                 <img src="/sprites/decor/chibi-penny-peace.png" class="decor-float decor-chibi" style="top:62%;right:4%;animation-delay:-4s" alt="" />
                 <img src="/sprites/decor/chibi-penny-think.png" class="decor-float decor-chibi" style="top:35%;left:78%;animation-delay:-9s" alt="" />
                 <img src="/sprites/decor/chibi-penny-heart.png" class="decor-float decor-chibi" style="bottom:12%;left:12%;animation-delay:-14s" alt="" />
+                <img src="/sprites/decor/chibi-penny-wink.png" class="decor-float decor-chibi" style="top:20%;left:92%;animation-delay:-1.5s" alt="" />
+                <img src="/sprites/decor/chibi-penny-think.png" class="decor-float decor-chibi" style="bottom:28%;right:12%;animation-delay:-19s" alt="" />
+                <img src="/sprites/decor/chibi-penny-heart.png" class="decor-float decor-chibi" style="top:48%;left:22%;animation-delay:-21s" alt="" />
                 <img src="/sprites/decor/pixel-headphones.png" class="decor-float decor-tech" style="top:18%;right:10%;animation-delay:-2s" alt="" />
                 <img src="/sprites/decor/pixel-monitor.png" class="decor-float decor-tech" style="bottom:22%;right:18%;animation-delay:-7s" alt="" />
                 <img src="/sprites/decor/pixel-chip.png" class="decor-float decor-tech" style="top:52%;left:4%;animation-delay:-11s" alt="" />
+                <img src="/sprites/decor/pixel-chip.png" class="decor-float decor-tech" style="top:12%;left:38%;animation-delay:-22s" alt="" />
+                <img src="/sprites/decor/pixel-monitor.png" class="decor-float decor-tech" style="bottom:8%;left:58%;animation-delay:-17s" alt="" />
+                <img src="/sprites/decor/pixel-headphones.png" class="decor-float decor-tech" style="top:72%;right:26%;animation-delay:-12s" alt="" />
                 <img src="/sprites/decor/pixel-crystal.png" class="decor-float decor-cyber" style="top:75%;left:68%;animation-delay:-5s" alt="" />
                 <img src="/sprites/decor/pixel-blossoms.png" class="decor-float decor-cyber" style="top:5%;left:45%;animation-delay:-13s" alt="" />
+                <img src="/sprites/decor/pixel-crystal.png" class="decor-float decor-cyber" style="bottom:38%;left:8%;animation-delay:-24s" alt="" />
+                <img src="/sprites/decor/pixel-blossoms.png" class="decor-float decor-cyber" style="top:58%;right:6%;animation-delay:-8s" alt="" />
                 <span class="decor-float decor-text" style="top:28%;left:2%;animation-delay:-3s">電脳</span>
                 <span class="decor-float decor-text" style="top:88%;right:8%;animation-delay:-8s">SYS://PENNY.CORE</span>
                 <span class="decor-float decor-text" style="top:48%;right:2%;animation-delay:-16s">&gt;&gt;STREAM</span>
                 <span class="decor-float decor-text" style="bottom:5%;left:42%;animation-delay:-6s">接続</span>
+                <span class="decor-float decor-text" style="top:14%;left:52%;animation-delay:-10s">LINK_OK</span>
+                <span class="decor-float decor-text" style="bottom:18%;right:32%;animation-delay:-14s">BUFFER</span>
               </div>
 
-              <div class="intro" id="intro">
-                <div class="intro-mark">Livehouse</div>
-                <h1 class="intro-title">Penny is awake.</h1>
-                <p class="intro-sub">
-                  The vessel is online. Keep the model local, keep the character intact, and start a conversation worth having.
-                </p>
-              </div>
+              <div class="intro" id="intro" hidden aria-hidden="true"></div>
 
               <div id="chat"></div>
             </div>
@@ -114,19 +118,33 @@
               <button id="imagePreviewRemove" class="image-preview-remove" type="button">&times;</button>
             </div>
 
+            <div id="filePreview" class="file-preview" hidden>
+              <div class="file-preview-copy">
+                <strong id="filePreviewName"></strong>
+                <small id="filePreviewMeta"></small>
+              </div>
+              <button id="filePreviewRemove" class="file-preview-remove" type="button">&times;</button>
+            </div>
+
+            <div id="composerNotice" class="composer-notice" hidden></div>
+
             <div class="composer-wrap">
               <div class="composer-frame">
                 <label class="composer-label" for="composer">Open channel</label>
                 <input id="composer" class="composer" placeholder="Say something to Penny..." autocomplete="off" />
               </div>
 
-              <input type="file" id="imageInput" accept="image/*" hidden />
-              <button id="imageBtn" class="image-btn" type="button" title="Send image">&#128247;</button>
+              <div class="composer-tools">
+                <input type="file" id="imageInput" accept="image/*" hidden />
+                <button id="imageBtn" class="image-btn" type="button" title="Send image">&#128247;</button>
+                <input type="file" id="fileInput" accept=".txt,.md,.json,.js,.mjs,.cjs,.ts,.tsx,.jsx,.css,.html,.svg,.yml,.yaml,.log,.ps1,.sh,.env,text/*,application/json,application/javascript" hidden />
+                <button id="fileBtn" class="file-btn" type="button" title="Attach file">&#128206;</button>
 
-              <div class="emoji-anchor">
-                <button id="emojiBtn" class="emoji-btn" type="button" title="Emoji">☺</button>
-                <div id="emojiPicker" class="emoji-picker" hidden>
-                  <div class="emoji-grid" id="emojiGrid"></div>
+                <div class="emoji-anchor">
+                  <button id="emojiBtn" class="emoji-btn" type="button" title="Emoji">&#9786;</button>
+                  <div id="emojiPicker" class="emoji-picker" hidden>
+                    <div class="emoji-grid" id="emojiGrid"></div>
+                  </div>
                 </div>
               </div>
 
@@ -209,7 +227,7 @@
                 </label>
 
                 <div class="card-note" id="brainModeNote">
-                  Shadow brain is the default. If the smarter path is unavailable, Penny can still fall back locally instead of faceplanting.
+                  LM Studio is Penny's main brain right now. Shadow stays optional and experimental until it proves it can do more than the local lane.
                 </div>
 
                 <div class="storage-block">
@@ -230,6 +248,6 @@
       </div>
     </div>
 
-    <script src="/app.js"></script>
+    <script src="/app.js?v=20260412a"></script>
   </body>
 </html>
