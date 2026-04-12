@@ -7,7 +7,9 @@
     "start": "node server.js",
     "start:durable": "powershell -ExecutionPolicy Bypass -File .\\start-lyra.ps1",
     "stop": "powershell -ExecutionPolicy Bypass -File .\\stop-lyra.ps1",
+    "test": "node --test test/*.test.js",
     "qa:voice-redo": "node scripts/qa-penny-voice-redo.js",
+    "eval:probes": "node scripts/eval-penny-probes.js",
     "eval:models": "node scripts/eval-penny-models.js",
     "preset:lmstudio": "node scripts/ensure-lmstudio-penny-preset.js"
   }

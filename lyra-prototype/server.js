@@ -6,6 +6,18 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { URL } = require('url');
+const {
+  MEMORY_ENTRY_LIMIT,
+  MEMORY_PROMPT_LIMIT,
+  mergeMemoryItems,
+  normalizeText,
+  formatPromptMemories,
+  injectRelevantMemoryContext,
+} = require('./lib/penny-memory');
+const {
+  shouldOfferLocalTools,
+  executeDirectProjectInspectIntent,
+} = require('./lib/penny-tool-intents');
 const PORT = process.env.PORT || 4317;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
@@ -185,58 +197,14 @@ function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.mkdirSync(path.dirname(MEMORY_FILE), { recursive: true });
 }
-const MEMORY_ENTRY_LIMIT = 30;
-const MEMORY_PROMPT_LIMIT = 12;
-const MEMORY_RELEVANT_LIMIT = 6;
-const MEMORY_KIND_SCORES = {
-  explicit: 8,
-  personal: 6,
-  preference: 5,
-  observation: 4,
-};
-const MEMORY_STOPWORDS = new Set([
-  'about', 'after', 'again', 'also', 'been', 'being', 'came', 'come', 'dont', 'from', 'have', 'just',
-  'know', 'like', 'maybe', 'more', 'really', 'said', 'some', 'that', 'their', 'them', 'then', 'there',
-  'they', 'this', 'very', 'want', 'with', 'would', 'your',
-]);
 function defaultMemoryRecord(sessionId = 'default') { return { sessionId, userName: '', memories: [], voiceOn: false, brainMode: 'local', lmStudioThread: null, updatedAt: new Date().toISOString() }; }
 function isLikelyTestSessionId(sessionId = '') { return /^(penny-durable-test|penny-controls-test|cmp-local-|smoke-shadow|ui-repro|style-pass-smoke|memory-pass-smoke|qa-|verify-)/i.test(String(sessionId)); }
-function normalizeText(text = '') { return String(text).replace(/\s+/g, ' ').trim().replace(/[.!?;,\s]+$/g, ''); }
 function normalizeBrainMode(value = '') { return value === 'shadow' ? 'shadow' : 'local'; }
 function normalizeUserName(value = '') {
   return String(value || '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 40);
-}
-function normalizeMemoryKind(value = '') {
-  const kind = String(value || '').trim().toLowerCase();
-  return kind || 'memory';
-}
-function normalizeMemoryItem(item) {
-  if (!item?.text) return null;
-  const text = normalizeText(item.text);
-  if (!text || text.length < 3 || text.length > 220) return null;
-  const ts = Number(item.ts);
-  return {
-    text,
-    kind: normalizeMemoryKind(item.kind),
-    ts: Number.isFinite(ts) ? ts : Date.now(),
-  };
-}
-function mergeMemoryItems(items = [], limit = MEMORY_ENTRY_LIMIT) {
-  const seen = new Set();
-  const merged = [];
-  for (const raw of items) {
-    const item = normalizeMemoryItem(raw);
-    if (!item) continue;
-    const key = normalizeText(item.text).toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(item);
-    if (merged.length >= limit) break;
-  }
-  return merged;
 }
 function normalizeMemoryRecord(record = {}, sessionId = 'default') {
   const normalized = {
@@ -293,49 +261,6 @@ function buildChatMemoryState(sessionId = 'default', clientMemory = {}, messages
   const consolidated = consolidateMemory(messages, runtimeMemory);
   const merged = mergeMemoryState(runtimeMemory, consolidated, { replaceMemories: false });
   return { diskMemory, memory: merged, patch: consolidated };
-}
-function tokenizeMemoryText(text = '') {
-  const matches = String(text || '').toLowerCase().match(/[a-z0-9][a-z0-9'-]{2,}/g) || [];
-  return [...new Set(matches.filter((token) => !MEMORY_STOPWORDS.has(token)))];
-}
-function scoreMemoryForPrompt(item, queryTokens = new Set()) {
-  const baseScore = MEMORY_KIND_SCORES[item?.kind] || 2;
-  const itemTokens = tokenizeMemoryText(item?.text || '');
-  let score = baseScore;
-  if (queryTokens.size && itemTokens.length) {
-    let overlap = 0;
-    for (const token of itemTokens) {
-      if (queryTokens.has(token)) overlap += 1;
-    }
-    score += overlap * 6;
-    if (overlap) score += overlap / itemTokens.length;
-  }
-  const ts = Number(item?.ts);
-  if (Number.isFinite(ts)) {
-    const ageDays = Math.max(0, Date.now() - ts) / (1000 * 60 * 60 * 24);
-    score += Math.max(0, 2 - Math.min(2, ageDays / 7));
-  }
-  return score;
-}
-function selectMemoriesForPrompt(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT) {
-  const items = mergeMemoryItems(memories?.memories || [], MEMORY_ENTRY_LIMIT);
-  if (!items.length) return [];
-  const queryTokens = new Set(tokenizeMemoryText(userText));
-  return items
-    .map((item, index) => ({ item, index, score: scoreMemoryForPrompt(item, queryTokens) }))
-    .sort((left, right) => right.score - left.score || (right.item.ts || 0) - (left.item.ts || 0) || left.index - right.index)
-    .slice(0, limit)
-    .map((entry) => entry.item);
-}
-function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '') {
-  const selected = selectMemoriesForPrompt(memories, userText, limit);
-  if (!selected.length) return fallback;
-  return selected.map((item) => `- ${item.text}`).join('\n');
-}
-function injectRelevantMemoryContext(text = '', memories = {}, userText = '', limit = MEMORY_RELEVANT_LIMIT) {
-  const relevant = formatPromptMemories(memories, userText, limit, '');
-  if (!relevant) return text;
-  return `Relevant memory for this reply:\n${relevant}\n\nCurrent user message:\n${text}`;
 }
 function hashText(text = '') {
   return crypto.createHash('sha1').update(String(text || ''), 'utf8').digest('hex');
@@ -649,35 +574,6 @@ function describeLocalBrainFailure(error, { hasImage = false } = {}) {
     }
   }
   return raw;
-}
-function looksLikeActionableToolRequest(text = '') {
-  const lower = String(text || '').toLowerCase();
-  if (!lower) return false;
-  if (/\b(can you|could you|would you|will you|please|try|use|check|show|tell me|read|open|inspect|search|find|grep|list|scan|summarize|explain|walk through|look up|look into|look at|fix|change|edit|update|patch|rewrite|refactor|implement|add|remove|create|build|test|lint|run|debug|compare|review)\b/.test(lower)) return true;
-  if (/\b(what|which|where|why|how)\b/.test(lower) && /\?/.test(lower)) return true;
-  if (/\b(git diff|git status|node --check|latest|current|today's|today|news)\b/.test(lower)) return true;
-  return false;
-}
-function looksLikeCasualFeatureMention(text = '') {
-  const lower = String(text || '').toLowerCase();
-  if (!lower) return false;
-  const selfNarration = /\b(i|i've|i have|i just|we|we've|we have|my human|spent all day|all day)\b/.test(lower);
-  const changeVerb = /\b(added|gave|taught|trained|built|coded|implemented|made|hooked up|wired up|turned you into)\b/.test(lower);
-  const featureMention = /\b(agent|agentic|web|web search|internet|attach files?|attachments?|code|coding|tool|tools)\b/.test(lower);
-  return selfNarration && changeVerb && featureMention && !looksLikeActionableToolRequest(lower);
-}
-function shouldOfferLocalTools(userText = '') {
-  const text = String(userText || '').toLowerCase();
-  if (!text) return false;
-  if (looksLikeCasualFeatureMention(text)) return false;
-  const actionable = looksLikeActionableToolRequest(text);
-  if (/\b(server\.js|app\.js|styles\.css|index\.html|package\.json|readme|penny_how_we_got_here_and_next_steps\.md)\b/.test(text)) return actionable;
-  if (/\b(log|logs|stack trace|traceback|runtime|lm studio|model|models|status|diagnostic|diagnostics|error|errors|bug|bugs)\b/.test(text)) return actionable;
-  if (/\b(web|internet|online|look up|latest|current|today's|today|news)\b/.test(text)) return actionable;
-  if (/\b(read|open|show|inspect|search|find|grep|list|scan|summarize|explain)\b/.test(text) && /\b(file|files|folder|folders|directory|directories|code|repo|project)\b/.test(text)) return true;
-  if (/\b(fix|change|edit|update|patch|rewrite|refactor|implement|add|remove|create|build|test|lint|check)\b/.test(text) && /\b(file|files|server\.js|app\.js|styles\.css|index\.html|code|repo|project|button|composer|ui|tool)\b/.test(text)) return true;
-  if (/\b(which file|what file|where is|line \d+|function|route|endpoint)\b/.test(text)) return true;
-  return false;
 }
 function sendJson(res, statusCode, data) { res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data, null, 2)); }
 function safeReadBody(req, { maxBytes = MAX_REQUEST_BODY_BYTES } = {}) {
@@ -2602,60 +2498,6 @@ async function executeDirectToolSequence(intent = {}, onToolEvent) {
   }
   return { toolsUsed, results };
 }
-async function executeDirectProjectInspectIntent(intent = {}, onToolEvent) {
-  const query = String(intent?.args?.query || '').trim();
-  const beforeLines = clampNumber(intent?.args?.beforeLines, 0, 80, 12);
-  const afterLines = clampNumber(intent?.args?.afterLines, 1, 120, 56);
-  if (!query) {
-    return {
-      toolsUsed: [],
-      results: [],
-      fallbackText: 'i need an actual symbol or phrase to inspect, not vibes and smoke.\n[MOOD:annoyed]',
-    };
-  }
-
-  const toolsUsed = [];
-  const results = [];
-  const runTool = async (name, args) => {
-    onToolEvent?.({ type: 'tool', state: 'running', name, label: `using ${name}` });
-    const result = await executePennyTool(name, args);
-    toolsUsed.push({ name, ok: result.ok, label: result.label });
-    results.push({ name, args, result });
-    onToolEvent?.({ type: 'tool', state: 'done', name, label: result.label, ok: result.ok });
-    return result;
-  };
-
-  const searchResult = await runTool('search_project_text', { query, limit: 5 });
-  if (!searchResult.ok) {
-    return {
-      toolsUsed,
-      results,
-      fallbackText: `i tried to inspect "${query}", but the project search choked. ${String(searchResult.data?.error || 'rude little failure.').trim()}\n[MOOD:annoyed]`,
-    };
-  }
-  const hits = Array.isArray(searchResult.data?.hits) ? searchResult.data.hits : [];
-  if (!hits.length) {
-    return {
-      toolsUsed,
-      results,
-      fallbackText: `i searched for "${query}" and didn't find a damn thing in the repo.\n[MOOD:annoyed]`,
-    };
-  }
-
-  const topHit = hits[0];
-  const startLine = Math.max(1, Number(topHit.line || 1) - beforeLines);
-  const endLine = startLine + afterLines + beforeLines;
-  await runTool('read_project_file', {
-    path: topHit.path,
-    startLine,
-    endLine,
-  });
-  return {
-    toolsUsed,
-    results,
-    fallbackText: `i found the live code around "${query}" and pulled the relevant chunk.\n[MOOD:thinking]`,
-  };
-}
 function composeDirectEditReply(intent = {}, sequence = {}) {
   const primaryName = intent.mode === 'direct_replace'
     ? 'replace_in_project_file'
@@ -2705,7 +2547,12 @@ async function runLmStudioDirectToolAssist({ userText, messages, memories, inten
     };
   }
   if (intent?.name === 'inspect_project_symbol') {
-    const sequence = await executeDirectProjectInspectIntent(intent, onToolEvent);
+    const sequence = await executeDirectProjectInspectIntent({
+      intent,
+      onToolEvent,
+      executePennyTool,
+      clampNumber,
+    });
     return {
       text: sequence.fallbackText || composeToolRecordFallback(sequence.results),
       toolsUsed: sequence.toolsUsed,

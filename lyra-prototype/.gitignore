@@ -1,3 +1,10 @@
 qa-transitions/
 qa-composer-visual/
 .qa-pw/
+output/
+tmp/
+*.log
+.lyra-server.pid
+.lyra-server.meta.json
+data/penny-memory*.json
+.playwright-cli/
