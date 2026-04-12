@@ -1058,39 +1058,72 @@ function normalizeModelKey(value = '') {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
-function normalizeModelAliasSet(value = '') {
-  const raw = String(value || '').trim();
-  const aliases = new Set();
-  const full = normalizeModelKey(raw);
-  if (full) aliases.add(full);
+function tokenizeModelAlias(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return { full: [], short: [] };
+  const splitTokens = raw
+    .replace(/@/g, '-')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  const full = [];
+  for (let i = 0; i < splitTokens.length; i += 1) {
+    const token = splitTokens[i];
+    const next = splitTokens[i + 1] || '';
+    if (/^q\d+$/.test(token) && /^[a-z0-9]{1,2}$/.test(next)) {
+      full.push(`${token}${next}`);
+      i += 1;
+      continue;
+    }
+    full.push(token);
+  }
+  const slashIndex = raw.indexOf('/');
+  const short = slashIndex >= 0
+    ? tokenizeModelAlias(raw.slice(slashIndex + 1)).full
+    : full.slice();
+  return { full, short };
+}
 
-  const noPublisher = raw.includes('/') ? raw.split('/').slice(1).join('/') : raw;
-  const trimmed = noPublisher.trim();
-  const short = normalizeModelKey(trimmed);
-  if (short) aliases.add(short);
+function isQuantizationToken(token = '') {
+  return /^(q\d+[a-z0-9]*|fp\d+|bf\d+|f\d+|gguf|mlx|int\d+)$/.test(String(token || '').toLowerCase());
+}
 
-  return aliases;
+function modelTokenArraysEquivalent(leftTokens = [], rightTokens = []) {
+  if (!leftTokens.length || !rightTokens.length) return false;
+  if (leftTokens.length === rightTokens.length) {
+    return leftTokens.every((token, index) => token === rightTokens[index]);
+  }
+  const longer = leftTokens.length > rightTokens.length ? leftTokens : rightTokens;
+  const shorter = longer === leftTokens ? rightTokens : leftTokens;
+  if (!shorter.every((token, index) => token === longer[index])) return false;
+  const extra = longer.slice(shorter.length);
+  return extra.length > 0 && extra.every(isQuantizationToken);
 }
 
 function modelsLookEquivalent(a = '', b = '') {
-  const aAliases = normalizeModelAliasSet(a);
-  const bAliases = normalizeModelAliasSet(b);
-  if (!aAliases.size || !bAliases.size) return false;
-  for (const left of aAliases) {
-    for (const right of bAliases) {
-      if (left === right || left.includes(right) || right.includes(left)) return true;
-    }
+  const left = tokenizeModelAlias(a);
+  const right = tokenizeModelAlias(b);
+  const aliasPairs = [
+    [left.full, right.full],
+    [left.full, right.short],
+    [left.short, right.full],
+    [left.short, right.short],
+  ];
+  for (const [leftTokens, rightTokens] of aliasPairs) {
+    if (modelTokenArraysEquivalent(leftTokens, rightTokens)) return true;
   }
   return false;
 }
 
 function mergeUniqueModelIds(...lists) {
   const out = [];
+  const seen = new Set();
   for (const list of lists) {
     for (const rawId of list || []) {
       const id = String(rawId || '').trim();
       if (!id) continue;
-      if (out.some(existing => modelsLookEquivalent(existing, id))) continue;
+      const key = normalizeModelKey(id);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
       out.push(id);
     }
   }
@@ -1142,18 +1175,27 @@ function execFileText(file, args = [], options = {}) {
 
 function normalizeLmStudioInstalledModelEntries(parsed) {
   if (!Array.isArray(parsed)) return [];
-  const seen = [];
+  const seen = new Set();
   const out = [];
+  const pushId = (rawId) => {
+    const id = String(rawId || '').trim();
+    if (!id) return;
+    const key = normalizeModelKey(id);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push({ id });
+  };
   for (const item of parsed) {
     if (!item || typeof item !== 'object') continue;
     if (String(item.type || '').toLowerCase() !== 'llm') continue;
     const selectedVariant = typeof item.selectedVariant === 'string' ? item.selectedVariant.trim() : '';
     const modelKey = typeof item.modelKey === 'string' ? item.modelKey.trim() : '';
-    const id = selectedVariant || modelKey;
-    if (!id) continue;
-    if (seen.some(existing => modelsLookEquivalent(existing, id))) continue;
-    seen.push(id);
-    out.push({ id });
+    const variants = Array.isArray(item.variants)
+      ? item.variants.map((variant) => String(variant || '').trim()).filter(Boolean)
+      : [];
+    if (selectedVariant) pushId(selectedVariant);
+    for (const variant of variants) pushId(variant);
+    if (!variants.length && modelKey) pushId(modelKey);
   }
   return out;
 }
@@ -1163,6 +1205,33 @@ async function getInstalledLmStudioModels() {
     const { stdout } = await execFileText('lms', ['ls', '--llm', '--json'], { timeout: 15000 });
     const parsed = stdout ? JSON.parse(stdout) : [];
     return normalizeLmStudioInstalledModelEntries(parsed).map(item => item.id);
+  } catch {
+    return [];
+  }
+}
+
+function normalizeLmStudioLoadedModelEntries(parsed) {
+  if (!Array.isArray(parsed)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== 'object') continue;
+    if (String(item.type || '').toLowerCase() !== 'llm') continue;
+    const raw = item.modelKey ?? item.identifier ?? item.id ?? item.name;
+    const id = typeof raw === 'string' ? raw.trim() : '';
+    const key = normalizeModelKey(id);
+    if (!id || !key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ id });
+  }
+  return out;
+}
+
+async function getLoadedLmStudioModels() {
+  try {
+    const { stdout } = await execFileText('lms', ['ps', '--json'], { timeout: 15000 });
+    const parsed = stdout ? JSON.parse(stdout) : [];
+    return normalizeLmStudioLoadedModelEntries(parsed).map(item => item.id);
   } catch {
     return [];
   }
@@ -1191,6 +1260,7 @@ async function getLmStudioConnectionStatus({ force = false } = {}) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let value;
   const installedModels = await getInstalledLmStudioModels();
+  const loadedModels = await getLoadedLmStudioModels();
 
   try {
     const response = await fetch(`${LMSTUDIO_BASE}/models`, {
@@ -1215,18 +1285,26 @@ async function getLmStudioConnectionStatus({ force = false } = {}) {
     }
 
     const runtimeModels = normalizeLmStudioModelEntries(parsed);
+    const loadedModelEntries = loadedModels.map(id => ({ id }));
+    const loadedCandidates = sortLmStudioModelCandidates(loadedModelEntries).map(item => item.id);
     const runtimeCandidates = sortLmStudioModelCandidates(runtimeModels).map(item => item.id);
     const fallbackModels = [];
     for (const fallbackId of [runtimePreferredModel, LMSTUDIO_MODEL]) {
       const id = String(fallbackId || '').trim();
       if (!id) continue;
+      if (loadedModelEntries.some(item => modelsLookEquivalent(item.id, id))) continue;
       if (runtimeModels.some(item => modelsLookEquivalent(item.id, id))) continue;
       if (fallbackModels.some(item => modelsLookEquivalent(item.id, id))) continue;
       fallbackModels.push({ id });
     }
     const fallbackCandidates = sortLmStudioModelCandidates(fallbackModels).map(item => item.id);
-    const candidateModels = runtimeCandidates.length ? runtimeCandidates : fallbackCandidates;
-    const resolvedModel = runtimeCandidates[0] || '';
+    const candidateModels = loadedCandidates.length
+      ? loadedCandidates
+      : (runtimeCandidates.length ? runtimeCandidates : fallbackCandidates);
+    const resolvedModel = candidateModels[0] || '';
+    const availableModels = loadedCandidates.length
+      ? loadedCandidates
+      : runtimeModels.map(item => item.id);
     value = {
       ok: true,
       reachable: true,
@@ -1234,8 +1312,11 @@ async function getLmStudioConnectionStatus({ force = false } = {}) {
       configuredModel: LMSTUDIO_MODEL,
       resolvedModel,
       candidateModels,
-      availableModels: runtimeModels.map(item => item.id),
-      installedModels: mergeUniqueModelIds(installedModels, runtimeModels.map(item => item.id)),
+      availableModels,
+      nativeAvailableModels: runtimeModels.map(item => item.id),
+      installedModels: loadedCandidates.length
+        ? mergeUniqueModelIds(availableModels, installedModels)
+        : mergeUniqueModelIds(availableModels, installedModels, runtimeModels.map(item => item.id)),
       desktopLocalServiceEnabled: settings?.enableLocalService ?? null,
       hint: resolvedModel ? '' : 'LM Studio is reachable, but no usable chat model is currently loaded.',
       error: '',
@@ -1261,6 +1342,7 @@ async function getLmStudioConnectionStatus({ force = false } = {}) {
       resolvedModel: '',
       candidateModels: [],
       availableModels: [],
+      nativeAvailableModels: [],
       installedModels,
       desktopLocalServiceEnabled: settings?.enableLocalService ?? null,
       hint: buildLmStudioLaunchHint(),
@@ -1322,6 +1404,27 @@ async function withLmStudioCandidateModel(runForModel) {
 
     throw new Error(status.hint || 'LM Studio did not report a usable chat model.');
   }
+}
+
+function pickLmStudioNativeModelId(preferredModel = '', status = {}) {
+  const target = String(preferredModel || '').trim();
+  if (!target) return '';
+  const nativeModels = Array.isArray(status?.nativeAvailableModels)
+    ? status.nativeAvailableModels.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (!nativeModels.length) return target;
+  const direct = nativeModels.find((id) => id === target);
+  if (direct) return direct;
+  const alias = nativeModels.find((id) => modelsLookEquivalent(id, target));
+  return alias || target;
+}
+
+function shouldPreferLmStudioChatCompletions(model = '', status = {}) {
+  const target = String(model || '').trim();
+  if (!target) return false;
+  const nativeModel = pickLmStudioNativeModelId(target, status);
+  if (!nativeModel) return false;
+  return normalizeModelKey(nativeModel) !== normalizeModelKey(target);
 }
 
 async function runOpenClawShadow({ sessionId, userText, messages, memories, abortSignal }) {
@@ -3946,22 +4049,23 @@ async function runLmStudioResponsesApi({ userText, messages, memories, file, abo
 }
 
 async function runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal }) {
-  return withLmStudioCandidateModel(async (model) => {
+  return withLmStudioCandidateModel(async (model, status) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
     bindAbortSignal(controller, abortSignal);
+    const nativeModel = pickLmStudioNativeModelId(model, status);
     const systemPrompt = buildLmStudioLeanSystemPrompt({ memories });
     const systemPromptHash = hashText(systemPrompt);
     const existingThread = normalizeLmStudioThread(memories?.lmStudioThread);
     const canContinue = !!(
       existingThread
       && existingThread.responseId
-      && existingThread.model === model
+      && existingThread.model === nativeModel
       && existingThread.systemPromptHash === systemPromptHash
     );
     try {
       const payload = {
-        model,
+        model: nativeModel,
         input: buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread: canContinue }),
         temperature: 0.9,
         max_output_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
@@ -4008,7 +4112,7 @@ async function runLmStudioStatefulChatApi({ userText, messages, memories, image,
       if (responseId && memories && typeof memories === 'object') {
         memories.lmStudioThread = {
           responseId,
-          model,
+          model: nativeModel,
           systemPromptHash,
           updatedAt: new Date().toISOString(),
         };
@@ -4028,16 +4132,17 @@ async function runLmStudioStatefulChatApi({ userText, messages, memories, image,
 }
 
 async function streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal }) {
-  return withLmStudioCandidateModel(async (model) => {
+  return withLmStudioCandidateModel(async (model, status) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
+    const nativeModel = pickLmStudioNativeModelId(model, status);
     const systemPrompt = buildLmStudioLeanSystemPrompt({ memories });
     const systemPromptHash = hashText(systemPrompt);
     const existingThread = normalizeLmStudioThread(memories?.lmStudioThread);
     const canContinue = !!(
       existingThread
       && existingThread.responseId
-      && existingThread.model === model
+      && existingThread.model === nativeModel
       && existingThread.systemPromptHash === systemPromptHash
     );
 
@@ -4045,7 +4150,7 @@ async function streamLmStudioStatefulChatApi({ userText, messages, memories, ima
 
     try {
       const payload = {
-        model,
+        model: nativeModel,
         input: buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread: canContinue }),
         temperature: 0.9,
         max_output_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
@@ -4116,7 +4221,7 @@ async function streamLmStudioStatefulChatApi({ userText, messages, memories, ima
       if (responseId && memories && typeof memories === 'object') {
         memories.lmStudioThread = {
           responseId,
-          model,
+          model: nativeModel,
           systemPromptHash,
           updatedAt: new Date().toISOString(),
         };
@@ -4408,6 +4513,13 @@ async function runLmStudioLocal({ userText, messages, memories, image, file, abo
     if (image) return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal });
     return runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal });
   }
+  if (transport === 'auto') {
+    const status = await getLmStudioConnectionStatus();
+    const preferredModel = String(status?.resolvedModel || status?.candidateModels?.[0] || '').trim();
+    if (preferredModel && shouldPreferLmStudioChatCompletions(preferredModel, status)) {
+      return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal });
+    }
+  }
   try {
     return await runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal });
   } catch (error) {
@@ -4447,6 +4559,13 @@ async function streamLmStudioLocal({ userText, messages, memories, image, file, 
   if (transport === 'responses') {
     if (image) return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal });
     return streamLmStudioResponsesApi({ userText, messages, memories, file, onEvent, abortSignal });
+  }
+  if (transport === 'auto') {
+    const status = await getLmStudioConnectionStatus();
+    const preferredModel = String(status?.resolvedModel || status?.candidateModels?.[0] || '').trim();
+    if (preferredModel && shouldPreferLmStudioChatCompletions(preferredModel, status)) {
+      return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal });
+    }
   }
   try {
     return await streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal });

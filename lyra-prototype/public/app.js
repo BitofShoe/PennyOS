@@ -1043,18 +1043,72 @@ function normalizeModelPickKey(value = '') {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
-function modelIdsLookEquivalent(a = '', b = '') {
-  const left = String(a || '').trim();
-  const right = String(b || '').trim();
-  if (!left || !right) return false;
-  const fullLeft = normalizeModelPickKey(left);
-  const fullRight = normalizeModelPickKey(right);
-  if (!fullLeft || !fullRight) return false;
-  if (fullLeft === fullRight || fullLeft.includes(fullRight) || fullRight.includes(fullLeft)) return true;
+function tokenizeModelPickId(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return { full: [], short: [] };
+  const splitTokens = raw
+    .replace(/@/g, '-')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  const full = [];
+  for (let i = 0; i < splitTokens.length; i += 1) {
+    const token = splitTokens[i];
+    const next = splitTokens[i + 1] || '';
+    if (/^q\d+$/.test(token) && /^[a-z0-9]{1,2}$/.test(next)) {
+      full.push(`${token}${next}`);
+      i += 1;
+      continue;
+    }
+    full.push(token);
+  }
+  const slashIndex = raw.indexOf('/');
+  const short = slashIndex >= 0
+    ? tokenizeModelPickId(raw.slice(slashIndex + 1)).full
+    : full.slice();
+  return { full, short };
+}
 
-  const shortLeft = normalizeModelPickKey(left.includes('/') ? left.split('/').slice(1).join('/') : left);
-  const shortRight = normalizeModelPickKey(right.includes('/') ? right.split('/').slice(1).join('/') : right);
-  return !!shortLeft && !!shortRight && (shortLeft === shortRight || shortLeft.includes(shortRight) || shortRight.includes(shortLeft));
+function isQuantizationPickToken(token = '') {
+  return /^(q\d+[a-z0-9]*|fp\d+|bf\d+|f\d+|gguf|mlx|int\d+)$/.test(String(token || '').toLowerCase());
+}
+
+function modelPickTokensEquivalent(leftTokens = [], rightTokens = []) {
+  if (!leftTokens.length || !rightTokens.length) return false;
+  if (leftTokens.length === rightTokens.length) {
+    return leftTokens.every((token, index) => token === rightTokens[index]);
+  }
+  const longer = leftTokens.length > rightTokens.length ? leftTokens : rightTokens;
+  const shorter = longer === leftTokens ? rightTokens : leftTokens;
+  if (!shorter.every((token, index) => token === longer[index])) return false;
+  const extra = longer.slice(shorter.length);
+  return extra.length > 0 && extra.every(isQuantizationPickToken);
+}
+
+function modelIdsLookEquivalent(a = '', b = '') {
+  const left = tokenizeModelPickId(a);
+  const right = tokenizeModelPickId(b);
+  const pairs = [
+    [left.full, right.full],
+    [left.full, right.short],
+    [left.short, right.full],
+    [left.short, right.short],
+  ];
+  return pairs.some(([leftTokens, rightTokens]) => modelPickTokensEquivalent(leftTokens, rightTokens));
+}
+
+function mergeDistinctModelIds(...lists) {
+  const out = [];
+  const seen = new Set();
+  for (const list of lists) {
+    for (const rawId of list || []) {
+      const id = String(rawId || '').trim();
+      const key = normalizeModelPickKey(id);
+      if (!id || !key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(id);
+    }
+  }
+  return out;
 }
 
 function findBestModelMatch(modelIds, ...preferredIds) {
@@ -1076,17 +1130,15 @@ async function loadAvailableModels() {
     if (!res.ok) return;
     const data = await res.json();
     const isEmbed = (id) => /\b(embed|embedding|rerank)\b/i.test(id);
-    let models = (data.installedModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
-    if (!models.length) {
-      models = (data.availableModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
-    }
-    if (!models.length && Array.isArray(data.candidateModels)) {
-      models = data.candidateModels.filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
-    }
-    if (!models.length && data.configuredModel) {
-      const c = String(data.configuredModel).trim();
-      if (c && !isEmbed(c)) models = [c];
-    }
+    const available = (data.availableModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
+    const installed = (data.installedModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
+    const candidates = Array.isArray(data.candidateModels)
+      ? data.candidateModels.filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id))
+      : [];
+    const configured = data.configuredModel && !isEmbed(data.configuredModel)
+      ? [String(data.configuredModel).trim()]
+      : [];
+    const models = mergeDistinctModelIds(available, installed, candidates, configured);
     if (!models.length) {
       els.modelSelect.innerHTML = '<option value="">no models loaded</option>';
       return;
