@@ -13,6 +13,14 @@ test('coercePennyVisibleReply strips single-line draft scaffolding', () => {
   );
 });
 
+test('coercePennyVisibleReply strips dangling channel-thought prefixes', () => {
+  const raw = `<|channel>thought\nHere's a thinking process to generate Penny's reply:\n[MOOD:calm]`;
+  assert.equal(
+    coercePennyVisibleReply(raw),
+    `[MOOD:calm]`,
+  );
+});
+
 test('coercePennyVisibleReply strips qwen polish-preface lines', () => {
   const raw = `Actually, let's make it more "Penny".\n"oh, rude? okay, fine. usually people get scared when i say exactly what\n[MOOD:annoyed]`;
   assert.equal(

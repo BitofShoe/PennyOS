@@ -1682,6 +1682,7 @@ function insertInProjectFileTool(args = {}) {
   return {
     path: toProjectRelative(filePath),
     inserted: text.split('\n').length,
+    textPreview: truncateText(text.replace(/^\n+/, '').replace(/\n+$/, ''), 1200),
     position,
     anchor: anchor || null,
     anchorMatches,
@@ -2171,6 +2172,14 @@ function extractDirectWebQuery(text = '') {
   }
   return '';
 }
+function shouldInspectTopWebResult(text = '') {
+  const lower = String(text || '').toLowerCase();
+  if (!lower) return false;
+  if (/\b(page title|title, the url|the url|one short sentence|what it is|what is it|summari[sz]e|summary|read (?:the )?page|open (?:the )?(?:page|result)|tell me about)\b/.test(lower)) {
+    return true;
+  }
+  return /\b(official|docs|documentation)\b/.test(lower);
+}
 function extractDirectSearchQuery(text = '') {
   const raw = String(text || '');
   const lower = raw.toLowerCase();
@@ -2211,6 +2220,10 @@ function looksLikeOpenEndedProjectEdit(text = '') {
   const creativeCue = /\b(in your own voice|pick the wording|choose the wording|decide what to write|whatever you want|anything you want|your own note)\b/.test(lower)
     || (/\b(note|line|paragraph)\b/.test(lower) && /\b(your own|yourself)\b/.test(lower));
   return editVerb && creativeCue;
+}
+function shouldForceLocalToolLoop(text = '') {
+  const explicitPath = extractExplicitProjectPath(text);
+  return !!(explicitPath && looksLikeOpenEndedProjectEdit(text));
 }
 function resolveDirectToolIntent(userText = '') {
   const text = String(userText || '');
@@ -2267,6 +2280,9 @@ function resolveDirectToolIntent(userText = '') {
   }
   const webQuery = extractDirectWebQuery(text);
   if (webQuery) {
+    if (shouldInspectTopWebResult(text)) {
+      return { name: 'inspect_web_result', args: { query: webQuery, limit: 5 } };
+    }
     return { name: 'search_web', args: { query: webQuery, limit: 5 } };
   }
   if (explicitPath && looksLikeOpenEndedProjectEdit(text)) {
@@ -2473,8 +2489,65 @@ function composeDirectWebPageReply(result = {}) {
   }
   return `i pulled ${heading}${url ? `\n${url}` : ''}\n\nhere's the useful bit:\n${excerpt}\n[MOOD:thinking]`;
 }
+function takeFirstUsefulSentence(text = '', limit = 280) {
+  const cleaned = collapseWhitespace(String(text || '').replace(/\s+/g, ' ').trim());
+  if (!cleaned) return '';
+  const sentenceMatch = cleaned.match(/^(.{1,280}?[.!?])(?:\s|$)/);
+  if (sentenceMatch?.[1]) return sentenceMatch[1].trim();
+  return truncateText(cleaned, limit);
+}
 function composeToolRecordFallback(toolRecords = []) {
   const records = Array.isArray(toolRecords) ? toolRecords : [];
+  const insert = records.find(record => record?.name === 'insert_in_project_file' && record?.result?.ok && record?.result?.data);
+  if (insert) {
+    const pathLabel = insert.result.data.path || 'that file';
+    const snippet = truncateText(cleanDirectInstructionContent(String(insert.args?.text || insert.result.data?.textPreview || '').trim()), 1200);
+    if (snippet) {
+      return `i added this to ${pathLabel}:\n${snippet}\n[MOOD:smug]`;
+    }
+    return `i added the new text to ${pathLabel}. the change is in there and verified.\n[MOOD:smug]`;
+  }
+  const replace = records.find(record => record?.name === 'replace_in_project_file' && record?.result?.ok && record?.result?.data);
+  if (replace) {
+    const pathLabel = replace.result.data.path || 'that file';
+    const find = truncateText(String(replace.args?.find || '').trim(), 120);
+    const next = truncateText(String(replace.args?.replace || '').trim(), 160);
+    const replaced = Number(replace.result.data?.replaced || 0);
+    if (find && next) {
+      return `i updated ${pathLabel} by replacing ${replaced || 1} match${replaced === 1 ? '' : 'es'} of "${find}" with "${next}".\n[MOOD:smug]`;
+    }
+    return `i updated ${pathLabel} and the replacement landed.\n[MOOD:smug]`;
+  }
+  const write = records.find(record => record?.name === 'write_project_file' && record?.result?.ok && record?.result?.data);
+  if (write) {
+    const pathLabel = write.result.data.path || 'that file';
+    const action = write.result.data.action === 'created' ? 'created' : 'updated';
+    return `i ${action} ${pathLabel}. the file is in place.\n[MOOD:smug]`;
+  }
+  const page = records.find(record => record?.name === 'read_web_page' && record?.result?.ok && record?.result?.data);
+  if (page) {
+    const data = page.result.data;
+    const heading = String(data.title || data.url || data.requestedUrl || 'that page').trim();
+    const url = String(data.url || data.requestedUrl || '').trim();
+    const sentence = takeFirstUsefulSentence(data.text, 260);
+    if (sentence) {
+      return `i checked ${heading}${url ? `\n${url}` : ''}\n\nshort version: ${sentence}\n[MOOD:thinking]`;
+    }
+    return `i checked ${heading}${url ? `\n${url}` : ''}, but the page text came back annoyingly thin.\n[MOOD:annoyed]`;
+  }
+  const web = records.find(record => record?.name === 'search_web' && record?.result?.ok && Array.isArray(record?.result?.data?.results));
+  if (web) {
+    const results = web.result.data.results;
+    if (!results.length) {
+      return `i searched the web for "${web.result.data.query || 'that topic'}" and came up empty.\n[MOOD:annoyed]`;
+    }
+    const top = results[0];
+    const snippet = truncateText(String(top?.snippet || '').trim(), 220);
+    if (snippet) {
+      return `i found the strongest live-web hit for "${web.result.data.query || 'that topic'}":\n${top.title}\n${top.url}\n\nshort version: ${snippet}\n[MOOD:thinking]`;
+    }
+    return `i found the strongest live-web hit for "${web.result.data.query || 'that topic'}":\n${top.title}\n${top.url}\n[MOOD:thinking]`;
+  }
   const read = records.find(record => record?.name === 'read_project_file' || record?.name === 'read_project_file_around_match');
   if (read?.result?.ok && read.result.data) {
     const data = read.result.data;
@@ -2494,6 +2567,36 @@ function composeToolRecordFallback(toolRecords = []) {
   }
   return '';
 }
+function hasToolRecordName(toolRecords = [], names = []) {
+  const wanted = new Set(names);
+  return Array.isArray(toolRecords) && toolRecords.some(record => wanted.has(String(record?.name || '').trim()));
+}
+function looksLikeWeakToolReply(text = '', toolRecords = []) {
+  const stripped = stripReplyMoodTags(String(text || '')).trim();
+  if (!stripped) return true;
+  const hasEdit = hasToolRecordName(toolRecords, ['insert_in_project_file', 'replace_in_project_file', 'write_project_file']);
+  if (!hasEdit) return false;
+  const insert = Array.isArray(toolRecords)
+    ? toolRecords.find(record => record?.name === 'insert_in_project_file' && record?.result?.ok)
+    : null;
+  if (insert) {
+    const snippet = collapseWhitespace(
+      String(insert?.result?.data?.textPreview || insert?.args?.text || '')
+        .replace(/^\n+/, '')
+        .replace(/\n+$/, '')
+        .trim(),
+    );
+    const normalizedReply = collapseWhitespace(stripped).toLowerCase();
+    const normalizedSnippet = snippet.toLowerCase();
+    if (normalizedSnippet && /\b(exactly what i added|here is exactly what i added|here's exactly what i added|micro-story i added|paragraph i added|i added this)\b/i.test(normalizedReply)) {
+      if (!normalizedReply.includes(normalizedSnippet)) return true;
+    }
+  }
+  if (((stripped.match(/`/g) || []).length % 2) === 1) return true;
+  if (stripped.length < 70) return true;
+  if (!/[.!?][)"'`]*$/.test(stripped) && stripped.length < 180) return true;
+  return false;
+}
 async function executeDirectToolSequence(intent = {}, onToolEvent) {
   const toolsUsed = [];
   const results = [];
@@ -2509,6 +2612,56 @@ async function executeDirectToolSequence(intent = {}, onToolEvent) {
     if (!result.ok) break;
   }
   return { toolsUsed, results };
+}
+async function executeDirectWebInspectIntent({ intent, onToolEvent, executePennyTool, clampNumber }) {
+  const query = String(intent?.args?.query || '').trim();
+  const limit = clampNumber(intent?.args?.limit, 1, WEB_SEARCH_MAX_RESULTS, Math.min(5, WEB_SEARCH_MAX_RESULTS));
+  const toolsUsed = [];
+  const results = [];
+
+  onToolEvent?.({ type: 'tool', state: 'running', name: 'search_web', label: 'using search_web' });
+  let searchResult;
+  try {
+    searchResult = await executePennyTool('search_web', { query, limit });
+  } catch (error) {
+    return {
+      toolsUsed,
+      results,
+      fallbackText: `i tried to search the web for "${query}", but it blew up: ${String(error?.message || error).trim()}\n[MOOD:annoyed]`,
+    };
+  }
+  toolsUsed.push({ name: 'search_web', ok: searchResult.ok, label: searchResult.label });
+  results.push({ name: 'search_web', args: { query, limit }, result: searchResult });
+  onToolEvent?.({ type: 'tool', state: 'done', name: 'search_web', label: searchResult.label, ok: searchResult.ok });
+  if (!searchResult.ok) {
+    return { toolsUsed, results, fallbackText: composeDirectWebSearchReply(searchResult.data) };
+  }
+
+  const top = Array.isArray(searchResult.data?.results)
+    ? searchResult.data.results.find(item => normalizeWebUrl(item?.url))
+    : null;
+  if (!top?.url) {
+    return { toolsUsed, results, fallbackText: composeDirectWebSearchReply(searchResult.data) };
+  }
+
+  onToolEvent?.({ type: 'tool', state: 'running', name: 'read_web_page', label: 'using read_web_page' });
+  let pageResult;
+  try {
+    pageResult = await executePennyTool('read_web_page', { url: top.url });
+  } catch (error) {
+    pageResult = {
+      ok: false,
+      label: `failed to read ${top.url}`,
+      data: { error: String(error?.message || error).trim(), url: top.url },
+    };
+  }
+  toolsUsed.push({ name: 'read_web_page', ok: pageResult.ok, label: pageResult.label });
+  results.push({ name: 'read_web_page', args: { url: top.url }, result: pageResult });
+  onToolEvent?.({ type: 'tool', state: 'done', name: 'read_web_page', label: pageResult.label, ok: pageResult.ok });
+  if (!pageResult.ok) {
+    return { toolsUsed, results, fallbackText: composeToolRecordFallback(results) };
+  }
+  return { toolsUsed, results, fallbackText: composeToolRecordFallback(results) };
 }
 function composeDirectEditReply(intent = {}, sequence = {}) {
   const primaryName = intent.mode === 'direct_replace'
@@ -2560,6 +2713,19 @@ async function runLmStudioDirectToolAssist({ userText, messages, memories, inten
   }
   if (intent?.name === 'inspect_project_symbol') {
     const sequence = await executeDirectProjectInspectIntent({
+      intent,
+      onToolEvent,
+      executePennyTool,
+      clampNumber,
+    });
+    return {
+      text: sequence.fallbackText || composeToolRecordFallback(sequence.results),
+      toolsUsed: sequence.toolsUsed,
+      toolRecords: sequence.results,
+    };
+  }
+  if (intent?.name === 'inspect_web_result') {
+    const sequence = await executeDirectWebInspectIntent({
       intent,
       onToolEvent,
       executePennyTool,
@@ -2784,6 +2950,11 @@ async function runLmStudioToolLoop({ userText, messages, memories, onToolEvent, 
           });
         }
       }
+      if (toolRecords.length) {
+        const fallbackText = composeToolRecordFallback(toolRecords)
+          || `i did the tool work, but the reply brain chewed through its loop budget before it could say something normal.\n[MOOD:annoyed]`;
+        return { text: fallbackText, toolsUsed, toolRecords };
+      }
       throw new Error(`Penny hit the tool-use loop limit (${MAX_TOOL_STEPS}) before finishing the reply.`);
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
@@ -2959,6 +3130,11 @@ async function runLmStudioManualToolLoop({ userText, messages, memories, onToolE
         }
 
         return { text: decision.text.trim(), toolsUsed, toolRecords };
+      }
+      if (toolRecords.length) {
+        const fallbackText = composeToolRecordFallback(toolRecords)
+          || `i did the tool work, but the reply brain chewed through its loop budget before it could say something normal.\n[MOOD:annoyed]`;
+        return { text: fallbackText, toolsUsed, toolRecords };
       }
       throw new Error(`Penny manual tool loop hit the limit (${MAX_TOOL_STEPS}) before finishing the reply.`);
     } catch (error) {
@@ -3226,8 +3402,14 @@ async function renderSemanticReplyAsPenny({ userText, messages, memories, file, 
 
 async function maybeRenderHardTurnReply({ userText, messages, memories, file, text, toolsUsed = [], toolRecords = [], onToolEvent, abortSignal }) {
   const cleanedText = cleanDraftForSemanticRender(text) || String(text || '').trim();
+  const fallbackText = composeToolRecordFallback(toolRecords);
+  const coerceFinalizedText = (candidate) => {
+    const cleaned = cleanDraftForSemanticRender(candidate) || String(candidate || '').trim();
+    if (looksLikeWeakToolReply(cleaned, toolRecords) && fallbackText) return fallbackText;
+    return cleaned || fallbackText;
+  };
   if (!shouldUseSemanticRender({ file, toolRecords, draftText: cleanedText })) {
-    return { text: cleanedText || composeToolRecordFallback(toolRecords), toolsUsed, toolRecords };
+    return { text: coerceFinalizedText(cleanedText), toolsUsed, toolRecords };
   }
   onToolEvent?.({ type: 'status', stage: 'rendering', label: 'shaping the final reply' });
   try {
@@ -3240,9 +3422,9 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
       draftText: cleanedText,
       abortSignal,
     });
-    return { text: rendered || cleanedText || composeToolRecordFallback(toolRecords), toolsUsed, toolRecords };
+    return { text: coerceFinalizedText(rendered), toolsUsed, toolRecords };
   } catch {
-    return { text: cleanedText || composeToolRecordFallback(toolRecords), toolsUsed, toolRecords };
+    return { text: coerceFinalizedText(cleanedText), toolsUsed, toolRecords };
   }
 }
 
@@ -3677,6 +3859,7 @@ function looksOnlyLikeCoT(str) {
 
 function coercePennyVisibleReply(raw) {
   let t = stripThinkSpans(String(raw || '').trim());
+  t = t.replace(/^<\|channel\>\s*(?:thought|analysis)\s*/i, '').trim();
   if (!t || ALLOW_RAW_REASONING_FALLBACK) return t;
   const tagged = extractTaggedVisibleReply(t);
   if (tagged) t = tagged;
@@ -4564,6 +4747,7 @@ async function streamLmStudioLocal({ userText, messages, memories, image, file, 
 
 async function runLmStudioLocalSmart({ userText, messages, memories, image, file, abortSignal, onToolEvent }) {
   const toolUserText = buildToolUserText(userText, file);
+  const forceToolLoop = !image && shouldForceLocalToolLoop(userText);
   if (!image) {
     const directIntent = resolveDirectToolIntent(userText);
     if (directIntent) {
@@ -4591,7 +4775,7 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
       });
     }
   }
-  if (!image && (file || shouldOfferLocalTools(userText))) {
+  if (!image && (file || forceToolLoop || shouldOfferLocalTools(userText))) {
     try {
       const result = await runLmStudioToolLoop({ userText: toolUserText, messages, memories, abortSignal });
       return maybeRenderHardTurnReply({
@@ -4627,6 +4811,7 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
 
 async function streamLmStudioLocalSmart({ userText, messages, memories, image, file, onEvent, abortSignal }) {
   const toolUserText = buildToolUserText(userText, file);
+  const forceToolLoop = !image && shouldForceLocalToolLoop(userText);
   if (!image) {
     const directIntent = resolveDirectToolIntent(userText);
     if (directIntent) {
@@ -4651,7 +4836,7 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
       return { text: finalized.text, toolsUsed: finalized.toolsUsed, toolRecords: finalized.toolRecords };
     }
   }
-  if (!image && (file || shouldOfferLocalTools(userText))) {
+  if (!image && (file || forceToolLoop || shouldOfferLocalTools(userText))) {
     let result;
     try {
       result = await runLmStudioToolLoop({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal });
@@ -5056,5 +5241,8 @@ module.exports = {
   coercePennyVisibleReply,
   textFromChatMessage,
   extractExplicitProjectPath,
+  shouldForceLocalToolLoop,
   resolveDirectToolIntent,
+  composeToolRecordFallback,
+  looksLikeWeakToolReply,
 };
