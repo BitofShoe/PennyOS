@@ -1,6 +1,6 @@
 # `server.js` section map
 
-**Purpose:** current-state map for the remaining `server.js` monolith after the 2026-04-13 direct-intent and tool extraction pass.  
+**Purpose:** current-state map for the remaining `server.js` monolith after the 2026-04-13 direct-intent/tool extraction pass and the automatic dual-lane LM Studio split.  
 **Companion docs:** [ARCHITECTURE.md](./ARCHITECTURE.md), [CODEBASE.md](./CODEBASE.md), [Notes on Penny's Code From a Project Manager.md](./Notes%20on%20Penny's%20Code%20From%20a%20Project%20Manager.md)
 
 Line numbers will drift. Treat **function names and module boundaries** as the stable key.
@@ -21,7 +21,6 @@ Line numbers will drift. Treat **function names and module boundaries** as the s
 Still in `server.js`:
 
 - env/config constants
-- LM Studio status cache + runtime preferred model
 - `sessionState`
 - MIME map
 - prompt asset cache
@@ -30,6 +29,11 @@ Still in `server.js`:
 Already moved out of the monolith:
 
 - durable memory merge/consolidation helpers via [lib/penny-memory-state.js](./lib/penny-memory-state.js)
+- local lane selection via [lib/penny-local-lanes.js](./lib/penny-local-lanes.js)
+- LM Studio status/model resolution via [lib/penny-lmstudio-status.js](./lib/penny-lmstudio-status.js)
+- visible reply salvage via [lib/penny-visible-reply.js](./lib/penny-visible-reply.js)
+- tool-loop orchestration via [lib/penny-tool-loop.js](./lib/penny-tool-loop.js)
+- LM Studio transports via [lib/penny-lmstudio-transports.js](./lib/penny-lmstudio-transports.js)
 - direct-intent parsing/reply helpers via [lib/penny-direct-intents.js](./lib/penny-direct-intents.js)
 - direct deterministic tool assist via [lib/penny-direct-tool-assist.js](./lib/penny-direct-tool-assist.js)
 - concrete tool implementations via `lib/penny-*-tools.js`
@@ -152,6 +156,7 @@ Role:
 - transport preference hints
 
 This is still one of the biggest isolated chunks left in `server.js`.
+Primary ownership now lives in [lib/penny-lmstudio-status.js](./lib/penny-lmstudio-status.js). `server.js` mostly consumes the API output and exposes the routes.
 
 ### I. OpenClaw shadow
 
@@ -186,19 +191,11 @@ Now owned by:
 
 Still in `server.js` for this lane:
 
-- `runLmStudioToolContextAnswer(...)`
 - the top-level orchestration that chooses direct deterministic handling versus the full tool loop
 
 ### M. Full tool loop
 
-Role:
-
-- `runLmStudioToolLoop(...)`
-- `parsePlannerDecision(...)`
-- `shouldFallbackToManualToolLoop(...)`
-- `runLmStudioManualToolLoop(...)`
-
-This is now the main remaining orchestration-heavy backend band after the tool extraction.
+Primary ownership now lives in [lib/penny-tool-loop.js](./lib/penny-tool-loop.js).
 
 ### N. Tool system prompt
 
@@ -223,13 +220,7 @@ Role:
 
 ### Q. Reply cleanup and LM response parsing
 
-Role:
-
-- strip reasoning/planning spill
-- collect text from LM Studio response shapes
-- visible reply salvage
-
-This is still a good candidate for future extraction because model quirks keep hitting it.
+Primary ownership now lives in [lib/penny-visible-reply.js](./lib/penny-visible-reply.js).
 
 ### R. SSE helpers
 
@@ -239,14 +230,13 @@ Role:
 
 ### S. LM Studio transports
 
-Role:
+Primary ownership now lives in [lib/penny-lmstudio-transports.js](./lib/penny-lmstudio-transports.js).
 
-- responses API
-- stateful chat API
-- chat completions API
-- transport selection
+Still in `server.js` for this lane:
+
 - `runLmStudioLocalSmart(...)`
 - `streamLmStudioLocalSmart(...)`
+- route-level orchestration and semantic-render gating
 
 ### T. Memory extraction
 
@@ -308,6 +298,11 @@ Those direct-intent helpers are re-exported from the extracted module so the reg
 | [lib/penny-memory.js](./lib/penny-memory.js) | Memory scoring, merge, prompt formatting |
 | [lib/penny-memory-state.js](./lib/penny-memory-state.js) | Memory patch semantics, consolidation, chat-memory layering |
 | [lib/penny-tool-intents.js](./lib/penny-tool-intents.js) | Tool-offer gating, `executeDirectProjectInspectIntent` |
+| [lib/penny-local-lanes.js](./lib/penny-local-lanes.js) | Chat-vs-tool lane selection before any LM Studio call |
+| [lib/penny-lmstudio-status.js](./lib/penny-lmstudio-status.js) | Chat/tool preferred models, runtime chat override, connection status |
+| [lib/penny-visible-reply.js](./lib/penny-visible-reply.js) | Thinking-spill cleanup and speakable reply salvage |
+| [lib/penny-tool-loop.js](./lib/penny-tool-loop.js) | Planner/manual tool loop orchestration plus tool-context answer |
+| [lib/penny-lmstudio-transports.js](./lib/penny-lmstudio-transports.js) | Stateful chat, chat completions, responses, and transport selection |
 | [lib/penny-direct-intents.js](./lib/penny-direct-intents.js) | Direct path extraction, routing heuristics, deterministic reply helpers |
 | [lib/penny-direct-tool-assist.js](./lib/penny-direct-tool-assist.js) | Direct sequence runner, targeted web inspect flow, one-shot direct tool handling |
 | [lib/penny-project-tools.js](./lib/penny-project-tools.js) | Project path resolution, file read/search/edit helpers, `node --check` |
@@ -320,10 +315,9 @@ Those direct-intent helpers are re-exported from the extracted module so the reg
 
 ## Suggested next splits
 
-1. LM Studio status + desktop integration
-2. Reply cleanup / visible reply parsing
-3. LM Studio transport families
-4. Tool-loop orchestration
-5. Router closure
+1. Router closure
+2. Remaining `server.js` duplicates that still shadow the extracted LM Studio helpers
+3. Tool system prompt and semantic-render glue
+4. Prompt-asset loading and config cleanup
 
-That order keeps chipping away at `server.js` where the remaining risk is now concentrated: orchestration, model quirks, and route glue.
+That order keeps chipping away at `server.js` where the remaining risk is now concentrated: orchestration, route glue, and the last duplicate legacy bands.

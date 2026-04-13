@@ -18,12 +18,13 @@ const CONTEXT_LENGTH = Number(process.env.PENNY_PROBE_CONTEXT_LENGTH || 10000);
 const TIMEOUT_MS = Number(process.env.PENNY_PROBE_TIMEOUT_MS || 180000);
 const LOAD_TIMEOUT_MS = Number(process.env.PENNY_PROBE_LOAD_TIMEOUT_MS || 1200000);
 const MODEL_TTL_SECONDS = Number(process.env.PENNY_PROBE_MODEL_TTL_SECONDS || 1800);
-const MAX_OUTPUT_TOKENS = String(process.env.PENNY_LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS || 900);
+const MAX_OUTPUT_TOKENS = String(process.env.PENNY_LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS || 900);
+const CHAT_MODEL = String(process.env.PENNY_PROBE_CHAT_MODEL || process.env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim();
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `probe-eval-${STAMP}.json`);
 const SERVER_STDOUT_PATH = path.join(OUTPUT_DIR, `probe-eval-${STAMP}.server.out.log`);
 const SERVER_STDERR_PATH = path.join(OUTPUT_DIR, `probe-eval-${STAMP}.server.err.log`);
-const MODELS = (process.env.PENNY_PROBE_MODELS || 'google/gemma-4-31b,unsloth/gemma-4-31b-it')
+const MODELS = (process.env.PENNY_PROBE_MODELS || process.env.PENNY_PROBE_TOOL_MODEL || 'google/gemma-4-e4b')
   .split(',')
   .map((item) => item.trim())
   .filter(Boolean)
@@ -178,7 +179,7 @@ async function waitForResolvedModel(expectedModel, timeoutMs = LOAD_TIMEOUT_MS) 
   while ((Date.now() - started) < timeoutMs) {
     try {
       const status = await fetchJson(`${BASE_URL}/api/penny/lmstudio/status`, {}, 20000);
-      const resolved = String(status?.resolvedModel || '');
+      const resolved = String(status?.resolvedToolModel || status?.toolPreferredModel || status?.resolvedModel || '');
       const available = Array.isArray(status?.availableModels) ? status.availableModels : [];
       if (resolved.toLowerCase().includes(expectedModel.toLowerCase()) || available.some((item) => String(item || '').toLowerCase().includes(expectedModel.toLowerCase()))) {
         return status;
@@ -239,6 +240,8 @@ function createServerProcess() {
       PORT: String(PORT),
       PENNY_MEMORY_FILE: MEMORY_FILE,
       PENNY_OPENCLAW_ENABLED: '0',
+      PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
+      PENNY_LMSTUDIO_TOOL_MODEL: MODELS[0]?.key || 'google/gemma-4-e4b',
       PENNY_LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
       PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
     },
@@ -282,7 +285,6 @@ function ensurePennyPresetDefaults() {
 async function runProbesForModel(model) {
   await unloadAllModels();
   await loadModel(model.key);
-  await setRuntimePreferredModel(model.key);
   const status = await waitForResolvedModel(model.key);
 
   const technical = await chatRequest(`probe-${model.slug}-technical`, [
@@ -335,7 +337,9 @@ async function runProbesForModel(model) {
   const totalScore = probes.reduce((sum, probe) => sum + probe.score, 0);
   return {
     model: model.key,
-    resolvedModel: status.resolvedModel || '',
+    resolvedModel: status.resolvedToolModel || status.resolvedModel || '',
+    toolPreferredModel: status.toolPreferredModel || '',
+    chatPreferredModel: status.chatPreferredModel || '',
     probes,
     totalScore,
     maxScore: probes.reduce((sum, probe) => sum + probe.maxScore, 0),

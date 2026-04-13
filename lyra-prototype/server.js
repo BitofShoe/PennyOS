@@ -42,6 +42,21 @@ const {
 const {
   createToolRegistry,
 } = require('./lib/penny-tool-registry');
+const {
+  createLocalLaneApi,
+} = require('./lib/penny-local-lanes');
+const {
+  createLmStudioStatusApi,
+} = require('./lib/penny-lmstudio-status');
+const {
+  createVisibleReplyApi,
+} = require('./lib/penny-visible-reply');
+const {
+  createLmStudioToolLoopApi,
+} = require('./lib/penny-tool-loop');
+const {
+  createLmStudioTransportApi,
+} = require('./lib/penny-lmstudio-transports');
 const PORT = process.env.PORT || 4317;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
@@ -70,7 +85,11 @@ function deriveLmStudioNativeBase(base) {
   return `${trimmed}/api/v1`;
 }
 const LMSTUDIO_NATIVE_BASE = (process.env.PENNY_LMSTUDIO_NATIVE_BASE || deriveLmStudioNativeBase(LMSTUDIO_BASE)).replace(/\/$/, '');
-const LMSTUDIO_MODEL = process.env.PENNY_LMSTUDIO_MODEL || 'unsloth/gemma-4-31b-it';
+const PENNY_LMSTUDIO_CHAT_MODEL = process.env.PENNY_LMSTUDIO_CHAT_MODEL
+  || process.env.PENNY_LMSTUDIO_MODEL
+  || 'google/gemma-4-31b';
+const PENNY_LMSTUDIO_TOOL_MODEL = process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b';
+const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 /** Full request budget for /chat/completions and /responses (prompt eval + generation). Large quants (e.g. 30B+) and multi-step local tool turns can legitimately take a long time; LM Studio logs "Client disconnected" if this fires first. Override with PENNY_LMSTUDIO_TIMEOUT_MS (ms). */
 const LMSTUDIO_TIMEOUT_MS = Number(process.env.PENNY_LMSTUDIO_TIMEOUT_MS || 1800000);
@@ -122,8 +141,6 @@ const STREAM_KEEPALIVE_MS = Number(process.env.PENNY_STREAM_KEEPALIVE_MS || 1500
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
 const TEXT_FILE_EXTENSIONS = new Set(['', '.js', '.cjs', '.mjs', '.json', '.md', '.txt', '.html', '.css', '.svg', '.yml', '.yaml', '.ps1', '.sh', '.ts', '.tsx', '.jsx', '.env', '.gitignore', '.log']);
 const TEXT_ATTACHMENT_EXTENSIONS = new Set(['.txt', '.md', '.json', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.css', '.html', '.svg', '.yml', '.yaml', '.log', '.ps1', '.sh', '.env']);
-let lmStudioStatusCache = { expiresAt: 0, value: null };
-let runtimePreferredModel = '';
 
 const sessionState = { turns: 0, lastMood: 'calm', memory: [] };
 const MIME_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
@@ -273,6 +290,56 @@ function buildChatMemoryState(sessionId = 'default', clientMemory = {}, messages
   const diskMemory = getStoredMemory(sessionId).memory;
   return buildChatMemoryStateFromDiskMemory(diskMemory, clientMemory, messages);
 }
+function execFileText(file, args = [], options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      file,
+      args,
+      {
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+        ...options,
+      },
+      (error, stdout = '', stderr = '') => {
+        if (error) {
+          error.stdout = String(stdout || '');
+          error.stderr = String(stderr || '');
+          reject(error);
+          return;
+        }
+        resolve({
+          stdout: String(stdout || ''),
+          stderr: String(stderr || ''),
+        });
+      },
+    );
+  });
+}
+const lmStudioStatusApi = createLmStudioStatusApi({
+  fetch,
+  fs,
+  execFileText,
+  URL,
+  LMSTUDIO_BASE,
+  LMSTUDIO_API_KEY,
+  LMSTUDIO_SETTINGS_FILE,
+  LMSTUDIO_STATUS_CACHE_MS,
+  LMSTUDIO_STATUS_ERROR_CACHE_MS,
+  LMSTUDIO_MODELS_PROBE_MS,
+  LOCAL_LLM_TRANSPORT,
+  PENNY_LMSTUDIO_CHAT_MODEL,
+  PENNY_LMSTUDIO_TOOL_MODEL,
+});
+const {
+  getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
+  withLmStudioLaneModel: withLmStudioLaneModelApi,
+  getPreferredModelForLane: getPreferredModelForLaneApi,
+  getRuntimePreferredChatModel: getRuntimePreferredChatModelApi,
+  setRuntimePreferredChatModel: setRuntimePreferredChatModelApi,
+  resetLmStudioStatusCache: resetLmStudioStatusCacheApi,
+  pickLmStudioNativeModelId: pickLmStudioNativeModelIdApi,
+  shouldPreferLmStudioChatCompletions: shouldPreferLmStudioChatCompletionsApi,
+} = lmStudioStatusApi;
 const projectToolsApi = createProjectToolsApi({
   projectRoot: __dirname,
   fs,
@@ -344,7 +411,7 @@ const runtimeToolsApi = createRuntimeToolsApi({
   readUtf8ProjectFile,
   resolveProjectPath,
   toProjectRelative,
-  getLmStudioConnectionStatus,
+  getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
   sessionState,
   PORT,
   LOCAL_LLM_TRANSPORT,
@@ -401,6 +468,13 @@ const {
   shouldUseDirectReadReply,
 } = directIntentApi;
 const {
+  selectLocalLane,
+} = createLocalLaneApi({
+  shouldOfferLocalTools,
+  shouldForceLocalToolLoop,
+  resolveDirectToolIntent,
+});
+const {
   executeDirectToolSequence,
   executeDirectWebInspectIntent,
   composeDirectEditReply,
@@ -408,7 +482,7 @@ const {
 } = createDirectToolAssistApi({
   executePennyTool,
   executeDirectProjectInspectIntent,
-  runLmStudioToolContextAnswer,
+  runLmStudioToolContextAnswer: (...args) => runLmStudioToolContextAnswerApi(...args),
   composeDirectRuntimeReply,
   composeDirectSyntaxReply,
   composeDirectGitStatusReply,
@@ -1034,6 +1108,24 @@ function retagAssistantReply(text = '', preferredMood = '') {
 function pickMood(text) {
   return extractReplyMoodTag(text) || resolveReplyMood(text);
 }
+const visibleReplyApi = createVisibleReplyApi({
+  ALLOW_RAW_REASONING_FALLBACK,
+  retagAssistantReply,
+});
+const {
+  stripThinkSpans: stripThinkSpansApi,
+  looksOnlyLikeCoT: looksOnlyLikeCoTApi,
+  coercePennyVisibleReply: coercePennyVisibleReplyApi,
+  collectLmStudioResponsesStrings: collectLmStudioResponsesStringsApi,
+  extractPennyFromPlanningBlob: extractPennyFromPlanningBlobApi,
+  extractPennyFromReasoning: extractPennyFromReasoningApi,
+  collectTextParts: collectTextPartsApi,
+  textValueFromField: textValueFromFieldApi,
+  textFromChatMessage: textFromChatMessageApi,
+  collectLmStudioStatefulChatStrings: collectLmStudioStatefulChatStringsApi,
+  isMissingLmStudioThreadError: isMissingLmStudioThreadErrorApi,
+  lmStudioStageLabel: lmStudioStageLabelApi,
+} = visibleReplyApi;
 function summarizeMemory(memory) { if (!memory.length) return ''; const recent = memory.slice(-4).map(item => item.content).filter(Boolean); if (!recent.length) return ''; return `Recent thread: ${recent.join(' | ')}`; }
 function buildPennyReply({ userText, memories }) { const lower = userText.toLowerCase(); const turns = sessionState.turns; const mood = pickMood(userText); const userName = memories?.userName ? ` ${memories.userName}` : ''; let text; if (/\b(hi|hello|hey|yo)\b/.test(lower) && userText.trim().length < 40) text = turns === 0 ? `oh, hey${userName}. there you are. come be interesting.` : `hey${userName}. back for trouble already?`; else if (/\b(how are you|how're you|how are u)\b/.test(lower)) text = `pretty good. a little charged, a little smug. you?`; else if (/\b(remember|note this|don't forget)\b/.test(lower)) text = `mm, okay. that one's staying.`; else if (/\b(build|prototype|frontend|app|ui|backend|implement)\b/.test(lower)) text = `okay yes, that's the fun part. it should feel alive, not like somebody put lip gloss on a helpdesk.`; else if (/\b(broke|borked|glitched|error|crash|failed)\b/.test(lower)) text = `rude. but fair. something glitched. doesn't mean i'm not still the cutest thing in the room.`; else { const openers = { calm: [`mm. okay.`, `oh, i see what you're doing.`, `well now you've got my attention.`], happy: [`okay wait, i like this.`, `heh. yeah, that lands.`, `oh, that's cute. dangerously cute, actually.`], excited: [`oh, hell yes.`, `okay now we're talking.`, `wow. okay. keep going.`], thinking: [`hmm. wait.`, `okay, hold on.`, `no, because i do have thoughts about that.`], surprised: [`oh?`, `excuse me?`, `well that's a turn.`], flirty: [`oh? is that what we're doing now?`, `careful. you're getting close to dangerous territory.`, `well aren't you bold today.`], smug: [`called it.`, `oh, that's cute. you tried though.`, `see, i knew you'd come around.`], annoyed: [`...really.`, `okay, wow. sure.`, `you're testing me right now.`] }; const closers = [
   `go on.`,
@@ -1077,411 +1169,6 @@ ${userText}
 End with exactly one mood tag on its own line:
 [MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised] or [MOOD:flirty] or [MOOD:smug] or [MOOD:annoyed]
 Pick the mood that BEST matches the vibe of your reply. Use variety — rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange. Most banter should be happy, smug, or excited.`;
-}
-
-function readLmStudioDesktopSettings() {
-  try {
-    if (!LMSTUDIO_SETTINGS_FILE || !fs.existsSync(LMSTUDIO_SETTINGS_FILE)) return null;
-    const parsed = JSON.parse(fs.readFileSync(LMSTUDIO_SETTINGS_FILE, 'utf8'));
-    return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-/** LM Studio /v1/models JSON varies by version; normalize to { id }[]. */
-function normalizeLmStudioModelEntries(parsed) {
-  if (!parsed || typeof parsed !== 'object') return [];
-  let rows = parsed.data;
-  if (!Array.isArray(rows) && Array.isArray(parsed.models)) rows = parsed.models;
-  if (!Array.isArray(rows)) return [];
-  const seen = new Set();
-  const out = [];
-  for (const item of rows) {
-    let id = '';
-    if (typeof item === 'string') id = item.trim();
-    else if (item && typeof item === 'object') {
-      const raw = item.id ?? item.model ?? item.name;
-      id = typeof raw === 'string' ? raw.trim() : '';
-    }
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    out.push({ id });
-  }
-  return out;
-}
-
-function normalizeModelKey(value = '') {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
-function tokenizeModelAlias(value = '') {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) return { full: [], short: [] };
-  const splitTokens = raw
-    .replace(/@/g, '-')
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-  const full = [];
-  for (let i = 0; i < splitTokens.length; i += 1) {
-    const token = splitTokens[i];
-    const next = splitTokens[i + 1] || '';
-    if (/^q\d+$/.test(token) && /^[a-z0-9]{1,2}$/.test(next)) {
-      full.push(`${token}${next}`);
-      i += 1;
-      continue;
-    }
-    full.push(token);
-  }
-  const slashIndex = raw.indexOf('/');
-  const short = slashIndex >= 0
-    ? tokenizeModelAlias(raw.slice(slashIndex + 1)).full
-    : full.slice();
-  return { full, short };
-}
-
-function isQuantizationToken(token = '') {
-  return /^(q\d+[a-z0-9]*|fp\d+|bf\d+|f\d+|gguf|mlx|int\d+)$/.test(String(token || '').toLowerCase());
-}
-
-function modelTokenArraysEquivalent(leftTokens = [], rightTokens = []) {
-  if (!leftTokens.length || !rightTokens.length) return false;
-  if (leftTokens.length === rightTokens.length) {
-    return leftTokens.every((token, index) => token === rightTokens[index]);
-  }
-  const longer = leftTokens.length > rightTokens.length ? leftTokens : rightTokens;
-  const shorter = longer === leftTokens ? rightTokens : leftTokens;
-  if (!shorter.every((token, index) => token === longer[index])) return false;
-  const extra = longer.slice(shorter.length);
-  return extra.length > 0 && extra.every(isQuantizationToken);
-}
-
-function modelsLookEquivalent(a = '', b = '') {
-  const left = tokenizeModelAlias(a);
-  const right = tokenizeModelAlias(b);
-  const aliasPairs = [
-    [left.full, right.full],
-    [left.full, right.short],
-    [left.short, right.full],
-    [left.short, right.short],
-  ];
-  for (const [leftTokens, rightTokens] of aliasPairs) {
-    if (modelTokenArraysEquivalent(leftTokens, rightTokens)) return true;
-  }
-  return false;
-}
-
-function mergeUniqueModelIds(...lists) {
-  const out = [];
-  const seen = new Set();
-  for (const list of lists) {
-    for (const rawId of list || []) {
-      const id = String(rawId || '').trim();
-      if (!id) continue;
-      const key = normalizeModelKey(id);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      out.push(id);
-    }
-  }
-  return out;
-}
-
-function rankLmStudioModel(model = {}, preferredKey = '') {
-  const id = String(model?.id || '');
-  if (!id) return -1000;
-
-  const key = normalizeModelKey(id);
-  let score = 0;
-  const runtimeKey = normalizeModelKey(runtimePreferredModel);
-  if (runtimeKey && (key === runtimeKey || key.includes(runtimeKey) || runtimeKey.includes(key))) score += 1000;
-  if (preferredKey && key === preferredKey) score += id.includes('/') ? 320 : 420;
-  else if (preferredKey && (key.includes(preferredKey) || preferredKey.includes(key))) score += 260;
-  if (id.includes('@')) score += 40;
-  if (!id.includes('/')) score += 60;
-  if (/\b(instruct|chat|assistant|it)\b/i.test(id)) score += 40;
-  if (/\b(embed|embedding|rerank)\b/i.test(id)) score -= 400;
-  return score;
-}
-
-function sortLmStudioModelCandidates(models = []) {
-  const preferredKey = normalizeModelKey(LMSTUDIO_MODEL);
-  return models
-    .filter(model => typeof model?.id === 'string' && model.id.trim())
-    .slice()
-    .sort((a, b) => rankLmStudioModel(b, preferredKey) - rankLmStudioModel(a, preferredKey) || String(a.id).localeCompare(String(b.id)));
-}
-
-function execFileText(file, args = [], options = {}) {
-  return new Promise((resolve, reject) => {
-    execFile(file, args, {
-      windowsHide: true,
-      maxBuffer: 10 * 1024 * 1024,
-      ...options,
-    }, (error, stdout, stderr) => {
-      if (error) {
-        error.stdout = stdout;
-        error.stderr = stderr;
-        reject(error);
-        return;
-      }
-      resolve({ stdout, stderr });
-    });
-  });
-}
-
-function normalizeLmStudioInstalledModelEntries(parsed) {
-  if (!Array.isArray(parsed)) return [];
-  const seen = new Set();
-  const out = [];
-  const pushId = (rawId) => {
-    const id = String(rawId || '').trim();
-    if (!id) return;
-    const key = normalizeModelKey(id);
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    out.push({ id });
-  };
-  for (const item of parsed) {
-    if (!item || typeof item !== 'object') continue;
-    if (String(item.type || '').toLowerCase() !== 'llm') continue;
-    const selectedVariant = typeof item.selectedVariant === 'string' ? item.selectedVariant.trim() : '';
-    const modelKey = typeof item.modelKey === 'string' ? item.modelKey.trim() : '';
-    const variants = Array.isArray(item.variants)
-      ? item.variants.map((variant) => String(variant || '').trim()).filter(Boolean)
-      : [];
-    if (selectedVariant) pushId(selectedVariant);
-    for (const variant of variants) pushId(variant);
-    if (!variants.length && modelKey) pushId(modelKey);
-  }
-  return out;
-}
-
-async function getInstalledLmStudioModels() {
-  try {
-    const { stdout } = await execFileText('lms', ['ls', '--llm', '--json'], { timeout: 15000 });
-    const parsed = stdout ? JSON.parse(stdout) : [];
-    return normalizeLmStudioInstalledModelEntries(parsed).map(item => item.id);
-  } catch {
-    return [];
-  }
-}
-
-function normalizeLmStudioLoadedModelEntries(parsed) {
-  if (!Array.isArray(parsed)) return [];
-  const seen = new Set();
-  const out = [];
-  for (const item of parsed) {
-    if (!item || typeof item !== 'object') continue;
-    if (String(item.type || '').toLowerCase() !== 'llm') continue;
-    const raw = item.modelKey ?? item.identifier ?? item.id ?? item.name;
-    const id = typeof raw === 'string' ? raw.trim() : '';
-    const key = normalizeModelKey(id);
-    if (!id || !key || seen.has(key)) continue;
-    seen.add(key);
-    out.push({ id });
-  }
-  return out;
-}
-
-async function getLoadedLmStudioModels() {
-  try {
-    const { stdout } = await execFileText('lms', ['ps', '--json'], { timeout: 15000 });
-    const parsed = stdout ? JSON.parse(stdout) : [];
-    return normalizeLmStudioLoadedModelEntries(parsed).map(item => item.id);
-  } catch {
-    return [];
-  }
-}
-
-function buildLmStudioLaunchHint() {
-  const settings = readLmStudioDesktopSettings();
-  const parts = [];
-  if (settings?.enableLocalService === false) {
-    parts.push('LM Studio local server is disabled in the desktop app.');
-  }
-  parts.push(`Expected the OpenAI-compatible API at ${LMSTUDIO_BASE}.`);
-  parts.push('In LM Studio, start the local server and keep at least one chat model loaded.');
-  return parts.join(' ');
-}
-
-async function getLmStudioConnectionStatus({ force = false } = {}) {
-  const now = Date.now();
-  if (!force && lmStudioStatusCache.value && now < lmStudioStatusCache.expiresAt) {
-    return lmStudioStatusCache.value;
-  }
-
-  const settings = readLmStudioDesktopSettings();
-  const controller = new AbortController();
-  const timeoutMs = Math.min(Math.max(LMSTUDIO_MODELS_PROBE_MS, 2000), 120000);
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let value;
-  const installedModels = await getInstalledLmStudioModels();
-  const loadedModels = await getLoadedLmStudioModels();
-
-  try {
-    const response = await fetch(`${LMSTUDIO_BASE}/models`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${LMSTUDIO_API_KEY}`,
-      },
-      signal: controller.signal,
-    });
-    const bodyText = await response.text();
-    if (!response.ok) {
-      const err = new Error(`LM Studio models error ${response.status}: ${bodyText}`);
-      err.statusCode = response.status;
-      throw err;
-    }
-
-    let parsed;
-    try {
-      parsed = bodyText ? JSON.parse(bodyText) : {};
-    } catch {
-      throw new Error(`LM Studio models: invalid JSON: ${bodyText.slice(0, 400)}`);
-    }
-
-    const runtimeModels = normalizeLmStudioModelEntries(parsed);
-    const loadedModelEntries = loadedModels.map(id => ({ id }));
-    const loadedCandidates = sortLmStudioModelCandidates(loadedModelEntries).map(item => item.id);
-    const runtimeCandidates = sortLmStudioModelCandidates(runtimeModels).map(item => item.id);
-    const fallbackModels = [];
-    for (const fallbackId of [runtimePreferredModel, LMSTUDIO_MODEL]) {
-      const id = String(fallbackId || '').trim();
-      if (!id) continue;
-      if (loadedModelEntries.some(item => modelsLookEquivalent(item.id, id))) continue;
-      if (runtimeModels.some(item => modelsLookEquivalent(item.id, id))) continue;
-      if (fallbackModels.some(item => modelsLookEquivalent(item.id, id))) continue;
-      fallbackModels.push({ id });
-    }
-    const fallbackCandidates = sortLmStudioModelCandidates(fallbackModels).map(item => item.id);
-    const candidateModels = loadedCandidates.length
-      ? loadedCandidates
-      : (runtimeCandidates.length ? runtimeCandidates : fallbackCandidates);
-    const resolvedModel = loadedCandidates[0] || runtimeCandidates[0] || '';
-    const availableModels = loadedCandidates.length
-      ? loadedCandidates
-      : runtimeModels.map(item => item.id);
-    value = {
-      ok: true,
-      reachable: true,
-      base: LMSTUDIO_BASE,
-      configuredModel: LMSTUDIO_MODEL,
-      resolvedModel,
-      candidateModels,
-      availableModels,
-      nativeAvailableModels: runtimeModels.map(item => item.id),
-      installedModels: loadedCandidates.length
-        ? mergeUniqueModelIds(availableModels, installedModels)
-        : mergeUniqueModelIds(availableModels, installedModels, runtimeModels.map(item => item.id)),
-      desktopLocalServiceEnabled: settings?.enableLocalService ?? null,
-      hint: resolvedModel ? '' : 'LM Studio is reachable, but no usable chat model is currently loaded.',
-      error: '',
-    };
-  } catch (error) {
-    const rawMsg = String(error?.message || 'LM Studio is unreachable.');
-    let detail = error?.name === 'AbortError'
-      ? `LM Studio models request timed out after ${timeoutMs}ms`
-      : rawMsg;
-    if (settings?.enableLocalService === false) {
-      detail = 'LM Studio local server is off in the desktop app. Open LM Studio, turn on the local API / dev server, then refresh Settings here.';
-    } else {
-      const code = error?.cause?.code || error?.code;
-      if (code === 'ECONNREFUSED' || /\bfetch failed\b/i.test(rawMsg)) {
-        detail = `Cannot reach ${LMSTUDIO_BASE} (${rawMsg}). Start LM Studio's local server and load a chat model, or set PENNY_LMSTUDIO_BASE if the port changed.`;
-      }
-    }
-    value = {
-      ok: false,
-      reachable: false,
-      base: LMSTUDIO_BASE,
-      configuredModel: LMSTUDIO_MODEL,
-      resolvedModel: '',
-      candidateModels: [],
-      availableModels: [],
-      nativeAvailableModels: [],
-      installedModels,
-      desktopLocalServiceEnabled: settings?.enableLocalService ?? null,
-      hint: buildLmStudioLaunchHint(),
-      error: detail,
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-
-  const cacheMs = value.reachable && value.resolvedModel
-    ? LMSTUDIO_STATUS_CACHE_MS
-    : LMSTUDIO_STATUS_ERROR_CACHE_MS;
-
-  lmStudioStatusCache = {
-    expiresAt: now + cacheMs,
-    value,
-  };
-  return value;
-}
-
-function isMissingLmStudioModelError(error) {
-  const message = String(error?.message || '');
-  return /\b(model does not exist|model .*not found|unknown model|no such model)\b/i.test(message);
-}
-
-async function withLmStudioCandidateModel(runForModel) {
-  let status = await getLmStudioConnectionStatus();
-  let refreshedAfterMissingModel = false;
-
-  while (true) {
-    if (!status.reachable) {
-      throw new Error(`${status.error} ${status.hint}`.trim());
-    }
-
-    const candidates = status.candidateModels.length ? status.candidateModels : [LMSTUDIO_MODEL].filter(Boolean);
-    let lastMissingModelError = null;
-
-    for (const model of candidates) {
-      try {
-        return await runForModel(model, status);
-      } catch (error) {
-        if (isMissingLmStudioModelError(error)) {
-          lastMissingModelError = error;
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    if (lastMissingModelError && !refreshedAfterMissingModel) {
-      status = await getLmStudioConnectionStatus({ force: true });
-      refreshedAfterMissingModel = true;
-      continue;
-    }
-
-    if (lastMissingModelError) {
-      throw new Error(`LM Studio rejected all candidate model ids (${candidates.join(', ')}). Last error: ${lastMissingModelError.message}`);
-    }
-
-    throw new Error(status.hint || 'LM Studio did not report a usable chat model.');
-  }
-}
-
-function pickLmStudioNativeModelId(preferredModel = '', status = {}) {
-  const target = String(preferredModel || '').trim();
-  if (!target) return '';
-  const nativeModels = Array.isArray(status?.nativeAvailableModels)
-    ? status.nativeAvailableModels.map((id) => String(id || '').trim()).filter(Boolean)
-    : [];
-  if (!nativeModels.length) return target;
-  const direct = nativeModels.find((id) => id === target);
-  if (direct) return direct;
-  const alias = nativeModels.find((id) => modelsLookEquivalent(id, target));
-  return alias || target;
-}
-
-function shouldPreferLmStudioChatCompletions(model = '', status = {}) {
-  const target = String(model || '').trim();
-  if (!target) return false;
-  const nativeModel = pickLmStudioNativeModelId(target, status);
-  if (!nativeModel) return false;
-  return normalizeModelKey(nativeModel) !== normalizeModelKey(target);
 }
 
 async function runOpenClawShadow({ sessionId, userText, messages, memories, abortSignal }) {
@@ -1746,433 +1433,6 @@ const PENNY_TOOL_DEFINITIONS = [
     },
   },
 ];
-async function runLmStudioToolContextAnswer({ userText, messages, memories, toolName, toolData, abortSignal }) {
-  return withLmStudioCandidateModel(async (model) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
-    bindAbortSignal(controller, abortSignal);
-    clearLmStudioThread(memories);
-    try {
-      const contextMessages = [
-        { role: 'system', content: buildLmStudioToolSystemPrompt({ memories, userText }) },
-        {
-          role: 'system',
-          content: `Verified live context for this reply:\nTool: ${toolName}\n${JSON.stringify(toolData, null, 2)}\nUse this concrete context in your answer. Stay recognizably Penny while being technically precise. If it still is not enough, say what else you would inspect next.`,
-        },
-        ...sanitizeToolMessages(messages, TOOL_DIRECT_HISTORY_LIMIT),
-      ];
-      if (!contextMessages.some(msg => msg.role === 'user' && msg.content === userText)) {
-        contextMessages.push({ role: 'user', content: userText });
-      }
-      const payload = {
-        model,
-        messages: contextMessages,
-        temperature: LMSTUDIO_TOOL_SUMMARY_TEMPERATURE,
-        max_tokens: LMSTUDIO_TOOL_SUMMARY_MAX_OUTPUT_TOKENS,
-        stream: false,
-      };
-      const response = await postJsonLongRunning(`${LMSTUDIO_BASE}/chat/completions`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${LMSTUDIO_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      const bodyText = response.bodyText;
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        const err = new Error(`LM Studio direct tool assist error ${response.statusCode}: ${bodyText}`);
-        err.statusCode = response.statusCode;
-        throw err;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(bodyText);
-      } catch {
-        throw new Error(`LM Studio direct tool assist: invalid JSON: ${bodyText.slice(0, 400)}`);
-      }
-      const message = parsed?.choices?.[0]?.message;
-      const text = textFromChatMessage(message);
-      if (!text) throw new Error(`No assistant text from direct tool assist: ${bodyText.slice(0, 800)}`);
-      clearLmStudioThread(memories);
-      return text.trim();
-    } catch (error) {
-      if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
-async function runLmStudioToolLoop({ userText, messages, memories, onToolEvent, abortSignal }) {
-  return withLmStudioCandidateModel(async (model) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
-    bindAbortSignal(controller, abortSignal);
-    clearLmStudioThread(memories);
-
-    const toolMessages = [
-      { role: 'system', content: buildLmStudioToolSystemPrompt({ memories, userText }) },
-      {
-        role: 'system',
-        content: [
-          'Tool-use playbook for Penny:',
-          '- You are still Penny while doing engineering work. Keep the same voice and chemistry; do not turn into a dry generic assistant.',
-          '- Use tools whenever the user wants code inspection, debugging, edits, verification, repo status, current web info, or a summary of changes.',
-          '- If the user is trying to find a folder or file name, use list_project_files with a recursive pattern. search_project_text is for contents inside text files.',
-          '- If the right file is unknown, start with list_project_files or search_project_text.',
-          '- Read before editing unless the user gave an exact snippet and file path.',
-          '- Prefer replace_in_project_file for surgical edits. Use write_project_file for new files or intentional full rewrites.',
-          '- After code edits, verify with run_node_check for changed .js/.cjs/.mjs files and use git tools to confirm what changed.',
-          '- If a file is attached in the user message, treat that attachment as real source material, but remember tools only operate on repo files.',
-          '- In the final reply, say what you inspected, what you changed, and whether checks passed.',
-          '- Never invent tool results, fake a file edit, or claim a verification step that did not happen.',
-        ].join('\n'),
-      },
-      ...sanitizeToolMessages(messages),
-    ];
-    if (!toolMessages.some(msg => msg.role === 'user' && msg.content === userText)) {
-      toolMessages.push({ role: 'user', content: userText });
-    }
-
-    const toolsUsed = [];
-    const toolRecords = [];
-    const editedPaths = new Set();
-    const autoCheckedSyntaxPaths = new Set();
-    let autoCheckedGitStatus = false;
-    try {
-      for (let step = 0; step < MAX_TOOL_STEPS; step++) {
-        onToolEvent?.({ type: 'status', stage: step === 0 ? 'planning' : 'tool-followup', label: step === 0 ? 'planning tool move' : 'working the next step' });
-        const payload = {
-          model,
-          messages: toolMessages,
-          tools: PENNY_TOOL_DEFINITIONS,
-          tool_choice: 'auto',
-          temperature: LMSTUDIO_TOOL_TEMPERATURE,
-          max_tokens: LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS,
-          stream: false,
-        };
-        const response = await postJsonLongRunning(`${LMSTUDIO_BASE}/chat/completions`, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${LMSTUDIO_API_KEY}`,
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-        const bodyText = response.bodyText;
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          const err = new Error(`LM Studio chat/completions tool call error ${response.statusCode}: ${bodyText}`);
-          err.statusCode = response.statusCode;
-          throw err;
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(bodyText);
-        } catch {
-          throw new Error(`LM Studio tool chat/completions: invalid JSON: ${bodyText.slice(0, 400)}`);
-        }
-        const message = parsed?.choices?.[0]?.message || {};
-        const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-        if (!toolCalls.length) {
-          const text = textFromChatMessage(message);
-          const pendingChecks = [];
-          for (const relPath of editedPaths) {
-            if (!/\.(?:js|cjs|mjs)$/i.test(relPath) || autoCheckedSyntaxPaths.has(relPath)) continue;
-            pendingChecks.push({ name: 'run_node_check', args: { path: relPath } });
-          }
-          if (editedPaths.size && !autoCheckedGitStatus) {
-            pendingChecks.push({ name: 'get_git_status', args: {} });
-          }
-          if (pendingChecks.length) {
-            onToolEvent?.({ type: 'status', stage: 'verifying', label: 'verifying the edit' });
-            toolMessages.push({
-              role: 'assistant',
-              content: typeof message.content === 'string' ? message.content : (text || ''),
-            });
-            for (const pending of pendingChecks) {
-              onToolEvent?.({ type: 'tool', state: 'running', name: pending.name, label: `using ${pending.name}` });
-              const result = await executePennyTool(pending.name, pending.args || {});
-              toolsUsed.push({ name: pending.name, ok: result.ok, label: result.label });
-              toolRecords.push({ name: pending.name, args: pending.args || {}, result });
-              onToolEvent?.({ type: 'tool', state: 'done', name: pending.name, label: result.label, ok: result.ok });
-              if (pending.name === 'run_node_check' && result.data?.path) autoCheckedSyntaxPaths.add(result.data.path);
-              if (pending.name === 'get_git_status') autoCheckedGitStatus = true;
-              toolMessages.push({
-                role: 'system',
-                content: `Automatic verification result from ${pending.name}:\n${JSON.stringify(result.data, null, 2)}`,
-              });
-            }
-            toolMessages.push({
-              role: 'system',
-              content: 'Automatic verification ran after your code edits. Update your final reply to include those verified outcomes in Penny\'s normal voice.',
-            });
-            continue;
-          }
-          if (!text) {
-            toolMessages.push({
-              role: 'system',
-              content: toolsUsed.length
-                ? 'You just produced an empty reply. Answer again now using the verified tool results already in the conversation. Do not leave the assistant content blank.'
-                : 'You just produced an empty reply. Try again now. Because this is a tool-enabled coding turn, either call the tool you need or answer in Penny\'s normal voice with concrete next-step reasoning.',
-            });
-            continue;
-          }
-          if (!text) throw new Error(`No assistant text from tool-enabled chat/completions: ${bodyText.slice(0, 800)}`);
-          return { text: text.trim(), toolsUsed, toolRecords };
-        }
-
-        toolMessages.push({
-          role: 'assistant',
-          content: typeof message.content === 'string' ? message.content : '',
-          tool_calls: toolCalls.map(call => ({
-            id: call.id,
-            type: call.type || 'function',
-            function: {
-              name: call?.function?.name || '',
-              arguments: typeof call?.function?.arguments === 'string'
-                ? call.function.arguments
-                : JSON.stringify(call?.function?.arguments || {}),
-            },
-          })),
-        });
-
-        for (const call of toolCalls) {
-          const name = String(call?.function?.name || '').trim();
-          const parsedArgs = parseToolArguments(call?.function?.arguments);
-          if (!parsedArgs.ok) {
-            const failedResult = {
-              ok: false,
-              label: `tool args invalid for ${name || 'unknown tool'}`,
-              data: { error: parsedArgs.error },
-            };
-            toolsUsed.push({ name, ok: failedResult.ok, label: failedResult.label });
-            toolRecords.push({ name, args: {}, result: failedResult });
-            onToolEvent?.({ type: 'tool', state: 'done', name, label: failedResult.label, ok: failedResult.ok });
-            toolMessages.push({
-              role: 'tool',
-              tool_call_id: call.id,
-              content: JSON.stringify(failedResult.data),
-            });
-            continue;
-          }
-          const args = parsedArgs.value;
-          onToolEvent?.({ type: 'tool', state: 'running', name, label: `using ${name}` });
-          const result = await executePennyTool(name, args);
-          toolsUsed.push({ name, ok: result.ok, label: result.label });
-          toolRecords.push({ name, args, result });
-          onToolEvent?.({ type: 'tool', state: 'done', name, label: result.label, ok: result.ok });
-          if ((name === 'write_project_file' || name === 'replace_in_project_file') && result.ok && result.data?.path) {
-            editedPaths.add(result.data.path);
-          }
-          if (name === 'run_node_check' && result.data?.path) {
-            autoCheckedSyntaxPaths.add(result.data.path);
-          }
-          if (name === 'get_git_status') {
-            autoCheckedGitStatus = true;
-          }
-          toolMessages.push({
-            role: 'tool',
-            tool_call_id: call.id,
-            content: JSON.stringify(result.data),
-          });
-        }
-      }
-      if (toolRecords.length) {
-        const fallbackText = composeToolRecordFallback(toolRecords)
-          || `i did the tool work, but the reply brain chewed through its loop budget before it could say something normal.\n[MOOD:annoyed]`;
-        return { text: fallbackText, toolsUsed, toolRecords };
-      }
-      throw new Error(`Penny hit the tool-use loop limit (${MAX_TOOL_STEPS}) before finishing the reply.`);
-    } catch (error) {
-      if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
-function parsePlannerDecision(text = '') {
-  const parsed = parseToolArguments(text);
-  if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') {
-    return { ok: false, error: parsed.error || 'Planner reply was not valid JSON.' };
-  }
-  const kind = String(parsed.value.kind || '').trim().toLowerCase();
-  if (kind === 'tool') {
-    const tool = String(parsed.value.tool || parsed.value.name || '').trim();
-    if (!tool) return { ok: false, error: 'Planner JSON was missing `tool`.' };
-    const args = parsed.value.args && typeof parsed.value.args === 'object' ? parsed.value.args : {};
-    return { ok: true, kind, tool, args };
-  }
-  if (kind === 'final') {
-    const finalText = String(parsed.value.text || '').trim();
-    if (!finalText) return { ok: false, error: 'Planner JSON was missing `text` for the final reply.' };
-    return { ok: true, kind, text: finalText };
-  }
-  return { ok: false, error: 'Planner JSON must use kind "tool" or "final".' };
-}
-function shouldFallbackToManualToolLoop(error) {
-  const message = String(error?.message || '');
-  return /No assistant text from tool-enabled chat\/completions/i.test(message)
-    || /tool-use loop limit/i.test(message);
-}
-async function runLmStudioManualToolLoop({ userText, messages, memories, onToolEvent, abortSignal }) {
-  return withLmStudioCandidateModel(async (model) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
-    bindAbortSignal(controller, abortSignal);
-    clearLmStudioThread(memories);
-
-    const plannerMessages = [
-      { role: 'system', content: buildLmStudioToolSystemPrompt({ memories, userText }) },
-      {
-        role: 'system',
-        content: [
-          'Manual tool planner mode:',
-          '- Native function calling was flaky, so you must choose your next action with JSON only.',
-          '- Reply with exactly one JSON object and no markdown.',
-          '- Tool step schema: {"kind":"tool","tool":"read_project_file","args":{"path":"server.js"}}',
-          '- Final step schema: {"kind":"final","text":"your normal Penny reply ending with one mood tag"}',
-          `- Valid tool names: ${PENNY_TOOL_DEFINITIONS.map(item => item.function.name).join(', ')}`,
-          '- Use one tool at a time.',
-          '- Inspect before editing. Prefer targeted replacements over full rewrites.',
-          '- For live/current information, use search_web first and read_web_page only if you need to inspect a result page.',
-          '- After code edits, verify before returning kind final.',
-          '- Stay recognizably Penny in the final text, but keep the technical facts exact.',
-        ].join('\n'),
-      },
-      ...sanitizeToolMessages(messages),
-    ];
-    if (!plannerMessages.some(msg => msg.role === 'user' && msg.content === userText)) {
-      plannerMessages.push({ role: 'user', content: userText });
-    }
-
-    const toolsUsed = [];
-    const toolRecords = [];
-    const editedPaths = new Set();
-    const autoCheckedSyntaxPaths = new Set();
-    let autoCheckedGitStatus = false;
-
-    try {
-      for (let step = 0; step < MAX_TOOL_STEPS; step++) {
-        onToolEvent?.({ type: 'status', stage: step === 0 ? 'planning' : 'tool-followup', label: step === 0 ? 'planning tool move' : 'working the next step' });
-        const payload = {
-          model,
-          messages: plannerMessages,
-          temperature: LMSTUDIO_TOOL_TEMPERATURE,
-          max_tokens: LMSTUDIO_TOOL_PLANNER_MAX_OUTPUT_TOKENS,
-          stream: false,
-        };
-        const response = await postJsonLongRunning(`${LMSTUDIO_BASE}/chat/completions`, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${LMSTUDIO_API_KEY}`,
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-        const bodyText = response.bodyText;
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          const err = new Error(`LM Studio manual planner error ${response.statusCode}: ${bodyText}`);
-          err.statusCode = response.statusCode;
-          throw err;
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(bodyText);
-        } catch {
-          throw new Error(`LM Studio manual planner: invalid JSON: ${bodyText.slice(0, 400)}`);
-        }
-        const message = parsed?.choices?.[0]?.message || {};
-        const assistantText = textFromChatMessage(message);
-        if (!assistantText) {
-          plannerMessages.push({
-            role: 'system',
-            content: 'Your previous response was empty. Reply again with exactly one JSON object and no markdown.',
-          });
-          continue;
-        }
-
-        const decision = parsePlannerDecision(assistantText);
-        if (!decision.ok) {
-          plannerMessages.push({ role: 'assistant', content: assistantText });
-          plannerMessages.push({
-            role: 'system',
-            content: `That was not valid planner JSON. ${decision.error} Reply again with exactly one JSON object and no markdown.`,
-          });
-          continue;
-        }
-
-        if (decision.kind === 'tool') {
-          plannerMessages.push({ role: 'assistant', content: assistantText });
-          onToolEvent?.({ type: 'tool', state: 'running', name: decision.tool, label: `using ${decision.tool}` });
-          const result = await executePennyTool(decision.tool, decision.args || {});
-          toolsUsed.push({ name: decision.tool, ok: result.ok, label: result.label });
-          toolRecords.push({ name: decision.tool, args: decision.args || {}, result });
-          onToolEvent?.({ type: 'tool', state: 'done', name: decision.tool, label: result.label, ok: result.ok });
-          if ((decision.tool === 'write_project_file' || decision.tool === 'replace_in_project_file') && result.ok && result.data?.path) {
-            editedPaths.add(result.data.path);
-          }
-          if (decision.tool === 'run_node_check' && result.data?.path) {
-            autoCheckedSyntaxPaths.add(result.data.path);
-          }
-          if (decision.tool === 'get_git_status') {
-            autoCheckedGitStatus = true;
-          }
-          plannerMessages.push({
-            role: 'system',
-            content: `Tool result from ${decision.tool}:\n${JSON.stringify(result.data, null, 2)}`,
-          });
-          continue;
-        }
-
-        const pendingChecks = [];
-        for (const relPath of editedPaths) {
-          if (!/\.(?:js|cjs|mjs)$/i.test(relPath) || autoCheckedSyntaxPaths.has(relPath)) continue;
-          pendingChecks.push({ name: 'run_node_check', args: { path: relPath } });
-        }
-        if (editedPaths.size && !autoCheckedGitStatus) {
-          pendingChecks.push({ name: 'get_git_status', args: {} });
-        }
-        if (pendingChecks.length) {
-          onToolEvent?.({ type: 'status', stage: 'verifying', label: 'verifying the edit' });
-          plannerMessages.push({ role: 'assistant', content: assistantText });
-          for (const pending of pendingChecks) {
-            onToolEvent?.({ type: 'tool', state: 'running', name: pending.name, label: `using ${pending.name}` });
-            const result = await executePennyTool(pending.name, pending.args || {});
-            toolsUsed.push({ name: pending.name, ok: result.ok, label: result.label });
-            toolRecords.push({ name: pending.name, args: pending.args || {}, result });
-            onToolEvent?.({ type: 'tool', state: 'done', name: pending.name, label: result.label, ok: result.ok });
-            if (pending.name === 'run_node_check' && result.data?.path) autoCheckedSyntaxPaths.add(result.data.path);
-            if (pending.name === 'get_git_status') autoCheckedGitStatus = true;
-            plannerMessages.push({
-              role: 'system',
-              content: `Automatic verification result from ${pending.name}:\n${JSON.stringify(result.data, null, 2)}`,
-            });
-          }
-          plannerMessages.push({
-            role: 'system',
-            content: 'Automatic verification ran after your code edits. Reply again with kind "final" and include those verified outcomes in Penny\'s normal voice.',
-          });
-          continue;
-        }
-
-        return { text: decision.text.trim(), toolsUsed, toolRecords };
-      }
-      if (toolRecords.length) {
-        const fallbackText = composeToolRecordFallback(toolRecords)
-          || `i did the tool work, but the reply brain chewed through its loop budget before it could say something normal.\n[MOOD:annoyed]`;
-        return { text: fallbackText, toolsUsed, toolRecords };
-      }
-      throw new Error(`Penny manual tool loop hit the limit (${MAX_TOOL_STEPS}) before finishing the reply.`);
-    } catch (error) {
-      if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
 function buildLmStudioToolSystemPrompt({ memories, userText = '' }) {
   const { blend } = getPennyVoiceAssets();
   const memBlock = formatPromptMemories(memories, userText, 10, '- Nothing yet.');
@@ -2294,8 +1554,8 @@ function summarizeToolRecordForSemanticCore(record = {}) {
 }
 
 function cleanDraftForSemanticRender(text = '') {
-  const stripped = stripThinkSpans(String(text || '').trim());
-  const visible = coercePennyVisibleReply(stripped) || stripped;
+  const stripped = stripThinkSpansApi(String(text || '').trim());
+  const visible = coercePennyVisibleReplyApi(stripped) || stripped;
   return stripReplyMoodTags(visible).trim();
 }
 
@@ -2365,10 +1625,11 @@ Output:
 - Valid mood tags: [MOOD:calm], [MOOD:happy], [MOOD:excited], [MOOD:thinking], [MOOD:surprised], [MOOD:flirty], [MOOD:smug], [MOOD:annoyed]`;
 }
 
-async function renderSemanticReplyAsPenny({ userText, messages, memories, file, toolRecords, draftText, abortSignal }) {
+async function renderSemanticReplyAsPenny({ userText, messages, memories, file, toolRecords, draftText, abortSignal, laneRuntime }) {
   const semanticCore = buildSemanticCore({ userText, file, toolRecords, draftText });
   if (!semanticCore.trim()) return cleanDraftForSemanticRender(draftText);
-  return withLmStudioCandidateModel(async (model) => {
+  const activeLaneRuntime = laneRuntime || createLaneRuntime('tool');
+  return withLmStudioLaneModelApi('tool', async (model) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
     bindAbortSignal(controller, abortSignal);
@@ -2416,7 +1677,7 @@ async function renderSemanticReplyAsPenny({ userText, messages, memories, file, 
       } catch {
         throw new Error(`LM Studio semantic render: invalid JSON: ${bodyText.slice(0, 400)}`);
       }
-      const text = textFromChatMessage(parsed?.choices?.[0]?.message);
+      const text = textFromChatMessageApi(parsed?.choices?.[0]?.message);
       if (!text) throw new Error(`No assistant text from semantic render: ${bodyText.slice(0, 800)}`);
       return text.trim();
     } catch (error) {
@@ -2425,10 +1686,10 @@ async function renderSemanticReplyAsPenny({ userText, messages, memories, file, 
     } finally {
       clearTimeout(timer);
     }
-  });
+  }, activeLaneRuntime);
 }
 
-async function maybeRenderHardTurnReply({ userText, messages, memories, file, text, toolsUsed = [], toolRecords = [], onToolEvent, abortSignal }) {
+async function maybeRenderHardTurnReply({ userText, messages, memories, file, text, toolsUsed = [], toolRecords = [], onToolEvent, abortSignal, laneRuntime }) {
   const cleanedText = cleanDraftForSemanticRender(text) || String(text || '').trim();
   const fallbackText = composeToolRecordFallback(toolRecords);
   const coerceFinalizedText = (candidate) => {
@@ -2449,6 +1710,7 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
       toolRecords,
       draftText: cleanedText,
       abortSignal,
+      laneRuntime,
     });
     return { text: coerceFinalizedText(rendered), toolsUsed, toolRecords };
   } catch {
@@ -2723,404 +1985,83 @@ function buildLmStudioStatefulInput({ userText, messages, memories, image, file,
     { type: 'image', data_url: image },
   ];
 }
-
-function stripThinkSpans(s) {
-  let t = String(s || '');
-  const stripBlocks = [
-    /\u003c\s*think\s*\u003e[\s\S]*?\u003c\s*\/\s*think\s*\u003e/gis,
-    /\u003credacted_reasoning\u003e[\s\S]*?\u003c\/redacted_reasoning\u003e/gis,
-    /\u003creasoning\u003e[\s\S]*?\u003c\/reasoning\u003e/gi,
-    /<\|channel\>\s*(?:thought|analysis)[\s\S]*?<channel\|>/gi,
-  ];
-  for (const re of stripBlocks) {
-    t = t.replace(re, '');
-  }
-  return t.replace(/\n{3,}/g, '\n\n').trim();
-}
-
-function takeAfterLastHorizontalRule(txt) {
-  const x = String(txt || '');
-  const chunks = x.split(/\n-{3,}\n/);
-  if (chunks.length >= 2) {
-    return chunks[chunks.length - 1].trim();
-  }
-  return x.trim();
-}
-
-function extractTaggedVisibleReply(text = '') {
-  const source = String(text || '');
-  const matches = [
-    source.match(/<final>([\s\S]*?)<\/final>/i),
-    source.match(/<answer>([\s\S]*?)<\/answer>/i),
-    source.match(/<response>([\s\S]*?)<\/response>/i),
-  ].filter(Boolean);
-  return matches[0]?.[1]?.trim() || '';
-}
-
-function takeAfterFinalCue(text = '') {
-  const source = String(text || '');
-  const re = /(?:^|\n)(?:final answer|final response|assistant reply|visible reply|spoken reply)\s*:\s*/ig;
-  let lastMatch = null;
-  let match;
-  while ((match = re.exec(source)) !== null) {
-    lastMatch = match;
-  }
-  return lastMatch ? source.slice(lastMatch.index + lastMatch[0].length).trim() : source.trim();
-}
-
-function stripWrappingCodeFence(text = '') {
-  let out = String(text || '').trim();
-  if (/^```/.test(out) && /```$/.test(out)) {
-    out = out.replace(/^```[a-z0-9_-]*\s*/i, '').replace(/\s*```$/i, '').trim();
-  }
-  return out;
-}
-
-function stripReplyPrefix(text = '') {
-  return String(text || '').replace(/^(?:penny|assistant)\s*:\s*/i, '').trim();
-}
-
-function normalizeMetaLead(line = '') {
-  return String(line || '')
-    .trim()
-    .replace(/^[>\-*+\d.\s)]+/, '')
-    .replace(/\*/g, '')
-    .replace(/[`“”]/g, '"')
-    .trim();
-}
-
-function isMetaThinkingLine(line) {
-  const raw = String(line || '').trim();
-  const x = normalizeMetaLead(raw);
-  if (x.length < 12) return true;
-  if (/^(#{1,3}\s|[-*]\s|Step\s+\d|\d+\.\s|Output:|Response:|Final answer:)/i.test(raw)) return true;
-  if (/^(Thinking Process|Analyze the Request|Determine the Voice|Drafting the Reply|Fact Check|Constraint Check|Refinement|Penny-ifying|Final Polish|Draft(?:\s+\d+)?|Observation|Tone|Content)\b/i.test(x)) return true;
-  return /^(I need to|I'll |I should|Let me |First,|The user |Okay, I|Since the |Based on|Looking at|I will |My goal|According to|Here's |I must|We need|I can |I have to|To respond|I want to|I'm going to|Note:|Analysis:|Actually, let's make it more)/i.test(x);
-}
-
-function stripLeadingMetaLines(block = '') {
-  const lines = String(block || '').split(/\r?\n/);
-  while (lines.length) {
-    const first = String(lines[0] || '').trim();
-    if (!first) {
-      lines.shift();
-      continue;
-    }
-    if (isMetaThinkingLine(first)) {
-      lines.shift();
-      continue;
-    }
-    break;
-  }
-  return lines.join('\n').trim();
-}
-
-function cleanDraftCandidate(text = '') {
-  let out = String(text || '').trim().replace(/\s+\[MOOD:\w+\]\s*$/i, '');
-  out = out.replace(/^["“”]\s*/, '').trim();
-  if ((out.match(/"/g) || []).length % 2 === 1 && out.startsWith('"')) {
-    out = out.slice(1).trim();
-  }
-  return out.replace(/\s{2,}/g, ' ').trim();
-}
-
-function collectDraftCandidates(text = '') {
-  const lines = String(text || '').split(/\r?\n/);
-  const candidates = [];
-  const isDraftLead = (line) => {
-    const x = normalizeMetaLead(line);
-    return /^(Draft(?:\s+\d+)?|Final Polish)\s*:/i.test(x) || /^Actually, let's make it more/i.test(x);
-  };
-  const trimDraftLead = (line) => {
-    const x = normalizeMetaLead(line);
-    return x
-      .replace(/^(?:Draft(?:\s+\d+)?|Final Polish)\s*:\s*/i, '')
-      .replace(/^Actually, let's make it more\s*"penny"\.?\s*/i, '')
-      .trim();
-  };
-  for (let i = 0; i < lines.length; i += 1) {
-    if (!isDraftLead(lines[i])) continue;
-    const collected = [];
-    const inline = trimDraftLead(lines[i]);
-    if (inline) collected.push(inline);
-    for (let j = i + 1; j < lines.length; j += 1) {
-      const next = String(lines[j] || '').trim();
-      if (!next) {
-        if (collected.length) break;
-        continue;
-      }
-      if (isDraftLead(next) || (isMetaThinkingLine(next) && collected.length)) break;
-      if (isMetaThinkingLine(next) && !collected.length) continue;
-      collected.push(next.replace(/^[-*]\s*/, '').trim());
-    }
-    const candidate = cleanDraftCandidate(collected.join(' '));
-    if (candidate) candidates.push(candidate);
-  }
-  return candidates;
-}
-
-function collectQuotedReplyCandidates(text = '') {
-  return [...String(text || '').matchAll(/"([^"\n]{20,}?)"/g)]
-    .map((match) => cleanDraftCandidate(match[1]))
-    .filter((candidate) => candidate && !isMetaThinkingLine(candidate));
-}
-
-function paragraphLooksLikeCoT(p) {
-  const block = String(p || '').trim();
-  if (!block) return true;
-  if (isMetaThinkingLine(block.split('\n')[0] || '')) return true;
-  if (/\b(option \d|draft(?:\s+\d+)?|final polish|refining option|adding more bite)\b/i.test(block)) return true;
-  const head = block.slice(0, 260);
-  if (/\b(user (said|wants|is asking)|the prompt|as (an )?ai|instruction says|penny should|i (need|must|will|should) (respond|answer|write|mention|make sure)|format.*mood tag|the mood should|let'?s (draft|try|stick)|this gives me room|wait, i need to check|actually, looking closer)\b/i.test(head)) {
-    return true;
-  }
-  return false;
-}
-
-function looksOnlyLikeCoT(str) {
-  const m = String(str || '').trim();
-  if (!m) return true;
-  if (/\[MOOD:\w+\]/.test(m)) return false;
-  if (m.length < 100) return false;
-  return paragraphLooksLikeCoT(m.split(/\n\n/)[0] || m);
-}
-
-function coercePennyVisibleReply(raw) {
-  let t = stripThinkSpans(String(raw || '').trim());
-  t = t.replace(/^<\|channel\>\s*(?:thought|analysis)\s*/i, '').trim();
-  if (!t || ALLOW_RAW_REASONING_FALLBACK) return t;
-  const tagged = extractTaggedVisibleReply(t);
-  if (tagged) t = tagged;
-  t = takeAfterLastHorizontalRule(t);
-  t = takeAfterFinalCue(t);
-  t = stripReplyPrefix(stripWrappingCodeFence(t));
-  const moodMatches = [...t.matchAll(/\[MOOD:(\w+)\]/g)];
-  const lastMood = moodMatches.length ? moodMatches[moodMatches.length - 1] : null;
-  if (lastMood) {
-    const moodTag = lastMood[0];
-    const endIdx = lastMood.index;
-    const before = t.slice(0, endIdx).trim();
-    const afterMood = t.slice(endIdx + moodTag.length).trim();
-    const draftCandidates = collectDraftCandidates(before);
-    const quoteCandidates = collectQuotedReplyCandidates(before);
-    const parts = before.split(/\n{2,}/).map(v => stripLeadingMetaLines(v)).filter(Boolean);
-    while (parts.length > 1 && paragraphLooksLikeCoT(parts[0])) {
-      parts.shift();
-    }
-    let body = parts.join('\n\n').trim();
-    if ((!body || looksOnlyLikeCoT(body)) && draftCandidates.length) {
-      body = draftCandidates[draftCandidates.length - 1];
-    }
-    if ((!body || looksOnlyLikeCoT(body)) && quoteCandidates.length) {
-      body = quoteCandidates.join('\n\n');
-    }
-    if (!body) body = stripLeadingMetaLines(before);
-    body = cleanDraftCandidate(body);
-    const out = `${body}\n${moodTag}${afterMood ? `\n${afterMood}` : ''}`.trim();
-    return retagAssistantReply(out.replace(/\n{3,}/g, '\n\n'), lastMood[1] || '');
-  }
-  const draftCandidates = collectDraftCandidates(t);
-  const quoteCandidates = collectQuotedReplyCandidates(t);
-  const tailParts = t.split(/\n{2,}/).map(v => stripLeadingMetaLines(v)).filter(Boolean);
-  while (tailParts.length > 1 && paragraphLooksLikeCoT(tailParts[0])) {
-    tailParts.shift();
-  }
-  let out = tailParts.join('\n\n').trim();
-  if ((!out || looksOnlyLikeCoT(out)) && draftCandidates.length) {
-    out = draftCandidates[draftCandidates.length - 1];
-  }
-  if ((!out || looksOnlyLikeCoT(out)) && quoteCandidates.length) {
-    out = quoteCandidates.join('\n\n');
-  }
-  if (!out) out = stripLeadingMetaLines(t);
-  out = cleanDraftCandidate(out);
-  return retagAssistantReply(out.replace(/\n{3,}/g, '\n\n'));
-}
-
-/** LM Studio /responses: walk output[].content[] for output_text + reasoning_text */
-function collectLmStudioResponsesStrings(parsed) {
-  const outputParts = [];
-  const reasoningParts = [];
-  const top = String(parsed?.output_text || '').trim();
-  if (top) outputParts.push(top);
-
-  function walkPart(part) {
-    if (part == null) return;
-    if (Array.isArray(part)) {
-      part.forEach(walkPart);
-      return;
-    }
-    if (typeof part !== 'object') return;
-    const t = String(part.type || '');
-    const txt = part.text;
-    if (typeof txt === 'string' && txt.length) {
-      if (t === 'output_text') {
-        outputParts.push(txt);
-      } else if (t === 'reasoning_text' || (/reasoning/i.test(t) && t !== 'output_text')) {
-        reasoningParts.push(txt);
-      }
-    }
-    if (Array.isArray(part.content)) {
-      part.content.forEach(walkPart);
-    }
-  }
-
-  for (const block of parsed?.output || []) {
-    walkPart(block);
-  }
-
+const lmStudioToolLoopApi = createLmStudioToolLoopApi({
+  withLmStudioLaneModel: withLmStudioLaneModelApi,
+  postJsonLongRunning,
+  executePennyTool,
+  parseToolArguments,
+  sanitizeToolMessages,
+  clearLmStudioThread,
+  bindAbortSignal,
+  textFromChatMessage: textFromChatMessageApi,
+  buildLmStudioToolSystemPrompt,
+  PENNY_TOOL_DEFINITIONS,
+  composeToolRecordFallback,
+  LMSTUDIO_BASE,
+  LMSTUDIO_API_KEY,
+  LMSTUDIO_TIMEOUT_MS,
+  LMSTUDIO_TOOL_TEMPERATURE,
+  LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS,
+  LMSTUDIO_TOOL_PLANNER_MAX_OUTPUT_TOKENS,
+  LMSTUDIO_TOOL_SUMMARY_TEMPERATURE,
+  LMSTUDIO_TOOL_SUMMARY_MAX_OUTPUT_TOKENS,
+  MAX_TOOL_STEPS,
+  TOOL_DIRECT_HISTORY_LIMIT,
+});
+const {
+  runLmStudioToolContextAnswer: runLmStudioToolContextAnswerApi,
+  runLmStudioToolLoop: runLmStudioToolLoopApiRunner,
+  shouldFallbackToManualToolLoop: shouldFallbackToManualToolLoopApi,
+  runLmStudioManualToolLoop: runLmStudioManualToolLoopApiRunner,
+} = lmStudioToolLoopApi;
+const lmStudioTransportApi = createLmStudioTransportApi({
+  withLmStudioLaneModel: withLmStudioLaneModelApi,
+  getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
+  pickLmStudioNativeModelId: pickLmStudioNativeModelIdApi,
+  shouldPreferLmStudioChatCompletions: shouldPreferLmStudioChatCompletionsApi,
+  postJsonLongRunning,
+  postJsonSse,
+  buildLmStudioPrompt,
+  buildLmStudioMessages,
+  buildLmStudioStatefulInput,
+  buildLmStudioLeanSystemPrompt,
+  hashText,
+  normalizeLmStudioThread,
+  clearLmStudioThread,
+  bindAbortSignal,
+  collectLmStudioResponsesStrings: collectLmStudioResponsesStringsApi,
+  collectLmStudioStatefulChatStrings: collectLmStudioStatefulChatStringsApi,
+  extractPennyFromPlanningBlob: extractPennyFromPlanningBlobApi,
+  extractPennyFromReasoning: extractPennyFromReasoningApi,
+  coercePennyVisibleReply: coercePennyVisibleReplyApi,
+  textFromChatMessage: textFromChatMessageApi,
+  textValueFromField: textValueFromFieldApi,
+  collectTextParts: collectTextPartsApi,
+  looksOnlyLikeCoT: looksOnlyLikeCoTApi,
+  isMissingLmStudioThreadError: isMissingLmStudioThreadErrorApi,
+  lmStudioStageLabel: lmStudioStageLabelApi,
+  LOCAL_LLM_TRANSPORT,
+  ALLOW_RAW_REASONING_FALLBACK,
+  RESPONSES_THEN_CHAT_FALLBACK,
+  LMSTUDIO_BASE,
+  LMSTUDIO_NATIVE_BASE,
+  LMSTUDIO_API_KEY,
+  LMSTUDIO_TIMEOUT_MS,
+  LMSTUDIO_MAX_OUTPUT_TOKENS,
+  LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
+});
+const {
+  runLmStudioLocal: runLmStudioLocalApi,
+  streamLmStudioLocal: streamLmStudioLocalApi,
+} = lmStudioTransportApi;
+function createLaneRuntime(localLane = 'chat') {
+  const requestedModel = getPreferredModelForLaneApi(localLane) || '';
   return {
-    outputText: outputParts.join('\n').trim(),
-    reasoningText: reasoningParts.join('\n').trim(),
+    localLane,
+    requestedModel,
+    resolvedModel: requestedModel,
+    laneFallback: false,
   };
-}
-
-/** Last resort when reasoning is all bullets/checklists — grab non-bullet tail lines */
-function extractPennyFromPlanningBlob(blob) {
-  const text = stripThinkSpans(String(blob || '').trim());
-  if (!text) return '';
-  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
-  const candidateLines = lines.filter((l) => {
-    if (/^[\*\-•]\s/.test(l)) return false;
-    if (/^\d+\.(\s|$)/.test(l)) return false;
-    if (/^\*?\s*(Character|Constraint|Goal|User Profile|Context|Personality):/i.test(l)) return false;
-    if (l.length < 12) return false;
-    return true;
-  });
-  if (!candidateLines.length) return '';
-  const tail = candidateLines.slice(-4).join('\n');
-  return tail.length >= 25 ? tail : '';
-}
-
-function extractPennyFromReasoning(reasoning) {
-  const text = stripThinkSpans(String(reasoning || '').trim());
-  if (!text) return '';
-  if (ALLOW_RAW_REASONING_FALLBACK) return text;
-  const moodIdx = text.lastIndexOf('[MOOD:');
-  if (moodIdx !== -1) {
-    const after = text.slice(moodIdx);
-    const m = after.match(/^\[MOOD:\w+\]/);
-    if (m) {
-      let bodyStart = text.lastIndexOf('\n\n', moodIdx);
-      bodyStart = bodyStart === -1 ? 0 : bodyStart + 2;
-      const body = text.slice(bodyStart, moodIdx).trim();
-      const mood = m[0];
-      if (body.length >= 6) return `${body}\n${mood}`.trim();
-      return mood;
-    }
-  }
-  const paras = text.split(/\n{2,}/).map(par => par.trim()).filter(Boolean);
-  for (let i = paras.length - 1; i >= 0; i -= 1) {
-    const par = paras[i];
-    if (par.length < 20) continue;
-    if (isMetaThinkingLine(par.split('\n')[0] || '')) continue;
-    return par;
-  }
-  return '';
-}
-
-function collectTextParts(value, bucket = 'visible', out = []) {
-  if (value == null) return out;
-  if (typeof value === 'string' || typeof value === 'number') {
-    out.push(String(value));
-    return out;
-  }
-  if (Array.isArray(value)) {
-    value.forEach(item => collectTextParts(item, bucket, out));
-    return out;
-  }
-  if (typeof value !== 'object') return out;
-
-  const type = String(value.type || '').toLowerCase();
-  const textValue = typeof value.text === 'string'
-    ? value.text
-    : typeof value.content === 'string'
-      ? value.content
-      : '';
-  if (textValue) {
-    const isReasoning = type.includes('reasoning');
-    if ((bucket === 'reasoning' && isReasoning) || (bucket === 'visible' && !isReasoning)) {
-      out.push(textValue);
-    }
-  }
-  if (Array.isArray(value.content)) {
-    value.content.forEach(item => collectTextParts(item, bucket, out));
-  }
-  if (Array.isArray(value.parts)) {
-    value.parts.forEach(item => collectTextParts(item, bucket, out));
-  }
-  return out;
-}
-
-function textValueFromField(value, bucket = 'visible') {
-  return collectTextParts(value, bucket, []).join('\n').trim();
-}
-
-function textFromChatMessage(msg) {
-  if (!msg || typeof msg !== 'object') return '';
-  const content = stripThinkSpans(textValueFromField(msg.content, 'visible') || String(msg.content ?? '').trim());
-  const reasoning = [
-    textValueFromField(msg.reasoning_content, 'reasoning') || String(msg.reasoning_content ?? '').trim(),
-    textValueFromField(msg.reasoning, 'reasoning') || String(msg.reasoning ?? '').trim(),
-  ].filter(Boolean).join('\n').trim();
-  let out = '';
-  if (content) out = coercePennyVisibleReply(content);
-  if (!out || looksOnlyLikeCoT(out)) {
-    const fromR = extractPennyFromReasoning(reasoning);
-    if (fromR) out = coercePennyVisibleReply(fromR);
-  }
-  if (!out && ALLOW_RAW_REASONING_FALLBACK && reasoning) {
-    out = stripThinkSpans(reasoning);
-  }
-  return out || '';
-}
-
-function collectLmStudioStatefulChatStrings(parsed) {
-  const outputParts = [];
-  const reasoningParts = [];
-  const top = typeof parsed?.output_text === 'string' ? parsed.output_text.trim() : '';
-  if (top) outputParts.push(top);
-
-  const blocks = Array.isArray(parsed?.output) ? parsed.output : [];
-  for (const block of blocks) {
-    if (!block || typeof block !== 'object') continue;
-    const type = String(block.type || '').toLowerCase();
-    if (type === 'message') {
-      const visible = textValueFromField(block.content, 'visible') || String(block.content ?? '').trim();
-      if (visible) outputParts.push(visible);
-      const reasoning = textValueFromField(block.content, 'reasoning');
-      if (reasoning) reasoningParts.push(reasoning);
-      continue;
-    }
-    const visible = textValueFromField(block.content ?? block.text ?? '', 'visible');
-    if (visible && !type.includes('reasoning')) outputParts.push(visible);
-    const reasoning = textValueFromField(block.content ?? block.text ?? '', 'reasoning');
-    if (reasoning || type.includes('reasoning')) reasoningParts.push(reasoning || String(block.text || '').trim());
-  }
-
-  return {
-    responseId: String(parsed?.response_id || parsed?.id || '').trim(),
-    outputText: outputParts.join('\n').trim(),
-    reasoningText: reasoningParts.join('\n').trim(),
-  };
-}
-
-function isMissingLmStudioThreadError(error) {
-  const message = String(error?.message || '');
-  return /\b(previous_response_id|response(?:_id)? .*not found|unknown response|invalid response id|unknown conversation|conversation .*not found|expired)\b/i.test(message);
-}
-
-function lmStudioStageLabel(type = '') {
-  switch (String(type || '')) {
-    case 'model_load.start': return 'loading model';
-    case 'model_load.end': return 'model ready';
-    case 'prompt_processing.start': return 'reading thread';
-    case 'prompt_processing.end': return 'prompt ready';
-    case 'reasoning.start': return 'thinking';
-    case 'message.start': return 'replying';
-    case 'message.end': return 'reply ready';
-    default: return '';
-  }
 }
 
 function beginEventStream(res) {
@@ -3156,641 +2097,28 @@ function bindAbortSignal(controller, abortSignal) {
   controller.signal.addEventListener('abort', () => abortSignal.removeEventListener('abort', onAbort), { once: true });
 }
 
-async function runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal }) {
-  return withLmStudioCandidateModel(async (model) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
-    bindAbortSignal(controller, abortSignal);
-    try {
-      const payload = {
-        model,
-        input: buildLmStudioPrompt({ userText, messages, memories, file }),
-        temperature: 0.9,
-        max_output_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
-        stream: false,
-      };
-      const response = await postJsonLongRunning(`${LMSTUDIO_BASE}/responses`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${LMSTUDIO_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      const bodyText = response.bodyText;
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        const err = new Error(`LM Studio responses error ${response.statusCode}: ${bodyText}`);
-        err.statusCode = response.statusCode;
-        throw err;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(bodyText);
-      } catch {
-        throw new Error(`LM Studio responses: invalid JSON: ${bodyText.slice(0, 400)}`);
-      }
-      const { outputText, reasoningText } = collectLmStudioResponsesStrings(parsed);
-
-      let primary = coercePennyVisibleReply(String(outputText || '').trim());
-      if (!primary || looksOnlyLikeCoT(primary)) {
-        let fromR = extractPennyFromReasoning(reasoningText);
-        if (!fromR) fromR = extractPennyFromPlanningBlob(reasoningText);
-        if (fromR) primary = coercePennyVisibleReply(fromR);
-      }
-      if (!primary && ALLOW_RAW_REASONING_FALLBACK && reasoningText) {
-        primary = String(reasoningText).trim();
-      }
-      if (!primary && RESPONSES_THEN_CHAT_FALLBACK) {
-        return runLmStudioChatCompletionsApi({ userText, messages, memories, file, abortSignal });
-      }
-      if (!primary) {
-        throw new Error(
-          'LM Studio /responses returned only internal reasoning (no speakable reply). Try: set PENNY_LOCAL_LLM_TRANSPORT=chat, or enable PENNY_RESPONSES_CHAT_FALLBACK (default on), or turn off reasoning in LM Studio for this model.',
-        );
-      }
-      return primary.trim();
-    } catch (error) {
-      if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
-
-async function runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal }) {
-  return withLmStudioCandidateModel(async (model, status) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
-    bindAbortSignal(controller, abortSignal);
-    const nativeModel = pickLmStudioNativeModelId(model, status);
-    const systemPrompt = buildLmStudioLeanSystemPrompt({ memories });
-    const systemPromptHash = hashText(systemPrompt);
-    const existingThread = normalizeLmStudioThread(memories?.lmStudioThread);
-    const canContinue = !!(
-      existingThread
-      && existingThread.responseId
-      && existingThread.model === nativeModel
-      && existingThread.systemPromptHash === systemPromptHash
-    );
-    try {
-      const payload = {
-        model: nativeModel,
-        input: buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread: canContinue }),
-        temperature: 0.9,
-        max_output_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
-        stream: false,
-      };
-      if (canContinue) payload.previous_response_id = existingThread.responseId;
-      else payload.system_prompt = systemPrompt;
-
-      const response = await postJsonLongRunning(`${LMSTUDIO_NATIVE_BASE}/chat`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${LMSTUDIO_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      const bodyText = response.bodyText;
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        const err = new Error(`LM Studio stateful chat error ${response.statusCode}: ${bodyText}`);
-        err.statusCode = response.statusCode;
-        throw err;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(bodyText);
-      } catch {
-        throw new Error(`LM Studio stateful chat: invalid JSON: ${bodyText.slice(0, 400)}`);
-      }
-
-      const { responseId, outputText, reasoningText } = collectLmStudioStatefulChatStrings(parsed);
-      let primary = coercePennyVisibleReply(String(outputText || '').trim());
-      if (!primary || looksOnlyLikeCoT(primary)) {
-        let fromR = extractPennyFromReasoning(reasoningText);
-        if (!fromR) fromR = extractPennyFromPlanningBlob(reasoningText);
-        if (fromR) primary = coercePennyVisibleReply(fromR);
-      }
-      if (!primary && ALLOW_RAW_REASONING_FALLBACK && reasoningText) {
-        primary = String(reasoningText).trim();
-      }
-      if (!primary) {
-        throw new Error(`No assistant text from LM Studio stateful chat: ${bodyText.slice(0, 800)}`);
-      }
-
-      if (responseId && memories && typeof memories === 'object') {
-        memories.lmStudioThread = {
-          responseId,
-          model: nativeModel,
-          systemPromptHash,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      return primary.trim();
-    } catch (error) {
-      if (canContinue && isMissingLmStudioThreadError(error)) {
-        if (memories && typeof memories === 'object') memories.lmStudioThread = null;
-        return runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal });
-      }
-      if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
-
-async function streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal }) {
-  return withLmStudioCandidateModel(async (model, status) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
-    const nativeModel = pickLmStudioNativeModelId(model, status);
-    const systemPrompt = buildLmStudioLeanSystemPrompt({ memories });
-    const systemPromptHash = hashText(systemPrompt);
-    const existingThread = normalizeLmStudioThread(memories?.lmStudioThread);
-    const canContinue = !!(
-      existingThread
-      && existingThread.responseId
-      && existingThread.model === nativeModel
-      && existingThread.systemPromptHash === systemPromptHash
-    );
-
-    bindAbortSignal(controller, abortSignal);
-
-    try {
-      const payload = {
-        model: nativeModel,
-        input: buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread: canContinue }),
-        temperature: 0.9,
-        max_output_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
-        stream: true,
-      };
-      if (canContinue) payload.previous_response_id = existingThread.responseId;
-      else payload.system_prompt = systemPrompt;
-
-      let visibleText = '';
-      let reasoningText = '';
-      let responseId = '';
-
-      await postJsonSse(`${LMSTUDIO_NATIVE_BASE}/chat`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${LMSTUDIO_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-        onEvent: ({ event, data }) => {
-          if (event === 'message.delta') {
-            const chunk = typeof data?.content === 'string' ? data.content : '';
-            if (chunk) {
-              visibleText += chunk;
-              onEvent?.({ type: 'message.delta', content: chunk, text: visibleText });
-            }
-            return;
-          }
-          if (event === 'reasoning.delta') {
-            const chunk = typeof data?.content === 'string' ? data.content : '';
-            if (chunk) reasoningText += chunk;
-            onEvent?.({ type: 'status', stage: 'thinking', label: 'thinking' });
-            return;
-          }
-          if (event === 'chat.end') {
-            const result = data?.result && typeof data.result === 'object' ? data.result : data;
-            const collected = collectLmStudioStatefulChatStrings(result);
-            responseId = collected.responseId || responseId;
-            if (collected.outputText) visibleText = collected.outputText;
-            if (collected.reasoningText) reasoningText = collected.reasoningText;
-            return;
-          }
-          if (event === 'error') {
-            const detail = typeof data?.error === 'string'
-              ? data.error
-              : typeof data?.message === 'string'
-                ? data.message
-                : JSON.stringify(data);
-            const err = new Error(`LM Studio stateful chat stream error: ${detail}`);
-            throw err;
-          }
-          const label = lmStudioStageLabel(event);
-          if (label) onEvent?.({ type: 'status', stage: event, label });
-        },
-      });
-
-      let primary = coercePennyVisibleReply(String(visibleText || '').trim());
-      if (!primary || looksOnlyLikeCoT(primary)) {
-        let fromR = extractPennyFromReasoning(reasoningText);
-        if (!fromR) fromR = extractPennyFromPlanningBlob(reasoningText);
-        if (fromR) primary = coercePennyVisibleReply(fromR);
-      }
-      if (!primary && ALLOW_RAW_REASONING_FALLBACK && reasoningText) {
-        primary = String(reasoningText).trim();
-      }
-      if (!primary) throw new Error('No assistant text from LM Studio stateful chat stream');
-
-      if (responseId && memories && typeof memories === 'object') {
-        memories.lmStudioThread = {
-          responseId,
-          model: nativeModel,
-          systemPromptHash,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      return primary.trim();
-    } catch (error) {
-      if (canContinue && isMissingLmStudioThreadError(error)) {
-        if (memories && typeof memories === 'object') memories.lmStudioThread = null;
-        return streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal });
-      }
-      if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
-
-async function streamLmStudioResponsesApi({ userText, messages, memories, file, onEvent, abortSignal }) {
-  return withLmStudioCandidateModel(async (model) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
-    bindAbortSignal(controller, abortSignal);
-
-    try {
-      const payload = {
-        model,
-        input: buildLmStudioPrompt({ userText, messages, memories, file }),
-        temperature: 0.9,
-        max_output_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
-        stream: true,
-      };
-
-      let visibleText = '';
-      let reasoningText = '';
-      let finalResponse = null;
-      let replyStarted = false;
-
-      await postJsonSse(`${LMSTUDIO_BASE}/responses`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${LMSTUDIO_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-        onEvent: ({ event, data }) => {
-          const type = event !== 'message'
-            ? event
-            : typeof data?.type === 'string'
-              ? data.type
-              : '';
-
-          if (type === 'response.output_text.delta') {
-            const chunk = typeof data?.delta === 'string' ? data.delta : '';
-            if (chunk) {
-              visibleText += chunk;
-              if (!replyStarted) {
-                replyStarted = true;
-                onEvent?.({ type: 'status', stage: 'message.start', label: 'replying' });
-              }
-              onEvent?.({ type: 'message.delta', content: chunk, text: visibleText });
-            }
-            return;
-          }
-
-          if (/^response\.(reasoning|reasoning_summary|summary).*\.delta$/i.test(type)) {
-            const chunk = typeof data?.delta === 'string'
-              ? data.delta
-              : typeof data?.text === 'string'
-                ? data.text
-                : '';
-            if (chunk) reasoningText += chunk;
-            onEvent?.({ type: 'status', stage: 'thinking', label: 'thinking' });
-            return;
-          }
-
-          if (type === 'response.completed') {
-            finalResponse = data?.response && typeof data.response === 'object' ? data.response : data;
-            const collected = collectLmStudioResponsesStrings(finalResponse);
-            if (collected.outputText) visibleText = collected.outputText;
-            if (collected.reasoningText) reasoningText = collected.reasoningText;
-            return;
-          }
-
-          if (type === 'response.in_progress' || type === 'response.created') {
-            onEvent?.({ type: 'status', stage: type, label: 'thinking' });
-            return;
-          }
-
-          if (type === 'response.output_item.added' || type === 'response.content_part.added') {
-            onEvent?.({ type: 'status', stage: type, label: 'replying' });
-            return;
-          }
-
-          if (type === 'response.failed' || type === 'error') {
-            const detail = typeof data?.error === 'string'
-              ? data.error
-              : typeof data?.message === 'string'
-                ? data.message
-                : JSON.stringify(data);
-            const err = new Error(`LM Studio responses stream error: ${detail}`);
-            throw err;
-          }
-        },
-      });
-
-      let primary = coercePennyVisibleReply(String(visibleText || '').trim());
-      if (!primary || looksOnlyLikeCoT(primary)) {
-        let fromR = extractPennyFromReasoning(reasoningText);
-        if (!fromR) fromR = extractPennyFromPlanningBlob(reasoningText);
-        if (fromR) primary = coercePennyVisibleReply(fromR);
-      }
-      if (!primary && finalResponse) {
-        const collected = collectLmStudioResponsesStrings(finalResponse);
-        primary = coercePennyVisibleReply(String(collected.outputText || '').trim());
-        if ((!primary || looksOnlyLikeCoT(primary)) && collected.reasoningText) {
-          let fromR = extractPennyFromReasoning(collected.reasoningText);
-          if (!fromR) fromR = extractPennyFromPlanningBlob(collected.reasoningText);
-          if (fromR) primary = coercePennyVisibleReply(fromR);
-        }
-      }
-      if (!primary && ALLOW_RAW_REASONING_FALLBACK && reasoningText) {
-        primary = String(reasoningText).trim();
-      }
-      if (!primary && RESPONSES_THEN_CHAT_FALLBACK) {
-        return streamLmStudioChatCompletionsApi({ userText, messages, memories, file, onEvent, abortSignal });
-      }
-      if (!primary) {
-        throw new Error(
-          'LM Studio /responses stream returned only internal reasoning (no speakable reply). Try: set PENNY_LOCAL_LLM_TRANSPORT=chat, or enable PENNY_RESPONSES_CHAT_FALLBACK (default on), or turn off reasoning in LM Studio for this model.',
-        );
-      }
-      return primary.trim();
-    } catch (error) {
-      if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
-
-async function streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal }) {
-  return withLmStudioCandidateModel(async (model) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
-    bindAbortSignal(controller, abortSignal);
-
-    try {
-      const payload = {
-        model,
-        messages: buildLmStudioMessages({ userText, messages, memories, image, file }),
-        temperature: 0.9,
-        max_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
-        stream: true,
-      };
-
-      let visibleText = '';
-      let reasoningText = '';
-      let replyStarted = false;
-
-      await postJsonSse(`${LMSTUDIO_BASE}/chat/completions`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${LMSTUDIO_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-        onEvent: ({ event, data }) => {
-          if (event === 'error') {
-            const detail = typeof data?.error === 'string'
-              ? data.error
-              : typeof data?.error?.message === 'string'
-                ? data.error.message
-                : typeof data?.message === 'string'
-                  ? data.message
-                  : JSON.stringify(data);
-            throw new Error(`LM Studio chat/completions stream error: ${detail}`);
-          }
-          if (typeof data === 'string') {
-            if (data === '[DONE]') return;
-            if (data) {
-              const err = new Error(`LM Studio chat/completions stream error: ${data}`);
-              throw err;
-            }
-            return;
-          }
-
-          const choice = Array.isArray(data?.choices) ? data.choices[0] : null;
-          const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta : {};
-          const contentChunk = typeof delta.content === 'string'
-            ? delta.content
-            : Array.isArray(delta.content)
-              ? collectTextParts(delta.content, 'visible', []).join('')
-              : '';
-          const reasoningChunk = [
-            textValueFromField(delta.reasoning_content, 'reasoning') || String(delta.reasoning_content ?? '').trim(),
-            textValueFromField(delta.reasoning, 'reasoning') || String(delta.reasoning ?? '').trim(),
-          ].filter(Boolean).join('\n').trim();
-
-          if (reasoningChunk) {
-            reasoningText += reasoningChunk;
-            onEvent?.({ type: 'status', stage: 'thinking', label: 'thinking' });
-          }
-
-          if (contentChunk) {
-            visibleText += contentChunk;
-            if (!replyStarted) {
-              replyStarted = true;
-              onEvent?.({ type: 'status', stage: 'message.start', label: 'replying' });
-            }
-            onEvent?.({ type: 'message.delta', content: contentChunk, text: visibleText });
-          }
-        },
-      });
-
-      let primary = coercePennyVisibleReply(String(visibleText || '').trim());
-      if (!primary || looksOnlyLikeCoT(primary)) {
-        let fromR = extractPennyFromReasoning(reasoningText);
-        if (!fromR) fromR = extractPennyFromPlanningBlob(reasoningText);
-        if (fromR) primary = coercePennyVisibleReply(fromR);
-      }
-      if (!primary && ALLOW_RAW_REASONING_FALLBACK && reasoningText) {
-        primary = String(reasoningText).trim();
-      }
-      if (!primary) throw new Error('No assistant text from chat/completions stream');
-      clearLmStudioThread(memories);
-      return primary.trim();
-    } catch (error) {
-      if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
-
-async function runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal }) {
-  return withLmStudioCandidateModel(async (model) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
-    bindAbortSignal(controller, abortSignal);
-    try {
-      const payload = {
-        model,
-        messages: buildLmStudioMessages({ userText, messages, memories, image, file }),
-        temperature: 0.9,
-        max_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
-        stream: false,
-      };
-      const response = await postJsonLongRunning(`${LMSTUDIO_BASE}/chat/completions`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${LMSTUDIO_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      const bodyText = response.bodyText;
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        const err = new Error(`LM Studio chat/completions error ${response.statusCode}: ${bodyText}`);
-        err.statusCode = response.statusCode;
-        throw err;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(bodyText);
-      } catch {
-        throw new Error(`LM Studio chat/completions: invalid JSON: ${bodyText.slice(0, 400)}`);
-      }
-      const msg = parsed?.choices?.[0]?.message;
-      let text = textFromChatMessage(msg);
-      if (!text) {
-        const delta = parsed?.choices?.[0]?.delta;
-        text = textFromChatMessage(
-          typeof delta === 'object' ? { content: delta?.content, reasoning_content: delta?.reasoning_content } : {},
-        );
-      }
-      if (!text) throw new Error(`No assistant text from chat/completions: ${bodyText.slice(0, 800)}`);
-      clearLmStudioThread(memories);
-      return text.trim();
-    } catch (error) {
-      if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
-async function runLmStudioLocal({ userText, messages, memories, image, file, abortSignal }) {
-  const transport = LOCAL_LLM_TRANSPORT;
-  if (transport === 'stateful' || transport === 'native' || transport === 'native-chat' || transport === 'stateful-chat') {
-    return runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal });
-  }
-  if (transport === 'chat') {
-    return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal });
-  }
-  if (transport === 'responses') {
-    if (image) return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal });
-    return runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal });
-  }
-  if (transport === 'auto') {
-    const status = await getLmStudioConnectionStatus();
-    const preferredModel = String(status?.resolvedModel || status?.candidateModels?.[0] || '').trim();
-    if (preferredModel && shouldPreferLmStudioChatCompletions(preferredModel, status)) {
-      return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal });
-    }
-  }
-  try {
-    return await runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal });
-  } catch (error) {
-    const code = error?.statusCode;
-    const msg = String(error?.message || '');
-    if (error?.name === 'AbortError' || /timed out/i.test(msg)) {
-      throw error;
-    }
-    if (code === 404 || /404/.test(msg) || /not found/i.test(msg) || /No assistant text from LM Studio stateful chat/i.test(msg) || /LM Studio stateful chat error/i.test(msg)) {
-      clearLmStudioThread(memories);
-      try {
-        return await runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal });
-      } catch (chatError) {
-        const chatCode = chatError?.statusCode;
-        const chatMsg = String(chatError?.message || '');
-        if (chatCode === 404 || /404/.test(chatMsg) || /not found/i.test(chatMsg)) {
-          if (image) {
-            throw new Error('LM Studio /responses fallback cannot carry vision attachments. Use native chat or chat/completions with a vision-capable model.');
-          }
-          return runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal });
-        }
-        throw chatError;
-      }
-    }
-    throw error;
-  }
-}
-
-async function streamLmStudioLocal({ userText, messages, memories, image, file, onEvent, abortSignal }) {
-  const transport = LOCAL_LLM_TRANSPORT;
-  if (transport === 'stateful' || transport === 'native' || transport === 'native-chat' || transport === 'stateful-chat') {
-    return streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal });
-  }
-  if (transport === 'chat') {
-    return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal });
-  }
-  if (transport === 'responses') {
-    if (image) return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal });
-    return streamLmStudioResponsesApi({ userText, messages, memories, file, onEvent, abortSignal });
-  }
-  if (transport === 'auto') {
-    const status = await getLmStudioConnectionStatus();
-    const preferredModel = String(status?.resolvedModel || status?.candidateModels?.[0] || '').trim();
-    if (preferredModel && shouldPreferLmStudioChatCompletions(preferredModel, status)) {
-      return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal });
-    }
-  }
-  try {
-    return await streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal });
-  } catch (error) {
-    const code = error?.statusCode;
-    const msg = String(error?.message || '');
-    if (error?.name === 'AbortError' || /timed out/i.test(msg)) throw error;
-    if (code === 404 || /404/.test(msg) || /not found/i.test(msg) || /No assistant text from LM Studio stateful chat stream/i.test(msg) || /LM Studio stateful chat stream error/i.test(msg)) {
-      clearLmStudioThread(memories);
-      try {
-        return await streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal });
-      } catch (chatError) {
-        const chatCode = chatError?.statusCode;
-        const chatMsg = String(chatError?.message || '');
-        if (chatCode === 404 || /404/.test(chatMsg) || /not found/i.test(chatMsg)) {
-          if (image) {
-            throw new Error('LM Studio /responses fallback cannot carry vision attachments. Use native chat or chat/completions with a vision-capable model.');
-          }
-          return streamLmStudioResponsesApi({ userText, messages, memories, file, onEvent, abortSignal });
-        }
-        throw chatError;
-      }
-    }
-    throw error;
-  }
-}
-
 async function runLmStudioLocalSmart({ userText, messages, memories, image, file, abortSignal, onToolEvent }) {
   const toolUserText = buildToolUserText(userText, file);
-  const forceToolLoop = !image && shouldForceLocalToolLoop(userText);
-  if (!image) {
-    const directIntent = resolveDirectToolIntent(userText);
-    if (directIntent) {
+  const laneSelection = selectLocalLane({ userText, image, file });
+  const laneRuntime = createLaneRuntime(laneSelection.localLane);
+  if (!image && laneSelection.directIntent) {
       const result = await runLmStudioDirectToolAssist({
         userText: toolUserText,
         messages,
         memories,
-        intent: directIntent,
+        intent: laneSelection.directIntent,
         onToolEvent,
         abortSignal,
       });
       if (result.skipSemanticRender) {
-        return { text: cleanDraftForSemanticRender(result.text) || String(result.text || '').trim(), toolsUsed: result.toolsUsed, toolRecords: result.toolRecords };
+        return {
+          text: cleanDraftForSemanticRender(result.text) || String(result.text || '').trim(),
+          toolsUsed: result.toolsUsed,
+          toolRecords: result.toolRecords,
+          ...laneRuntime,
+        };
       }
-      return maybeRenderHardTurnReply({
+      const finalized = await maybeRenderHardTurnReply({
         userText,
         messages,
         memories,
@@ -3800,13 +2128,14 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         toolRecords: result.toolRecords,
         onToolEvent,
         abortSignal,
+        laneRuntime,
       });
-    }
+      return { ...finalized, ...laneRuntime };
   }
-  if (!image && (file || forceToolLoop || shouldOfferLocalTools(userText))) {
+  if (!image && laneSelection.localLane === 'tool' && laneSelection.needsTools) {
     try {
-      const result = await runLmStudioToolLoop({ userText: toolUserText, messages, memories, abortSignal });
-      return maybeRenderHardTurnReply({
+      const result = await runLmStudioToolLoopApiRunner({ userText: toolUserText, messages, memories, abortSignal, laneRuntime });
+      const finalized = await maybeRenderHardTurnReply({
         userText,
         messages,
         memories,
@@ -3816,11 +2145,13 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         toolRecords: result.toolRecords,
         onToolEvent,
         abortSignal,
+        laneRuntime,
       });
+      return { ...finalized, ...laneRuntime };
     } catch (error) {
-      if (!shouldFallbackToManualToolLoop(error)) throw error;
-      const result = await runLmStudioManualToolLoop({ userText: toolUserText, messages, memories, abortSignal });
-      return maybeRenderHardTurnReply({
+      if (!shouldFallbackToManualToolLoopApi(error)) throw error;
+      const result = await runLmStudioManualToolLoopApiRunner({ userText: toolUserText, messages, memories, abortSignal, laneRuntime });
+      const finalized = await maybeRenderHardTurnReply({
         userText,
         messages,
         memories,
@@ -3830,24 +2161,25 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         toolRecords: result.toolRecords,
         onToolEvent,
         abortSignal,
+        laneRuntime,
       });
+      return { ...finalized, ...laneRuntime };
     }
   }
-  const text = await runLmStudioLocal({ userText, messages, memories, image, file, abortSignal });
-  return { text, toolsUsed: [], toolRecords: [] };
+  const text = await runLmStudioLocalApi({ userText, messages, memories, image, file, abortSignal, lane: laneRuntime.localLane, laneRuntime });
+  return { text, toolsUsed: [], toolRecords: [], ...laneRuntime };
 }
 
 async function streamLmStudioLocalSmart({ userText, messages, memories, image, file, onEvent, abortSignal }) {
   const toolUserText = buildToolUserText(userText, file);
-  const forceToolLoop = !image && shouldForceLocalToolLoop(userText);
-  if (!image) {
-    const directIntent = resolveDirectToolIntent(userText);
-    if (directIntent) {
-      const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, intent: directIntent, onToolEvent: onEvent, abortSignal });
+  const laneSelection = selectLocalLane({ userText, image, file });
+  const laneRuntime = createLaneRuntime(laneSelection.localLane);
+  if (!image && laneSelection.directIntent) {
+      const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, intent: laneSelection.directIntent, onToolEvent: onEvent, abortSignal });
       if (result.skipSemanticRender) {
         const directText = cleanDraftForSemanticRender(result.text) || String(result.text || '').trim();
         if (directText) onEvent?.({ type: 'message.delta', content: directText, text: directText });
-        return { text: directText, toolsUsed: result.toolsUsed, toolRecords: result.toolRecords };
+        return { text: directText, toolsUsed: result.toolsUsed, toolRecords: result.toolRecords, ...laneRuntime };
       }
       const finalized = await maybeRenderHardTurnReply({
         userText,
@@ -3859,19 +2191,19 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
         toolRecords: result.toolRecords,
         onToolEvent: onEvent,
         abortSignal,
+        laneRuntime,
       });
       if (finalized.text) onEvent?.({ type: 'message.delta', content: finalized.text, text: finalized.text });
-      return { text: finalized.text, toolsUsed: finalized.toolsUsed, toolRecords: finalized.toolRecords };
-    }
+      return { ...finalized, ...laneRuntime };
   }
-  if (!image && (file || forceToolLoop || shouldOfferLocalTools(userText))) {
+  if (!image && laneSelection.localLane === 'tool' && laneSelection.needsTools) {
     let result;
     try {
-      result = await runLmStudioToolLoop({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal });
+      result = await runLmStudioToolLoopApiRunner({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal, laneRuntime });
     } catch (error) {
-      if (!shouldFallbackToManualToolLoop(error)) throw error;
+      if (!shouldFallbackToManualToolLoopApi(error)) throw error;
       onEvent?.({ type: 'status', stage: 'fallback', label: 'switching tool mode' });
-      result = await runLmStudioManualToolLoop({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal });
+      result = await runLmStudioManualToolLoopApiRunner({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal, laneRuntime });
     }
     const finalized = await maybeRenderHardTurnReply({
       userText,
@@ -3883,12 +2215,13 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
       toolRecords: result.toolRecords,
       onToolEvent: onEvent,
       abortSignal,
+      laneRuntime,
     });
     if (finalized.text) onEvent?.({ type: 'message.delta', content: finalized.text, text: finalized.text });
-    return { text: finalized.text, toolsUsed: finalized.toolsUsed, toolRecords: finalized.toolRecords };
+    return { ...finalized, ...laneRuntime };
   }
-  const text = await streamLmStudioLocal({ userText, messages, memories, image, file, onEvent, abortSignal });
-  return { text, toolsUsed: [], toolRecords: [] };
+  const text = await streamLmStudioLocalApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane: laneRuntime.localLane, laneRuntime });
+  return { text, toolsUsed: [], toolRecords: [], ...laneRuntime };
 }
 
 function serveFile(res, filePath) { fs.readFile(filePath, (err, data) => { if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); return; } const ext = path.extname(filePath).toLowerCase(); res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' }); res.end(data); }); }
@@ -3901,18 +2234,24 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/api/penny/consolidate') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const messages = Array.isArray(payload.messages) ? payload.messages : []; const sessionId = payload.sessionId || 'default'; const prepared = buildChatMemoryState(sessionId, payload.memories || {}, messages); const saved = saveStoredMemory(sessionId, prepared.memory); return sendJson(res, 200, { ok: true, memory: saved, patch: prepared.patch }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
   if (req.method === 'GET' && url.pathname === '/api/penny/shadow-status') { return sendJson(res, 200, { ok: true, enabled: OPENCLAW_ENABLED, timeoutMs: OPENCLAW_TIMEOUT_MS, modelPath: 'openclaw agent --agent main', fallback: 'legacy /api/penny/chat/shadow falls back locally; main /api/penny/chat blocks on shadow failure', warning: 'Shadow is an optional experimental lane. It is not Penny\'s main chat brain, and the main chat route should surface failures instead of silently faking a reply.' }); }
   if (req.method === 'GET' && url.pathname === '/api/penny/lmstudio/status') {
-    const lmStudio = await getLmStudioConnectionStatus({ force: true });
-    return sendJson(res, 200, { ...lmStudio, runtimePreferredModel: runtimePreferredModel || null });
+    const lmStudio = await getLmStudioConnectionStatusApi({ force: true });
+    return sendJson(res, 200, lmStudio);
   }
   if (req.method === 'POST' && url.pathname === '/api/penny/lmstudio/model') {
     try {
       const rawBody = await safeReadBody(req);
       const payload = rawBody ? JSON.parse(rawBody) : {};
       const model = String(payload.model || '').trim();
-      runtimePreferredModel = model;
-      lmStudioStatusCache = { expiresAt: 0, value: null };
-      const lmStudio = await getLmStudioConnectionStatus({ force: true });
-      return sendJson(res, 200, { ok: true, runtimePreferredModel: model, resolvedModel: lmStudio.resolvedModel });
+      setRuntimePreferredChatModelApi(model);
+      const lmStudio = await getLmStudioConnectionStatusApi({ force: true });
+      return sendJson(res, 200, {
+        ok: true,
+        runtimePreferredModel: getRuntimePreferredChatModelApi() || null,
+        chatPreferredModel: lmStudio.chatPreferredModel || null,
+        toolPreferredModel: lmStudio.toolPreferredModel || null,
+        resolvedModel: lmStudio.resolvedModel,
+        routingMode: lmStudio.routingMode || 'auto',
+      });
     } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); }
   }
   if (req.method === 'POST' && url.pathname === '/api/penny/chat/shadow') {
@@ -3984,6 +2323,10 @@ const server = http.createServer(async (req, res) => {
       let usedFallback = false;
       let shadowError = null;
       let toolsUsed = [];
+      let localLane = 'chat';
+      let requestedModel = '';
+      let resolvedModel = '';
+      let laneFallback = false;
 
       if (wantsStream) {
         beginEventStream(res);
@@ -4031,6 +2374,10 @@ const server = http.createServer(async (req, res) => {
             text = result.text;
             toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
             backend = toolsUsed.length ? 'local-lmstudio-tools' : 'local-lmstudio';
+            localLane = result.localLane || 'chat';
+            requestedModel = result.requestedModel || '';
+            resolvedModel = result.resolvedModel || '';
+            laneFallback = result.laneFallback === true;
           } else if (!OPENCLAW_ENABLED) {
             sendEventStream(res, 'error', {
               error: 'Shadow brain requested but not enabled on the server.',
@@ -4072,6 +2419,10 @@ const server = http.createServer(async (req, res) => {
                 requestedMode,
                 usedFallback,
                 shadowEnabled: OPENCLAW_ENABLED,
+                localLane,
+                requestedModel,
+                resolvedModel,
+                laneFallback,
                 toolsUsed,
                 ...(shadowError ? { shadowError } : {}),
               },
@@ -4090,6 +2441,10 @@ const server = http.createServer(async (req, res) => {
                 backend: requestedMode === 'local' ? 'local-lmstudio-failed' : backend,
                 shadowEnabled: OPENCLAW_ENABLED,
                 usedFallback: false,
+                localLane,
+                requestedModel,
+                resolvedModel,
+                laneFallback,
                 toolsUsed,
                 ...(shadowError ? { shadowError } : {}),
               },
@@ -4125,6 +2480,10 @@ const server = http.createServer(async (req, res) => {
             text = result.text;
             toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
             backend = toolsUsed.length ? 'local-lmstudio-tools' : 'local-lmstudio';
+            localLane = result.localLane || 'chat';
+            requestedModel = result.requestedModel || '';
+            resolvedModel = result.resolvedModel || '';
+            laneFallback = result.laneFallback === true;
           } catch (error) {
             if (clientClosed) return;
             return sendJson(res, 503, {
@@ -4135,6 +2494,10 @@ const server = http.createServer(async (req, res) => {
                 backend: 'local-lmstudio-failed',
                 shadowEnabled: OPENCLAW_ENABLED,
                 usedFallback: false,
+                localLane,
+                requestedModel,
+                resolvedModel,
+                laneFallback,
                 toolsUsed,
                 shadowError: error.message,
               },
@@ -4198,6 +2561,10 @@ const server = http.createServer(async (req, res) => {
           requestedMode,
           usedFallback,
           shadowEnabled: OPENCLAW_ENABLED,
+          localLane,
+          requestedModel,
+          resolvedModel,
+          laneFallback,
           toolsUsed,
           ...(shadowError ? { shadowError } : {}),
         },
@@ -4207,7 +2574,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
   if (req.method === 'GET' && (url.pathname === '/api/penny/status' || url.pathname === '/api/companion/status')) {
-    const lmStudio = await getLmStudioConnectionStatus({ force: true });
+    const lmStudio = await getLmStudioConnectionStatusApi({ force: true });
     return sendJson(res, 200, { ok: true, name: 'Penny', turns: sessionState.turns, mood: sessionState.lastMood, backend: 'local-lmstudio', memoryEntries: sessionState.memory.length, durableMemoryFile: MEMORY_FILE, shadowEnabled: OPENCLAW_ENABLED, webSearchEnabled: WEB_SEARCH_ENABLED, lmStudioBase: LMSTUDIO_BASE, lmStudioNativeBase: LMSTUDIO_NATIVE_BASE, lmStudioModel: LMSTUDIO_MODEL, localLlmTransport: LOCAL_LLM_TRANSPORT, responsesChatFallback: RESPONSES_THEN_CHAT_FALLBACK, maxOutputTokens: LMSTUDIO_MAX_OUTPUT_TOKENS, lmStudio });
   }
   let targetPath = url.pathname === '/' ? '/index.html' : url.pathname; const normalizedPath = path.normalize(targetPath).replace(/^([.][.][/\\])+/, ''); const filePath = path.join(PUBLIC_DIR, normalizedPath); if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Forbidden'); return; } serveFile(res, filePath);
@@ -4264,10 +2631,10 @@ if (require.main === module) {
 module.exports = {
   server,
   startServer,
-  getLmStudioConnectionStatus,
+  getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
   buildLmStudioMessages,
-  coercePennyVisibleReply,
-  textFromChatMessage,
+  coercePennyVisibleReply: coercePennyVisibleReplyApi,
+  textFromChatMessage: textFromChatMessageApi,
   extractExplicitProjectPath,
   shouldForceLocalToolLoop,
   resolveDirectToolIntent,

@@ -1,6 +1,6 @@
 # Architecture
 
-This file describes how Penny currently works in this repo as of 2026-04-12.
+This file describes how Penny currently works in this repo as of 2026-04-13.
 
 It is intentionally blunt about what is "real architecture" versus "current monolith that still needs to be split."
 
@@ -42,13 +42,19 @@ This is not a distributed system. It is a local-first prototype with a monolithi
 
 ## Runtime modes
 
-There are two conceptual chat lanes:
+There are two runtime brain families:
 
 1. Main lane: LM Studio
 
 - This is Penny's real primary brain.
 - The browser talks to `POST /api/penny/chat`.
-- The backend resolves the actually loaded LM Studio model, builds the prompt, and returns a reply.
+- The backend automatically picks one of two LM Studio sub-lanes before any model call:
+  - chat lane for companion turns, memory recall, softness, banter, and image chat
+  - tool lane for direct inspect/search/read/edit/runtime/git/web turns and the full bounded tool loop
+- The chosen lane stays fixed for the whole request. Penny does not do a second 31B restyle pass after tool work.
+- Chat lane defaults to `google/gemma-4-31b`.
+- Tool lane defaults to `google/gemma-4-e4b`.
+- The settings-panel model picker is a chat-lane override only.
 
 1. Optional lane: OpenClaw shadow
 
@@ -67,10 +73,11 @@ Normal chat flow:
 2. `server.js` reads request body and attachments
 3. Backend merges browser memory settings with durable disk memory
 4. Backend chooses `brainMode`
-5. For local mode, backend routes into LM Studio transport logic
-6. Reply comes back with a visible text response plus a hidden mood tag
-7. Frontend parses the mood tag and updates Penny's visual state
-8. Durable memory is written back to `data/penny-memory.json`
+5. For local mode, backend selects `chat` vs `tool` lane
+6. The selected lane resolves its preferred model and transport family
+7. Reply comes back with a visible text response plus a hidden mood tag
+8. Frontend parses the mood tag and updates Penny's visual state
+9. Durable memory is written back to `data/penny-memory.json`
 
 ## Backend subsystems
 
@@ -119,7 +126,7 @@ Important behavior:
 
 LM Studio is the real engine behind Penny's main chat lane.
 
-Current transport stack in `server.js`:
+Current transport stack is owned by `lib/penny-lmstudio-transports.js`:
 
 - stateful chat (`/api/v1/chat`) when available
 - chat completions (`/v1/chat/completions`) fallback
@@ -161,7 +168,7 @@ Tool categories currently include:
 - log reads
 - lightweight web search and page fetch
 
-The planner/manual tool loops are still inside `server.js`, but the concrete tool implementations and dispatch switchboard now live in:
+The planner/manual tool loops now live in `lib/penny-tool-loop.js`, while the concrete tool implementations and dispatch switchboard live in:
 
 - `lib/penny-project-tools.js`
 - `lib/penny-web-tools.js`
@@ -214,7 +221,20 @@ Current important endpoints:
 
 The frontend is a single-page app with no build step.
 
-Main responsibilities in `public/app.js`:
+Current split:
+
+- `public/app.js`
+  tiny module bootstrap
+- `public/js/penny-app.js`
+  main SPA orchestration
+- `public/js/penny-lmstudio-ui.js`
+  LM Studio diagnostics/model UI helpers
+- `public/js/penny-attachments.js`
+  image/file attachment prep and preview handling
+- `public/js/penny-storage.js`
+  local browser persistence/session helpers
+
+Main remaining responsibilities in `public/js/penny-app.js`:
 
 - local browser state
 - chat composer and transcript rendering
@@ -236,9 +256,11 @@ Stops the background Penny server.
 - `scripts/ensure-lmstudio-penny-preset.js`
 Reasserts the LM Studio preset/default state Penny expects.
 - `scripts/eval-penny-models.js`
-Comparative model harness.
+Comparative chat-lane model harness with a fixed tool-lane model.
+- `scripts/eval-penny-probes.js`
+Tool-lane leaning probe harness that prefers E4B by default.
 - `scripts/qa-penny-voice-redo.js`
-Lighter voice QA harness.
+Chat-lane voice QA harness that records lane/model/fallback metadata.
 
 ## Speed realities
 

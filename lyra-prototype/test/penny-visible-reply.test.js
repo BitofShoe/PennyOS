@@ -2,8 +2,20 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  createVisibleReplyApi,
+} = require('../lib/penny-visible-reply');
+
+const {
   coercePennyVisibleReply,
-} = require('../server.js');
+} = createVisibleReplyApi({
+  ALLOW_RAW_REASONING_FALLBACK: false,
+  retagAssistantReply(text = '', preferredMood = '') {
+    const stripped = String(text || '').replace(/\s*\[MOOD:\w+\]\s*/g, ' ').trim();
+    const explicit = String(text || '').match(/\[MOOD:(\w+)\]/i)?.[1] || '';
+    const mood = explicit || preferredMood || 'calm';
+    return stripped ? `${stripped}\n[MOOD:${mood}]` : `[MOOD:${mood}]`;
+  },
+});
 
 test('coercePennyVisibleReply strips single-line draft scaffolding', () => {
   const raw = `*Draft:*\n    oh, right. you vanished like I’m not supposed to talk to you anymore? bold move, stranger.\n[MOOD:smug]`;

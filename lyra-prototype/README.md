@@ -21,8 +21,11 @@ Read these in order if you need the current truth:
 
 ## Current runtime truth
 
-- `server.js` is still the main backend monolith, but the direct-intent parser/reply layer, direct tool-assist runner, and concrete tool implementations now live under `lib/`.
-- `public/app.js` is still the main frontend monolith.
+- Penny now routes local turns through two automatic LM Studio lanes:
+  - chat lane for companion turns and memory-heavy conversation
+  - tool lane for bounded inspect/search/read/edit/runtime/git/web turns
+- `server.js` is still the main backend monolith, but lane selection, LM Studio status/model resolution, visible-reply salvage, tool-loop orchestration, transports, direct-intent parsing/replies, direct tool-assist, and concrete tools now live under `lib/`.
+- `public/app.js` is now bootstrap glue. The main browser logic lives under `public/js/`, with separate modules for LM Studio diagnostics/model UI, attachments, and local persistence.
 - Penny's live prompt stack comes from `penny-voice/runtime/`, not the giant raw personality docs.
 - LM Studio is Penny's real primary brain.
 - OpenClaw shadow exists, but it is optional and experimental.
@@ -32,13 +35,13 @@ Read these in order if you need the current truth:
 ## Project layout
 
 - `server.js`
-Main backend orchestration: routes, memory persistence, LM Studio routing, tool loop coordination, semantic render, and static file serving.
+Main backend orchestration: routes, memory persistence, lane-aware local routing, semantic render gating, and static file serving.
 - `public/`
 Browser UI shell, styles, sprites, and client logic.
 - `penny-voice/runtime/`
 Live runtime voice assets injected into prompts.
 - `lib/`
-Extracted backend helpers with cheap regression tests. Current high-value modules include direct intents, direct tool assist, concrete tool implementations, and memory helpers.
+Extracted backend helpers with cheap regression tests. Current high-value modules include local lane routing, LM Studio status/model resolution, visible reply salvage, transports, tool-loop orchestration, direct intents, direct tool assist, concrete tool implementations, and memory helpers.
 - `scripts/`
 QA, eval, and LM Studio helper scripts.
 - `data/`
@@ -99,6 +102,10 @@ The browser cache is not the source of truth for long-term memory.
 ## LM Studio notes
 
 - Penny resolves the actually loaded LM Studio model instead of blindly trusting the configured pretty model id.
+- Chat lane and tool lane have separate preferred models:
+  - `PENNY_LMSTUDIO_CHAT_MODEL` defaults to `google/gemma-4-31b`
+  - `PENNY_LMSTUDIO_TOOL_MODEL` defaults to `google/gemma-4-e4b`
+- The settings-panel model picker is now a chat-lane override only. Tool-lane selection is config-driven.
 - Depending on the loaded model, Penny may use native stateful chat, chat completions, or responses-style fallbacks.
 - Large local models can be slow, especially on first turn and on image turns.
 - The max output token cap is a ceiling, not a target. Raising it prevents clipping; it does not force Penny to ramble if the model naturally stops earlier.
@@ -121,8 +128,8 @@ This is a localhost-oriented prototype. Treat it that way:
 
 ## Known limits
 
-- `server.js` is still too large and still owns too many subsystems, even after the direct-intent and tool-helper extractions.
-- `public/app.js` is also large and stateful.
+- `server.js` is still too large and still owns too many subsystems, even after the lane/status/transport/tool extractions.
+- `public/js/penny-app.js` is still large and stateful even though `public/app.js` is now just bootstrap glue.
 - Local 31B models can be painfully slow on commodity hardware, especially for image turns and long generations.
 - The docs are more honest than the codebase is modular, which is useful but also a trap if you stop there.
 

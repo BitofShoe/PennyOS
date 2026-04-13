@@ -19,6 +19,8 @@ const SERVER_STDERR_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.server.
 const GENERAL_TIMEOUT_MS = Number(process.env.PENNY_QA_GENERAL_TIMEOUT_MS || 420000);
 const AGENTIC_TIMEOUT_MS = Number(process.env.PENNY_QA_AGENTIC_TIMEOUT_MS || 900000);
 const MAX_OUTPUT_TOKENS = String(process.env.PENNY_QA_MAX_OUTPUT_TOKENS || 1024);
+const CHAT_MODEL = String(process.env.PENNY_QA_CHAT_MODEL || process.env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim();
+const TOOL_MODEL = String(process.env.PENNY_QA_TOOL_MODEL || 'google/gemma-4-e4b').trim();
 
 const PROMPTS = {
   casualBanter: "i'm back. tell me something in your voice that makes me want to stay and keep talking.",
@@ -167,6 +169,10 @@ async function chatRequest(sessionId, messages, timeoutMs) {
       seconds: roundSeconds(Date.now() - started),
       text: data.text || '',
       backend: data.meta?.backend || '',
+      localLane: data.meta?.localLane || '',
+      requestedModel: data.meta?.requestedModel || '',
+      resolvedModel: data.meta?.resolvedModel || '',
+      laneFallback: data.meta?.laneFallback === true,
       tools: Array.isArray(data.meta?.toolsUsed) ? data.meta.toolsUsed : [],
       memory: data.memory || null,
       analysis: analyzeText(data.text || ''),
@@ -177,6 +183,10 @@ async function chatRequest(sessionId, messages, timeoutMs) {
       seconds: roundSeconds(Date.now() - started),
       error: error?.name === 'AbortError' ? `Client timed out after ${timeoutMs}ms` : (error?.message || 'Unknown error'),
       backend: error?.data?.meta?.backend || '',
+      localLane: error?.data?.meta?.localLane || '',
+      requestedModel: error?.data?.meta?.requestedModel || '',
+      resolvedModel: error?.data?.meta?.resolvedModel || '',
+      laneFallback: error?.data?.meta?.laneFallback === true,
       tools: Array.isArray(error?.data?.meta?.toolsUsed) ? error.data.meta.toolsUsed : [],
     };
   }
@@ -248,6 +258,8 @@ function createServerProcess() {
       PENNY_MEMORY_FILE: MEMORY_FILE,
       PENNY_OPENCLAW_ENABLED: '0',
       PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
+      PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
+      PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -312,7 +324,12 @@ async function main() {
       localTransport: status.localLlmTransport,
       maxOutputTokens: status.maxOutputTokens,
       configuredModel: status.lmStudioModel,
+      chatPreferredModel: lmStudio.chatPreferredModel || '',
+      toolPreferredModel: lmStudio.toolPreferredModel || '',
       resolvedModel: lmStudio.resolvedModel || '',
+      resolvedChatModel: lmStudio.resolvedChatModel || '',
+      resolvedToolModel: lmStudio.resolvedToolModel || '',
+      routingMode: lmStudio.routingMode || 'auto',
       availableModels: lmStudio.availableModels || [],
     };
 

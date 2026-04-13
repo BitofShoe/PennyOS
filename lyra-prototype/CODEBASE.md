@@ -63,7 +63,15 @@ Key files:
 - [public/index.html](./public/index.html)
 HTML shell.
 - [public/app.js](./public/app.js)
-Frontend logic, chat streaming, settings, mood updates, persistence.
+Frontend bootstrap only.
+- `public/js/penny-app.js`
+Main browser orchestration, transcript flow, mood/sprite updates, and settings wiring.
+- `public/js/penny-lmstudio-ui.js`
+LM Studio diagnostics and chat-model picker helpers.
+- `public/js/penny-attachments.js`
+Attachment prep and preview handling.
+- `public/js/penny-storage.js`
+Browser persistence and session-id helpers.
 - [public/styles.css](./public/styles.css)
 Visual styling.
 - `public/sprites/`
@@ -143,9 +151,11 @@ Important scripts:
 - [scripts/ensure-lmstudio-penny-preset.js](./scripts/ensure-lmstudio-penny-preset.js)
 Reasserts the LM Studio Penny preset/default behavior.
 - [scripts/eval-penny-models.js](./scripts/eval-penny-models.js)
-Comparative multi-model evaluation harness.
+Comparative chat-lane evaluation harness.
+- [scripts/eval-penny-probes.js](./scripts/eval-penny-probes.js)
+Bounded tool-lane probe harness.
 - [scripts/qa-penny-voice-redo.js](./scripts/qa-penny-voice-redo.js)
-Lighter personality QA harness.
+Chat-lane voice QA harness.
 - `scripts/strip_sprite_backgrounds.py`
 Asset utility.
 
@@ -203,6 +213,11 @@ Current modules worth knowing:
 - [lib/penny-memory.js](./lib/penny-memory.js)
 - [lib/penny-memory-state.js](./lib/penny-memory-state.js)
 - [lib/penny-tool-intents.js](./lib/penny-tool-intents.js)
+- [lib/penny-local-lanes.js](./lib/penny-local-lanes.js)
+- [lib/penny-lmstudio-status.js](./lib/penny-lmstudio-status.js)
+- [lib/penny-visible-reply.js](./lib/penny-visible-reply.js)
+- [lib/penny-tool-loop.js](./lib/penny-tool-loop.js)
+- [lib/penny-lmstudio-transports.js](./lib/penny-lmstudio-transports.js)
 - [lib/penny-direct-intents.js](./lib/penny-direct-intents.js)
 - [lib/penny-direct-tool-assist.js](./lib/penny-direct-tool-assist.js)
 - [lib/penny-project-tools.js](./lib/penny-project-tools.js)
@@ -230,6 +245,10 @@ Only go into raw personality source files if the runtime blend needs canon-groun
 Start here:
 
 - `server.js`
+- `lib/penny-local-lanes.js`
+- `lib/penny-lmstudio-status.js`
+- `lib/penny-tool-loop.js`
+- `lib/penny-lmstudio-transports.js`
 - `lib/penny-direct-intents.js`
 - `lib/penny-direct-tool-assist.js`
 - `lib/penny-tool-registry.js`
@@ -244,16 +263,18 @@ Likely sections you will touch:
 Likely modules you will touch:
 
 - durable memory handling in `lib/penny-memory*.js`
+- lane selection in `lib/penny-local-lanes.js`
 - direct tool intent routing in `lib/penny-direct-intents.js`
 - direct deterministic tool execution in `lib/penny-direct-tool-assist.js`
 - concrete tool implementations in `lib/penny-*-tools.js`
-- LM Studio transport selection
+- LM Studio status/model resolution in `lib/penny-lmstudio-status.js`
+- LM Studio transport selection in `lib/penny-lmstudio-transports.js`
 
 ### Change UI behavior or visuals
 
 Start here:
 
-- `public/app.js`
+- `public/js/penny-app.js`
 - `public/styles.css`
 - `public/index.html`
 
@@ -262,6 +283,7 @@ Start here:
 Start here:
 
 - `scripts/eval-penny-models.js`
+- `scripts/eval-penny-probes.js`
 - `scripts/qa-penny-voice-redo.js`
 - `PENNY_MODEL_EVAL.md`
 
@@ -293,7 +315,7 @@ Use this hierarchy:
 These matter when navigating the repo:
 
 - `server.js` is still too large and still owns orchestration-heavy subsystems that should be split further
-- `public/app.js` is also getting big enough to deserve more structure
+- `public/js/penny-app.js` is still getting big enough to deserve more structure even though `public/app.js` is now only bootstrap glue
 - there are many artifact and handoff files at repo root, which makes the root noisier than it should be
 - planning docs, evaluation docs, and runtime code are all close together, so it is easy to read the wrong thing first
 
@@ -305,7 +327,7 @@ If you are trying to understand the repo quickly, read in this order:
 2. [ARCHITECTURE.md](./ARCHITECTURE.md)
 3. [CODEBASE.md](./CODEBASE.md)
 4. `server.js`
-5. `public/app.js`
+5. `public/js/penny-app.js`
 6. `penny-voice/runtime/*`
 
 If you are trying to change Penny's personality, read in this order:

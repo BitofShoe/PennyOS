@@ -22,6 +22,7 @@ const AGENTIC_TIMEOUT_MS = Number(process.env.PENNY_EVAL_AGENTIC_TIMEOUT_MS || 9
 const LOAD_TIMEOUT_MS = Number(process.env.PENNY_EVAL_LOAD_TIMEOUT_MS || 1200000);
 const MODEL_TTL_SECONDS = Number(process.env.PENNY_EVAL_MODEL_TTL_SECONDS || 1800);
 const MAX_OUTPUT_TOKENS = String(process.env.PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS || 6144);
+const TOOL_MODEL = String(process.env.PENNY_EVAL_TOOL_MODEL || 'google/gemma-4-e4b').trim();
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `model-eval-${STAMP}.json`);
 const SERVER_STDOUT_PATH = path.join(OUTPUT_DIR, `model-eval-${STAMP}.server.out.log`);
@@ -246,7 +247,7 @@ async function waitForResolvedModel(expectedModel, timeoutMs = LOAD_TIMEOUT_MS) 
   while ((Date.now() - started) < timeoutMs) {
     try {
       const status = await fetchJson(`${BASE_URL}/api/penny/lmstudio/status`, {}, 20000);
-      const resolved = String(status?.resolvedModel || '');
+      const resolved = String(status?.resolvedChatModel || status?.resolvedModel || '');
       const available = Array.isArray(status?.availableModels) ? status.availableModels : [];
       if (modelLooksLike(resolved, expectedModel) || available.some((item) => modelLooksLike(item, expectedModel))) {
         return status;
@@ -349,6 +350,7 @@ function createServerProcess() {
       PORT: String(PORT),
       PENNY_MEMORY_FILE: MEMORY_FILE,
       PENNY_OPENCLAW_ENABLED: '0',
+      PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
       PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -396,7 +398,8 @@ async function evaluateModel(model) {
 
   await setRuntimePreferredModel(model.key);
   const lmStatus = await waitForResolvedModel(model.key);
-  modelResult.resolvedModel = lmStatus.resolvedModel || '';
+  modelResult.resolvedModel = lmStatus.resolvedChatModel || lmStatus.resolvedModel || '';
+  modelResult.toolPreferredModel = lmStatus.toolPreferredModel || TOOL_MODEL;
   modelResult.availableModels = lmStatus.availableModels || [];
   modelResult.installedModels = lmStatus.installedModels || [];
 

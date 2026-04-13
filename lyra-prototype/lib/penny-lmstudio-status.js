@@ -1,0 +1,520 @@
+function createLmStudioStatusApi({
+  fetch,
+  fs,
+  execFileText,
+  URL,
+  LMSTUDIO_BASE,
+  LMSTUDIO_API_KEY,
+  LMSTUDIO_SETTINGS_FILE,
+  LMSTUDIO_STATUS_CACHE_MS,
+  LMSTUDIO_STATUS_ERROR_CACHE_MS,
+  LMSTUDIO_MODELS_PROBE_MS,
+  LOCAL_LLM_TRANSPORT,
+  PENNY_LMSTUDIO_CHAT_MODEL,
+  PENNY_LMSTUDIO_TOOL_MODEL,
+} = {}) {
+  if (typeof fetch !== 'function') throw new TypeError('createLmStudioStatusApi requires fetch');
+  if (!fs || typeof fs.existsSync !== 'function' || typeof fs.readFileSync !== 'function') {
+    throw new TypeError('createLmStudioStatusApi requires fs');
+  }
+  if (typeof execFileText !== 'function') throw new TypeError('createLmStudioStatusApi requires execFileText');
+  if (!URL) throw new TypeError('createLmStudioStatusApi requires URL');
+
+  const CHAT_FALLBACK_MODEL = 'google/gemma-4-31b';
+  const TOOL_FALLBACK_MODEL = 'google/gemma-4-e4b';
+  const chatConfiguredModel = String(PENNY_LMSTUDIO_CHAT_MODEL || '').trim() || CHAT_FALLBACK_MODEL;
+  const toolConfiguredModel = String(PENNY_LMSTUDIO_TOOL_MODEL || '').trim() || TOOL_FALLBACK_MODEL;
+
+  let lmStudioStatusCache = { expiresAt: 0, value: null };
+  let runtimePreferredChatModel = '';
+
+  function readLmStudioDesktopSettings() {
+    try {
+      if (!LMSTUDIO_SETTINGS_FILE || !fs.existsSync(LMSTUDIO_SETTINGS_FILE)) return null;
+      const parsed = JSON.parse(fs.readFileSync(LMSTUDIO_SETTINGS_FILE, 'utf8'));
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeLmStudioModelEntries(parsed) {
+    if (!parsed || typeof parsed !== 'object') return [];
+    let rows = parsed.data;
+    if (!Array.isArray(rows) && Array.isArray(parsed.models)) rows = parsed.models;
+    if (!Array.isArray(rows)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const item of rows) {
+      let id = '';
+      if (typeof item === 'string') id = item.trim();
+      else if (item && typeof item === 'object') {
+        const raw = item.id ?? item.model ?? item.name;
+        id = typeof raw === 'string' ? raw.trim() : '';
+      }
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push({ id });
+    }
+    return out;
+  }
+
+  function normalizeModelKey(value = '') {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  }
+
+  function tokenizeModelAlias(value = '') {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return { full: [], short: [] };
+    const splitTokens = raw
+      .replace(/@/g, '-')
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean);
+    const full = [];
+    for (let i = 0; i < splitTokens.length; i += 1) {
+      const token = splitTokens[i];
+      const next = splitTokens[i + 1] || '';
+      if (/^q\d+$/.test(token) && /^[a-z0-9]{1,2}$/.test(next)) {
+        full.push(`${token}${next}`);
+        i += 1;
+        continue;
+      }
+      full.push(token);
+    }
+    const slashIndex = raw.indexOf('/');
+    const short = slashIndex >= 0
+      ? tokenizeModelAlias(raw.slice(slashIndex + 1)).full
+      : full.slice();
+    return { full, short };
+  }
+
+  function isQuantizationToken(token = '') {
+    return /^(q\d+[a-z0-9]*|fp\d+|bf\d+|f\d+|gguf|mlx|int\d+)$/.test(String(token || '').toLowerCase());
+  }
+
+  function modelTokenArraysEquivalent(leftTokens = [], rightTokens = []) {
+    if (!leftTokens.length || !rightTokens.length) return false;
+    if (leftTokens.length === rightTokens.length) {
+      return leftTokens.every((token, index) => token === rightTokens[index]);
+    }
+    const longer = leftTokens.length > rightTokens.length ? leftTokens : rightTokens;
+    const shorter = longer === leftTokens ? rightTokens : leftTokens;
+    if (!shorter.every((token, index) => token === longer[index])) return false;
+    const extra = longer.slice(shorter.length);
+    return extra.length > 0 && extra.every(isQuantizationToken);
+  }
+
+  function modelsLookEquivalent(a = '', b = '') {
+    const left = tokenizeModelAlias(a);
+    const right = tokenizeModelAlias(b);
+    const aliasPairs = [
+      [left.full, right.full],
+      [left.full, right.short],
+      [left.short, right.full],
+      [left.short, right.short],
+    ];
+    for (const [leftTokens, rightTokens] of aliasPairs) {
+      if (modelTokenArraysEquivalent(leftTokens, rightTokens)) return true;
+    }
+    return false;
+  }
+
+  function mergeUniqueModelIds(...lists) {
+    const out = [];
+    const seen = new Set();
+    for (const list of lists) {
+      for (const rawId of list || []) {
+        const id = String(rawId || '').trim();
+        if (!id) continue;
+        const key = normalizeModelKey(id);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(id);
+      }
+    }
+    return out;
+  }
+
+  function getPreferredModelForLane(lane = 'chat') {
+    return lane === 'tool'
+      ? toolConfiguredModel
+      : (runtimePreferredChatModel || chatConfiguredModel);
+  }
+
+  function rankLmStudioModel(model = {}, preferredKey = '', runtimeKey = '') {
+    const id = String(model?.id || '');
+    if (!id) return -1000;
+
+    const key = normalizeModelKey(id);
+    let score = 0;
+    if (runtimeKey && (key === runtimeKey || key.includes(runtimeKey) || runtimeKey.includes(key))) score += 1000;
+    if (preferredKey && key === preferredKey) score += id.includes('/') ? 320 : 420;
+    else if (preferredKey && (key.includes(preferredKey) || preferredKey.includes(key))) score += 260;
+    if (id.includes('@')) score += 40;
+    if (!id.includes('/')) score += 60;
+    if (/\b(instruct|chat|assistant|it)\b/i.test(id)) score += 40;
+    if (/\b(embed|embedding|rerank)\b/i.test(id)) score -= 400;
+    return score;
+  }
+
+  function sortLmStudioModelCandidates(models = [], { preferredModel = '', runtimeModel = '' } = {}) {
+    const preferredKey = normalizeModelKey(preferredModel);
+    const runtimeKey = normalizeModelKey(runtimeModel);
+    return models
+      .filter(model => typeof model?.id === 'string' && model.id.trim())
+      .slice()
+      .sort(
+        (a, b) => rankLmStudioModel(b, preferredKey, runtimeKey) - rankLmStudioModel(a, preferredKey, runtimeKey)
+          || String(a.id).localeCompare(String(b.id)),
+      );
+  }
+
+  function normalizeLmStudioInstalledModelEntries(parsed) {
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set();
+    const out = [];
+    const pushId = (rawId) => {
+      const id = String(rawId || '').trim();
+      if (!id) return;
+      const key = normalizeModelKey(id);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push({ id });
+    };
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue;
+      if (String(item.type || '').toLowerCase() !== 'llm') continue;
+      const selectedVariant = typeof item.selectedVariant === 'string' ? item.selectedVariant.trim() : '';
+      const modelKey = typeof item.modelKey === 'string' ? item.modelKey.trim() : '';
+      const variants = Array.isArray(item.variants)
+        ? item.variants.map((variant) => String(variant || '').trim()).filter(Boolean)
+        : [];
+      if (selectedVariant) pushId(selectedVariant);
+      for (const variant of variants) pushId(variant);
+      if (!variants.length && modelKey) pushId(modelKey);
+    }
+    return out;
+  }
+
+  function normalizeLmStudioLoadedModelEntries(parsed) {
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue;
+      const state = String(item.state || item.status || '').toLowerCase();
+      if (state && !/\bloaded|ready|running|active\b/i.test(state)) continue;
+      const rawId = item.modelKey || item.model || item.identifier || item.id || item.name || item.path;
+      const id = String(rawId || '').trim();
+      if (!id) continue;
+      const key = normalizeModelKey(id);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ id });
+    }
+    return out;
+  }
+
+  async function getInstalledLmStudioModels() {
+    try {
+      const { stdout } = await execFileText('lms', ['ls', '--json'], { timeout: 15000 });
+      const parsed = stdout ? JSON.parse(stdout) : [];
+      return normalizeLmStudioInstalledModelEntries(parsed).map(item => item.id);
+    } catch {
+      return [];
+    }
+  }
+
+  async function getLoadedLmStudioModels() {
+    try {
+      const { stdout } = await execFileText('lms', ['ps', '--json'], { timeout: 15000 });
+      const parsed = stdout ? JSON.parse(stdout) : [];
+      return normalizeLmStudioLoadedModelEntries(parsed).map(item => item.id);
+    } catch {
+      return [];
+    }
+  }
+
+  function buildLmStudioLaunchHint() {
+    const settings = readLmStudioDesktopSettings();
+    const parts = [];
+    if (settings?.enableLocalService === false) {
+      parts.push('LM Studio local server is disabled in the desktop app.');
+    }
+    parts.push(`Expected the OpenAI-compatible API at ${LMSTUDIO_BASE}.`);
+    parts.push('In LM Studio, start the local server and keep at least one chat model loaded.');
+    return parts.join(' ');
+  }
+
+  function buildLaneCandidates(models = [], preferredModel = '', runtimeModel = '') {
+    return sortLmStudioModelCandidates(models, { preferredModel, runtimeModel }).map(item => item.id);
+  }
+
+  async function getLmStudioConnectionStatus({ force = false } = {}) {
+    const now = Date.now();
+    if (!force && lmStudioStatusCache.value && now < lmStudioStatusCache.expiresAt) {
+      return lmStudioStatusCache.value;
+    }
+
+    const settings = readLmStudioDesktopSettings();
+    const controller = new AbortController();
+    const timeoutMs = Math.min(Math.max(LMSTUDIO_MODELS_PROBE_MS, 2000), 120000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let value;
+    const installedModels = await getInstalledLmStudioModels();
+    const loadedModels = await getLoadedLmStudioModels();
+
+    try {
+      const response = await fetch(`${LMSTUDIO_BASE}/models`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${LMSTUDIO_API_KEY}`,
+        },
+        signal: controller.signal,
+      });
+      const bodyText = await response.text();
+      if (!response.ok) {
+        const err = new Error(`LM Studio models error ${response.status}: ${bodyText}`);
+        err.statusCode = response.status;
+        throw err;
+      }
+
+      let parsed;
+      try {
+        parsed = bodyText ? JSON.parse(bodyText) : {};
+      } catch {
+        throw new Error(`LM Studio models: invalid JSON: ${bodyText.slice(0, 400)}`);
+      }
+
+      const runtimeModels = normalizeLmStudioModelEntries(parsed);
+      const loadedModelEntries = loadedModels.map(id => ({ id }));
+      const chatPreferredModel = getPreferredModelForLane('chat');
+      const toolPreferredModel = getPreferredModelForLane('tool');
+      const fallbackModels = [];
+      for (const fallbackId of [chatPreferredModel, toolPreferredModel]) {
+        const id = String(fallbackId || '').trim();
+        if (!id) continue;
+        if (loadedModelEntries.some(item => modelsLookEquivalent(item.id, id))) continue;
+        if (runtimeModels.some(item => modelsLookEquivalent(item.id, id))) continue;
+        if (fallbackModels.some(item => modelsLookEquivalent(item.id, id))) continue;
+        fallbackModels.push({ id });
+      }
+
+      const loadedChatCandidates = buildLaneCandidates(loadedModelEntries, chatPreferredModel, runtimePreferredChatModel);
+      const runtimeChatCandidates = buildLaneCandidates(runtimeModels, chatPreferredModel, runtimePreferredChatModel);
+      const fallbackChatCandidates = buildLaneCandidates(fallbackModels, chatPreferredModel, runtimePreferredChatModel);
+      const loadedToolCandidates = buildLaneCandidates(loadedModelEntries, toolPreferredModel, '');
+      const runtimeToolCandidates = buildLaneCandidates(runtimeModels, toolPreferredModel, '');
+      const fallbackToolCandidates = buildLaneCandidates(fallbackModels, toolPreferredModel, '');
+
+      const resolvedChatModel = loadedChatCandidates[0] || runtimeChatCandidates[0] || '';
+      const resolvedToolModel = loadedToolCandidates[0] || runtimeToolCandidates[0] || '';
+      const availableModels = loadedChatCandidates.length
+        ? loadedChatCandidates
+        : runtimeModels.map(item => item.id);
+      const candidateModels = loadedChatCandidates.length
+        ? loadedChatCandidates
+        : (runtimeChatCandidates.length ? runtimeChatCandidates : fallbackChatCandidates);
+      const toolCandidateModels = loadedToolCandidates.length
+        ? loadedToolCandidates
+        : (runtimeToolCandidates.length ? runtimeToolCandidates : fallbackToolCandidates);
+
+      value = {
+        ok: true,
+        reachable: true,
+        base: LMSTUDIO_BASE,
+        configuredModel: chatConfiguredModel,
+        configuredChatModel: chatConfiguredModel,
+        configuredToolModel: toolConfiguredModel,
+        chatPreferredModel,
+        toolPreferredModel,
+        runtimePreferredModel: runtimePreferredChatModel || null,
+        resolvedModel: resolvedChatModel,
+        resolvedChatModel,
+        resolvedToolModel,
+        candidateModels,
+        toolCandidateModels,
+        availableModels,
+        nativeAvailableModels: runtimeModels.map(item => item.id),
+        installedModels: loadedChatCandidates.length
+          ? mergeUniqueModelIds(availableModels, installedModels)
+          : mergeUniqueModelIds(availableModels, installedModels, runtimeModels.map(item => item.id)),
+        desktopLocalServiceEnabled: settings?.enableLocalService ?? null,
+        hint: resolvedChatModel ? '' : 'LM Studio is reachable, but no usable chat model is currently loaded.',
+        error: '',
+        localTransport: LOCAL_LLM_TRANSPORT,
+        routingMode: 'auto',
+      };
+    } catch (error) {
+      const rawMsg = String(error?.message || 'LM Studio is unreachable.');
+      let detail = error?.name === 'AbortError'
+        ? `LM Studio models request timed out after ${timeoutMs}ms`
+        : rawMsg;
+      if (settings?.enableLocalService === false) {
+        detail = 'LM Studio local server is off in the desktop app. Open LM Studio, turn on the local API / dev server, then refresh Settings here.';
+      } else {
+        const code = error?.cause?.code || error?.code;
+        if (code === 'ECONNREFUSED' || /\bfetch failed\b/i.test(rawMsg)) {
+          detail = `Cannot reach ${LMSTUDIO_BASE} (${rawMsg}). Start LM Studio's local server and load a chat model, or set PENNY_LMSTUDIO_BASE if the port changed.`;
+        }
+      }
+      value = {
+        ok: false,
+        reachable: false,
+        base: LMSTUDIO_BASE,
+        configuredModel: chatConfiguredModel,
+        configuredChatModel: chatConfiguredModel,
+        configuredToolModel: toolConfiguredModel,
+        chatPreferredModel: getPreferredModelForLane('chat'),
+        toolPreferredModel: getPreferredModelForLane('tool'),
+        runtimePreferredModel: runtimePreferredChatModel || null,
+        resolvedModel: '',
+        resolvedChatModel: '',
+        resolvedToolModel: '',
+        candidateModels: [],
+        toolCandidateModels: [],
+        availableModels: [],
+        nativeAvailableModels: [],
+        installedModels,
+        desktopLocalServiceEnabled: settings?.enableLocalService ?? null,
+        hint: buildLmStudioLaunchHint(),
+        error: detail,
+        localTransport: LOCAL_LLM_TRANSPORT,
+        routingMode: 'auto',
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const cacheMs = value.reachable && (value.resolvedChatModel || value.resolvedToolModel)
+      ? LMSTUDIO_STATUS_CACHE_MS
+      : LMSTUDIO_STATUS_ERROR_CACHE_MS;
+
+    lmStudioStatusCache = {
+      expiresAt: now + cacheMs,
+      value,
+    };
+    return value;
+  }
+
+  function isMissingLmStudioModelError(error) {
+    const message = String(error?.message || '');
+    return /\b(model does not exist|model .*not found|unknown model|no such model)\b/i.test(message);
+  }
+
+  function resolveLaneCandidates(status = {}, lane = 'chat') {
+    if (lane === 'tool') {
+      const candidates = Array.isArray(status.toolCandidateModels) ? status.toolCandidateModels : [];
+      if (candidates.length) return candidates;
+      return [getPreferredModelForLane('tool')].filter(Boolean);
+    }
+    const candidates = Array.isArray(status.candidateModels) ? status.candidateModels : [];
+    if (candidates.length) return candidates;
+    return [getPreferredModelForLane('chat')].filter(Boolean);
+  }
+
+  async function withLmStudioLaneModel(lane = 'chat', runForModel, runtime = null) {
+    let status = await getLmStudioConnectionStatus();
+    let refreshedAfterMissingModel = false;
+
+    while (true) {
+      if (!status.reachable) {
+        throw new Error(`${status.error} ${status.hint}`.trim());
+      }
+
+      const preferredModel = getPreferredModelForLane(lane);
+      const candidates = resolveLaneCandidates(status, lane);
+      let lastMissingModelError = null;
+
+      for (const model of candidates) {
+        const meta = {
+          localLane: lane,
+          requestedModel: preferredModel || model,
+          resolvedModel: model,
+          laneFallback: !!(preferredModel && !modelsLookEquivalent(model, preferredModel)),
+          preferredModel,
+          status,
+        };
+        if (runtime && typeof runtime === 'object') {
+          runtime.localLane = lane;
+          runtime.requestedModel = meta.requestedModel;
+          runtime.resolvedModel = meta.resolvedModel;
+          runtime.laneFallback = meta.laneFallback;
+        }
+        try {
+          return await runForModel(model, status, meta);
+        } catch (error) {
+          if (isMissingLmStudioModelError(error)) {
+            lastMissingModelError = error;
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      if (lastMissingModelError && !refreshedAfterMissingModel) {
+        status = await getLmStudioConnectionStatus({ force: true });
+        refreshedAfterMissingModel = true;
+        continue;
+      }
+
+      if (lastMissingModelError) {
+        throw new Error(`LM Studio rejected all ${lane} lane model ids (${candidates.join(', ')}). Last error: ${lastMissingModelError.message}`);
+      }
+
+      throw new Error(status.hint || 'LM Studio did not report a usable model.');
+    }
+  }
+
+  function pickLmStudioNativeModelId(preferredModel = '', status = {}) {
+    const target = String(preferredModel || '').trim();
+    if (!target) return '';
+    const nativeModels = Array.isArray(status?.nativeAvailableModels)
+      ? status.nativeAvailableModels.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (!nativeModels.length) return target;
+    const direct = nativeModels.find((id) => id === target);
+    if (direct) return direct;
+    const alias = nativeModels.find((id) => modelsLookEquivalent(id, target));
+    return alias || target;
+  }
+
+  function shouldPreferLmStudioChatCompletions(model = '', status = {}) {
+    const target = String(model || '').trim();
+    if (!target) return false;
+    const nativeModel = pickLmStudioNativeModelId(target, status);
+    if (!nativeModel) return false;
+    return normalizeModelKey(nativeModel) !== normalizeModelKey(target);
+  }
+
+  function resetLmStudioStatusCache() {
+    lmStudioStatusCache = { expiresAt: 0, value: null };
+  }
+
+  function setRuntimePreferredChatModel(model = '') {
+    runtimePreferredChatModel = String(model || '').trim();
+    resetLmStudioStatusCache();
+    return runtimePreferredChatModel;
+  }
+
+  function getRuntimePreferredChatModel() {
+    return runtimePreferredChatModel;
+  }
+
+  return {
+    getLmStudioConnectionStatus,
+    withLmStudioLaneModel,
+    getPreferredModelForLane,
+    getRuntimePreferredChatModel,
+    setRuntimePreferredChatModel,
+    resetLmStudioStatusCache,
+    pickLmStudioNativeModelId,
+    shouldPreferLmStudioChatCompletions,
+    modelsLookEquivalent,
+    normalizeModelKey,
+  };
+}
+
+module.exports = {
+  createLmStudioStatusApi,
+};
