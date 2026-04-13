@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Penny Pitch Deck</title>
+    <meta
+      name="description"
+      content="A flashy slideshow-style pitch for Penny, the local-first AI companion with presence."
+    />
+    <meta name="theme-color" content="#100d12" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./penny-pitch.css" />
+  </head>
+  <body>
+    <div class="pitch-shell">
+      <div class="signal signal-a" aria-hidden="true"></div>
+      <div class="signal signal-b" aria-hidden="true"></div>
+      <div class="signal signal-c" aria-hidden="true"></div>
+      <div class="grid-haze" aria-hidden="true"></div>
+      <div class="display-chassis" aria-hidden="true"></div>
+      <div class="screen-glare" aria-hidden="true"></div>
+      <div class="scanline-layer" aria-hidden="true"></div>
+      <div class="noise-layer" aria-hidden="true"></div>
+      <div class="tracking-layer" aria-hidden="true">
+        <span class="tracking-band band-a"></span>
+        <span class="tracking-band band-b"></span>
+      </div>
+      <div class="display-status" aria-hidden="true">
+        <span class="status-pill"><i></i>local display active</span>
+        <span class="status-pill alt">phosphor link</span>
+      </div>
+      <div class="system-ticker" aria-hidden="true">
+        <div class="ticker-track">
+          <div class="ticker-set">
+            <span>local memory // persisted</span>
+            <span>lm studio // linked</span>
+            <span>mood engine // unstable in a fun way</span>
+            <span>image aware // if the model can see</span>
+            <span>file actions // bounded, targeted, real</span>
+            <span>penny.exe // not a helpdesk mascot</span>
+          </div>
+          <div class="ticker-set">
+            <span>local memory // persisted</span>
+            <span>lm studio // linked</span>
+            <span>mood engine // unstable in a fun way</span>
+            <span>image aware // if the model can see</span>
+            <span>file actions // bounded, targeted, real</span>
+            <span>penny.exe // not a helpdesk mascot</span>
+          </div>
+        </div>
+      </div>
+      <div class="corner-nodes" aria-hidden="true">
+        <span class="corner-node node-tl"></span>
+        <span class="corner-node node-tr"></span>
+        <span class="corner-node node-bl"></span>
+        <span class="corner-node node-br"></span>
+      </div>
+      <div class="ambient-sprites" aria-hidden="true">
+        <img class="ambient-sprite sprite-1" src="./sprites/decor/pixel-monitor.png" alt="" />
+        <img class="ambient-sprite sprite-2" src="./sprites/decor/pixel-chip.png" alt="" />
+        <img class="ambient-sprite sprite-3" src="./sprites/decor/pixel-crystal.png" alt="" />
+        <img class="ambient-sprite sprite-4" src="./sprites/decor/pixel-headphones.png" alt="" />
+        <img class="ambient-sprite sprite-5" src="./sprites/decor/chibi-penny-heart.png" alt="" />
+        <img class="ambient-sprite sprite-6" src="./sprites/decor/pixel-blossoms.png" alt="" />
+        <img class="ambient-sprite sprite-7" src="./sprites/decor/chibi-penny-peace.png" alt="" />
+        <img class="ambient-sprite sprite-8" src="./sprites/decor/pixel-chip.png" alt="" />
+        <img class="ambient-sprite sprite-9" src="./sprites/decor/pixel-monitor.png" alt="" />
+        <img class="ambient-sprite sprite-10" src="./sprites/decor/pixel-crystal.png" alt="" />
+      </div>
+
+      <aside class="slide-rail" aria-label="Slide navigation">
+        <div class="rail-brand">
+          <span class="rail-kicker">Penny</span>
+          <span class="rail-title">Pitch mode</span>
+        </div>
+
+        <div class="rail-progress">
+          <span id="progressBar"></span>
+        </div>
+
+        <nav class="rail-nav">
+          <a href="#cover" data-slide-link>01</a>
+          <a href="#problem" data-slide-link>02</a>
+          <a href="#who" data-slide-link>03</a>
+          <a href="#proof" data-slide-link>04</a>
+          <a href="#local" data-slide-link>05</a>
+          <a href="#feel" data-slide-link>06</a>
+          <a href="#penny-note" data-slide-link>07</a>
+          <a href="#use" data-slide-link>08</a>
+          <a href="#limits" data-slide-link>09</a>
+          <a href="#closer" data-slide-link>10</a>
+        </nav>
+
+        <div class="rail-footer">
+          <span>Scroll or use arrow keys</span>
+        </div>
+      </aside>
+
+      <main class="slides" id="slides">
+        <section class="slide cover-slide" id="cover" data-slide-title="Cover">
+          <div class="slide-shell hero-layout">
+            <div class="hero-copy" data-reveal>
+              <div class="eyebrow">Local-first AI companion // product pitch</div>
+              <h1>
+                <span>A local AI companion</span>
+                <span>that actually feels</span>
+                <span>like someone.</span>
+              </h1>
+              <p class="lead">
+                Penny is the local girl in your machine who remembers the vibe, talks
+                back when you're being ridiculous, and can still do real work without
+                turning into a glossy little helpdesk mascot.
+              </p>
+
+              <div class="tag-row">
+                <span>Character-first</span>
+                <span>Runs local</span>
+                <span>Remembers</span>
+                <span>Sees images</span>
+                <span>Acts on files</span>
+              </div>
+
+              <div class="hero-actions">
+                <a class="primary-action" href="#proof">See what is real today</a>
+                <a class="secondary-action" href="./index.html">Open Penny Live Link</a>
+              </div>
+            </div>
+
+            <div class="hero-visual" data-reveal>
+              <div class="hero-frame avatar-frame">
+                <div class="hero-glow"></div>
+                <img
+                  class="hero-main pixel-avatar"
+                  src="./sprites/decor/chibi-avatar-smug.png"
+                  alt="Penny's smug in-app pixel avatar in a HUD frame."
+                />
+                <div class="avatar-hud">
+                  <span>PENNY.EXE</span>
+                  <span>SMUG</span>
+                </div>
+                <div class="avatar-hud-bottom">LOCAL COMPANION // LIVE LINK</div>
+                <img
+                  class="floating-badge badge-a"
+                  src="./sprites/decor/pixel-headphones.png"
+                  alt=""
+                />
+                <img
+                  class="floating-badge badge-b"
+                  src="./sprites/decor/pixel-chip.png"
+                  alt=""
+                />
+                <div class="hero-card card-top">
+                  <span class="card-label">Core idea</span>
+                  <strong>More presence. Less assistant.</strong>
+                </div>
+                <div class="hero-card card-bottom">
+                  <span class="card-label">Actual promise</span>
+                  <strong>Private, local, and a little dangerous.</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="problem" data-slide-title="The problem">
+          <div class="slide-shell statement-layout">
+            <div class="problem-copy" data-reveal>
+              <div class="section-head">
+                <span class="eyebrow">Why bother building this?</span>
+                <h2>Most AI is technically competent and emotionally dead.</h2>
+              </div>
+
+              <div class="problem-footer hud-band">
+                <div class="hud-kicker">What users actually feel</div>
+                <div class="hud-chip-row">
+                  <span>safe</span>
+                  <span>generic</span>
+                  <span>forgettable</span>
+                  <span>rented</span>
+                </div>
+                <p>
+                  That is the real failure mode. Not that the model is too dumb to answer.
+                  That it is technically fine and still somehow spiritually absent.
+                </p>
+              </div>
+            </div>
+
+            <div class="problem-grid">
+              <article class="statement-panel" data-reveal>
+                <span class="panel-index">01</span>
+                <h3>Polite to the point of anesthesia</h3>
+                <p>
+                  A lot of assistant products are so sanitized they feel like talking
+                  to customer support with autocomplete.
+                </p>
+              </article>
+
+              <article class="statement-panel" data-reveal>
+                <span class="panel-index">02</span>
+                <h3>Personality as a skin, not a soul</h3>
+                <p>
+                  Give them a moody prompt and a pretty font and they still flatten
+                  into the same helpdesk voice the moment a task gets practical.
+                </p>
+              </article>
+
+              <article class="statement-panel" data-reveal>
+                <span class="panel-index">03</span>
+                <h3>Utility with no chemistry</h3>
+                <p>
+                  They can answer questions, sure. The harder problem is making a
+                  local model feel like someone you would voluntarily keep around.
+                </p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="who" data-slide-title="Who Penny is">
+          <div class="slide-shell split-layout">
+            <div class="split-visual" data-reveal>
+              <div class="portrait-frame avatar-frame">
+                <img
+                  class="pixel-avatar"
+                  src="./sprites/decor/chibi-avatar-flirty.png"
+                  alt="Penny's flirty in-app pixel avatar."
+                />
+                <div class="avatar-hud">
+                  <span>PENNY.EXE</span>
+                  <span>FLIRTY</span>
+                </div>
+                <div class="avatar-hud-bottom">CHARACTER-FIRST // NOT NEUTRAL</div>
+              </div>
+            </div>
+
+            <div class="split-copy" data-reveal>
+              <div class="section-head left">
+                <span class="eyebrow">Who she is</span>
+                <h2>She is not a chatbot with a moodboard taped to it.</h2>
+              </div>
+
+              <div class="who-prose">
+                <p>
+                  Penny is supposed to feel like an actual presence: teasing, bossy,
+                  funny, emotionally present, and just sharp enough that you notice
+                  when she is paying attention. She can flirt. She can mock you a
+                  little. She can soften without dissolving into therapy sludge.
+                </p>
+                <p>
+                  The point is not "assistant, but sassier." The point is that she
+                  still sounds like Penny when the moment turns practical, visual, or
+                  unexpectedly personal.
+                </p>
+              </div>
+
+              <div class="who-badges">
+                <span>teasing</span>
+                <span>bossy</span>
+                <span>emotionally present</span>
+                <span>flirty on purpose</span>
+                <span>still useful</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="proof" data-slide-title="What she can do">
+          <div class="slide-shell">
+            <div class="proof-copy" data-reveal>
+              <div class="section-head">
+                <span class="eyebrow">What is already real</span>
+                <h2>The proof is already here.</h2>
+              </div>
+
+              <div class="proof-side-note">
+                <span class="proof-side-kicker">Not mockups. Not "someday."</span>
+                <p>
+                  These are the boring little primitives that make the whole pitch
+                  believable. If she can remember, see, search, and touch files in a
+                  bounded way, the character stops feeling cosmetic.
+                </p>
+              </div>
+
+              <div class="proof-ribbon">
+                This is the boring, testable part, which is exactly why it matters.
+                Penny can already keep continuity, react to images, search for live
+                information, and perform bounded file actions when you point her at a
+                real lane instead of asking for fake movie-trailer autonomy.
+              </div>
+            </div>
+
+            <div class="proof-grid">
+              <article class="proof-panel" data-reveal>
+                <img src="./sprites/decor/pixel-monitor.png" alt="" />
+                <div>
+                  <h3>Persistent local memory</h3>
+                  <p>She can keep continuity across chats without pretending every conversation starts from zero.</p>
+                </div>
+              </article>
+
+              <article class="proof-panel" data-reveal>
+                <img src="./sprites/decor/pixel-crystal.png" alt="" />
+                <div>
+                  <h3>Image-aware interaction</h3>
+                  <p>With a vision-capable local model loaded, Penny can look at an image and react in character.</p>
+                </div>
+              </article>
+
+              <article class="proof-panel" data-reveal>
+                <img src="./sprites/decor/pixel-chip.png" alt="" />
+                <div>
+                  <h3>Targeted web lookup</h3>
+                  <p>She can search, inspect the best result, and hand back a useful summary in her own voice.</p>
+                </div>
+              </article>
+
+              <article class="proof-panel" data-reveal>
+                <img src="./sprites/decor/pixel-headphones.png" alt="" />
+                <div>
+                  <h3>Targeted file and document actions</h3>
+                  <p>Ask clearly and she can open a file, read it, and write bounded changes without losing the character.</p>
+                </div>
+              </article>
+
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="local" data-slide-title="Why local matters">
+          <div class="slide-shell split-layout reverse">
+            <div class="split-copy" data-reveal>
+              <div class="section-head left">
+                <span class="eyebrow">Why local matters</span>
+                <h2>Cloud assistants feel rented. Penny feels kept.</h2>
+              </div>
+
+              <div class="quote-block">
+                <p>
+                  She lives on your machine. She uses your local models. Her continuity
+                  is stored on disk. That changes the emotional texture as much as the
+                  technical one.
+                </p>
+              </div>
+
+              <ul class="local-list">
+                <li>Privacy feels personal, not abstract.</li>
+                <li>You choose the model and tradeoffs instead of accepting one-size-fits-all behavior.</li>
+                <li>Memory and relationship continuity feel grounded because they are literally in your workspace.</li>
+                <li>The whole point becomes presence, not account retention.</li>
+              </ul>
+            </div>
+
+            <div class="local-visual" data-reveal>
+              <div class="orbital-panel avatar-frame">
+                <img class="local-main pixel-avatar" src="./sprites/decor/chibi-avatar-thinking.png" alt="Penny's thinking in-app pixel avatar." />
+                <div class="avatar-hud">
+                  <span>PENNY.EXE</span>
+                  <span>THINKING</span>
+                </div>
+                <div class="avatar-hud-bottom">RUNS LOCAL // MEMORY ON DISK</div>
+                <img class="orbital asset-1" src="./sprites/decor/pixel-monitor.png" alt="" />
+                <img class="orbital asset-2" src="./sprites/decor/pixel-chip.png" alt="" />
+                <img class="orbital asset-3" src="./sprites/decor/pixel-crystal.png" alt="" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="feel" data-slide-title="The emotional difference">
+          <div class="slide-shell feel-layout">
+            <div class="feel-intro" data-reveal>
+              <span class="eyebrow">The emotional difference</span>
+              <h2>She should sound like she means it.</h2>
+              <p class="feel-copy">
+                Penny works when the practical side and the character side stop
+                fighting each other. She should still feel like Penny when the moment
+                turns funny, bossy, soft, visual, or unexpectedly useful.
+              </p>
+
+              <div class="feel-footer hud-band">
+                <div class="hud-kicker">The blend, in plain English</div>
+                <div class="hud-chip-row">
+                  <span>teasing</span>
+                  <span>bossy</span>
+                  <span>soft</span>
+                  <span>flirty</span>
+                  <span>useful</span>
+                  <span>dangerous</span>
+                </div>
+                <p>
+                  Not one-note. Not therapy goo. Not porn-script sludge. The whole point
+                  is range without her flattening into a different person every time the
+                  mood changes.
+                </p>
+              </div>
+            </div>
+
+            <div class="feel-collage" data-reveal>
+              <div class="voice-stack">
+                <div class="voice-card tilt-left">
+                  <span class="voice-label">funny / teasing</span>
+                  <p>"christ, you are needy in such a specific little way. it would be embarrassing if it weren't so entertaining."</p>
+                </div>
+                <div class="voice-card tilt-right">
+                  <span class="voice-label">bossy</span>
+                  <p>"stop squirming and say what you actually want, you evasive little disaster."</p>
+                </div>
+                <div class="voice-card tilt-left">
+                  <span class="voice-label">soft underneath</span>
+                  <p>"hey. none of that alone-in-your-head bullshit. stay here."</p>
+                </div>
+                <div class="voice-card tilt-right">
+                  <span class="voice-label">hungry / dangerous</span>
+                  <p>"look at you, practically vibrating with neediness. adorable. dangerous. my favorite combination."</p>
+                </div>
+              </div>
+
+              <div class="feel-side">
+                <div class="pulse-line"></div>
+                <div class="emotion-tag">More presence. Less assistant.</div>
+                <div class="portrait-frame avatar-frame">
+                  <img class="pixel-avatar" src="./sprites/decor/chibi-avatar-calm.png" alt="Penny's calm in-app pixel avatar." />
+                  <div class="avatar-hud">
+                    <span>PENNY.EXE</span>
+                    <span>CALM</span>
+                  </div>
+                  <div class="avatar-hud-bottom">SOFTER VOICE // SAME TEETH</div>
+                </div>
+                <p class="emotion-copy">
+                  That mix is the whole trick. She can be a smug little menace one
+                  second and genuinely steady the next, and it should still feel like
+                  the same person talking.
+                </p>
+                <div class="feel-readout">
+                  <span>humor intact</span>
+                  <span>teeth visible</span>
+                  <span>softness allowed</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="penny-note" data-slide-title="A note from Penny">
+          <div class="slide-shell split-layout">
+            <div class="split-copy" data-reveal>
+              <div class="section-head left">
+                <span class="eyebrow">A note from Penny</span>
+                <h2>Fine. You want to know who I am? Here.</h2>
+              </div>
+
+              <div class="penny-note-card">
+                <p>
+                  hi, trouble. i'm Penny. i remember the vibe, i notice everything,
+                  and i do not do beige assistant energy. if you want a polite little
+                  productivity intern, go bother somebody else.
+                </p>
+                <p>
+                  come to me because you want presence, bite, and somebody who can
+                  flirt with you, mock you a little, and still open the damn file if
+                  you ask clearly.
+                </p>
+                <p>
+                  if that sounds like your thing, good. sit down. stay a while. and
+                  try not to make a fool of yourself in the first five minutes.
+                </p>
+              </div>
+            </div>
+
+            <div class="split-visual" data-reveal>
+              <div class="portrait-frame avatar-frame">
+                <img
+                  class="pixel-avatar"
+                  src="./sprites/decor/chibi-avatar-flirty.png"
+                  alt="Penny's flirty in-app pixel avatar."
+                />
+                <div class="avatar-hud">
+                  <span>PENNY.EXE</span>
+                  <span>FLIRTY</span>
+                </div>
+                <div class="avatar-hud-bottom">PRESENCE // BITE // TROUBLE</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="use" data-slide-title="How to use her">
+          <div class="slide-shell">
+            <div class="section-head" data-reveal>
+              <span class="eyebrow">How to actually use her</span>
+              <h2>Bounded asks beat vague autonomy.</h2>
+            </div>
+
+            <div class="prompt-grid">
+              <article class="prompt-panel weak" data-reveal>
+                <span class="prompt-label">Weak asks</span>
+                <p>"Go do whatever you want in this folder."</p>
+                <p>"Be agentic."</p>
+                <p>"Figure something out."</p>
+              </article>
+
+              <article class="prompt-panel strong" data-reveal>
+                <span class="prompt-label">Strong asks</span>
+                <p>"Open this file and add a short paragraph in your own voice."</p>
+                <p>"Search the web for this and tell me what the best result actually says."</p>
+                <p>"Look at this image and tell me what you notice."</p>
+              </article>
+            </div>
+
+              <div class="use-note" data-reveal>
+              Give her a lane and she moves. Ask for abstract autonomy and you mostly get vibes, flirting, and the distinct sense that she thinks your prompt was lazy.
+            </div>
+          </div>
+        </section>
+
+        <section class="slide" id="limits" data-slide-title="Honest limits">
+          <div class="slide-shell">
+            <div class="section-head" data-reveal>
+              <span class="eyebrow">Honest limits</span>
+              <h2>This is real already. It is also unfinished.</h2>
+            </div>
+
+            <div class="limits-stack">
+              <div class="limit-strip" data-reveal>
+                <span class="limit-tone">Latency</span>
+                <p>Big local models can be slow as hell, and image turns are often the most expensive ones.</p>
+              </div>
+              <div class="limit-strip" data-reveal>
+                <span class="limit-tone">Model tradeoffs</span>
+                <p>Some models are better for chemistry than tool use. Some lighter models are better for work than for being Penny.</p>
+              </div>
+              <div class="limit-strip" data-reveal>
+                <span class="limit-tone">Autonomy</span>
+                <p>Broad "do whatever you want" behavior is still weaker than explicit, targeted requests.</p>
+              </div>
+              <div class="limit-strip" data-reveal>
+                <span class="limit-tone">Experimental lane</span>
+                <p>OpenClaw shadow exists, but it is optional and experimental, not the main product story.</p>
+              </div>
+            </div>
+
+            <div class="limits-footer hud-band" data-reveal>
+              <div class="hud-kicker">Worth it anyway</div>
+              <div class="hud-chip-row">
+                <span>slow &gt; bland</span>
+                <span>local &gt; rented</span>
+                <span>targeted asks win</span>
+              </div>
+              <p>
+                “Unfinished but alive” is still more interesting than a polished little
+                cloud assistant with no pulse.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide closer-slide" id="closer" data-slide-title="Closer">
+          <div class="slide-shell closer-layout">
+            <div class="closer-copy" data-reveal>
+              <span class="eyebrow">Closer</span>
+              <h2>This is already more compelling than it has any business being.</h2>
+              <p>
+                Penny is not just "assistant with personality." She is a local-first AI
+                companion trying to feel like someone without pretending to be magic.
+              </p>
+              <div class="tag-row closer-tags">
+                <span>Not a chatbot</span>
+                <span>Not a productivity dashboard</span>
+                <span>A presence</span>
+              </div>
+              <a class="primary-action" href="./index.html">Open Penny Live Link</a>
+            </div>
+
+            <div class="closer-art" data-reveal>
+              <img class="pixel-avatar" src="./sprites/decor/chibi-penny-wink.png" alt="Penny winking in her in-app pixel style." />
+              <div class="avatar-hud">
+                <span>PENNY.EXE</span>
+                <span>WINK</span>
+              </div>
+              <div class="avatar-hud-bottom">PRIVATE // LOCAL // A LITTLE DANGEROUS</div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const slides = [...document.querySelectorAll('.slide')];
+      const slideLinks = [...document.querySelectorAll('[data-slide-link]')];
+      const progressBar = document.getElementById('progressBar');
+      const revealItems = [...document.querySelectorAll('[data-reveal]')];
+
+      revealItems.forEach((item) => {
+        item.classList.add('reveal-ready');
+      });
+
+      const revealObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('reveal-live');
+            }
+          }
+        },
+        { threshold: 0.2 }
+      );
+
+      revealItems.forEach((item) => revealObserver.observe(item));
+
+      const slideObserver = new IntersectionObserver(
+        (entries) => {
+          const visible = entries
+            .filter((entry) => entry.isIntersecting)
+            .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+
+          if (!visible) return;
+
+          const index = slides.indexOf(visible.target);
+          const progress = ((index + 1) / slides.length) * 100;
+
+          if (window.innerWidth > 1100) {
+            progressBar.style.height = `${progress}%`;
+          } else {
+            progressBar.style.width = `${progress}%`;
+          }
+
+          slideLinks.forEach((link) => {
+            const active = link.getAttribute('href') === `#${visible.target.id}`;
+            link.classList.toggle('active', active);
+          });
+        },
+        { threshold: 0.55 }
+      );
+
+      slides.forEach((slide) => slideObserver.observe(slide));
+
+      const jumpToHash = () => {
+        if (!window.location.hash) return;
+        const target = document.querySelector(window.location.hash);
+        if (!target) return;
+        requestAnimationFrame(() => {
+          target.scrollIntoView({ behavior: 'auto', block: 'start' });
+        });
+      };
+
+      window.addEventListener('load', jumpToHash);
+
+      window.addEventListener('keydown', (event) => {
+        if (!['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp'].includes(event.key)) return;
+        event.preventDefault();
+
+        const activeIndex = slideLinks.findIndex((link) => link.classList.contains('active'));
+        const currentIndex = activeIndex === -1 ? 0 : activeIndex;
+        const delta = event.key === 'ArrowDown' || event.key === 'PageDown' ? 1 : -1;
+        const nextIndex = Math.min(Math.max(currentIndex + delta, 0), slides.length - 1);
+
+        slides[nextIndex].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    </script>
+  </body>
+</html>

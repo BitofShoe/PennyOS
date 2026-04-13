@@ -1,4 +1,4 @@
-﻿# Codebase Guide
+# Codebase Guide
 
 This file is the practical map of the repo: what is source, what is support material, what is generated junk, and where to touch things for common changes.
 
@@ -109,12 +109,12 @@ This is not the live runtime prompt stack. It is source/reference material.
 
 High-signal files in this folder:
 
-- [PENNY'S_BRAIN.md](<./Penny's Playground/PENNY'S_BRAIN.md>)
+- [PENNY'S_BRAIN.md](./Penny's Playground/PENNY'S_BRAIN.md)
 - [Operational system prompt source](./Penny's Playground/PENNY â€” OPERATIONAL SYSTEM PROMPT.md)
 - [Romantic overlay source](./Penny's Playground/PENNY â€” ROMANTIC OVERLAY.md)
 - [High-intensity overlay source](./Penny's Playground/PENNY â€” HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md)
-- [Personality Reference (1).md](<./Penny's Playground/Personality Reference (1).md>)
-- [BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md](<./Penny's Playground/BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md>)
+- [Personality Reference (1).md](./Penny's Playground/Personality Reference (1).md)
+- [BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md](./Penny's Playground/BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md)
 
 Touch this area when:
 
