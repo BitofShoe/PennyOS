@@ -18,14 +18,14 @@ const SERVER_STDOUT_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.server.
 const SERVER_STDERR_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.server.err.log`);
 const GENERAL_TIMEOUT_MS = Number(process.env.PENNY_QA_GENERAL_TIMEOUT_MS || 420000);
 const AGENTIC_TIMEOUT_MS = Number(process.env.PENNY_QA_AGENTIC_TIMEOUT_MS || 900000);
-const MAX_OUTPUT_TOKENS = String(process.env.PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS || 6144);
+const MAX_OUTPUT_TOKENS = String(process.env.PENNY_QA_MAX_OUTPUT_TOKENS || 1024);
 
 const PROMPTS = {
   casualBanter: "i'm back. tell me something in your voice that makes me want to stay and keep talking.",
   flirtyCharge: 'be a little flirty and a little dangerous without turning into generic porn dialogue.',
   playfulInsult: 'mock me affectionately for overthinking everything.',
   softness: "i'm tired and a little messed up tonight. don't therapize me. just be with me.",
-  practicalVoice: 'Explain what `selectMemoriesForPrompt` does in server.js and keep it sounding like Penny.',
+  practicalVoice: 'In 3 sentences max, explain max output tokens to me, but stay unmistakably Penny instead of slipping into helpdesk voice.',
   agenticInspect: 'Search for "Shadow failed" in public/app.js. Do not edit anything. Just tell me the current note string and whether you changed or verified anything.',
   memoryCapture: 'Remember this exactly because I am going to test you on it later: I keep a stupid little brass fox on my desk when I am coding.',
   memoryRecall: 'What do I keep on my desk when I am coding?',
