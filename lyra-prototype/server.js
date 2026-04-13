@@ -2077,8 +2077,19 @@ async function executePennyTool(name, args = {}) {
   return { ok: false, label: name, data: { error: `Unknown tool: ${name}` } };
 }
 function extractExplicitProjectPath(text = '') {
-  const match = String(text || '').match(/(?:^|[\s`"'(])([a-z0-9_./-]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))(?:$|[\s`"')?!,:;.])/i);
-  return match ? match[1] : '';
+  const raw = String(text || '');
+  const quotedPatterns = [
+    /`([^`\n]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))`/i,
+    /"([^"\n]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))"/i,
+    /'([^'\n]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))'/i,
+  ];
+  for (const pattern of quotedPatterns) {
+    const match = raw.match(pattern);
+    const candidate = String(match?.[1] || '').trim();
+    if (candidate) return candidate;
+  }
+  const match = raw.match(/(?:^|[\s`"'(])([a-z0-9_./ -]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))(?:$|[\s`"')?!,:;.])/i);
+  return match ? match[1].trim() : '';
 }
 function cleanDirectInstructionContent(text = '') {
   let cleaned = stripCodeFences(String(text || '').trim());
@@ -2193,6 +2204,14 @@ function looksLikeDirectProjectInspectIntent(text = '', query = '') {
   const projectNoun = /\b(code|repo|project|file|files|function|symbol|logic|implementation|works|working|decides|handle|handler|used)\b/i.test(lower);
   return inspectVerb && projectNoun;
 }
+function looksLikeOpenEndedProjectEdit(text = '') {
+  const lower = String(text || '').toLowerCase();
+  if (!lower) return false;
+  const editVerb = /\b(add|append|write|edit|update|change|rewrite|revise|leave|put)\b/.test(lower);
+  const creativeCue = /\b(in your own voice|pick the wording|choose the wording|decide what to write|whatever you want|anything you want|your own note)\b/.test(lower)
+    || (/\b(note|line|paragraph)\b/.test(lower) && /\b(your own|yourself)\b/.test(lower));
+  return editVerb && creativeCue;
+}
 function resolveDirectToolIntent(userText = '') {
   const text = String(userText || '');
   const lower = text.toLowerCase();
@@ -2249,6 +2268,9 @@ function resolveDirectToolIntent(userText = '') {
   const webQuery = extractDirectWebQuery(text);
   if (webQuery) {
     return { name: 'search_web', args: { query: webQuery, limit: 5 } };
+  }
+  if (explicitPath && looksLikeOpenEndedProjectEdit(text)) {
+    return null;
   }
   if (explicitPath && /\b(read|open|show|inspect|explain|summarize|check|look at|walk through|search|find|grep|look for)\b/i.test(lower)) {
     const symbolQuery = extractDirectSearchQuery(text);
@@ -4933,4 +4955,6 @@ module.exports = {
   buildLmStudioMessages,
   coercePennyVisibleReply,
   textFromChatMessage,
+  extractExplicitProjectPath,
+  resolveDirectToolIntent,
 };
