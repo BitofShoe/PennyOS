@@ -3570,19 +3570,98 @@ function stripReplyPrefix(text = '') {
   return String(text || '').replace(/^(?:penny|assistant)\s*:\s*/i, '').trim();
 }
 
+function normalizeMetaLead(line = '') {
+  return String(line || '')
+    .trim()
+    .replace(/^[>\-*+\d.\s)]+/, '')
+    .replace(/\*/g, '')
+    .replace(/[`“”]/g, '"')
+    .trim();
+}
+
 function isMetaThinkingLine(line) {
-  const x = String(line || '').trim();
+  const raw = String(line || '').trim();
+  const x = normalizeMetaLead(raw);
   if (x.length < 12) return true;
-  if (/^(#{1,3}\s|[-*]\s|Step\s+\d|\d+\.\s|Output:|Response:|Final answer:)/i.test(x)) return true;
-  return /^(I need to|I'll |I should|Let me |First,|The user |Okay, I|Since the |Based on|Looking at|I will |My goal|According to|Here's |I must|We need|I can |I have to|To respond|I want to|I'm going to|Note:|Analysis:)/i.test(x);
+  if (/^(#{1,3}\s|[-*]\s|Step\s+\d|\d+\.\s|Output:|Response:|Final answer:)/i.test(raw)) return true;
+  if (/^(Thinking Process|Analyze the Request|Determine the Voice|Drafting the Reply|Fact Check|Constraint Check|Refinement|Penny-ifying|Final Polish|Draft(?:\s+\d+)?|Observation|Tone|Content)\b/i.test(x)) return true;
+  return /^(I need to|I'll |I should|Let me |First,|The user |Okay, I|Since the |Based on|Looking at|I will |My goal|According to|Here's |I must|We need|I can |I have to|To respond|I want to|I'm going to|Note:|Analysis:|Actually, let's make it more)/i.test(x);
+}
+
+function stripLeadingMetaLines(block = '') {
+  const lines = String(block || '').split(/\r?\n/);
+  while (lines.length) {
+    const first = String(lines[0] || '').trim();
+    if (!first) {
+      lines.shift();
+      continue;
+    }
+    if (isMetaThinkingLine(first)) {
+      lines.shift();
+      continue;
+    }
+    break;
+  }
+  return lines.join('\n').trim();
+}
+
+function cleanDraftCandidate(text = '') {
+  let out = String(text || '').trim().replace(/\s+\[MOOD:\w+\]\s*$/i, '');
+  out = out.replace(/^["“”]\s*/, '').trim();
+  if ((out.match(/"/g) || []).length % 2 === 1 && out.startsWith('"')) {
+    out = out.slice(1).trim();
+  }
+  return out.replace(/\s{2,}/g, ' ').trim();
+}
+
+function collectDraftCandidates(text = '') {
+  const lines = String(text || '').split(/\r?\n/);
+  const candidates = [];
+  const isDraftLead = (line) => {
+    const x = normalizeMetaLead(line);
+    return /^(Draft(?:\s+\d+)?|Final Polish)\s*:/i.test(x) || /^Actually, let's make it more/i.test(x);
+  };
+  const trimDraftLead = (line) => {
+    const x = normalizeMetaLead(line);
+    return x
+      .replace(/^(?:Draft(?:\s+\d+)?|Final Polish)\s*:\s*/i, '')
+      .replace(/^Actually, let's make it more\s*"penny"\.?\s*/i, '')
+      .trim();
+  };
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!isDraftLead(lines[i])) continue;
+    const collected = [];
+    const inline = trimDraftLead(lines[i]);
+    if (inline) collected.push(inline);
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const next = String(lines[j] || '').trim();
+      if (!next) {
+        if (collected.length) break;
+        continue;
+      }
+      if (isDraftLead(next) || (isMetaThinkingLine(next) && collected.length)) break;
+      if (isMetaThinkingLine(next) && !collected.length) continue;
+      collected.push(next.replace(/^[-*]\s*/, '').trim());
+    }
+    const candidate = cleanDraftCandidate(collected.join(' '));
+    if (candidate) candidates.push(candidate);
+  }
+  return candidates;
+}
+
+function collectQuotedReplyCandidates(text = '') {
+  return [...String(text || '').matchAll(/"([^"\n]{20,}?)"/g)]
+    .map((match) => cleanDraftCandidate(match[1]))
+    .filter((candidate) => candidate && !isMetaThinkingLine(candidate));
 }
 
 function paragraphLooksLikeCoT(p) {
   const block = String(p || '').trim();
   if (!block) return true;
   if (isMetaThinkingLine(block.split('\n')[0] || '')) return true;
+  if (/\b(option \d|draft(?:\s+\d+)?|final polish|refining option|adding more bite)\b/i.test(block)) return true;
   const head = block.slice(0, 260);
-  if (/\b(user (said|wants|is asking)|the prompt|as (an )?ai|instruction says|penny should|i (need|must|will) (respond|answer|write)|format.*mood tag)\b/i.test(head)) {
+  if (/\b(user (said|wants|is asking)|the prompt|as (an )?ai|instruction says|penny should|i (need|must|will|should) (respond|answer|write|mention|make sure)|format.*mood tag|the mood should|let'?s (draft|try|stick)|this gives me room|wait, i need to check|actually, looking closer)\b/i.test(head)) {
     return true;
   }
   return false;
@@ -3611,19 +3690,40 @@ function coercePennyVisibleReply(raw) {
     const endIdx = lastMood.index;
     const before = t.slice(0, endIdx).trim();
     const afterMood = t.slice(endIdx + moodTag.length).trim();
-    const parts = before.split(/\n{2,}/).map(v => v.trim()).filter(Boolean);
+    const draftCandidates = collectDraftCandidates(before);
+    const quoteCandidates = collectQuotedReplyCandidates(before);
+    const parts = before.split(/\n{2,}/).map(v => stripLeadingMetaLines(v)).filter(Boolean);
     while (parts.length > 1 && paragraphLooksLikeCoT(parts[0])) {
       parts.shift();
     }
-    const body = parts.join('\n\n').trim();
+    let body = parts.join('\n\n').trim();
+    if ((!body || looksOnlyLikeCoT(body)) && draftCandidates.length) {
+      body = draftCandidates[draftCandidates.length - 1];
+    }
+    if ((!body || looksOnlyLikeCoT(body)) && quoteCandidates.length) {
+      body = quoteCandidates.join('\n\n');
+    }
+    if (!body) body = stripLeadingMetaLines(before);
+    body = cleanDraftCandidate(body);
     const out = `${body}\n${moodTag}${afterMood ? `\n${afterMood}` : ''}`.trim();
     return retagAssistantReply(out.replace(/\n{3,}/g, '\n\n'), lastMood[1] || '');
   }
-  const tailParts = t.split(/\n{2,}/).map(v => v.trim()).filter(Boolean);
+  const draftCandidates = collectDraftCandidates(t);
+  const quoteCandidates = collectQuotedReplyCandidates(t);
+  const tailParts = t.split(/\n{2,}/).map(v => stripLeadingMetaLines(v)).filter(Boolean);
   while (tailParts.length > 1 && paragraphLooksLikeCoT(tailParts[0])) {
     tailParts.shift();
   }
-  return retagAssistantReply(tailParts.join('\n\n').trim().replace(/\n{3,}/g, '\n\n'));
+  let out = tailParts.join('\n\n').trim();
+  if ((!out || looksOnlyLikeCoT(out)) && draftCandidates.length) {
+    out = draftCandidates[draftCandidates.length - 1];
+  }
+  if ((!out || looksOnlyLikeCoT(out)) && quoteCandidates.length) {
+    out = quoteCandidates.join('\n\n');
+  }
+  if (!out) out = stripLeadingMetaLines(t);
+  out = cleanDraftCandidate(out);
+  return retagAssistantReply(out.replace(/\n{3,}/g, '\n\n'));
 }
 
 /** LM Studio /responses: walk output[].content[] for output_text + reasoning_text */
