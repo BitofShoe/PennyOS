@@ -1,401 +1,329 @@
 # `server.js` section map
 
-**Purpose:** Function → responsibility map for planning the first real split of the backend monolith.  
-**Companion docs:** [ARCHITECTURE.md](./ARCHITECTURE.md), [Notes on Penny's Code From a Project Manager.md](./Notes%20on%20Penny's%20Code%20From%20a%20Project%20Manager.md)
+**Purpose:** current-state map for the remaining `server.js` monolith after the 2026-04-13 direct-intent and tool extraction pass.  
+**Companion docs:** [ARCHITECTURE.md](./ARCHITECTURE.md), [CODEBASE.md](./CODEBASE.md), [Notes on Penny's Code From a Project Manager.md](./Notes%20on%20Penny's%20Code%20From%20a%20Project%20Manager.md)
 
-**Line numbers** are from the `server.js` revision at the time this file was written (2026-04-09). They will drift as you edit; use nearby **function names** as the stable key.
+Line numbers will drift. Treat **function names and module boundaries** as the stable key.
 
 ---
 
 ## How to use this doc
 
-1. **Pick a vertical slice** (e.g. “durable memory HTTP + merge” or “LM Studio transport only”).
-2. Find the **line band** and **function list** below.
-3. Move that band into a new module; re-export or inject dependencies (`MEMORY_FILE`, env constants) instead of copying globals.
-4. Add tests against the **public** functions of the new module before deleting from `server.js`.
+1. Start here before touching `server.js`.
+2. If the behavior already lives in `lib/`, edit the module there first.
+3. If the behavior is still orchestration-heavy in `server.js`, use the section names below to find the right band.
+4. Keep the `server.js` exports stable for tests and harnesses unless you intentionally replace them.
 
 ---
 
-## Top-level symbols (outside functions)
+## Top-level symbols
 
-| Symbol | Approx. lines | Role |
-|--------|---------------|------|
-| `require(...)` / env constants | 1–99 | Ports, paths, timeouts, tool limits, web search toggles, MIME allowlists |
-| `lmStudioStatusCache`, `runtimePreferredModel` | 101–102 | Mutable LM Studio probe cache + UI-selected model hint |
-| `sessionState` | 104 | Ephemeral chat turns / last mood / tiny in-memory transcript (not durable store) |
-| `MIME_TYPES` | 105 | Static file `Content-Type` map |
-| `PROMPT_ASSET_CACHE` | 106 | In-memory prompt file cache |
-| `PENNY_*_FALLBACK` strings | 107–164 | Emergency prompt text if disk assets missing |
+Still in `server.js`:
 
----
+- env/config constants
+- LM Studio status cache + runtime preferred model
+- `sessionState`
+- MIME map
+- prompt asset cache
+- prompt fallback strings
 
-## HTTP API surface (router)
+Already moved out of the monolith:
 
-All routes live in the `http.createServer` callback starting ~**4612**.
-
-| Method | Path | Behavior |
-|--------|------|----------|
-| `GET` | `/api/penny/memory` | Read durable memory for `sessionId` |
-| `POST` | `/api/penny/memory` | Replace/merge via `payload.memory` |
-| `PATCH` | `/api/penny/memory` | Partial update via `payload.patch` (notably `memories` array semantics) |
-| `POST` | `/api/penny/consolidate` | `buildChatMemoryState` + save (extraction / merge from messages) |
-| `GET` | `/api/penny/shadow-status` | OpenClaw enabled / timeout metadata |
-| `GET` | `/api/penny/lmstudio/status` | LM Studio connection + resolved model |
-| `POST` | `/api/penny/lmstudio/model` | Set `runtimePreferredModel`, invalidate status cache |
-| `POST` | `/api/penny/chat/shadow` | Legacy shadow route; may fall back to `buildPennyReply` |
-| `POST` | `/api/penny/chat`, `/api/companion/chat` | Main chat: streaming or JSON; local LM Studio + tools or shadow |
-| `GET` | `/api/penny/status`, `/api/companion/status` | Health-ish status + LM Studio snapshot |
-| *static* | `/`, other paths under `public/` | `serveFile` with path traversal guard |
+- durable memory merge/consolidation helpers via [lib/penny-memory-state.js](./lib/penny-memory-state.js)
+- direct-intent parsing/reply helpers via [lib/penny-direct-intents.js](./lib/penny-direct-intents.js)
+- direct deterministic tool assist via [lib/penny-direct-tool-assist.js](./lib/penny-direct-tool-assist.js)
+- concrete tool implementations via `lib/penny-*-tools.js`
+- tool dispatch via [lib/penny-tool-registry.js](./lib/penny-tool-registry.js)
 
 ---
 
-## Section A — Bootstrap & configuration (~1–164)
+## HTTP API surface
 
-**Responsibility:** Wire Node built-ins, read `process.env`, define operational limits.
+All routes still live in the `http.createServer` callback near the bottom of `server.js`.
 
-**Notable:** Single place to later replace with `src/config.js` that returns a frozen config object.
+Key routes:
 
----
-
-## Section B — Prompt assets (~166–197)
-
-| Function | Responsibility |
-|----------|------------------|
-| `normalizePromptAssetText` | CRLF trim |
-| `readPromptAsset` | Load markdown from `penny-voice/runtime` or absolute path |
-| `getPennyVoiceAssets` | Bundle operational blend + directives + examples (cached) |
-| `formatPromptAssetBlock` | Label + body for injection |
-| `ensureDataDir` | Ensure `data/` exists |
-
-**Split target:** `src/prompting/assets.js` (pure loading + cache; pass `PENNY_VOICE_DIR` in).
+- `GET /api/penny/memory`
+- `POST /api/penny/memory`
+- `PATCH /api/penny/memory`
+- `POST /api/penny/consolidate`
+- `GET /api/penny/shadow-status`
+- `GET /api/penny/lmstudio/status`
+- `POST /api/penny/lmstudio/model`
+- `POST /api/penny/chat/shadow`
+- `POST /api/penny/chat`, `/api/companion/chat`
+- `GET /api/penny/status`, `/api/companion/status`
+- static file serving under `public/`
 
 ---
 
-## Section C — Durable memory on disk (~198–264)
+## Remaining `server.js` bands
 
-| Function | Responsibility |
-|----------|----------------|
-| `defaultMemoryRecord` | Schema defaults (`sessionId`, `userName`, `memories`, `voiceOn`, `brainMode`, `lmStudioThread`, …) |
-| `isLikelyTestSessionId` | Detect eval/Q session ids for purge |
-| `normalizeBrainMode` | `local` vs `shadow` |
-| `normalizeUserName` | Trim / max length |
-| `normalizeMemoryRecord` | Coerce record; uses `mergeMemoryItems` from `lib/penny-memory.js` |
-| `readMemoryStore` / `writeMemoryStore` | JSON file `{ sessions: { … } }` |
-| `getStoredMemory` / `saveStoredMemory` | Per-session read/write |
-| `mergeMemoryState` | **Critical:** patch semantics for `memories` replace vs merge |
-| `getChatMemorySettings` | Extract client-provided settings from payload |
-| `buildChatMemoryState` | Disk + client + `consolidateMemory` pipeline for a turn |
+### A. Bootstrap and config
 
-**Split target:** `src/memory/store.js` (I/O + `mergeMemoryState` + normalize). Keep using `lib/penny-memory.js` for scoring/merge items.
+Role:
 
-**Tests to add when moving:** `mergeMemoryState` matrix (full replace, omit field, consolidate path).
+- wire Node built-ins
+- read env
+- define operational limits
 
----
+Future split target:
 
-## Section D — Text, HTML, URL helpers (~265–426)
+- `src/config/*`
 
-| Function | Responsibility |
-|----------|----------------|
-| `hashText` | SHA1 helper |
-| `normalizeLmStudioThread` | Stateful thread handle shape |
-| `createHttpError` | Status-coded errors |
-| `clampNumber`, `formatBytes`, `truncateText`, `collapseWhitespace` | Generic utilities |
-| `decodeHtmlEntities`, `stripHtmlToText` | HTML → plain |
-| `extractFirstUrl`, `normalizeWebUrl` | URL extraction / validation |
-| `parseDuckDuckGoLiteResults` | HTML scrape for web search |
-| `extractHtmlTitle` | Page title |
-| `fetchTextWithLimit` | HTTP GET with byte/time caps |
+### B. Prompt assets
 
-**Split target:** `src/util/text.js` + `src/util/http-fetch.js` (or one `util/` module).
+Role:
 
----
+- load `penny-voice/runtime/*`
+- normalize cached prompt asset text
 
-## Section E — Chat sanitization & attachments (~427–577)
+Still worth splitting later if prompt logic grows again.
 
-| Function | Responsibility |
-|----------|----------------|
-| `stripCodeFences` | Remove ``` wrappers from model output |
-| `normalizeToolArgsString`, `extractJsonObjectCandidate`, `repairJsonLikeArgs`, `parseToolArguments` | Lenient JSON for tool calls |
-| `clearLmStudioThread` | Null thread in memory record |
-| `sanitizeChatMessages` | Clip/normalize history for API |
-| `sanitizeImageDataUrl` | Image attachment caps + MIME allowlist |
-| `sanitizeFileAttachment` | Text attachment caps |
-| `buildAttachedFileContext`, `appendAttachmentContext`, `buildToolUserText` | Composer context for file in prompt |
-| `sanitizeToolMessages` | Tool-turn history limits |
-| `describeLocalBrainFailure` | User-facing LM Studio error summary |
+### C. Durable memory store glue
 
-**Split target:** `src/chat/sanitize.js` or `src/attachments.js`.
+Role:
 
----
+- disk-backed session store read/write
+- route-facing memory save/load
+- `buildChatMemoryState(...)`
 
-## Section F — HTTP client for LM Studio / gateway (~578–834)
+Important note:
 
-| Function | Responsibility |
-|----------|----------------|
-| `sendJson`, `safeReadBody` | JSON HTTP helpers |
-| `postJsonLongRunning` | Buffered POST with long timeout |
-| `postJsonSse` | SSE-style POST consumer |
+- pure-ish memory semantics are already in `lib/penny-memory.js` and [lib/penny-memory-state.js](./lib/penny-memory-state.js)
+- the remaining debt here is route/storage orchestration
 
-**Split target:** `src/http/client.js`.
+### D. Text / HTML / URL helpers
 
----
+Role:
 
-## Section G — Mood tags & placeholder replies (~835–920)
+- `hashText`
+- `clampNumber`, `formatBytes`, `truncateText`, `collapseWhitespace`
+- HTML stripping / entity decode
+- URL extraction / normalization
+- DuckDuckGo Lite parsing
+- bounded HTTP fetch
 
-| Function | Responsibility |
-|----------|----------------|
-| `extractReplyMoodTag`, `stripReplyMoodTags`, `resolveReplyMood`, `retagAssistantReply` | `[MOOD:x]` handling |
-| `pickMood` | Heuristic mood from text |
-| `summarizeMemory` | Short thread summary string |
-| `buildPennyReply` | **Non-LLM** canned replies (shadow fallback / offline flavor) |
-| `buildShadowPrompt` | Assemble text for OpenClaw handoff |
+These helpers are still central shared dependencies for the extracted modules.
 
-**Split target:** `src/reply/mood.js` + `src/reply/placeholders.js`.
+### E. Chat sanitization and attachments
 
----
+Role:
 
-## Section H — LM Studio desktop integration (~921–1325)
+- code-fence stripping
+- permissive tool-argument parsing
+- message and attachment sanitization
+- file attachment prompt context
+- LM Studio error summaries
 
-| Function | Responsibility |
-|----------|----------------|
-| `readLmStudioDesktopSettings` | Read LM Studio `settings.json` |
-| `normalizeLmStudioModelEntries`, `normalizeLmStudioInstalledModelEntries`, `normalizeLmStudioLoadedModelEntries` | Parse `lms` / API JSON shapes |
-| `normalizeModelKey`, `tokenizeModelAlias`, `isQuantizationToken`, `modelTokenArraysEquivalent`, `modelsLookEquivalent` | Fuzzy model id matching |
-| `mergeUniqueModelIds`, `rankLmStudioModel`, `sortLmStudioModelCandidates` | Pick best model candidate |
-| `execFileText` | Spawn CLI helper |
-| `getInstalledLmStudioModels`, `getLoadedLmStudioModels` | `lms` subprocess |
-| `buildLmStudioLaunchHint` | Friendly error text |
-| `getLmStudioConnectionStatus` | **Main status probe** (cached): health, resolved model, endpoints |
-| `isMissingLmStudioModelError` | Detect “model not loaded” class errors |
-| `withLmStudioCandidateModel` | Try alternate model ids |
-| `pickLmStudioNativeModelId` | Native chat model id |
-| `shouldPreferLmStudioChatCompletions` | Transport hint from model name |
+Future split target:
 
-**Split target:** `src/lmstudio/status.js` (large, cohesive).
+- `src/chat/sanitize.js`
 
----
+### F. HTTP client helpers
 
-## Section I — OpenClaw shadow (~1326–1369)
+Role:
 
-| Function | Responsibility |
-|----------|----------------|
-| `runOpenClawShadow` | Gateway POST; prompt blob to `openclaw/main` |
+- JSON send/read helpers
+- long-running POST
+- SSE POST
 
-**Split target:** `src/shadow/openclaw.js`.
+Future split target:
 
----
+- `src/http/client.js`
 
-## Section J — Project & web tools (~1370–2012)
+### G. Mood tags and placeholder replies
 
-| Function | Responsibility |
-|----------|----------------|
-| `toProjectRelative`, `resolveProjectPath` | Safe path resolution under repo |
-| `isProbablyTextFile`, `readUtf8ProjectFile` | File typing / read |
-| `listProjectFilesTool`, `readProjectFileTool`, `readProjectFileAroundMatchTool`, `searchProjectTextTool` | File tools |
-| `resolveLogTarget`, `readRecentLogsTool` | Log tail |
-| `searchWebTool`, `readWebPageTool` | DuckDuckGo + fetch |
-| `ensureWritableTextPath`, `writeProjectFileTool`, `replaceInProjectFileTool`, `insertInProjectFileTool` | Mutating file tools |
-| `runNodeCheckTool` | `node --check` |
-| `getGitStatusTool`, `readGitDiffTool` | Git |
-| `getRuntimeStatusTool` | Large runtime introspection blob |
+Role:
 
-**Split target:** `src/tools/project.js`, `src/tools/web.js`, `src/tools/git.js`, `src/tools/runtime.js` (or one `tools/` with internal sections).
+- `[MOOD:x]` extraction/cleanup
+- mood picking
+- non-LLM fallback Penny replies
+- OpenClaw shadow prompt assembly
 
----
+### H. LM Studio desktop integration
 
-## Section K — Tool dispatch (~2013–2088)
+Role:
 
-| Function | Responsibility |
-|----------|----------------|
-| `toolLabelFromResult` | Human labels for UI |
-| `executePennyTool` | **Switchboard** mapping tool name → implementation |
+- settings discovery
+- model normalization and matching
+- loaded/installed model inspection
+- connection status probing
+- transport preference hints
 
-**Split target:** `src/tools/registry.js`.
+This is still one of the biggest isolated chunks left in `server.js`.
 
----
+### I. OpenClaw shadow
 
-## Section L — Direct intents (deterministic short-circuit) (~2089–2599)
+Role:
 
-| Function | Responsibility |
-|----------|----------------|
-| `extractDirectProjectPath`, `cleanDirectInstructionContent` | Parse user path hints |
-| `parseDirectWriteInstruction`, `normalizeDirectLineSnippet`, `parseDirectReplaceInstruction`, `parseDirectAppendInstruction`, `buildDirectEditSequence` | Structured edit DSL from natural language |
-| `extractDirectWebQuery`, `extractDirectSearchQuery` | Quick web/file search extraction |
-| `looksLikeProjectPathDiscoveryIntent`, `looksLikeDirectProjectInspectIntent` | Heuristic gates |
-| `resolveDirectToolIntent` | **Big** router: maps user text → intent object |
-| `runLmStudioToolContextAnswer` | Short LM call with tool result context |
-| `composeDirectRuntimeReply`, `composeDirectSyntaxReply`, `composeDirectGitStatusReply`, `composeDirectSearchReply`, `composeDirectReadReply`, `composeDirectFileListReply`, `composeDirectWebSearchReply`, `composeDirectWebPageReply`, `composeToolRecordFallback` | Template replies for tool outcomes |
-| `shouldUseDirectReadReply` | Gate |
-| `executeDirectToolSequence`, `composeDirectEditReply` | Run ordered tool steps |
-| `runLmStudioDirectToolAssist` | LM-assisted path for direct intents |
+- gateway POST to `openclaw/main`
 
-**Split target:** `src/direct-intents/` (parser + composer + runner). Overlaps with `lib/penny-tool-intents.js` (`executeDirectProjectInspectIntent` already extracted).
+Still intentionally small and bounded.
 
----
+### J. Concrete tools (historical band; extracted)
 
-## Section M — Full tool loop (~2601–2959)
+Now owned by:
 
-| Function | Responsibility |
-|----------|----------------|
-| `runLmStudioToolLoop` | Planner + tool execution cycle |
-| `parsePlannerDecision`, `shouldFallbackToManualToolLoop` | Planner output parsing / errors |
-| `runLmStudioManualToolLoop` | Fallback stepping |
+- [lib/penny-project-tools.js](./lib/penny-project-tools.js)
+- [lib/penny-web-tools.js](./lib/penny-web-tools.js)
+- [lib/penny-git-tools.js](./lib/penny-git-tools.js)
+- [lib/penny-runtime-tools.js](./lib/penny-runtime-tools.js)
 
-**Split target:** `src/lmstudio/tool-loop.js`.
+### K. Tool dispatch (historical band; extracted)
 
----
+Now owned by:
 
-## Section N — Tool system prompt (~2960–3014)
+- [lib/penny-tool-registry.js](./lib/penny-tool-registry.js)
 
-| Function | Responsibility |
-|----------|----------------|
-| `buildLmStudioToolSystemPrompt` | Instructions + tool schema prose for LM |
+### L. Direct intents (historical band; mostly extracted)
 
-**Split target:** `src/prompting/tool-system.js`.
+Now owned by:
 
----
+- [lib/penny-direct-intents.js](./lib/penny-direct-intents.js)
+- [lib/penny-direct-tool-assist.js](./lib/penny-direct-tool-assist.js)
+- [lib/penny-tool-intents.js](./lib/penny-tool-intents.js)
 
-## Section O — Semantic render (~3015–3235)
+Still in `server.js` for this lane:
 
-| Function | Responsibility |
-|----------|----------------|
-| `semanticStringLimit`, `sanitizeSemanticValue`, `summarizeToolRecordForSemanticCore` | Shrink tool records for “semantic core” |
-| `cleanDraftForSemanticRender` | Strip noise from draft |
-| `buildSemanticCore` | Factual core blob |
-| `shouldUseSemanticRender` | Heuristic: hard turn? |
-| `buildLmStudioSemanticRenderSystemPrompt` | Final voice pass instructions |
-| `renderSemanticReplyAsPenny` | LM call for styled final reply |
-| `maybeRenderHardTurnReply` | Orchestrates semantic pass after tools |
+- `runLmStudioToolContextAnswer(...)`
+- the top-level orchestration that chooses direct deterministic handling versus the full tool loop
 
-**Split target:** `src/lmstudio/semantic-render.js`.
+### M. Full tool loop
 
----
+Role:
 
-## Section P — Main chat prompts (~3236–3504)
+- `runLmStudioToolLoop(...)`
+- `parsePlannerDecision(...)`
+- `shouldFallbackToManualToolLoop(...)`
+- `runLmStudioManualToolLoop(...)`
 
-| Function | Responsibility |
-|----------|----------------|
-| `buildLmStudioLeanSystemPrompt` | Shorter system prompt variant |
-| `buildLmStudioSystemPrompt` | Full system prompt + voice assets |
-| `buildLmStudioPrompt` | User/assistant template assembly |
-| `buildLmStudioMessages` | OpenAI-style `messages[]` for completions |
-| `buildLmStudioStatefulSeedText`, `buildLmStudioStatefulInput` | Native threaded chat payload |
+This is now the main remaining orchestration-heavy backend band after the tool extraction.
 
-**Split target:** `src/prompting/chat-prompts.js`.
+### N. Tool system prompt
 
----
+Role:
 
-## Section Q — Reply cleanup & LM response parsing (~3505–3799)
+- `buildLmStudioToolSystemPrompt(...)`
 
-| Function | Responsibility |
-|----------|----------------|
-| `stripThinkSpans`, `takeAfterLastHorizontalRule`, `extractTaggedVisibleReply`, `takeAfterFinalCue`, `stripWrappingCodeFence`, `stripReplyPrefix` | Remove model scaffolding |
-| `isMetaThinkingLine`, `paragraphLooksLikeCoT`, `looksOnlyLikeCoT` | CoT detection |
-| `coercePennyVisibleReply` | **Main** visible reply extractor |
-| `collectLmStudioResponsesStrings`, `extractPennyFromPlanningBlob`, `extractPennyFromReasoning` | Responses API shapes |
-| `collectTextParts`, `textValueFromField`, `textFromChatMessage` | Recursive text extraction |
-| `collectLmStudioStatefulChatStrings` | Stateful chat shapes |
-| `isMissingLmStudioThreadError`, `lmStudioStageLabel` | Errors / UI labels |
+### O. Semantic render
 
-**Split target:** `src/lmstudio/parse-reply.js`.
+Role:
+
+- semantic-core summarization
+- semantic render gating
+- final Penny restyle pass for hard technical turns
+
+### P. Main chat prompts
+
+Role:
+
+- lean/full system prompt assembly
+- message builders for completions and stateful chat
+
+### Q. Reply cleanup and LM response parsing
+
+Role:
+
+- strip reasoning/planning spill
+- collect text from LM Studio response shapes
+- visible reply salvage
+
+This is still a good candidate for future extraction because model quirks keep hitting it.
+
+### R. SSE helpers
+
+Role:
+
+- begin/send/keepalive stream helpers
+
+### S. LM Studio transports
+
+Role:
+
+- responses API
+- stateful chat API
+- chat completions API
+- transport selection
+- `runLmStudioLocalSmart(...)`
+- `streamLmStudioLocalSmart(...)`
+
+### T. Memory extraction
+
+Role:
+
+- light heuristic memory extraction from user turns
+
+This is smaller now because `lib/penny-memory-state.js` owns most memory semantics.
+
+### U. Static files
+
+Role:
+
+- `serveFile(...)`
+
+### V. Router closure
+
+Role:
+
+- payload parsing
+- stream vs JSON reply handling
+- memory save/update
+- endpoint dispatch
+
+### W. Startup
+
+Role:
+
+- LAN URL printing
+- purge test sessions on boot
+- `startServer(...)`
 
 ---
 
-## Section R — SSE helpers (~3803–3835)
+## Current exports
 
-| Function | Responsibility |
-|----------|----------------|
-| `beginEventStream`, `sendEventStream`, `startEventStreamKeepAlive`, `bindAbortSignal` | Streaming to browser |
+`server.js` still exports:
 
-**Split target:** `src/http/sse.js`.
-
----
-
-## Section S — LM Studio transports (~3836–4568)
-
-| Function | Responsibility |
-|----------|----------------|
-| `runLmStudioResponsesApi`, `streamLmStudioResponsesApi` | `/v1/responses` |
-| `runLmStudioStatefulChatApi`, `streamLmStudioStatefulChatApi` | `/api/v1/chat` stateful |
-| `streamLmStudioChatCompletionsApi`, `runLmStudioChatCompletionsApi` | `/v1/chat/completions` |
-| `runLmStudioLocal`, `streamLmStudioLocal` | Pick transport by settings |
-| `runLmStudioLocalSmart`, `streamLmStudioLocalSmart` | **Entry** for chat: tools + semantic + routing |
-
-**Split target:** `src/lmstudio/transports/` (one file per API family, shared low-level POST).
-
----
-
-## Section T — Memory extraction (~4569–4609)
-
-| Function | Responsibility |
-|----------|----------------|
-| `extractMemories` | Regex/heuristic facts from user lines |
-| `consolidateMemory` | Fold messages into memory patch |
-
-**Split target:** `src/memory/consolidate.js` (pure; easy to unit test).
-
----
-
-## Section U — Static files (~4610)
-
-| Function | Responsibility |
-|----------|----------------|
-| `serveFile` | Read file + MIME |
-
-**Split target:** `src/static/serve.js`.
-
----
-
-## Section V — Router closure (~4612–4930)
-
-**Responsibility:** Only orchestration: parse payload, call brain, stream or JSON, update `sessionState`, save memory.
-
-**Split target:** `src/routes/penny.js` + `src/app.js` that mounts `createPennyHandler(deps)`.
-
----
-
-## Section W — Startup (~4932–4972)
-
-| Function | Responsibility |
-|----------|----------------|
-| `listLanIPv4Addresses` | LAN URLs for phone |
-| `purgeTestSessionsFromStore` | Delete test sessions on boot |
-| `startServer` | `listen` + console hints |
-
-**Split target:** `src/server.js` (thin entry).
-
----
-
-## `module.exports` (~4974–4981)
-
-Exported for tests / harnesses:
-
-- `server`, `startServer`
+- `server`
+- `startServer`
 - `getLmStudioConnectionStatus`
 - `buildLmStudioMessages`
 - `coercePennyVisibleReply`
 - `textFromChatMessage`
+- `extractExplicitProjectPath`
+- `shouldForceLocalToolLoop`
+- `resolveDirectToolIntent`
+- `composeToolRecordFallback`
+- `looksLikeWeakToolReply`
 
-Any extraction should **preserve or replace** these exports so `eval-penny-*.js` keeps working.
-
----
-
-## Suggested first splits (ordered)
-
-1. **Memory:** Section **C** + **T** → `src/memory/*` (highest bug history, clearest tests).
-2. **LM Studio status:** Section **H** → `src/lmstudio/status.js` (big but isolated; already exported).
-3. **Tool implementations:** Section **J** + **K** → `src/tools/*`.
-4. **Reply parsing:** Section **Q** → `src/lmstudio/parse-reply.js` (frequently touched for model quirks).
-5. **Transports:** Section **S** → multiple files under `src/lmstudio/transports/`.
-6. **Router:** Section **V** last—after dependencies are modules.
+Those direct-intent helpers are re-exported from the extracted module so the regression tests can stay simple.
 
 ---
 
-## Already extracted (do not duplicate)
+## Already extracted
 
 | Module | Role |
 |--------|------|
-| [lib/penny-memory.js](./lib/penny-memory.js) | `mergeMemoryItems`, `selectMemoriesForPrompt`, scoring, prompt formatting |
-| [lib/penny-tool-intents.js](./lib/penny-tool-intents.js) | `shouldOfferLocalTools`, `executeDirectProjectInspectIntent` |
+| [lib/penny-memory.js](./lib/penny-memory.js) | Memory scoring, merge, prompt formatting |
+| [lib/penny-memory-state.js](./lib/penny-memory-state.js) | Memory patch semantics, consolidation, chat-memory layering |
+| [lib/penny-tool-intents.js](./lib/penny-tool-intents.js) | Tool-offer gating, `executeDirectProjectInspectIntent` |
+| [lib/penny-direct-intents.js](./lib/penny-direct-intents.js) | Direct path extraction, routing heuristics, deterministic reply helpers |
+| [lib/penny-direct-tool-assist.js](./lib/penny-direct-tool-assist.js) | Direct sequence runner, targeted web inspect flow, one-shot direct tool handling |
+| [lib/penny-project-tools.js](./lib/penny-project-tools.js) | Project path resolution, file read/search/edit helpers, `node --check` |
+| [lib/penny-web-tools.js](./lib/penny-web-tools.js) | Web search and page fetch helpers |
+| [lib/penny-git-tools.js](./lib/penny-git-tools.js) | Git status/diff helpers |
+| [lib/penny-runtime-tools.js](./lib/penny-runtime-tools.js) | Runtime status and log-tail helpers |
+| [lib/penny-tool-registry.js](./lib/penny-tool-registry.js) | `executePennyTool` switchboard plus user-facing tool labels |
 
-`server.js` still owns **disk merge** (`mergeMemoryState`) and **consolidation** (`consolidateMemory`); those are prime movers to `lib/` or `src/memory/` next.
+---
+
+## Suggested next splits
+
+1. LM Studio status + desktop integration
+2. Reply cleanup / visible reply parsing
+3. LM Studio transport families
+4. Tool-loop orchestration
+5. Router closure
+
+That order keeps chipping away at `server.js` where the remaining risk is now concentrated: orchestration, model quirks, and route glue.

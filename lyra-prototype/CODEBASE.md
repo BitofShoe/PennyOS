@@ -18,7 +18,7 @@ This project is a local-first Penny companion prototype:
 ### Core runtime
 
 - [server.js](./server.js)
-Main backend. This is the operational center of gravity.
+Main backend orchestration. This is still the operational center of gravity.
 - [package.json](./package.json)
 Minimal npm script entrypoints.
 - [start-lyra.ps1](./start-lyra.ps1)
@@ -194,6 +194,23 @@ Operational and test artifact areas.
 
 These are mostly support/generated directories, not core source.
 
+### `lib/`
+
+Extracted backend helpers that now carry some of the highest-value test coverage.
+
+Current modules worth knowing:
+
+- [lib/penny-memory.js](./lib/penny-memory.js)
+- [lib/penny-memory-state.js](./lib/penny-memory-state.js)
+- [lib/penny-tool-intents.js](./lib/penny-tool-intents.js)
+- [lib/penny-direct-intents.js](./lib/penny-direct-intents.js)
+- [lib/penny-direct-tool-assist.js](./lib/penny-direct-tool-assist.js)
+- [lib/penny-project-tools.js](./lib/penny-project-tools.js)
+- [lib/penny-web-tools.js](./lib/penny-web-tools.js)
+- [lib/penny-git-tools.js](./lib/penny-git-tools.js)
+- [lib/penny-runtime-tools.js](./lib/penny-runtime-tools.js)
+- [lib/penny-tool-registry.js](./lib/penny-tool-registry.js)
+
 ## What to edit for common tasks
 
 ### Change Penny's live voice
@@ -213,15 +230,24 @@ Only go into raw personality source files if the runtime blend needs canon-groun
 Start here:
 
 - `server.js`
+- `lib/penny-direct-intents.js`
+- `lib/penny-direct-tool-assist.js`
+- `lib/penny-tool-registry.js`
 
 Likely sections you will touch:
 
 - prompt building
-- durable memory handling
-- direct tool intent routing
-- LM Studio transport selection
+- LM Studio tool loop orchestration
 - semantic render heuristics
-- route handlers
+- HTTP route behavior
+
+Likely modules you will touch:
+
+- durable memory handling in `lib/penny-memory*.js`
+- direct tool intent routing in `lib/penny-direct-intents.js`
+- direct deterministic tool execution in `lib/penny-direct-tool-assist.js`
+- concrete tool implementations in `lib/penny-*-tools.js`
+- LM Studio transport selection
 
 ### Change UI behavior or visuals
 
@@ -254,7 +280,7 @@ This repo has a lot of text files. Not all of them mean the same thing.
 Use this hierarchy:
 
 1. Live behavior
-  `server.js`, `public/*`, runtime files in `penny-voice/runtime/`
+  `server.js`, `lib/*`, `public/*`, runtime files in `penny-voice/runtime/`
 2. Operational docs
   `README.md`, `ARCHITECTURE.md`, `CODEBASE.md`, eval docs
 3. Refinement source material
@@ -266,7 +292,7 @@ Use this hierarchy:
 
 These matter when navigating the repo:
 
-- `server.js` is far too large and contains multiple subsystems that should eventually be split
+- `server.js` is still too large and still owns orchestration-heavy subsystems that should be split further
 - `public/app.js` is also getting big enough to deserve more structure
 - there are many artifact and handoff files at repo root, which makes the root noisier than it should be
 - planning docs, evaluation docs, and runtime code are all close together, so it is easy to read the wrong thing first

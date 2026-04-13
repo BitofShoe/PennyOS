@@ -21,6 +21,27 @@ const {
   shouldOfferLocalTools,
   executeDirectProjectInspectIntent,
 } = require('./lib/penny-tool-intents');
+const {
+  createDirectIntentApi,
+} = require('./lib/penny-direct-intents');
+const {
+  createDirectToolAssistApi,
+} = require('./lib/penny-direct-tool-assist');
+const {
+  createProjectToolsApi,
+} = require('./lib/penny-project-tools');
+const {
+  createWebToolsApi,
+} = require('./lib/penny-web-tools');
+const {
+  createGitToolsApi,
+} = require('./lib/penny-git-tools');
+const {
+  createRuntimeToolsApi,
+} = require('./lib/penny-runtime-tools');
+const {
+  createToolRegistry,
+} = require('./lib/penny-tool-registry');
 const PORT = process.env.PORT || 4317;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
@@ -252,6 +273,156 @@ function buildChatMemoryState(sessionId = 'default', clientMemory = {}, messages
   const diskMemory = getStoredMemory(sessionId).memory;
   return buildChatMemoryStateFromDiskMemory(diskMemory, clientMemory, messages);
 }
+const projectToolsApi = createProjectToolsApi({
+  projectRoot: __dirname,
+  fs,
+  path,
+  TEXT_FILE_EXTENSIONS,
+  clampNumber,
+  truncateText,
+  formatBytes,
+  MAX_TOOL_WRITE_BYTES,
+  TOOL_FILE_LIST_MAX_ITEMS,
+  TOOL_FILE_READ_MAX_LINES,
+  TOOL_SEARCH_MAX_HITS,
+  TOOL_COMMAND_TIMEOUT_MS,
+  execFileText,
+});
+const {
+  toProjectRelative,
+  resolveProjectPath,
+  isProbablyTextFile,
+  readUtf8ProjectFile,
+  listProjectFilesTool,
+  readProjectFileTool,
+  readProjectFileAroundMatchTool,
+  searchProjectTextTool,
+  writeProjectFileTool,
+  replaceInProjectFileTool,
+  insertInProjectFileTool,
+  runNodeCheckTool,
+} = projectToolsApi;
+const webToolsApi = createWebToolsApi({
+  WEB_SEARCH_ENABLED,
+  WEB_SEARCH_TIMEOUT_MS,
+  WEB_SEARCH_MAX_RESULTS,
+  WEB_FETCH_MAX_BYTES,
+  WEB_FETCH_MAX_CHARS,
+  clampNumber,
+  collapseWhitespace,
+  parseDuckDuckGoLiteResults,
+  fetchTextWithLimit,
+  normalizeWebUrl,
+  extractHtmlTitle,
+  stripHtmlToText,
+  truncateText,
+});
+const {
+  searchWebTool,
+  readWebPageTool,
+} = webToolsApi;
+const gitToolsApi = createGitToolsApi({
+  projectRoot: __dirname,
+  execFileText,
+  truncateText,
+  clampNumber,
+  TOOL_COMMAND_TIMEOUT_MS,
+  resolveProjectPath,
+  toProjectRelative,
+});
+const {
+  getGitStatusTool,
+  readGitDiffTool,
+} = gitToolsApi;
+const runtimeToolsApi = createRuntimeToolsApi({
+  projectRoot: __dirname,
+  fs,
+  path,
+  clampNumber,
+  truncateText,
+  TOOL_LOG_TAIL_LINES,
+  readUtf8ProjectFile,
+  resolveProjectPath,
+  toProjectRelative,
+  getLmStudioConnectionStatus,
+  sessionState,
+  PORT,
+  LOCAL_LLM_TRANSPORT,
+  OPENCLAW_ENABLED,
+  WEB_SEARCH_ENABLED,
+});
+const {
+  resolveLogTarget,
+  readRecentLogsTool,
+  getRuntimeStatusTool,
+} = runtimeToolsApi;
+const {
+  toolLabelFromResult,
+  executePennyTool,
+} = createToolRegistry({
+  getRuntimeStatusTool,
+  listProjectFilesTool,
+  readProjectFileTool,
+  readProjectFileAroundMatchTool,
+  searchProjectTextTool,
+  writeProjectFileTool,
+  replaceInProjectFileTool,
+  insertInProjectFileTool,
+  runNodeCheckTool,
+  getGitStatusTool,
+  readGitDiffTool,
+  searchWebTool,
+  readWebPageTool,
+  readRecentLogsTool,
+});
+const directIntentApi = createDirectIntentApi({
+  stripCodeFences,
+  collapseWhitespace,
+  extractFirstUrl,
+  normalizeWebUrl,
+  truncateText,
+  stripReplyMoodTags,
+  LOCAL_LLM_TRANSPORT,
+});
+const {
+  extractExplicitProjectPath,
+  shouldForceLocalToolLoop,
+  resolveDirectToolIntent,
+  composeDirectRuntimeReply,
+  composeDirectSyntaxReply,
+  composeDirectGitStatusReply,
+  composeDirectSearchReply,
+  composeDirectReadReply,
+  composeDirectFileListReply,
+  composeDirectWebSearchReply,
+  composeDirectWebPageReply,
+  composeToolRecordFallback,
+  looksLikeWeakToolReply,
+  shouldUseDirectReadReply,
+} = directIntentApi;
+const {
+  executeDirectToolSequence,
+  executeDirectWebInspectIntent,
+  composeDirectEditReply,
+  runDirectToolAssist: runLmStudioDirectToolAssist,
+} = createDirectToolAssistApi({
+  executePennyTool,
+  executeDirectProjectInspectIntent,
+  runLmStudioToolContextAnswer,
+  composeDirectRuntimeReply,
+  composeDirectSyntaxReply,
+  composeDirectGitStatusReply,
+  composeDirectSearchReply,
+  composeDirectReadReply,
+  composeDirectFileListReply,
+  composeDirectWebSearchReply,
+  composeDirectWebPageReply,
+  composeToolRecordFallback,
+  shouldUseDirectReadReply,
+  clampNumber,
+  normalizeWebUrl,
+  WEB_SEARCH_MAX_RESULTS,
+});
 function hashText(text = '') {
   return crypto.createHash('sha1').update(String(text || ''), 'utf8').digest('hex');
 }
@@ -1357,432 +1528,6 @@ async function runOpenClawShadow({ sessionId, userText, messages, memories, abor
   }
 }
 
-function toProjectRelative(filePath) {
-  const rel = path.relative(__dirname, filePath).replace(/\\/g, '/');
-  return rel || '.';
-}
-function resolveProjectPath(inputPath = '.') {
-  const raw = String(inputPath || '.').trim() || '.';
-  const resolved = path.resolve(__dirname, raw);
-  const projectRoot = path.resolve(__dirname);
-  if (resolved !== projectRoot && !resolved.startsWith(`${projectRoot}${path.sep}`)) {
-    throw new Error('Path must stay inside the Penny project.');
-  }
-  return resolved;
-}
-function isProbablyTextFile(filePath) {
-  return TEXT_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-}
-function readUtf8ProjectFile(filePath) {
-  try {
-    return fs.readFileSync(filePath, 'utf8');
-  } catch (error) {
-    throw new Error(`Could not read ${toProjectRelative(filePath)}: ${error.message}`);
-  }
-}
-function listProjectFilesTool(args = {}) {
-  const startPath = resolveProjectPath(args.path || '.');
-  const recursive = args.recursive === true;
-  const limit = clampNumber(args.limit, 1, TOOL_FILE_LIST_MAX_ITEMS, Math.min(24, TOOL_FILE_LIST_MAX_ITEMS));
-  const needle = String(args.pattern || '').trim().toLowerCase();
-  const items = [];
-  const queue = [{ dir: startPath, depth: 0 }];
-  while (queue.length && items.length < limit) {
-    const { dir, depth } = queue.shift();
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-    for (const entry of entries) {
-      if (entry.name === '.git' || entry.name === 'node_modules') continue;
-      const fullPath = path.join(dir, entry.name);
-      const rel = toProjectRelative(fullPath);
-      const label = entry.isDirectory() ? `${rel}/` : rel;
-      if (!needle || label.toLowerCase().includes(needle)) items.push(label);
-      if (entry.isDirectory() && recursive && depth < 6 && items.length < limit) {
-        queue.push({ dir: fullPath, depth: depth + 1 });
-      }
-      if (items.length >= limit) break;
-    }
-  }
-  return {
-    root: toProjectRelative(startPath),
-    recursive,
-    pattern: needle || null,
-    limit,
-    items,
-    truncated: items.length >= limit,
-  };
-}
-function readProjectFileTool(args = {}) {
-  const filePath = resolveProjectPath(args.path || '');
-  const stat = fs.statSync(filePath);
-  if (stat.isDirectory()) throw new Error(`${toProjectRelative(filePath)} is a folder, not a file.`);
-  if (!isProbablyTextFile(filePath)) throw new Error(`${toProjectRelative(filePath)} does not look like a text file.`);
-  const startLine = clampNumber(args.startLine, 1, 50000, 1);
-  const endLine = clampNumber(args.endLine, startLine, startLine + TOOL_FILE_READ_MAX_LINES - 1, startLine + 119);
-  const raw = readUtf8ProjectFile(filePath);
-  const lines = raw.replace(/\r\n/g, '\n').split('\n');
-  const excerpt = lines
-    .slice(startLine - 1, endLine)
-    .map((line, idx) => `${startLine + idx}:${line}`)
-    .join('\n');
-  return {
-    path: toProjectRelative(filePath),
-    startLine,
-    endLine: Math.min(endLine, lines.length),
-    totalLines: lines.length,
-    excerpt: truncateText(excerpt),
-  };
-}
-function readProjectFileAroundMatchTool(args = {}) {
-  const filePath = resolveProjectPath(args.path || '');
-  const stat = fs.statSync(filePath);
-  if (stat.isDirectory()) throw new Error(`${toProjectRelative(filePath)} is a folder, not a file.`);
-  if (!isProbablyTextFile(filePath)) throw new Error(`${toProjectRelative(filePath)} does not look like a text file.`);
-  const query = String(args.query || '').trim();
-  if (!query) throw new Error('read_project_file_around_match needs a query.');
-  const beforeLines = clampNumber(args.beforeLines, 0, 120, 12);
-  const afterLines = clampNumber(args.afterLines, 1, TOOL_FILE_READ_MAX_LINES, 48);
-  const raw = readUtf8ProjectFile(filePath);
-  const lines = raw.replace(/\r\n/g, '\n').split('\n');
-  const matchIndex = lines.findIndex(line => line.toLowerCase().includes(query.toLowerCase()));
-  if (matchIndex === -1) {
-    throw new Error(`Could not find "${query}" in ${toProjectRelative(filePath)}.`);
-  }
-  const startLine = Math.max(1, matchIndex + 1 - beforeLines);
-  const endLine = Math.min(lines.length, matchIndex + 1 + afterLines);
-  const excerpt = lines
-    .slice(startLine - 1, endLine)
-    .map((line, idx) => `${startLine + idx}:${line}`)
-    .join('\n');
-  return {
-    path: toProjectRelative(filePath),
-    query,
-    matchLine: matchIndex + 1,
-    startLine,
-    endLine,
-    totalLines: lines.length,
-    excerpt: truncateText(excerpt),
-  };
-}
-function searchProjectTextTool(args = {}) {
-  const query = String(args.query || '').trim();
-  if (!query) throw new Error('search_project_text needs a query.');
-  const startPath = resolveProjectPath(args.path || '.');
-  const limit = clampNumber(args.limit, 1, TOOL_SEARCH_MAX_HITS, Math.min(12, TOOL_SEARCH_MAX_HITS));
-  const queue = [startPath];
-  const hits = [];
-  while (queue.length && hits.length < limit) {
-    const current = queue.shift();
-    const stat = fs.statSync(current);
-    if (stat.isDirectory()) {
-      const entries = fs.readdirSync(current, { withFileTypes: true })
-        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-      for (const entry of entries) {
-        if (entry.name === '.git' || entry.name === 'node_modules') continue;
-        queue.push(path.join(current, entry.name));
-      }
-      continue;
-    }
-    if (!isProbablyTextFile(current) || stat.size > 300 * 1024) continue;
-    const lines = readUtf8ProjectFile(current).replace(/\r\n/g, '\n').split('\n');
-    for (let i = 0; i < lines.length && hits.length < limit; i++) {
-      if (!lines[i].toLowerCase().includes(query.toLowerCase())) continue;
-      hits.push({
-        path: toProjectRelative(current),
-        line: i + 1,
-        text: truncateText(lines[i].trim(), 240),
-      });
-    }
-  }
-  return {
-    query,
-    root: toProjectRelative(startPath),
-    limit,
-    hits,
-    truncated: hits.length >= limit,
-  };
-}
-function resolveLogTarget(target = 'latest') {
-  const raw = String(target || 'latest').trim().toLowerCase();
-  const known = {
-    latest: null,
-    stdout: path.join(__dirname, 'lyra-server.out.log'),
-    stderr: path.join(__dirname, 'lyra-server.err.log'),
-    server: path.join(__dirname, 'lyra-server.out.log'),
-  };
-  if (known[raw]) return known[raw];
-  if (raw !== 'latest' && raw !== 'server') {
-    const direct = resolveProjectPath(target);
-    if (fs.existsSync(direct)) return direct;
-  }
-  const candidates = [
-    path.join(__dirname, 'lyra-server.out.log'),
-    path.join(__dirname, 'lyra-server.err.log'),
-    ...((() => {
-      const logsDir = path.join(__dirname, 'logs');
-      if (!fs.existsSync(logsDir)) return [];
-      return fs.readdirSync(logsDir)
-        .map(name => path.join(logsDir, name))
-        .filter(filePath => fs.existsSync(filePath) && fs.statSync(filePath).isFile());
-    })()),
-  ].filter(filePath => fs.existsSync(filePath));
-  if (!candidates.length) throw new Error('No Penny log files were found.');
-  return candidates.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
-}
-function readRecentLogsTool(args = {}) {
-  const logPath = resolveLogTarget(args.target || 'latest');
-  const lines = clampNumber(args.lines, 10, TOOL_LOG_TAIL_LINES, Math.min(40, TOOL_LOG_TAIL_LINES));
-  const raw = readUtf8ProjectFile(logPath).replace(/\r\n/g, '\n').split('\n');
-  const excerpt = raw.slice(-lines).join('\n');
-  return {
-    path: toProjectRelative(logPath),
-    lines,
-    totalLines: raw.length,
-    excerpt: truncateText(excerpt),
-  };
-}
-async function searchWebTool(args = {}) {
-  if (!WEB_SEARCH_ENABLED) throw new Error('Web search is disabled on this Penny server.');
-  const query = collapseWhitespace(String(args.query || ''));
-  if (!query) throw new Error('search_web needs a query.');
-  const limit = clampNumber(args.limit, 1, WEB_SEARCH_MAX_RESULTS, Math.min(5, WEB_SEARCH_MAX_RESULTS));
-  const searchUrl = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
-  const fetched = await fetchTextWithLimit(searchUrl, {
-    timeoutMs: WEB_SEARCH_TIMEOUT_MS,
-    maxBytes: Math.min(WEB_FETCH_MAX_BYTES, 600 * 1024),
-  });
-  const results = parseDuckDuckGoLiteResults(fetched.text, limit);
-  if (!results.length) {
-    throw new Error(`No web results came back for "${query}".`);
-  }
-  return {
-    query,
-    limit,
-    engine: 'duckduckgo-lite',
-    searchUrl,
-    results,
-    fetchedAt: new Date().toISOString(),
-  };
-}
-async function readWebPageTool(args = {}) {
-  if (!WEB_SEARCH_ENABLED) throw new Error('Web page reading is disabled on this Penny server.');
-  const targetUrl = normalizeWebUrl(String(args.url || ''));
-  if (!targetUrl) throw new Error('read_web_page needs a valid http/https URL.');
-  const fetched = await fetchTextWithLimit(targetUrl, {
-    timeoutMs: WEB_SEARCH_TIMEOUT_MS,
-    maxBytes: WEB_FETCH_MAX_BYTES,
-  });
-  const rawHtml = String(fetched.text || '');
-  const title = extractHtmlTitle(rawHtml);
-  const text = truncateText(stripHtmlToText(rawHtml), WEB_FETCH_MAX_CHARS);
-  return {
-    url: fetched.url || targetUrl,
-    requestedUrl: targetUrl,
-    title: title || null,
-    contentType: fetched.contentType || '',
-    text,
-    fetchedAt: new Date().toISOString(),
-  };
-}
-function ensureWritableTextPath(filePath) {
-  if (!isProbablyTextFile(filePath)) {
-    throw new Error(`${toProjectRelative(filePath)} is not an allowed text/code file.`);
-  }
-}
-function writeProjectFileTool(args = {}) {
-  const filePath = resolveProjectPath(args.path || '');
-  ensureWritableTextPath(filePath);
-  const content = String(args.content || '').replace(/\r\n/g, '\n');
-  const bytes = Buffer.byteLength(content, 'utf8');
-  if (bytes > MAX_TOOL_WRITE_BYTES) {
-    throw new Error(`Refusing to write ${formatBytes(bytes)} to ${toProjectRelative(filePath)}. Keep tool writes under ${formatBytes(MAX_TOOL_WRITE_BYTES)}.`);
-  }
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const existed = fs.existsSync(filePath);
-  fs.writeFileSync(filePath, content, 'utf8');
-  return {
-    path: toProjectRelative(filePath),
-    action: existed ? 'updated' : 'created',
-    bytes,
-    lines: content ? content.split('\n').length : 0,
-  };
-}
-function replaceInProjectFileTool(args = {}) {
-  const filePath = resolveProjectPath(args.path || '');
-  ensureWritableTextPath(filePath);
-  const find = String(args.find || '');
-  const replace = String(args.replace || '');
-  const replaceAll = args.replaceAll === true;
-  if (!find) throw new Error('replace_in_project_file needs a non-empty `find` string.');
-  const content = readUtf8ProjectFile(filePath);
-  const occurrences = content.split(find).length - 1;
-  if (!occurrences) throw new Error(`Could not find the target text in ${toProjectRelative(filePath)}.`);
-  const expectedMatches = args.expectedMatches == null ? null : clampNumber(args.expectedMatches, 1, 1000, 1);
-  if (expectedMatches != null && expectedMatches !== occurrences) {
-    throw new Error(`Expected ${expectedMatches} matches in ${toProjectRelative(filePath)}, but found ${occurrences}.`);
-  }
-  const next = replaceAll ? content.split(find).join(replace) : content.replace(find, replace);
-  const bytes = Buffer.byteLength(next, 'utf8');
-  if (bytes > MAX_TOOL_WRITE_BYTES) {
-    throw new Error(`Refusing to write ${formatBytes(bytes)} to ${toProjectRelative(filePath)}. Keep tool writes under ${formatBytes(MAX_TOOL_WRITE_BYTES)}.`);
-  }
-  fs.writeFileSync(filePath, next, 'utf8');
-  return {
-    path: toProjectRelative(filePath),
-    replaced: replaceAll ? occurrences : 1,
-    remainingMatches: replaceAll ? 0 : Math.max(0, occurrences - 1),
-  };
-}
-function insertInProjectFileTool(args = {}) {
-  const filePath = resolveProjectPath(args.path || '');
-  ensureWritableTextPath(filePath);
-  let text = String(args.text || '').replace(/\r\n/g, '\n');
-  const position = String(args.position || 'end').trim().toLowerCase();
-  const anchor = args.anchor == null ? '' : String(args.anchor);
-  const lineAware = args.lineAware === true;
-  const expectedMatches = args.expectedMatches == null ? null : clampNumber(args.expectedMatches, 1, 1000, 1);
-  if (!text) throw new Error('insert_in_project_file needs non-empty `text`.');
-  const content = readUtf8ProjectFile(filePath);
-  let next = content;
-  let anchorMatches = 0;
-
-  if (lineAware && (position === 'start' || position === 'end')) {
-    const trimmed = text.replace(/^\n+/, '').replace(/\n+$/, '');
-    if (position === 'start') {
-      text = content ? `${trimmed}\n` : trimmed;
-    } else {
-      const prefix = content && !content.endsWith('\n') ? '\n' : '';
-      text = `${prefix}${trimmed}`;
-    }
-  }
-
-  if (position === 'start') {
-    next = `${text}${content}`;
-  } else if (position === 'end') {
-    next = `${content}${text}`;
-  } else if (position === 'before' || position === 'after') {
-    if (!anchor) throw new Error(`insert_in_project_file needs \`anchor\` when position is ${position}.`);
-    anchorMatches = content.split(anchor).length - 1;
-    if (!anchorMatches) throw new Error(`Could not find the anchor text in ${toProjectRelative(filePath)}.`);
-    if (expectedMatches != null && expectedMatches !== anchorMatches) {
-      throw new Error(`Expected ${expectedMatches} anchor match${expectedMatches === 1 ? '' : 'es'} in ${toProjectRelative(filePath)}, but found ${anchorMatches}.`);
-    }
-    const idx = content.indexOf(anchor);
-    const insertAt = position === 'before' ? idx : idx + anchor.length;
-    next = `${content.slice(0, insertAt)}${text}${content.slice(insertAt)}`;
-  } else {
-    throw new Error('insert_in_project_file position must be start, end, before, or after.');
-  }
-
-  const bytes = Buffer.byteLength(next, 'utf8');
-  if (bytes > MAX_TOOL_WRITE_BYTES) {
-    throw new Error(`Refusing to write ${formatBytes(bytes)} to ${toProjectRelative(filePath)}. Keep tool writes under ${formatBytes(MAX_TOOL_WRITE_BYTES)}.`);
-  }
-  fs.writeFileSync(filePath, next, 'utf8');
-  return {
-    path: toProjectRelative(filePath),
-    inserted: text.split('\n').length,
-    textPreview: truncateText(text.replace(/^\n+/, '').replace(/\n+$/, ''), 1200),
-    position,
-    anchor: anchor || null,
-    anchorMatches,
-    lineAware,
-  };
-}
-async function runNodeCheckTool(args = {}) {
-  const filePath = resolveProjectPath(args.path || 'server.js');
-  ensureWritableTextPath(filePath);
-  try {
-    const { stdout, stderr } = await execFileText('node', ['--check', filePath], {
-      cwd: __dirname,
-      timeout: TOOL_COMMAND_TIMEOUT_MS,
-    });
-    return {
-      path: toProjectRelative(filePath),
-      ok: true,
-      stdout: truncateText(String(stdout || '').trim()),
-      stderr: truncateText(String(stderr || '').trim()),
-    };
-  } catch (error) {
-    return {
-      path: toProjectRelative(filePath),
-      ok: false,
-      stdout: truncateText(String(error?.stdout || '').trim()),
-      stderr: truncateText(String(error?.stderr || error?.message || '').trim()),
-    };
-  }
-}
-async function getGitStatusTool() {
-  try {
-    const { stdout, stderr } = await execFileText('git', ['status', '--short'], {
-      cwd: __dirname,
-      timeout: Math.min(TOOL_COMMAND_TIMEOUT_MS, 15000),
-    });
-    return {
-      ok: true,
-      status: truncateText(String(stdout || '').trim() || '(clean)'),
-      stderr: truncateText(String(stderr || '').trim()),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      status: '',
-      stderr: truncateText(String(error?.stderr || error?.message || '').trim()),
-    };
-  }
-}
-async function readGitDiffTool(args = {}) {
-  const hasPath = !!String(args.path || '').trim();
-  const filePath = hasPath ? resolveProjectPath(args.path || '') : null;
-  const contextLines = clampNumber(args.contextLines, 0, 12, 3);
-  const summaryOnly = args.summaryOnly === true;
-  const gitArgs = summaryOnly
-    ? ['diff', '--stat']
-    : ['diff', `--unified=${contextLines}`];
-  if (filePath) {
-    gitArgs.push('--', toProjectRelative(filePath));
-  }
-  try {
-    const { stdout, stderr } = await execFileText('git', gitArgs, {
-      cwd: __dirname,
-      timeout: Math.min(TOOL_COMMAND_TIMEOUT_MS, 20000),
-    });
-    const diff = String(stdout || '').trim() || '(no diff)';
-    return {
-      ok: true,
-      path: filePath ? toProjectRelative(filePath) : null,
-      summaryOnly,
-      contextLines: summaryOnly ? 0 : contextLines,
-      diff: truncateText(diff),
-      stderr: truncateText(String(stderr || '').trim()),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      path: filePath ? toProjectRelative(filePath) : null,
-      summaryOnly,
-      contextLines: summaryOnly ? 0 : contextLines,
-      diff: '',
-      stderr: truncateText(String(error?.stderr || error?.message || '').trim()),
-    };
-  }
-}
-async function getRuntimeStatusTool() {
-  const lmStudio = await getLmStudioConnectionStatus({ force: true });
-  return {
-    serverPort: Number(PORT),
-    localTransport: LOCAL_LLM_TRANSPORT,
-    shadowEnabled: OPENCLAW_ENABLED,
-    lastMood: sessionState.lastMood,
-    turns: sessionState.turns,
-    resolvedModel: lmStudio.resolvedModel || '',
-    installedModels: lmStudio.installedModels || [],
-    reachable: !!lmStudio.reachable,
-    webSearchEnabled: WEB_SEARCH_ENABLED,
-    lmStudio,
-    checkedAt: new Date().toISOString(),
-  };
-}
 const PENNY_TOOL_DEFINITIONS = [
   {
     type: 'function',
@@ -2001,337 +1746,6 @@ const PENNY_TOOL_DEFINITIONS = [
     },
   },
 ];
-function toolLabelFromResult(name, args = {}, result = {}) {
-  if (name === 'read_project_file') return `read ${result.path || args.path || 'file'}`;
-  if (name === 'read_project_file_around_match') return `read ${result.path || args.path || 'file'} around ${result.query || args.query || 'match'}`;
-  if (name === 'list_project_files') return `listed ${result.root || args.path || '.'}`;
-  if (name === 'search_project_text') return `searched "${args.query || result.query || ''}"`;
-  if (name === 'write_project_file') return `${result.action || 'wrote'} ${result.path || args.path || 'file'}`;
-  if (name === 'replace_in_project_file') return `edited ${result.path || args.path || 'file'}`;
-  if (name === 'insert_in_project_file') return `inserted text into ${result.path || args.path || 'file'}`;
-  if (name === 'run_node_check') return `checked syntax for ${result.path || args.path || 'file'}`;
-  if (name === 'get_git_status') return 'checked git status';
-  if (name === 'read_git_diff') return `checked diff${result.path ? ` for ${result.path}` : ''}`;
-  if (name === 'search_web') return `searched the web for "${args.query || result.query || ''}"`;
-  if (name === 'read_web_page') return `read ${result.url || args.url || 'web page'}`;
-  if (name === 'read_recent_logs') return `checked ${result.path || args.target || 'logs'}`;
-  if (name === 'get_runtime_status') return 'checked runtime status';
-  return name;
-}
-async function executePennyTool(name, args = {}) {
-  if (name === 'get_runtime_status') {
-    const data = await getRuntimeStatusTool();
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'list_project_files') {
-    const data = listProjectFilesTool(args);
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'read_project_file') {
-    const data = readProjectFileTool(args);
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'read_project_file_around_match') {
-    const data = readProjectFileAroundMatchTool(args);
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'search_project_text') {
-    const data = searchProjectTextTool(args);
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'write_project_file') {
-    const data = writeProjectFileTool(args);
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'replace_in_project_file') {
-    const data = replaceInProjectFileTool(args);
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'insert_in_project_file') {
-    const data = insertInProjectFileTool(args);
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'run_node_check') {
-    const data = await runNodeCheckTool(args);
-    return { ok: data.ok !== false, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'get_git_status') {
-    const data = await getGitStatusTool();
-    return { ok: data.ok !== false, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'read_git_diff') {
-    const data = await readGitDiffTool(args);
-    return { ok: data.ok !== false, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'search_web') {
-    const data = await searchWebTool(args);
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'read_web_page') {
-    const data = await readWebPageTool(args);
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  if (name === 'read_recent_logs') {
-    const data = readRecentLogsTool(args);
-    return { ok: true, label: toolLabelFromResult(name, args, data), data };
-  }
-  return { ok: false, label: name, data: { error: `Unknown tool: ${name}` } };
-}
-function extractExplicitProjectPath(text = '') {
-  const raw = String(text || '');
-  const quotedPatterns = [
-    /`([^`\n]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))`/i,
-    /"([^"\n]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))"/i,
-    /'([^'\n]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))'/i,
-  ];
-  for (const pattern of quotedPatterns) {
-    const match = raw.match(pattern);
-    const candidate = String(match?.[1] || '').trim();
-    if (candidate) return candidate;
-  }
-  const match = raw.match(/(?:^|[\s`"'(])([a-z0-9_./ -]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))(?:$|[\s`"')?!,:;.])/i);
-  return match ? match[1].trim() : '';
-}
-function cleanDirectInstructionContent(text = '') {
-  let cleaned = stripCodeFences(String(text || '').trim());
-  cleaned = cleaned.replace(/\s+then\s+(?:verify|check|tell|show|explain)\b[\s\S]*$/i, '').trim();
-  if ((cleaned.startsWith('"') && cleaned.endsWith('"'))
-    || (cleaned.startsWith("'") && cleaned.endsWith("'"))
-    || (cleaned.startsWith('`') && cleaned.endsWith('`'))) {
-    cleaned = cleaned.slice(1, -1);
-  }
-  return cleaned.replace(/\r\n/g, '\n');
-}
-function parseDirectWriteInstruction(text = '') {
-  const raw = String(text || '');
-  let match = raw.match(/\b(?:create|write)\s+([a-z0-9_./-]+\.[a-z0-9]+)\b[\s\S]*?\bwith exactly this line:\s*([\s\S]*?)(?=(?:\r?\n|$|\s+then\b))/i);
-  if (match) {
-    const content = cleanDirectInstructionContent(match[2]);
-    if (content) return { path: match[1], content };
-  }
-  match = raw.match(/\b(?:create|write)\s+([a-z0-9_./-]+\.[a-z0-9]+)\b[\s\S]*?\bwith exactly these contents:\s*([\s\S]+)/i);
-  if (match) {
-    const content = cleanDirectInstructionContent(match[2]);
-    if (content) return { path: match[1], content };
-  }
-  return null;
-}
-function normalizeDirectLineSnippet(text = '') {
-  const content = cleanDirectInstructionContent(text);
-  if (!content) return '';
-  const natural = content.replace(/\s*,\s*$/, '').trim();
-  const logMatch = natural.match(/^logs?\s+["'`]([\s\S]*?)["'`]$/i);
-  if (logMatch) return `console.log(${JSON.stringify(logMatch[1])});`;
-  return content;
-}
-function parseDirectReplaceInstruction(text = '') {
-  const match = String(text || '').match(/\breplace\s+["'`]([\s\S]*?)["'`]\s+with\s+["'`]([\s\S]*?)["'`]\s+in\s+([a-z0-9_./-]+\.[a-z0-9]+)\b/i);
-  if (!match) return null;
-  return {
-    path: match[3],
-    find: match[1],
-    replace: match[2],
-  };
-}
-function parseDirectAppendInstruction(text = '') {
-  const raw = String(text || '');
-  const patterns = [
-    /\b(?:add|append)\s+(?:exactly\s+)?this line\s+to\s+([a-z0-9_./-]+\.[a-z0-9]+)\b\s*:\s*([\s\S]+)/i,
-    /\b(?:add|append)\s+(?:a\s+\w+\s+)?line\s+to\s+([a-z0-9_./-]+\.[a-z0-9]+)\b[\s\S]*?\bthat\s+([\s\S]*?)(?=(?:\r?\n|$|\s+then\b))/i,
-    /\b(?:add|append)\s+to\s+([a-z0-9_./-]+\.[a-z0-9]+)\b[\s\S]*?\bthis line:\s*([\s\S]+)/i,
-  ];
-  for (const pattern of patterns) {
-    const match = raw.match(pattern);
-    if (!match) continue;
-    const snippet = normalizeDirectLineSnippet(match[2]);
-    if (snippet) return { path: match[1], text: snippet };
-  }
-  return null;
-}
-function buildDirectEditSequence(path, primaryStep, mode) {
-  const steps = [primaryStep];
-  if (/\.(?:js|cjs|mjs)$/i.test(path)) {
-    steps.push({ name: 'run_node_check', args: { path } });
-  }
-  steps.push({ name: 'get_git_status', args: {} });
-  return { kind: 'sequence', mode, path, steps };
-}
-function extractDirectWebQuery(text = '') {
-  const raw = String(text || '').trim();
-  if (!raw) return '';
-  const patterns = [
-    /\b(?:search|check|look)\s+(?:the\s+)?(?:web|internet|online)\s+for\s+([\s\S]+)/i,
-    /\blook up\s+([\s\S]+)/i,
-    /\bgoogle\s+([\s\S]+)/i,
-    /\bfind\s+(?:recent|current|latest)\s+info\s+(?:about|on)\s+([\s\S]+)/i,
-  ];
-  for (const pattern of patterns) {
-    const match = raw.match(pattern);
-    const candidate = collapseWhitespace(match?.[1] || '').replace(/[?.!]+$/g, '');
-    if (candidate) return candidate;
-  }
-  return '';
-}
-function shouldInspectTopWebResult(text = '') {
-  const lower = String(text || '').toLowerCase();
-  if (!lower) return false;
-  if (/\b(page title|title, the url|the url|one short sentence|what it is|what is it|summari[sz]e|summary|read (?:the )?page|open (?:the )?(?:page|result)|tell me about)\b/.test(lower)) {
-    return true;
-  }
-  return /\b(official|docs|documentation)\b/.test(lower);
-}
-function extractDirectSearchQuery(text = '') {
-  const raw = String(text || '');
-  const lower = raw.toLowerCase();
-  const exactPatterns = [/`([^`\n]{2,120})`/, /"([^"\n]{2,120})"/, /'([^'\n]{2,120})'/];
-  for (const pattern of exactPatterns) {
-    const match = raw.match(pattern);
-    const candidate = String(match?.[1] || '').trim();
-    if (!candidate || extractExplicitProjectPath(candidate)) continue;
-    return candidate;
-  }
-  const underscored = raw.match(/\b([a-z][a-z0-9]*_[a-z0-9_]+)\b/i);
-  if (underscored?.[1]) return underscored[1];
-  if (/\bgit diff\b/i.test(lower)) return 'git diff';
-  if (/\bgit status\b/i.test(lower)) return 'git status';
-  return '';
-}
-function looksLikeProjectPathDiscoveryIntent(text = '', query = '') {
-  if (!query) return false;
-  const lower = String(text || '').toLowerCase();
-  if (extractExplicitProjectPath(query) || /^(git diff|git status)$/i.test(query)) return false;
-  const discoveryVerb = /\b(find|locate|look for|look inside|peek inside|open|show|list|browse|search|where is|where's|what's in|what is in|do you see|can you see|check)\b/i.test(lower);
-  const pathNoun = /\b(folder|directory|repo|repository|path|file|files|playground|inside)\b/i.test(lower);
-  const contentOnly = /\b(line|lines|string|text|symbol|function|code|grep|used in|used for|what handles|what does)\b/i.test(lower);
-  return discoveryVerb && pathNoun && !contentOnly;
-}
-function looksLikeDirectProjectInspectIntent(text = '', query = '') {
-  if (!query) return false;
-  const lower = String(text || '').toLowerCase();
-  if (extractExplicitProjectPath(query) || /^(git diff|git status)$/i.test(query)) return false;
-  const inspectVerb = /\b(inspect|explain|walk through|look at|check|show|read|around|how does|how do|why does|what does|tell me how)\b/i.test(lower);
-  const projectNoun = /\b(code|repo|project|file|files|function|symbol|logic|implementation|works|working|decides|handle|handler|used)\b/i.test(lower);
-  return inspectVerb && projectNoun;
-}
-function looksLikeOpenEndedProjectEdit(text = '') {
-  const lower = String(text || '').toLowerCase();
-  if (!lower) return false;
-  const editVerb = /\b(add|append|write|edit|update|change|rewrite|revise|leave|put)\b/.test(lower);
-  const creativeCue = /\b(in your own voice|pick the wording|choose the wording|decide what to write|whatever you want|anything you want|your own note)\b/.test(lower)
-    || (/\b(note|line|paragraph)\b/.test(lower) && /\b(your own|yourself)\b/.test(lower));
-  return editVerb && creativeCue;
-}
-function shouldForceLocalToolLoop(text = '') {
-  const explicitPath = extractExplicitProjectPath(text);
-  return !!(explicitPath && looksLikeOpenEndedProjectEdit(text));
-}
-function resolveDirectToolIntent(userText = '') {
-  const text = String(userText || '');
-  const lower = text.toLowerCase();
-  const explicitPath = extractExplicitProjectPath(text);
-  const explicitUrl = extractFirstUrl(text);
-  const directWrite = parseDirectWriteInstruction(text);
-  if (directWrite) {
-    return buildDirectEditSequence(
-      directWrite.path,
-      { name: 'write_project_file', args: { path: directWrite.path, content: directWrite.content } },
-      'direct_write',
-    );
-  }
-  const directReplace = parseDirectReplaceInstruction(text);
-  if (directReplace) {
-    return buildDirectEditSequence(
-      directReplace.path,
-      {
-        name: 'replace_in_project_file',
-        args: {
-          path: directReplace.path,
-          find: directReplace.find,
-          replace: directReplace.replace,
-        },
-      },
-      'direct_replace',
-    );
-  }
-  const directAppend = parseDirectAppendInstruction(text);
-  if (directAppend) {
-    return buildDirectEditSequence(
-      directAppend.path,
-      {
-        name: 'insert_in_project_file',
-        args: {
-          path: directAppend.path,
-          text: directAppend.text,
-          position: 'end',
-          lineAware: true,
-        },
-      },
-      'direct_append',
-    );
-  }
-  if (explicitPath && /\b(syntax|parse|node --check|compile)\b/i.test(lower)) {
-    return { name: 'run_node_check', args: { path: explicitPath } };
-  }
-  if (/\bgit diff\b/i.test(lower) || (/\b(diff|show(?: me)?(?: the)? changes|what changed|what did you change)\b/i.test(lower) && (/\bgit\b/i.test(lower) || !!explicitPath))) {
-    return { name: 'read_git_diff', args: explicitPath ? { path: explicitPath, contextLines: 3 } : { summaryOnly: true } };
-  }
-  if (explicitUrl && /\b(read|open|summarize|check|inspect|what(?:'s| is) on|what does|tell me about)\b/i.test(lower)) {
-    return { name: 'read_web_page', args: { url: explicitUrl } };
-  }
-  const webQuery = extractDirectWebQuery(text);
-  if (webQuery) {
-    if (shouldInspectTopWebResult(text)) {
-      return { name: 'inspect_web_result', args: { query: webQuery, limit: 5 } };
-    }
-    return { name: 'search_web', args: { query: webQuery, limit: 5 } };
-  }
-  if (explicitPath && looksLikeOpenEndedProjectEdit(text)) {
-    return null;
-  }
-  if (explicitPath && /\b(read|open|show|inspect|explain|summarize|check|look at|walk through|search|find|grep|look for)\b/i.test(lower)) {
-    const symbolQuery = extractDirectSearchQuery(text);
-    if (symbolQuery && !/^(git diff|git status)$/i.test(symbolQuery) && !extractExplicitProjectPath(symbolQuery)) {
-      return {
-          name: 'read_project_file_around_match',
-        args: {
-          path: explicitPath,
-          query: symbolQuery,
-          beforeLines: 12,
-          afterLines: 48,
-        },
-      };
-    }
-    return { name: 'read_project_file', args: { path: explicitPath, startLine: 1, endLine: 160 } };
-  }
-  const searchQuery = extractDirectSearchQuery(text);
-  if (!explicitPath && searchQuery && looksLikeProjectPathDiscoveryIntent(text, searchQuery)) {
-    return { name: 'list_project_files', args: { path: '.', recursive: true, pattern: searchQuery, limit: 24 } };
-  }
-  if (!explicitPath && looksLikeDirectProjectInspectIntent(text, searchQuery)) {
-    return {
-      name: 'inspect_project_symbol',
-      args: {
-        query: searchQuery,
-        beforeLines: 12,
-        afterLines: 56,
-      },
-    };
-  }
-  if (searchQuery && /\b(search|find|grep|where is|which file|what handles|wired up|hooked up|hooked into|used for|used in)\b/i.test(lower)) {
-    return { name: 'search_project_text', args: { query: searchQuery, limit: 8 } };
-  }
-  if (/\b(what model|which model|runtime status|local status|lm studio status|what are you using|which local model|resolved model)\b/i.test(lower)) {
-    return { name: 'get_runtime_status', args: {} };
-  }
-  if (/\bgit status\b/i.test(lower) || (/\bwhat changed\b/i.test(lower) && /\bgit\b/i.test(lower))) {
-    return { name: 'get_git_status', args: {} };
-  }
-  if (/\b(log|logs|stderr|stdout|stack trace|traceback)\b/i.test(lower) && /\b(read|show|summarize|inspect|check|look at|why)\b/i.test(lower)) {
-    const target = /\bstderr\b/i.test(lower) ? 'stderr' : /\bstdout\b/i.test(lower) ? 'stdout' : 'latest';
-    return { name: 'read_recent_logs', args: { target, lines: 60 } };
-  }
-  return null;
-}
 async function runLmStudioToolContextAnswer({ userText, messages, memories, toolName, toolData, abortSignal }) {
   return withLmStudioCandidateModel(async (model) => {
     const controller = new AbortController();
@@ -2389,392 +1803,6 @@ async function runLmStudioToolContextAnswer({ userText, messages, memories, tool
       clearTimeout(timer);
     }
   });
-}
-function composeDirectRuntimeReply(status = {}) {
-  const model = String(status.resolvedModel || '').trim();
-  const reachability = status.reachable
-    ? 'local link is up.'
-    : 'local link is down right now.';
-  const modelLine = model
-    ? `Right now I'm riding on ${model}.`
-    : 'LM Studio is reachable, but there is not a resolved chat model loaded yet.';
-  const transportLine = `Transport is ${status.localTransport || LOCAL_LLM_TRANSPORT}.`;
-  const installCount = Array.isArray(status.installedModels) ? status.installedModels.length : 0;
-  const inventoryLine = installCount
-    ? `I can also see ${installCount} installed local model${installCount === 1 ? '' : 's'} on disk.`
-    : '';
-  return `${reachability} ${modelLine} ${transportLine}${inventoryLine ? ` ${inventoryLine}` : ''}\n[MOOD:thinking]`;
-}
-function composeDirectSyntaxReply(result = {}) {
-  const pathLabel = result.path || 'that file';
-  if (result.ok === false) {
-    const detail = String(result.stderr || result.stdout || 'Node reported a syntax failure.').trim();
-    return `${pathLabel} did not pass \`node --check\`. ${detail}\n[MOOD:annoyed]`;
-  }
-  return `${pathLabel} passes \`node --check\`. no syntax panic, no exploding brackets, we're fine.\n[MOOD:smug]`;
-}
-function composeDirectGitStatusReply(result = {}) {
-  if (result.ok === false) {
-    return `git status did not cooperate. ${String(result.stderr || 'Something blocked it.').trim()}\n[MOOD:annoyed]`;
-  }
-  const status = String(result.status || '').trim();
-  if (!status || status === '(clean)') {
-    return `git is clean right now. no local changes waiting to bite us.\n[MOOD:calm]`;
-  }
-  return `here's the current git status:\n${status}\n[MOOD:thinking]`;
-}
-function composeDirectSearchReply(result = {}) {
-  const query = String(result.query || '').trim() || 'that search';
-  const hits = Array.isArray(result.hits) ? result.hits : [];
-  if (!hits.length) {
-    return `i searched for "${query}" and came up empty. if you want, i can try a broader phrase next.\n[MOOD:thinking]`;
-  }
-  const preview = hits
-    .slice(0, 5)
-    .map(hit => `- ${hit.path}:${hit.line} ${hit.text}`)
-    .join('\n');
-  return `i searched for "${query}" and found the strongest hits here:\n${preview}\n[MOOD:thinking]`;
-}
-function shouldUseDirectReadReply(userText = '') {
-  const lower = String(userText || '').toLowerCase();
-  if (!lower) return false;
-  return /\b(do not edit|don't edit|did you change|did you verify|whether you changed|whether you verified|current note string|what does it say|just tell me|just show me)\b/.test(lower);
-}
-function composeDirectReadReply(result = {}) {
-  const pathLabel = String(result.path || 'that file').trim();
-  const query = String(result.query || '').trim();
-  const excerpt = String(result.excerpt || '').trim();
-  const scope = query
-    ? `around "${query}" in ${pathLabel}`
-    : `${pathLabel} lines ${result.startLine || result.matchLine || 1}-${result.endLine || result.startLine || result.matchLine || 1}`;
-  const intro = `i inspected ${scope}. i did not edit anything, and i did not run a verification step.`;
-  return excerpt
-    ? `${intro}\n\n${excerpt}\n[MOOD:thinking]`
-    : `${intro}\n[MOOD:thinking]`;
-}
-function composeDirectFileListReply(result = {}) {
-  const query = String(result.pattern || '').trim() || 'that';
-  const items = Array.isArray(result.items) ? result.items : [];
-  if (!items.length) {
-    return `i looked through the repo for "${query}" as a folder/file name and came up empty. if you want, i can try a broader term or inspect a specific path next.\n[MOOD:thinking]`;
-  }
-  const preview = items
-    .slice(0, 8)
-    .map(item => `- ${item}`)
-    .join('\n');
-  return `i found "${query}" in the repo here:\n${preview}\n[MOOD:smug]`;
-}
-function composeDirectWebSearchReply(result = {}) {
-  const query = String(result.query || '').trim() || 'that';
-  const results = Array.isArray(result.results) ? result.results : [];
-  if (!results.length) {
-    return `i searched the web for "${query}" and it came back weirdly empty. the internet is being a little bitch about it.\n[MOOD:annoyed]`;
-  }
-  const preview = results
-    .slice(0, 4)
-    .map((item, idx) => {
-      const snippet = item.snippet ? ` - ${item.snippet}` : '';
-      return `${idx + 1}. ${item.title}\n   ${item.url}${snippet}`;
-    })
-    .join('\n');
-  return `i searched the live web for "${query}". strongest hits:\n${preview}\n[MOOD:thinking]`;
-}
-function composeDirectWebPageReply(result = {}) {
-  const title = String(result.title || '').trim();
-  const url = String(result.url || result.requestedUrl || '').trim();
-  const excerpt = truncateText(String(result.text || '').trim(), 900);
-  const heading = title ? `${title}` : (url || 'that page');
-  if (!excerpt) {
-    return `i pulled ${heading}, but the page did not cough up usable text. rude.\n[MOOD:annoyed]`;
-  }
-  return `i pulled ${heading}${url ? `\n${url}` : ''}\n\nhere's the useful bit:\n${excerpt}\n[MOOD:thinking]`;
-}
-function takeFirstUsefulSentence(text = '', limit = 280) {
-  const cleaned = collapseWhitespace(String(text || '').replace(/\s+/g, ' ').trim());
-  if (!cleaned) return '';
-  const sentenceMatch = cleaned.match(/^(.{1,280}?[.!?])(?:\s|$)/);
-  if (sentenceMatch?.[1]) return sentenceMatch[1].trim();
-  return truncateText(cleaned, limit);
-}
-function composeToolRecordFallback(toolRecords = []) {
-  const records = Array.isArray(toolRecords) ? toolRecords : [];
-  const insert = records.find(record => record?.name === 'insert_in_project_file' && record?.result?.ok && record?.result?.data);
-  if (insert) {
-    const pathLabel = insert.result.data.path || 'that file';
-    const snippet = truncateText(cleanDirectInstructionContent(String(insert.args?.text || insert.result.data?.textPreview || '').trim()), 1200);
-    if (snippet) {
-      return `i added this to ${pathLabel}:\n${snippet}\n[MOOD:smug]`;
-    }
-    return `i added the new text to ${pathLabel}. the change is in there and verified.\n[MOOD:smug]`;
-  }
-  const replace = records.find(record => record?.name === 'replace_in_project_file' && record?.result?.ok && record?.result?.data);
-  if (replace) {
-    const pathLabel = replace.result.data.path || 'that file';
-    const find = truncateText(String(replace.args?.find || '').trim(), 120);
-    const next = truncateText(String(replace.args?.replace || '').trim(), 160);
-    const replaced = Number(replace.result.data?.replaced || 0);
-    if (find && next) {
-      return `i updated ${pathLabel} by replacing ${replaced || 1} match${replaced === 1 ? '' : 'es'} of "${find}" with "${next}".\n[MOOD:smug]`;
-    }
-    return `i updated ${pathLabel} and the replacement landed.\n[MOOD:smug]`;
-  }
-  const write = records.find(record => record?.name === 'write_project_file' && record?.result?.ok && record?.result?.data);
-  if (write) {
-    const pathLabel = write.result.data.path || 'that file';
-    const action = write.result.data.action === 'created' ? 'created' : 'updated';
-    return `i ${action} ${pathLabel}. the file is in place.\n[MOOD:smug]`;
-  }
-  const page = records.find(record => record?.name === 'read_web_page' && record?.result?.ok && record?.result?.data);
-  if (page) {
-    const data = page.result.data;
-    const heading = String(data.title || data.url || data.requestedUrl || 'that page').trim();
-    const url = String(data.url || data.requestedUrl || '').trim();
-    const sentence = takeFirstUsefulSentence(data.text, 260);
-    if (sentence) {
-      return `i checked ${heading}${url ? `\n${url}` : ''}\n\nshort version: ${sentence}\n[MOOD:thinking]`;
-    }
-    return `i checked ${heading}${url ? `\n${url}` : ''}, but the page text came back annoyingly thin.\n[MOOD:annoyed]`;
-  }
-  const web = records.find(record => record?.name === 'search_web' && record?.result?.ok && Array.isArray(record?.result?.data?.results));
-  if (web) {
-    const results = web.result.data.results;
-    if (!results.length) {
-      return `i searched the web for "${web.result.data.query || 'that topic'}" and came up empty.\n[MOOD:annoyed]`;
-    }
-    const top = results[0];
-    const snippet = truncateText(String(top?.snippet || '').trim(), 220);
-    if (snippet) {
-      return `i found the strongest live-web hit for "${web.result.data.query || 'that topic'}":\n${top.title}\n${top.url}\n\nshort version: ${snippet}\n[MOOD:thinking]`;
-    }
-    return `i found the strongest live-web hit for "${web.result.data.query || 'that topic'}":\n${top.title}\n${top.url}\n[MOOD:thinking]`;
-  }
-  const read = records.find(record => record?.name === 'read_project_file' || record?.name === 'read_project_file_around_match');
-  if (read?.result?.ok && read.result.data) {
-    const data = read.result.data;
-    const pathLabel = data.path || 'that file';
-    const startLine = data.startLine || data.matchLine || '?';
-    const endLine = data.endLine || startLine;
-    return `i pulled the relevant code in ${pathLabel} around lines ${startLine}-${endLine}. the verified context is there, i just don't want to bluff the explanation.\n[MOOD:thinking]`;
-  }
-  const search = records.find(record => record?.name === 'search_project_text');
-  if (search?.result?.ok && Array.isArray(search.result.data?.hits)) {
-    const hits = search.result.data.hits;
-    if (!hits.length) {
-      return `i searched for "${search.result.data.query || 'that symbol'}" and came up empty.\n[MOOD:annoyed]`;
-    }
-    const top = hits[0];
-    return `i found the strongest hit for "${search.result.data.query || 'that symbol'}" in ${top.path}:${top.line}. if you want the exact excerpt, i can pull more around it.\n[MOOD:thinking]`;
-  }
-  return '';
-}
-function hasToolRecordName(toolRecords = [], names = []) {
-  const wanted = new Set(names);
-  return Array.isArray(toolRecords) && toolRecords.some(record => wanted.has(String(record?.name || '').trim()));
-}
-function looksLikeWeakToolReply(text = '', toolRecords = []) {
-  const stripped = stripReplyMoodTags(String(text || '')).trim();
-  if (!stripped) return true;
-  const hasEdit = hasToolRecordName(toolRecords, ['insert_in_project_file', 'replace_in_project_file', 'write_project_file']);
-  if (!hasEdit) return false;
-  const insert = Array.isArray(toolRecords)
-    ? toolRecords.find(record => record?.name === 'insert_in_project_file' && record?.result?.ok)
-    : null;
-  if (insert) {
-    const snippet = collapseWhitespace(
-      String(insert?.result?.data?.textPreview || insert?.args?.text || '')
-        .replace(/^\n+/, '')
-        .replace(/\n+$/, '')
-        .trim(),
-    );
-    const normalizedReply = collapseWhitespace(stripped).toLowerCase();
-    const normalizedSnippet = snippet.toLowerCase();
-    if (normalizedSnippet && /\b(exactly what i added|here is exactly what i added|here's exactly what i added|micro-story i added|paragraph i added|i added this)\b/i.test(normalizedReply)) {
-      if (!normalizedReply.includes(normalizedSnippet)) return true;
-    }
-  }
-  if (((stripped.match(/`/g) || []).length % 2) === 1) return true;
-  if (stripped.length < 70) return true;
-  if (!/[.!?][)"'`]*$/.test(stripped) && stripped.length < 180) return true;
-  return false;
-}
-async function executeDirectToolSequence(intent = {}, onToolEvent) {
-  const toolsUsed = [];
-  const results = [];
-  for (const step of Array.isArray(intent.steps) ? intent.steps : []) {
-    const name = String(step?.name || '').trim();
-    const args = step?.args && typeof step.args === 'object' ? step.args : {};
-    if (!name) continue;
-    onToolEvent?.({ type: 'tool', state: 'running', name, label: `using ${name}` });
-    const result = await executePennyTool(name, args);
-    toolsUsed.push({ name, ok: result.ok, label: result.label });
-    results.push({ name, args, result });
-    onToolEvent?.({ type: 'tool', state: 'done', name, label: result.label, ok: result.ok });
-    if (!result.ok) break;
-  }
-  return { toolsUsed, results };
-}
-async function executeDirectWebInspectIntent({ intent, onToolEvent, executePennyTool, clampNumber }) {
-  const query = String(intent?.args?.query || '').trim();
-  const limit = clampNumber(intent?.args?.limit, 1, WEB_SEARCH_MAX_RESULTS, Math.min(5, WEB_SEARCH_MAX_RESULTS));
-  const toolsUsed = [];
-  const results = [];
-
-  onToolEvent?.({ type: 'tool', state: 'running', name: 'search_web', label: 'using search_web' });
-  let searchResult;
-  try {
-    searchResult = await executePennyTool('search_web', { query, limit });
-  } catch (error) {
-    return {
-      toolsUsed,
-      results,
-      fallbackText: `i tried to search the web for "${query}", but it blew up: ${String(error?.message || error).trim()}\n[MOOD:annoyed]`,
-    };
-  }
-  toolsUsed.push({ name: 'search_web', ok: searchResult.ok, label: searchResult.label });
-  results.push({ name: 'search_web', args: { query, limit }, result: searchResult });
-  onToolEvent?.({ type: 'tool', state: 'done', name: 'search_web', label: searchResult.label, ok: searchResult.ok });
-  if (!searchResult.ok) {
-    return { toolsUsed, results, fallbackText: composeDirectWebSearchReply(searchResult.data) };
-  }
-
-  const top = Array.isArray(searchResult.data?.results)
-    ? searchResult.data.results.find(item => normalizeWebUrl(item?.url))
-    : null;
-  if (!top?.url) {
-    return { toolsUsed, results, fallbackText: composeDirectWebSearchReply(searchResult.data) };
-  }
-
-  onToolEvent?.({ type: 'tool', state: 'running', name: 'read_web_page', label: 'using read_web_page' });
-  let pageResult;
-  try {
-    pageResult = await executePennyTool('read_web_page', { url: top.url });
-  } catch (error) {
-    pageResult = {
-      ok: false,
-      label: `failed to read ${top.url}`,
-      data: { error: String(error?.message || error).trim(), url: top.url },
-    };
-  }
-  toolsUsed.push({ name: 'read_web_page', ok: pageResult.ok, label: pageResult.label });
-  results.push({ name: 'read_web_page', args: { url: top.url }, result: pageResult });
-  onToolEvent?.({ type: 'tool', state: 'done', name: 'read_web_page', label: pageResult.label, ok: pageResult.ok });
-  if (!pageResult.ok) {
-    return { toolsUsed, results, fallbackText: composeToolRecordFallback(results) };
-  }
-  return { toolsUsed, results, fallbackText: composeToolRecordFallback(results) };
-}
-function composeDirectEditReply(intent = {}, sequence = {}) {
-  const primaryName = intent.mode === 'direct_replace'
-    ? 'replace_in_project_file'
-    : intent.mode === 'direct_append'
-      ? 'insert_in_project_file'
-      : 'write_project_file';
-  const primary = (sequence.results || []).find(item => item.name === primaryName);
-  if (!primary || !primary.result?.ok) {
-    const detail = String(primary?.result?.data?.error || 'The edit tool did not complete.').trim();
-    return `i tried to change ${intent.path || 'that file'}, but it blew up. ${detail}\n[MOOD:annoyed]`;
-  }
-
-  const pathLabel = primary.result.data?.path || intent.path || 'that file';
-  const lines = [];
-  if (intent.mode === 'direct_replace') {
-    const replaced = Number(primary.result.data?.replaced || 0);
-    lines.push(`${pathLabel} is updated. i replaced ${replaced} match${replaced === 1 ? '' : 'es'}.`);
-  } else if (intent.mode === 'direct_append') {
-    lines.push(`${pathLabel} has the new line in place.`);
-  } else {
-    const action = primary.result.data?.action === 'created' ? 'created' : 'updated';
-    lines.push(`${pathLabel} is ${action}.`);
-  }
-
-  const syntax = (sequence.results || []).find(item => item.name === 'run_node_check');
-  if (syntax?.result?.data) {
-    lines.push(syntax.result.data.ok === false
-      ? `${pathLabel} still fails \`node --check\`: ${String(syntax.result.data.stderr || syntax.result.data.stdout || 'syntax failure').trim()}`
-      : `${pathLabel} also passes \`node --check\`.`);
-  }
-
-  const git = (sequence.results || []).find(item => item.name === 'get_git_status');
-  if (git?.result?.ok !== false) {
-    const status = String(git?.result?.data?.status || '').trim();
-    if (status && status !== '(clean)') lines.push('git sees the local change too.');
-  }
-
-  return `${lines.join(' ')}\n[MOOD:smug]`;
-}
-async function runLmStudioDirectToolAssist({ userText, messages, memories, intent, onToolEvent, abortSignal }) {
-  if (intent?.kind === 'sequence') {
-    const sequence = await executeDirectToolSequence(intent, onToolEvent);
-    return {
-      text: composeDirectEditReply(intent, sequence),
-      toolsUsed: sequence.toolsUsed,
-      toolRecords: sequence.results,
-    };
-  }
-  if (intent?.name === 'inspect_project_symbol') {
-    const sequence = await executeDirectProjectInspectIntent({
-      intent,
-      onToolEvent,
-      executePennyTool,
-      clampNumber,
-    });
-    return {
-      text: sequence.fallbackText || composeToolRecordFallback(sequence.results),
-      toolsUsed: sequence.toolsUsed,
-      toolRecords: sequence.results,
-    };
-  }
-  if (intent?.name === 'inspect_web_result') {
-    const sequence = await executeDirectWebInspectIntent({
-      intent,
-      onToolEvent,
-      executePennyTool,
-      clampNumber,
-    });
-    return {
-      text: sequence.fallbackText || composeToolRecordFallback(sequence.results),
-      toolsUsed: sequence.toolsUsed,
-      toolRecords: sequence.results,
-    };
-  }
-  onToolEvent?.({ type: 'tool', state: 'running', name: intent.name, label: `using ${intent.name}` });
-  const result = await executePennyTool(intent.name, intent.args || {});
-  onToolEvent?.({ type: 'tool', state: 'done', name: intent.name, label: result.label, ok: result.ok });
-  const toolRecords = [{ name: intent.name, args: intent.args || {}, result }];
-  if (intent.name === 'get_runtime_status') {
-    return { text: composeDirectRuntimeReply(result.data), toolsUsed: [{ name: intent.name, ok: result.ok, label: result.label }], toolRecords };
-  }
-  if (intent.name === 'run_node_check') {
-    return { text: composeDirectSyntaxReply(result.data), toolsUsed: [{ name: intent.name, ok: result.ok, label: result.label }], toolRecords };
-  }
-  if (intent.name === 'get_git_status') {
-    return { text: composeDirectGitStatusReply(result.data), toolsUsed: [{ name: intent.name, ok: result.ok, label: result.label }], toolRecords };
-  }
-  if (intent.name === 'search_project_text') {
-    return { text: composeDirectSearchReply(result.data), toolsUsed: [{ name: intent.name, ok: result.ok, label: result.label }], toolRecords, skipSemanticRender: true };
-  }
-  if ((intent.name === 'read_project_file' || intent.name === 'read_project_file_around_match') && shouldUseDirectReadReply(userText)) {
-    return { text: composeDirectReadReply(result.data), toolsUsed: [{ name: intent.name, ok: result.ok, label: result.label }], toolRecords, skipSemanticRender: true };
-  }
-  if (intent.name === 'list_project_files') {
-    return { text: composeDirectFileListReply(result.data), toolsUsed: [{ name: intent.name, ok: result.ok, label: result.label }], toolRecords, skipSemanticRender: true };
-  }
-  if (intent.name === 'search_web') {
-    return { text: composeDirectWebSearchReply(result.data), toolsUsed: [{ name: intent.name, ok: result.ok, label: result.label }], toolRecords, skipSemanticRender: true };
-  }
-  if (intent.name === 'read_web_page') {
-    return { text: composeDirectWebPageReply(result.data), toolsUsed: [{ name: intent.name, ok: result.ok, label: result.label }], toolRecords, skipSemanticRender: true };
-  }
-  onToolEvent?.({ type: 'status', stage: 'replying', label: 'turning the findings into words' });
-  const text = await runLmStudioToolContextAnswer({
-    userText,
-    messages,
-    memories,
-    toolName: intent.name,
-    toolData: result.data,
-    abortSignal,
-  });
-  return { text, toolsUsed: [{ name: intent.name, ok: result.ok, label: result.label }], toolRecords };
 }
 async function runLmStudioToolLoop({ userText, messages, memories, onToolEvent, abortSignal }) {
   return withLmStudioCandidateModel(async (model) => {

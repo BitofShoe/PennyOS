@@ -26,7 +26,9 @@ Legacy/source high-intensity overlay material.
 Today the app is a single-process local web application with one large Node server and one browser UI:
 
 - `server.js`
-Main backend, API surface, durable memory handling, LM Studio transport selection, direct-tool routing, tool loop, semantic render pass, shadow lane, static file serving.
+Main backend orchestration, API surface, durable memory handling, LM Studio transport selection, tool loop, semantic render pass, shadow lane, and static file serving.
+- `lib/*`
+Extracted backend modules for memory helpers, direct-intent parsing/replies, direct tool assist, and concrete project/web/git/runtime tools.
 - `public/index.html`
 Single-page shell for the Penny UI.
 - `public/app.js`
@@ -133,7 +135,9 @@ Important architecture detail:
 
 For certain technical or inspect-style requests, Penny does not need a full open-ended planning pass.
 
-`server.js` has a deterministic direct-intent layer that can route things like:
+`server.js` now composes a deterministic direct-intent layer whose parser/reply helpers live in `lib/penny-direct-intents.js` and whose execution branch lives in `lib/penny-direct-tool-assist.js`.
+
+That layer can route things like:
 
 - read/search project files
 - runtime status
@@ -157,7 +161,13 @@ Tool categories currently include:
 - log reads
 - lightweight web search and page fetch
 
-The tool loop is still inside `server.js`, which is one reason the file has turned into a giant beast.
+The planner/manual tool loops are still inside `server.js`, but the concrete tool implementations and dispatch switchboard now live in:
+
+- `lib/penny-project-tools.js`
+- `lib/penny-web-tools.js`
+- `lib/penny-git-tools.js`
+- `lib/penny-runtime-tools.js`
+- `lib/penny-tool-registry.js`
 
 ### 6. Semantic render pass
 
@@ -275,9 +285,7 @@ It currently mixes:
 - config and environment parsing
 - prompt asset loading
 - memory model logic
-- web fetch helpers
-- project-file tool implementations
-- direct-intent parsing
+- tool loop planning and LM Studio orchestration
 - prompt building
 - LM Studio transport handling
 - shadow/OpenClaw transport

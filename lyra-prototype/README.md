@@ -21,7 +21,7 @@ Read these in order if you need the current truth:
 
 ## Current runtime truth
 
-- `server.js` is still the main backend monolith.
+- `server.js` is still the main backend monolith, but the direct-intent parser/reply layer, direct tool-assist runner, and concrete tool implementations now live under `lib/`.
 - `public/app.js` is still the main frontend monolith.
 - Penny's live prompt stack comes from `penny-voice/runtime/`, not the giant raw personality docs.
 - LM Studio is Penny's real primary brain.
@@ -32,13 +32,13 @@ Read these in order if you need the current truth:
 ## Project layout
 
 - `server.js`
-Main backend: routes, memory persistence, LM Studio routing, tools, semantic render, and static file serving.
+Main backend orchestration: routes, memory persistence, LM Studio routing, tool loop coordination, semantic render, and static file serving.
 - `public/`
 Browser UI shell, styles, sprites, and client logic.
 - `penny-voice/runtime/`
 Live runtime voice assets injected into prompts.
 - `lib/`
-Extracted pure-ish helpers that now have cheap regression tests.
+Extracted backend helpers with cheap regression tests. Current high-value modules include direct intents, direct tool assist, concrete tool implementations, and memory helpers.
 - `scripts/`
 QA, eval, and LM Studio helper scripts.
 - `data/`
@@ -121,7 +121,7 @@ This is a localhost-oriented prototype. Treat it that way:
 
 ## Known limits
 
-- `server.js` is still too large and still owns too many subsystems.
+- `server.js` is still too large and still owns too many subsystems, even after the direct-intent and tool-helper extractions.
 - `public/app.js` is also large and stateful.
 - Local 31B models can be painfully slow on commodity hardware, especially for image turns and long generations.
 - The docs are more honest than the codebase is modular, which is useful but also a trap if you stop there.
