@@ -57,6 +57,7 @@ function createAutomationApi({
   lmStudioApiKey = env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local',
   chatModel = String(env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim(),
   toolModel = String(env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b').trim(),
+  embedModel = String(env.PENNY_LMSTUDIO_EMBED_MODEL || 'nomic-ai/nomic-embed-text-v1.5').trim(),
   presetIdentifier = String(env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny').trim() || '@local:penny',
 } = {}) {
   const lmStudioStatusApi = createLmStudioStatusApi({
@@ -84,6 +85,7 @@ function createAutomationApi({
     LMSTUDIO_SETTINGS_FILE: pathImpl.join(env.APPDATA || '', 'LM Studio', 'settings.json'),
     PENNY_LMSTUDIO_CHAT_MODEL: chatModel,
     PENNY_LMSTUDIO_TOOL_MODEL: toolModel,
+    PENNY_LMSTUDIO_EMBED_MODEL: embedModel,
     PENNY_LMSTUDIO_PRESET_IDENTIFIER: presetIdentifier,
   });
 }
@@ -105,12 +107,14 @@ function formatPrepareReport(report, nodeCheck) {
   push(`[${status.reachable ? 'PASS' : 'FAIL'}] lmstudio-api: ${status.reachable ? `LM Studio is reachable at ${status.base}.` : (status.error || 'LM Studio is unreachable.')}`);
   push(`[INFO] chat requested: ${report.requestedChatModel}`);
   push(`[INFO] tool requested: ${report.requestedToolModel}`);
+  push(`[INFO] embed requested: ${report.requestedEmbedModel || '(none)'}`);
   push(`[INFO] installed models: ${(report.installedModels || []).join(', ') || '(none)'}`);
   push(`[INFO] loaded models: ${(report.loadedModels || []).join(', ') || '(none)'}`);
   push(`[INFO] resolved chat: ${status.resolvedChatModel || '(none)'}`);
   push(`[INFO] resolved tool: ${status.resolvedToolModel || '(none)'}`);
   push(`[INFO] resolved runtime: ${status.resolvedModel || '(none)'}`);
   push(`[INFO] routing mode: ${status.routingMode || 'auto'}`);
+  push(`[INFO] semantic memory: ${report.semanticMemoryReady ? 'ready' : 'fallback'}`);
   if (report.preset) {
     push(`[INFO] preset identifier: ${report.preset.presetIdentifier}`);
     push(`[INFO] preset conversation: ${report.preset.selectedConversation?.presetOk ? 'ok' : 'not fully wired'}`);
@@ -138,6 +142,7 @@ async function runPrepare({
   lmStudioApiKey = env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local',
   chatModel = String(env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim(),
   toolModel = String(env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b').trim(),
+  embedModel = String(env.PENNY_LMSTUDIO_EMBED_MODEL || 'nomic-ai/nomic-embed-text-v1.5').trim(),
   presetIdentifier = String(env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny').trim() || '@local:penny',
 } = {}) {
   const automationApi = createAutomationApi({
@@ -150,6 +155,7 @@ async function runPrepare({
     lmStudioApiKey,
     chatModel,
     toolModel,
+    embedModel,
     presetIdentifier,
   });
   const nodeCheck = checkNodeVersion(packageJson?.engines?.node || '', nodeVersion);
@@ -159,6 +165,7 @@ async function runPrepare({
     loadChatModel: !reportOnly,
     chatModel,
     toolModel,
+    embedModel,
   });
   return {
     ok: nodeCheck.ok && report.ok,

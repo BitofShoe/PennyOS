@@ -89,8 +89,23 @@ function selectMemoriesForPrompt(memories = {}, userText = '', limit = MEMORY_PR
 
 function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
   const selected = selectMemoriesForPrompt(memories, userText, limit, now);
-  if (!selected.length) return fallback;
-  return selected.map((item) => `- ${item.text}`).join('\n');
+  const archiveContext = memories?.archiveContext && typeof memories.archiveContext === 'object'
+    ? memories.archiveContext
+    : null;
+  const sessionArchive = Array.isArray(archiveContext?.session) ? archiveContext.session.slice(0, 2) : [];
+  const globalArchive = Array.isArray(archiveContext?.global) ? archiveContext.global.slice(0, 2) : [];
+  const sections = [];
+  if (selected.length) {
+    sections.push(selected.map((item) => `- ${item.text}`).join('\n'));
+  }
+  if (sessionArchive.length) {
+    sections.push(`Session continuity:\n${sessionArchive.map((item) => `- ${item.text}`).join('\n')}`);
+  }
+  if (globalArchive.length) {
+    sections.push(`Longer-term patterns:\n${globalArchive.map((item) => `- ${item.text}`).join('\n')}`);
+  }
+  if (!sections.length) return fallback;
+  return sections.join('\n');
 }
 
 function injectRelevantMemoryContext(text = '', memories = {}, userText = '', limit = MEMORY_RELEVANT_LIMIT, now = Date.now()) {

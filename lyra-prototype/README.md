@@ -31,6 +31,10 @@ Read these in order if you need the current truth:
 - OpenClaw shadow exists, but it is optional and experimental.
 - Browser storage uses the `penny:v3` key for local vessel/settings continuity.
 - Durable memory now defaults to an untracked `data/penny-memory.json`, seeded from tracked `data/penny-memory.seed.json` when missing.
+- Penny now has a hybrid memory stack:
+  - canonical explicit facts/settings in `data/penny-memory.json`
+  - archive + semantic recall in `data/penny-memory-archive.json` and `data/penny-memory-embeddings.json`
+  - the archive layer is additive and reviewable; it does not silently overwrite explicit facts
 
 ## Project layout
 
@@ -102,6 +106,15 @@ This is lightweight UI continuity like voice toggle, selected brain mode, and ot
 - Durable server-side memory in `data/penny-memory.json`
 This is the actual runtime memory store used for prompt relevance and longer continuity. The repo tracks `data/penny-memory.seed.json`; the live `data/penny-memory.json` is created on first run and stays local.
 
+Penny's runtime memory is now hybrid:
+
+- Canonical explicit memory in `data/penny-memory.json`
+  This stays the source of truth for direct facts, preferences, user name, brain mode, and other explicit state.
+- Archive memory in `data/penny-memory-archive.json`
+  This stores raw episodic turns, rolling summaries, longer-term patterns, and the review queue for candidate promotions.
+- Embedding cache in `data/penny-memory-embeddings.json`
+  This supports semantic recall when a local embedding model is available.
+
 The browser cache is not the source of truth for long-term memory.
 
 ## LM Studio notes
@@ -110,12 +123,16 @@ The browser cache is not the source of truth for long-term memory.
 - Chat lane and tool lane have separate preferred models:
   - `PENNY_LMSTUDIO_CHAT_MODEL` defaults to `google/gemma-4-31b`
   - `PENNY_LMSTUDIO_TOOL_MODEL` defaults to `google/gemma-4-e4b`
+- Semantic memory uses a separate soft-dependency model:
+  - `PENNY_LMSTUDIO_EMBED_MODEL` defaults to `nomic-ai/nomic-embed-text-v1.5`
+  - if that model is missing or unloaded, Penny falls back to keyword-style archive retrieval instead of failing chat
 - `npm run lmstudio:prepare` verifies local preset wiring, checks installed/loaded models, and tries to load the requested chat model for QA/startup flows.
 - The settings-panel model picker is now a chat-lane override only. Tool-lane selection is config-driven.
 - The local `@local:penny` preset is operator-owned LM Studio state. Penny can verify and reassert the wiring, but the repo does not own the preset body.
 - Depending on the loaded model, Penny may use native stateful chat, chat completions, or responses-style fallbacks.
 - Large local models can be slow, especially on first turn and on image turns.
 - The max output token cap is a ceiling, not a target. Raising it prevents clipping; it does not force Penny to ramble if the model naturally stops earlier.
+- An in-app local embedding path was considered and intentionally deferred. This cycle uses LM Studio embeddings only, with graceful fallback when they are unavailable.
 
 ## Shadow mode
 

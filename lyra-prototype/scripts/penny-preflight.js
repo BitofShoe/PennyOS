@@ -55,6 +55,7 @@ async function checkLmStudioApi({
   env = process.env,
   chatModel = String(process.env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim(),
   toolModel = String(process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b').trim(),
+  embedModel = String(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'nomic-ai/nomic-embed-text-v1.5').trim(),
   presetIdentifier = String(process.env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny').trim() || '@local:penny',
 } = {}) {
   const result = await runPrepare({
@@ -86,6 +87,7 @@ async function checkLmStudioApi({
     lmStudioApiKey: apiKey,
     chatModel,
     toolModel,
+    embedModel,
     presetIdentifier,
   });
 
@@ -110,6 +112,7 @@ async function runPreflight({
   env = process.env,
   chatModel = String(process.env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim(),
   toolModel = String(process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b').trim(),
+  embedModel = String(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'nomic-ai/nomic-embed-text-v1.5').trim(),
   presetIdentifier = String(process.env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny').trim() || '@local:penny',
 } = {}) {
   const checks = [];
@@ -127,6 +130,7 @@ async function runPreflight({
     env,
     chatModel,
     toolModel,
+    embedModel,
     presetIdentifier,
   });
   checks.push(summarizeCheck('lmstudio-api', lmStudioApi.ok, lmStudioApi.detail, lmStudioApi.ok ? 'pass' : 'fail'));
@@ -140,8 +144,10 @@ async function runPreflight({
   const readinessDetail = [
     `requested chat=${report.requestedChatModel}`,
     `requested tool=${report.requestedToolModel}`,
+    `requested embed=${report.requestedEmbedModel || '(none)'}`,
     `resolved chat=${status.resolvedChatModel || '(none)'}`,
     `resolved tool=${status.resolvedToolModel || '(none)'}`,
+    `semantic memory=${report.semanticMemoryReady ? 'ready' : 'fallback'}`,
     `loaded=${loadedModels.join(', ') || '(none)'}`,
   ].join('; ');
   checks.push(summarizeCheck(

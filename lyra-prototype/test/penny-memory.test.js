@@ -56,3 +56,24 @@ test('injectRelevantMemoryContext prepends selected memories', () => {
   assert.match(out, /Favorite tea is lapsang souchong/);
   assert.match(out, /Current user message:/);
 });
+
+test('formatPromptMemories includes bounded archive context without replacing explicit facts', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const out = formatPromptMemories({
+    memories: [
+      { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: now },
+    ],
+    archiveContext: {
+      session: [
+        { text: 'We were talking about midnight rain on the windows.' },
+      ],
+      global: [
+        { text: 'They keep returning to midnight rain.' },
+      ],
+    },
+  }, 'Tell me the midnight rain thing again', 3, '- Nothing yet.', now);
+
+  assert.match(out, /Favorite tea is lapsang souchong/);
+  assert.match(out, /Session continuity:/);
+  assert.match(out, /Longer-term patterns:/);
+});

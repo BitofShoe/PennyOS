@@ -153,3 +153,41 @@ test('runPreflight warns when preset wiring is missing but fallback-ready models
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('runPreflight reports semantic memory fallback when embedding model is not installed', async () => {
+  const fixture = createEnvFixture({ presetReady: true });
+  const installed = [
+    { type: 'llm', modelKey: 'google/gemma-4-31b', selectedVariant: 'google/gemma-4-31b@q8_0' },
+    { type: 'llm', modelKey: 'google/gemma-4-e4b', selectedVariant: 'google/gemma-4-e4b@q8_0' },
+  ];
+  const loaded = ['google/gemma-4-31b', 'google/gemma-4-e4b'];
+
+  const server = http.createServer((req, res) => {
+    if (req.url === '/v1/models') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: loaded.map(id => ({ id })) }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    const report = await runPreflight({
+      packageJson: { engines: { node: '>=24 <25' } },
+      nodeVersion: '24.14.0',
+      baseUrl: `http://127.0.0.1:${address.port}/v1`,
+      env: fixture.env,
+      embedModel: 'nomic-ai/nomic-embed-text-v1.5',
+      spawnSyncImpl: makeSpawnSyncImpl({ installed, loaded }),
+    });
+
+    assert.equal(report.ok, true);
+    const readiness = report.checks.find(check => check.name === 'lmstudio-readiness');
+    assert.match(readiness.detail, /semantic memory=fallback/i);
+    assert.match(report.report.warnings.join('\n'), /embedding model .*not installed/i);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

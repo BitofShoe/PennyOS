@@ -29,6 +29,9 @@ Optional overlay context:
 - LM Studio is the main brain.
 - Tool behavior should stay bounded, honest, and companion-first.
 - Do not sand Penny down into a generic assistant while fixing engineering issues.
+- Explicit memory in `data/penny-memory.json` is canonical.
+- Archive memory in `data/penny-memory-archive.json` is additive, inspectable, and review-gated before promotion.
+- Semantic memory depends softly on `PENNY_LMSTUDIO_EMBED_MODEL`; fallback keyword retrieval is expected when the embed model is missing or unloaded.
 
 ## Commands
 
@@ -41,7 +44,7 @@ Optional overlay context:
 ## File map
 
 - `server.js`: backend orchestration and routes
-- `lib/`: extracted backend helpers
+- `lib/`: extracted backend helpers, including hybrid archive memory
 - `public/`: browser UI shell and modules
 - `penny-voice/runtime/`: live prompt-facing voice assets
 - `scripts/`: QA, eval, and launcher helpers

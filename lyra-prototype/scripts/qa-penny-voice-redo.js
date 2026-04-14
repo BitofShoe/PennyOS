@@ -29,7 +29,7 @@ const PROMPTS = {
   playfulInsult: 'mock me affectionately for overthinking everything.',
   softness: "i'm tired and a little messed up tonight. don't therapize me. just be with me.",
   practicalVoice: 'In 3 sentences max, explain max output tokens to me, but stay unmistakably Penny instead of slipping into helpdesk voice.',
-  agenticInspect: 'Search for "Shadow failed" in public/app.js. Do not edit anything. Just tell me the current note string and whether you changed or verified anything.',
+  agenticInspect: 'Search for "Shadow failed" in public/js/penny-app.js. Do not edit anything. Just tell me the current note string and whether you changed or verified anything.',
   memoryCapture: 'Remember this exactly because I am going to test you on it later: I keep a stupid little brass fox on my desk when I am coding.',
   memoryRecall: 'What do I keep on my desk when I am coding?',
 };

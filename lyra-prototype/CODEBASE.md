@@ -181,6 +181,10 @@ Important contents:
 Tracked seed used to initialize the live memory store when it is missing.
 - `penny-memory.json`
 Untracked runtime memory store created on first run.
+- `penny-memory-archive.json`
+Hybrid archive runtime store for episodic recall, summaries, patterns, and the promotion queue.
+- `penny-memory-embeddings.json`
+Embedding cache for semantic archive retrieval when a local embedding model is available.
 - various QA/eval memory files
 Disposable artifacts from benchmarking or smoke tests.
 
@@ -220,6 +224,7 @@ Current modules worth knowing:
 
 - [lib/penny-memory.js](./lib/penny-memory.js)
 - [lib/penny-memory-state.js](./lib/penny-memory-state.js)
+- [lib/penny-memory-archive.js](./lib/penny-memory-archive.js)
 - [lib/penny-tool-intents.js](./lib/penny-tool-intents.js)
 - [lib/penny-local-lanes.js](./lib/penny-local-lanes.js)
 - [lib/penny-lmstudio-status.js](./lib/penny-lmstudio-status.js)
@@ -271,6 +276,7 @@ Likely sections you will touch:
 Likely modules you will touch:
 
 - durable memory handling in `lib/penny-memory*.js`
+- hybrid archive recall/promotion logic in `lib/penny-memory-archive.js`
 - lane selection in `lib/penny-local-lanes.js`
 - direct tool intent routing in `lib/penny-direct-intents.js`
 - direct deterministic tool execution in `lib/penny-direct-tool-assist.js`
@@ -285,6 +291,12 @@ Start here:
 - `public/js/penny-app.js`
 - `public/styles.css`
 - `public/index.html`
+
+Memory inspector note:
+
+- the debug Memory tab now shows canonical explicit memory plus archive inspector data
+- archive review/purge actions live in `public/js/penny-app.js`
+- `public/js/penny-storage.js` still sends only explicit browser memory settings to the server; archive state is not browser-owned
 
 ### Change model QA or speed QA
 

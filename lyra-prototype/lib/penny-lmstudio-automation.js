@@ -8,6 +8,7 @@ function createLmStudioAutomationApi({
   LMSTUDIO_SETTINGS_FILE = '',
   PENNY_LMSTUDIO_CHAT_MODEL = '',
   PENNY_LMSTUDIO_TOOL_MODEL = '',
+  PENNY_LMSTUDIO_EMBED_MODEL = '',
   PENNY_LMSTUDIO_PRESET_IDENTIFIER = '',
 } = {}) {
   if (!fs || typeof fs.existsSync !== 'function' || typeof fs.readFileSync !== 'function' || typeof fs.writeFileSync !== 'function') {
@@ -163,16 +164,20 @@ function createLmStudioAutomationApi({
     }
   }
 
-  function buildRequestedModels({ chatModel = '', toolModel = '' } = {}) {
+  function buildRequestedModels({ chatModel = '', toolModel = '', embedModel = '' } = {}) {
     const requestedChatModel = String(chatModel || '').trim()
       || String(PENNY_LMSTUDIO_CHAT_MODEL || '').trim()
       || (typeof lmStudioStatusApi.getPreferredModelForLane === 'function' ? lmStudioStatusApi.getPreferredModelForLane('chat') : 'google/gemma-4-31b');
     const requestedToolModel = String(toolModel || '').trim()
       || String(PENNY_LMSTUDIO_TOOL_MODEL || '').trim()
       || (typeof lmStudioStatusApi.getPreferredModelForLane === 'function' ? lmStudioStatusApi.getPreferredModelForLane('tool') : 'google/gemma-4-e4b');
+    const requestedEmbedModel = String(embedModel || '').trim()
+      || String(PENNY_LMSTUDIO_EMBED_MODEL || '').trim()
+      || 'nomic-ai/nomic-embed-text-v1.5';
     return {
       requestedChatModel,
       requestedToolModel,
+      requestedEmbedModel,
     };
   }
 
@@ -420,8 +425,9 @@ function createLmStudioAutomationApi({
     loadChatModel: shouldLoadChatModel = !reportOnly,
     chatModel = '',
     toolModel = '',
+    embedModel = '',
   } = {}) {
-    const { requestedChatModel, requestedToolModel } = buildRequestedModels({ chatModel, toolModel });
+    const { requestedChatModel, requestedToolModel, requestedEmbedModel } = buildRequestedModels({ chatModel, toolModel, embedModel });
     const cliCheck = await checkLmsCli();
     const blockers = [];
     const warnings = [];
@@ -443,6 +449,7 @@ function createLmStudioAutomationApi({
         reportOnly,
         requestedChatModel,
         requestedToolModel,
+        requestedEmbedModel,
         cliCheck,
         blockers,
         warnings,
@@ -516,8 +523,20 @@ function createLmStudioAutomationApi({
     }
 
     const exactToolLoaded = loadedModels.some(model => modelsLookEquivalent(model, requestedToolModel));
+    const exactEmbedInstalled = requestedEmbedModel
+      ? installedModels.some(model => modelsLookEquivalent(model, requestedEmbedModel))
+      : false;
+    const exactEmbedLoaded = requestedEmbedModel
+      ? loadedModels.some(model => modelsLookEquivalent(model, requestedEmbedModel))
+        || (Array.isArray(statusAfter?.nativeAvailableModels) && statusAfter.nativeAvailableModels.some(model => modelsLookEquivalent(model, requestedEmbedModel)))
+      : false;
     if (exactToolInstalled && !exactToolLoaded) {
       warnings.push(`Tool model ${requestedToolModel} is installed but not currently loaded, so the tool lane may fall back.`);
+    }
+    if (requestedEmbedModel && !exactEmbedInstalled) {
+      warnings.push(`Embedding model ${requestedEmbedModel} is not installed, so semantic memory will fall back to keyword retrieval.`);
+    } else if (requestedEmbedModel && !exactEmbedLoaded) {
+      warnings.push(`Embedding model ${requestedEmbedModel} is installed but not currently loaded, so semantic memory is in graceful fallback mode.`);
     }
 
     const laneFallback = buildLaneFallbackFlags({
@@ -539,6 +558,7 @@ function createLmStudioAutomationApi({
       reportOnly,
       requestedChatModel,
       requestedToolModel,
+      requestedEmbedModel,
       cliCheck,
       blockers: uniqueStrings(blockers),
       warnings: uniqueStrings(warnings),
@@ -551,6 +571,9 @@ function createLmStudioAutomationApi({
       chatLoadAttempted,
       chatLoadSucceeded,
       chatLoadError,
+      embedInstalled: exactEmbedInstalled,
+      embedLoaded: exactEmbedLoaded,
+      semanticMemoryReady: !!requestedEmbedModel && exactEmbedInstalled && exactEmbedLoaded,
       laneFallback,
       dualLaneReady: !laneFallback.chat && !laneFallback.tool && exactToolLoaded && !!statusAfter?.resolvedChatModel,
     };

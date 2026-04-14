@@ -18,6 +18,9 @@ const {
   createMemoryStateApi,
 } = require('./lib/penny-memory-state');
 const {
+  createMemoryArchiveApi,
+} = require('./lib/penny-memory-archive');
+const {
   shouldOfferLocalTools,
   executeDirectProjectInspectIntent,
 } = require('./lib/penny-tool-intents');
@@ -67,6 +70,12 @@ const MEMORY_FILE = process.env.PENNY_MEMORY_FILE
 const MEMORY_SEED_FILE = process.env.PENNY_MEMORY_SEED_FILE
   ? path.resolve(__dirname, process.env.PENNY_MEMORY_SEED_FILE)
   : path.join(DATA_DIR, 'penny-memory.seed.json');
+const MEMORY_ARCHIVE_FILE = process.env.PENNY_MEMORY_ARCHIVE_FILE
+  ? path.resolve(__dirname, process.env.PENNY_MEMORY_ARCHIVE_FILE)
+  : path.join(DATA_DIR, 'penny-memory-archive.json');
+const MEMORY_EMBEDDINGS_FILE = process.env.PENNY_MEMORY_EMBEDDINGS_FILE
+  ? path.resolve(__dirname, process.env.PENNY_MEMORY_EMBEDDINGS_FILE)
+  : path.join(DATA_DIR, 'penny-memory-embeddings.json');
 const OPENCLAW_ENABLED = process.env.PENNY_OPENCLAW_ENABLED === '1';
 const OPENCLAW_TIMEOUT_MS = Number(process.env.PENNY_OPENCLAW_TIMEOUT_MS || 20000);
 const GATEWAY_PORT = Number(process.env.PENNY_GATEWAY_PORT || 18789);
@@ -92,6 +101,7 @@ const PENNY_LMSTUDIO_CHAT_MODEL = process.env.PENNY_LMSTUDIO_CHAT_MODEL
   || process.env.PENNY_LMSTUDIO_MODEL
   || 'google/gemma-4-31b';
 const PENNY_LMSTUDIO_TOOL_MODEL = process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b';
+const PENNY_LMSTUDIO_EMBED_MODEL = process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'nomic-ai/nomic-embed-text-v1.5';
 const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 /** Full request budget for /chat/completions and /responses (prompt eval + generation). Large quants (e.g. 30B+) and multi-step local tool turns can legitimately take a long time; LM Studio logs "Client disconnected" if this fires first. Override with PENNY_LMSTUDIO_TIMEOUT_MS (ms). */
@@ -307,6 +317,42 @@ function buildChatMemoryState(sessionId = 'default', clientMemory = {}, messages
   const diskMemory = getStoredMemory(sessionId).memory;
   return buildChatMemoryStateFromDiskMemory(diskMemory, clientMemory, messages);
 }
+async function buildRuntimeMemoryContext({
+  sessionId = 'default',
+  memories = {},
+  userText = '',
+  lane = 'chat',
+} = {}) {
+  const archive = await buildArchiveContextApi({
+    sessionId,
+    userText,
+    lane,
+  });
+  return {
+    memories: enrichMemoriesForPromptApi(memories, archive.archiveContext),
+    archiveContext: archive.archiveContext,
+    retrieval: archive.retrieval,
+    semanticMemory: archive.semanticMemory,
+  };
+}
+function scheduleArchiveConsolidation({
+  sessionId = 'default',
+  userText = '',
+  assistantText = '',
+  retrieval = null,
+} = {}) {
+  if (!String(userText || '').trim() || !String(assistantText || '').trim()) return;
+  queueMicrotask(() => {
+    archiveCompletedTurnApi({
+      sessionId,
+      userText,
+      assistantText: stripReplyMoodTags(String(assistantText || '')),
+      retrieval,
+    }).catch((error) => {
+      console.warn(`[penny archive] turn consolidation failed: ${error?.message || error}`);
+    });
+  });
+}
 function execFileText(file, args = [], options = {}) {
   return new Promise((resolve, reject) => {
     execFile(
@@ -356,7 +402,29 @@ const {
   resetLmStudioStatusCache: resetLmStudioStatusCacheApi,
   pickLmStudioNativeModelId: pickLmStudioNativeModelIdApi,
   shouldPreferLmStudioChatCompletions: shouldPreferLmStudioChatCompletionsApi,
+  modelsLookEquivalent: modelsLookEquivalentApi,
 } = lmStudioStatusApi;
+const memoryArchiveApi = createMemoryArchiveApi({
+  fs,
+  path,
+  fetch,
+  ARCHIVE_FILE: MEMORY_ARCHIVE_FILE,
+  EMBEDDINGS_FILE: MEMORY_EMBEDDINGS_FILE,
+  LMSTUDIO_BASE,
+  LMSTUDIO_API_KEY,
+  PENNY_LMSTUDIO_EMBED_MODEL,
+  getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
+  modelsLookEquivalent: modelsLookEquivalentApi,
+});
+const {
+  getSemanticMemoryStatus: getSemanticMemoryStatusApi,
+  buildArchiveContext: buildArchiveContextApi,
+  enrichMemoriesForPrompt: enrichMemoriesForPromptApi,
+  archiveCompletedTurn: archiveCompletedTurnApi,
+  getMemoryInspector: getMemoryInspectorApi,
+  reviewPromotion: reviewPromotionApi,
+  purgeMemory: purgeArchiveMemoryApi,
+} = memoryArchiveApi;
 const projectToolsApi = createProjectToolsApi({
   projectRoot: __dirname,
   fs,
@@ -2114,16 +2182,16 @@ function bindAbortSignal(controller, abortSignal) {
   controller.signal.addEventListener('abort', () => abortSignal.removeEventListener('abort', onAbort), { once: true });
 }
 
-async function runLmStudioLocalSmart({ userText, messages, memories, image, file, abortSignal, onToolEvent }) {
+async function runLmStudioLocalSmart({ userText, messages, memories, image, file, abortSignal, onToolEvent, laneSelection = null }) {
   const toolUserText = buildToolUserText(userText, file);
-  const laneSelection = selectLocalLane({ userText, image, file });
-  const laneRuntime = createLaneRuntime(laneSelection.localLane);
-  if (!image && laneSelection.directIntent) {
+  const resolvedLaneSelection = laneSelection || selectLocalLane({ userText, image, file });
+  const laneRuntime = createLaneRuntime(resolvedLaneSelection.localLane);
+  if (!image && resolvedLaneSelection.directIntent) {
       const result = await runLmStudioDirectToolAssist({
         userText: toolUserText,
         messages,
         memories,
-        intent: laneSelection.directIntent,
+        intent: resolvedLaneSelection.directIntent,
         onToolEvent,
         abortSignal,
       });
@@ -2187,12 +2255,12 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
   return { text, toolsUsed: [], toolRecords: [], ...laneRuntime };
 }
 
-async function streamLmStudioLocalSmart({ userText, messages, memories, image, file, onEvent, abortSignal }) {
+async function streamLmStudioLocalSmart({ userText, messages, memories, image, file, onEvent, abortSignal, laneSelection = null }) {
   const toolUserText = buildToolUserText(userText, file);
-  const laneSelection = selectLocalLane({ userText, image, file });
-  const laneRuntime = createLaneRuntime(laneSelection.localLane);
-  if (!image && laneSelection.directIntent) {
-      const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, intent: laneSelection.directIntent, onToolEvent: onEvent, abortSignal });
+  const resolvedLaneSelection = laneSelection || selectLocalLane({ userText, image, file });
+  const laneRuntime = createLaneRuntime(resolvedLaneSelection.localLane);
+  if (!image && resolvedLaneSelection.directIntent) {
+      const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, intent: resolvedLaneSelection.directIntent, onToolEvent: onEvent, abortSignal });
       if (result.skipSemanticRender) {
         const directText = cleanDraftForSemanticRender(result.text) || String(result.text || '').trim();
         if (directText) onEvent?.({ type: 'message.delta', content: directText, text: directText });
@@ -2248,11 +2316,79 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/penny/memory') { const sessionId = url.searchParams.get('sessionId') || 'default'; const { memory } = getStoredMemory(sessionId); return sendJson(res, 200, { ok: true, memory }); }
   if (req.method === 'POST' && url.pathname === '/api/penny/memory') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const sessionId = payload.sessionId || 'default'; const existing = getStoredMemory(sessionId).memory; const merged = mergeMemoryState(existing, payload.memory || {}); const saved = saveStoredMemory(sessionId, merged); return sendJson(res, 200, { ok: true, memory: saved }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
   if (req.method === 'PATCH' && url.pathname === '/api/penny/memory') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const sessionId = payload.sessionId || 'default'; const existing = getStoredMemory(sessionId).memory; const merged = mergeMemoryState(existing, payload.patch || {}); const saved = saveStoredMemory(sessionId, merged); return sendJson(res, 200, { ok: true, memory: saved }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
+  if (req.method === 'GET' && url.pathname === '/api/penny/memory/inspector') {
+    try {
+      const sessionId = url.searchParams.get('sessionId') || 'default';
+      const explicitMemory = getStoredMemory(sessionId).memory;
+      const inspector = await getMemoryInspectorApi({ sessionId, explicitMemory });
+      return sendJson(res, 200, { ok: true, memory: explicitMemory, inspector });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error.message });
+    }
+  }
+  if (req.method === 'POST' && url.pathname === '/api/penny/memory/review') {
+    try {
+      const rawBody = await safeReadBody(req);
+      const payload = rawBody ? JSON.parse(rawBody) : {};
+      const sessionId = payload.sessionId || 'default';
+      const review = reviewPromotionApi({
+        queueId: payload.queueId || payload.id || '',
+        action: payload.action === 'reject' ? 'reject' : 'approve',
+      });
+      if (!review) return sendJson(res, 404, { ok: false, error: 'Memory review item not found.' });
+      let memory = getStoredMemory(sessionId).memory;
+      if (review.promotedMemory) {
+        memory = saveStoredMemory(sessionId, {
+          ...memory,
+          memories: mergeMemoryItems([review.promotedMemory, ...(memory.memories || [])]),
+        });
+      }
+      const inspector = await getMemoryInspectorApi({ sessionId, explicitMemory: memory });
+      return sendJson(res, 200, {
+        ok: true,
+        action: review.action,
+        memory,
+        inspector,
+        reviewed: review.item,
+      });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error.message });
+    }
+  }
+  if (req.method === 'POST' && url.pathname === '/api/penny/memory/purge') {
+    try {
+      const rawBody = await safeReadBody(req);
+      const payload = rawBody ? JSON.parse(rawBody) : {};
+      const sessionId = payload.sessionId || 'default';
+      let memory = getStoredMemory(sessionId).memory;
+      if (payload.clearExplicit === true) {
+        memory = saveStoredMemory(sessionId, {
+          ...memory,
+          memories: [],
+        });
+      }
+      const archive = purgeArchiveMemoryApi({
+        sessionId,
+        clearSessionArchive: payload.clearSessionArchive === true,
+        clearGlobalArchive: payload.clearGlobalArchive === true,
+        clearEmbeddings: payload.clearEmbeddings === true,
+      });
+      const inspector = await getMemoryInspectorApi({ sessionId, explicitMemory: memory });
+      return sendJson(res, 200, { ok: true, memory, inspector, archive });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error.message });
+    }
+  }
   if (req.method === 'POST' && url.pathname === '/api/penny/consolidate') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const messages = Array.isArray(payload.messages) ? payload.messages : []; const sessionId = payload.sessionId || 'default'; const prepared = buildChatMemoryState(sessionId, payload.memories || {}, messages); const saved = saveStoredMemory(sessionId, prepared.memory); return sendJson(res, 200, { ok: true, memory: saved, patch: prepared.patch }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
   if (req.method === 'GET' && url.pathname === '/api/penny/shadow-status') { return sendJson(res, 200, { ok: true, enabled: OPENCLAW_ENABLED, timeoutMs: OPENCLAW_TIMEOUT_MS, modelPath: 'openclaw agent --agent main', fallback: 'legacy /api/penny/chat/shadow falls back locally; main /api/penny/chat blocks on shadow failure', warning: 'Shadow is an optional experimental lane. It is not Penny\'s main chat brain, and the main chat route should surface failures instead of silently faking a reply.' }); }
   if (req.method === 'GET' && url.pathname === '/api/penny/lmstudio/status') {
     const lmStudio = await getLmStudioConnectionStatusApi({ force: true });
-    return sendJson(res, 200, lmStudio);
+    const semanticMemory = await getSemanticMemoryStatusApi({ force: true, lmStatus: lmStudio });
+    return sendJson(res, 200, {
+      ...lmStudio,
+      embedPreferredModel: PENNY_LMSTUDIO_EMBED_MODEL,
+      semanticMemory,
+    });
   }
   if (req.method === 'POST' && url.pathname === '/api/penny/lmstudio/model') {
     try {
@@ -2284,26 +2420,53 @@ const server = http.createServer(async (req, res) => {
       if (!userText) return sendJson(res, 400, { error: 'Missing user message content.' });
       const fileAttachment = sanitizeFileAttachment(payload.file || null);
       const promptUserText = appendAttachmentContext(userText, fileAttachment);
+      const runtimeMemoryContext = await buildRuntimeMemoryContext({
+        sessionId,
+        memories,
+        userText,
+        lane: 'chat',
+      });
+      const promptMemories = runtimeMemoryContext.memories;
       const savedMemory = saveStoredMemory(sessionId, memories);
       if (!OPENCLAW_ENABLED) {
+        const fallbackText = buildPennyReply({ userText, memories: promptMemories });
+        scheduleArchiveConsolidation({
+          sessionId,
+          userText,
+          assistantText: fallbackText,
+          retrieval: runtimeMemoryContext.retrieval,
+        });
         return sendJson(res, 200, {
           ok: true,
           enabled: false,
           usedFallback: true,
-          text: buildPennyReply({ userText, memories }),
+          text: fallbackText,
           memory: savedMemory,
           meta: { backend: 'local-stable', shadowAvailable: false },
         });
       }
       try {
-        const text = await runOpenClawShadow({ sessionId, userText: promptUserText, messages, memories });
+        const text = await runOpenClawShadow({ sessionId, userText: promptUserText, messages, memories: promptMemories });
+        scheduleArchiveConsolidation({
+          sessionId,
+          userText,
+          assistantText: text,
+          retrieval: runtimeMemoryContext.retrieval,
+        });
         return sendJson(res, 200, { ok: true, enabled: true, usedFallback: false, text, memory: savedMemory, meta: { backend: 'openclaw-shadow', shadowAvailable: true } });
       } catch (error) {
+        const fallbackText = buildPennyReply({ userText, memories: promptMemories });
+        scheduleArchiveConsolidation({
+          sessionId,
+          userText,
+          assistantText: fallbackText,
+          retrieval: runtimeMemoryContext.retrieval,
+        });
         return sendJson(res, 200, {
           ok: true,
           enabled: true,
           usedFallback: true,
-          text: buildPennyReply({ userText, memories }),
+          text: fallbackText,
           memory: savedMemory,
           meta: { backend: 'local-stable', shadowAvailable: true, shadowError: error.message },
         });
@@ -2328,13 +2491,30 @@ const server = http.createServer(async (req, res) => {
       const fileAttachment = sanitizeFileAttachment(payload.file || null);
       const promptUserText = appendAttachmentContext(userText, fileAttachment);
       const wantsStream = payload.stream === true || url.searchParams.get('stream') === '1';
+      const requestedMode = memories?.brainMode === 'shadow' ? 'shadow' : 'local';
+      const laneSelection = requestedMode === 'local'
+        ? selectLocalLane({ userText, image, file: fileAttachment })
+        : { localLane: 'chat', directIntent: null };
+      const runtimeMemoryContext = (requestedMode === 'shadow' || laneSelection.localLane === 'chat')
+        ? await buildRuntimeMemoryContext({
+            sessionId,
+            memories,
+            userText,
+            lane: 'chat',
+          })
+        : {
+            memories,
+            archiveContext: null,
+            retrieval: null,
+            semanticMemory: null,
+          };
+      const promptMemories = runtimeMemoryContext.memories;
 
       saveStoredMemory(sessionId, memories);
       sessionState.turns += 1;
       sessionState.memory.push({ role: 'user', content: userText, ts: Date.now() });
       if (sessionState.memory.length > 12) sessionState.memory = sessionState.memory.slice(-12);
 
-      const requestedMode = memories?.brainMode === 'shadow' ? 'shadow' : 'local';
       let text;
       let backend = 'local-lmstudio';
       let usedFallback = false;
@@ -2344,6 +2524,8 @@ const server = http.createServer(async (req, res) => {
       let requestedModel = '';
       let resolvedModel = '';
       let laneFallback = false;
+      const semanticMemoryReady = runtimeMemoryContext.semanticMemory?.ready === true;
+      const semanticMemoryMode = runtimeMemoryContext.semanticMemory?.mode || 'disabled';
 
       if (wantsStream) {
         beginEventStream(res);
@@ -2365,18 +2547,20 @@ const server = http.createServer(async (req, res) => {
               ? await runLmStudioLocalSmart({
                   userText,
                   messages,
-                  memories,
+                  memories: promptMemories,
                   image,
                   file: fileAttachment,
                   abortSignal: clientAbortController.signal,
+                  laneSelection,
                 })
               : await streamLmStudioLocalSmart({
                   userText,
                   messages,
-                  memories,
+                  memories: promptMemories,
                   image,
                   file: fileAttachment,
                   abortSignal: clientAbortController.signal,
+                  laneSelection,
                   onEvent: (evt) => {
                     if (clientClosed) return;
                     if (evt?.type === 'message.delta') {
@@ -2407,7 +2591,7 @@ const server = http.createServer(async (req, res) => {
             });
             return res.end();
           } else {
-            text = await runOpenClawShadow({ sessionId, userText: promptUserText, messages, memories });
+            text = await runOpenClawShadow({ sessionId, userText: promptUserText, messages, memories: promptMemories });
             backend = 'openclaw-shadow';
           }
 
@@ -2424,6 +2608,14 @@ const server = http.createServer(async (req, res) => {
           if (sessionState.memory.length > 12) sessionState.memory = sessionState.memory.slice(-12);
 
           const savedMemory = saveStoredMemory(sessionId, memories);
+          if (requestedMode === 'shadow' || localLane === 'chat') {
+            scheduleArchiveConsolidation({
+              sessionId,
+              userText,
+              assistantText: text,
+              retrieval: runtimeMemoryContext.retrieval,
+            });
+          }
           if (!clientClosed) {
             sendEventStream(res, 'done', {
               text,
@@ -2440,6 +2632,8 @@ const server = http.createServer(async (req, res) => {
                 requestedModel,
                 resolvedModel,
                 laneFallback,
+                semanticMemoryReady,
+                semanticMemoryMode,
                 toolsUsed,
                 ...(shadowError ? { shadowError } : {}),
               },
@@ -2488,10 +2682,11 @@ const server = http.createServer(async (req, res) => {
             const result = await runLmStudioLocalSmart({
               userText,
               messages,
-              memories,
+              memories: promptMemories,
               image,
               file: fileAttachment,
               abortSignal: clientAbortController.signal,
+              laneSelection,
             });
             if (clientClosed) return;
             text = result.text;
@@ -2537,7 +2732,7 @@ const server = http.createServer(async (req, res) => {
               sessionId,
               userText: promptUserText,
               messages,
-              memories,
+              memories: promptMemories,
               abortSignal: clientAbortController.signal,
             });
             if (clientClosed) return;
@@ -2567,6 +2762,14 @@ const server = http.createServer(async (req, res) => {
       if (sessionState.memory.length > 12) sessionState.memory = sessionState.memory.slice(-12);
 
       const savedMemory = saveStoredMemory(sessionId, memories);
+      if (requestedMode === 'shadow' || localLane === 'chat') {
+        scheduleArchiveConsolidation({
+          sessionId,
+          userText,
+          assistantText: text,
+          retrieval: runtimeMemoryContext.retrieval,
+        });
+      }
       return sendJson(res, 200, {
         text,
         memory: savedMemory,
@@ -2582,6 +2785,8 @@ const server = http.createServer(async (req, res) => {
           requestedModel,
           resolvedModel,
           laneFallback,
+          semanticMemoryReady,
+          semanticMemoryMode,
           toolsUsed,
           ...(shadowError ? { shadowError } : {}),
         },
@@ -2592,7 +2797,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'GET' && (url.pathname === '/api/penny/status' || url.pathname === '/api/companion/status')) {
     const lmStudio = await getLmStudioConnectionStatusApi({ force: true });
-    return sendJson(res, 200, { ok: true, name: 'Penny', turns: sessionState.turns, mood: sessionState.lastMood, backend: 'local-lmstudio', memoryEntries: sessionState.memory.length, durableMemoryFile: MEMORY_FILE, shadowEnabled: OPENCLAW_ENABLED, webSearchEnabled: WEB_SEARCH_ENABLED, lmStudioBase: LMSTUDIO_BASE, lmStudioNativeBase: LMSTUDIO_NATIVE_BASE, lmStudioModel: LMSTUDIO_MODEL, localLlmTransport: LOCAL_LLM_TRANSPORT, responsesChatFallback: RESPONSES_THEN_CHAT_FALLBACK, maxOutputTokens: LMSTUDIO_MAX_OUTPUT_TOKENS, lmStudio });
+    const semanticMemory = await getSemanticMemoryStatusApi({ force: true, lmStatus: lmStudio });
+    return sendJson(res, 200, { ok: true, name: 'Penny', turns: sessionState.turns, mood: sessionState.lastMood, backend: 'local-lmstudio', memoryEntries: sessionState.memory.length, durableMemoryFile: MEMORY_FILE, memoryArchiveFile: MEMORY_ARCHIVE_FILE, memoryEmbeddingsFile: MEMORY_EMBEDDINGS_FILE, shadowEnabled: OPENCLAW_ENABLED, webSearchEnabled: WEB_SEARCH_ENABLED, lmStudioBase: LMSTUDIO_BASE, lmStudioNativeBase: LMSTUDIO_NATIVE_BASE, lmStudioModel: LMSTUDIO_MODEL, localLlmTransport: LOCAL_LLM_TRANSPORT, responsesChatFallback: RESPONSES_THEN_CHAT_FALLBACK, maxOutputTokens: LMSTUDIO_MAX_OUTPUT_TOKENS, semanticMemory, lmStudio });
   }
   let targetPath = url.pathname === '/' ? '/index.html' : url.pathname; const normalizedPath = path.normalize(targetPath).replace(/^([.][.][/\\])+/, ''); const filePath = path.join(PUBLIC_DIR, normalizedPath); if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Forbidden'); return; } serveFile(res, filePath);
 });

@@ -42,6 +42,7 @@ const state = {
   turns: 0,
   backendStatus: null,
   memory: structuredClone(DEFAULT_MEMORY),
+  memoryInspector: null,
 };
 
 const els = {
@@ -88,6 +89,36 @@ const els = {
   filePreviewRemove: document.getElementById('filePreviewRemove'),
   composerNotice: document.getElementById('composerNotice'),
 };
+
+function ensureMemoryInspectorUi() {
+  if (els.memoryInspectorPanel) return;
+  const host = els.memoryList?.parentElement;
+  if (!host) return;
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'memory-toolbar';
+  toolbar.innerHTML = `
+    <div>
+      <div class="section-label">Hybrid memory inspector</div>
+      <div class="memory-toolbar-note">
+        Explicit facts stay canonical. Archive recall, summaries, patterns, and review items live here.
+      </div>
+    </div>
+    <div class="memory-toolbar-actions">
+      <button id="refreshMemoryInspector" class="secondary-btn tiny" type="button">Refresh inspector</button>
+      <button id="purgeSessionArchive" class="secondary-btn tiny danger" type="button">Clear session archive</button>
+      <button id="purgeGlobalArchive" class="secondary-btn tiny danger" type="button">Clear archive</button>
+      <button id="purgeEmbeddings" class="secondary-btn tiny danger" type="button">Clear embeddings</button>
+    </div>
+  `;
+  const panel = document.createElement('div');
+  panel.id = 'memoryInspectorPanel';
+  panel.className = 'list-block empty';
+  panel.textContent = 'Inspector data will appear here once Penny has a chat to archive.';
+  host.append(toolbar, panel);
+  els.memoryInspectorToolbar = toolbar;
+  els.memoryInspectorPanel = panel;
+}
 function setComposerNotice(text = '', tone = 'muted') {
   if (!els.composerNotice) return;
   els.composerNotice.textContent = text;
@@ -696,6 +727,7 @@ async function readPennyEventStream(response, handlers = {}) {
 }
 
 function renderMemory() {
+  ensureMemoryInspectorUi();
   const memories = state.memory.memories || [];
   if (els.memoryList) {
     els.memoryList.className = `list-block${memories.length ? '' : ' empty'}`;
@@ -703,9 +735,79 @@ function renderMemory() {
       ? memories.map((item, index) => `<div class="list-item memory-item"><div class="memory-copy">${escapeHtml(item.text)}<small>${escapeHtml(item.kind || 'memory')}</small></div><button class="memory-remove" data-kind="memory" data-index="${index}" type="button">x</button></div>`).join('')
       : 'Nothing stored yet. Penny will start picking things up as you talk.';
   }
+  if (els.clearAllMemories) els.clearAllMemories.textContent = 'Clear explicit facts';
   if (els.nameInput) els.nameInput.value = state.memory.userName || '';
   if (els.voiceToggle) els.voiceToggle.checked = !!state.memory.voiceOn;
+  renderMemoryInspector();
   updateBrainModeUi();
+}
+
+function renderMemoryInspector() {
+  ensureMemoryInspectorUi();
+  if (!els.memoryInspectorPanel) return;
+  const inspector = state.memoryInspector;
+  if (!inspector) {
+    els.memoryInspectorPanel.className = 'list-block empty';
+    els.memoryInspectorPanel.textContent = 'Inspector data will appear here once Penny has a chat to archive.';
+    return;
+  }
+  const explicit = inspector.explicit || {};
+  const session = inspector.archive?.session || {};
+  const global = inspector.archive?.global || {};
+  const semantic = inspector.embeddings?.semanticMemory || {};
+  const retrieval = session.lastRetrieval || { session: [], global: [] };
+  const queue = Array.isArray(global.promotionQueue) ? global.promotionQueue : [];
+
+  const renderItems = (items = [], emptyText = 'None right now.') => {
+    if (!items.length) return `<div class="list-item"><div class="memory-copy">${escapeHtml(emptyText)}</div></div>`;
+    return items.map((item) => `
+      <div class="list-item memory-item">
+        <div class="memory-copy">
+          ${escapeHtml(item.text || item.excerpt || '')}
+          <small>${escapeHtml(item.sourceType || item.type || 'memory')} · ${escapeHtml(item.sensitivity || 'normal')}</small>
+        </div>
+      </div>
+    `).join('');
+  };
+
+  const renderQueue = () => {
+    if (!queue.length) return `<div class="list-item"><div class="memory-copy">Promotion queue is empty.</div></div>`;
+    return queue.map((item) => `
+      <div class="list-item memory-item">
+        <div class="memory-copy">
+          ${escapeHtml(item.text || '')}
+          <small>evidence ${escapeHtml(String(item.evidenceCount || 0))} · confidence ${escapeHtml(String(Math.round((item.confidence || 0) * 100)))}%</small>
+        </div>
+        <div class="memory-toolbar-actions">
+          <button class="secondary-btn tiny" type="button" data-review-action="approve" data-review-id="${escapeHtml(item.id || '')}">Approve</button>
+          <button class="secondary-btn tiny danger" type="button" data-review-action="reject" data-review-id="${escapeHtml(item.id || '')}">Reject</button>
+        </div>
+      </div>
+    `).join('');
+  };
+
+  els.memoryInspectorPanel.className = 'list-block';
+  els.memoryInspectorPanel.innerHTML = `
+    <div class="list-item">
+      <div class="memory-copy">
+        Semantic memory is <strong>${escapeHtml(semantic.ready ? 'active' : 'fallback')}</strong>.
+        <small>${escapeHtml(semantic.configuredModel || 'no embedding model configured')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Explicit facts: ${escapeHtml(String(explicit.count || 0))} · Session archive: ${escapeHtml(String(session.episodeCount || 0))} episodes · Global patterns: ${escapeHtml(String(global.patternCount || 0))}
+      </div>
+    </div>
+    <div class="section-label" style="margin-top:12px;">Last retrieval for Penny's reply</div>
+    ${renderItems([...(retrieval.session || []), ...(retrieval.global || [])], 'No archive memories were used on the last reply.')}
+    <div class="section-label" style="margin-top:12px;">Session archive</div>
+    ${renderItems(session.recentEpisodes || [], 'No archived session episodes yet.')}
+    <div class="section-label" style="margin-top:12px;">Longer-term summaries and patterns</div>
+    ${renderItems([...(global.summaries || []), ...(global.patterns || [])], 'No global summaries or patterns yet.')}
+    <div class="section-label" style="margin-top:12px;">Promotion queue</div>
+    ${renderQueue()}
+  `;
 }
 
 function saveState() {
@@ -740,6 +842,9 @@ function switchPanel(panel) {
   state.panel = panel;
   for (const tab of els.tabs) tab.classList.toggle('active', tab.dataset.panel === panel);
   for (const view of els.views) view.classList.toggle('active', view.dataset.view === panel);
+  if (panel === 'memory') {
+    loadMemoryInspector({ quiet: true });
+  }
   if (panel === 'settings') {
     loadBackendStatus();
     loadAvailableModels();
@@ -775,11 +880,56 @@ async function memoryRequest(method, body, query = '') {
   return res.json();
 }
 
+async function memoryInspectorRequest(pathname, method = 'GET', body = null) {
+  const res = await fetch(pathname, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`Memory inspector request failed: ${res.status}`);
+  return res.json();
+}
+
+async function loadMemoryInspector(options = {}) {
+  ensureMemoryInspectorUi();
+  try {
+    const data = await memoryInspectorRequest(`/api/penny/memory/inspector?sessionId=${encodeURIComponent(state.memory.sessionId)}`);
+    state.memoryInspector = data.inspector || null;
+    renderMemoryInspector();
+  } catch (error) {
+    if (!options.quiet) reportMemoryIssue('inspector load failed', error);
+  }
+}
+
+async function reviewMemoryPromotion(queueId, action) {
+  const data = await memoryInspectorRequest('/api/penny/memory/review', 'POST', {
+    sessionId: state.memory.sessionId,
+    queueId,
+    action,
+  });
+  applyMemory(data.memory);
+  state.memoryInspector = data.inspector || state.memoryInspector;
+  renderMemory();
+  saveState();
+}
+
+async function purgeMemoryScopes(payload = {}) {
+  const data = await memoryInspectorRequest('/api/penny/memory/purge', 'POST', {
+    sessionId: state.memory.sessionId,
+    ...payload,
+  });
+  applyMemory(data.memory);
+  state.memoryInspector = data.inspector || state.memoryInspector;
+  renderMemory();
+  saveState();
+}
+
 async function syncMemoryToDisk() {
   state.syncingMemory = true; updateTheme();
   try {
     const data = await memoryRequest('POST', { sessionId: state.memory.sessionId, memory: buildChatMemoryPayload(state.memory) });
     applyMemory(data.memory); renderMemory(); saveState();
+    await loadMemoryInspector({ quiet: true });
   } catch (error) {
     reportMemoryIssue('sync failed', error);
   } finally { state.syncingMemory = false; updateTheme(); }
@@ -792,6 +942,7 @@ async function loadDurableMemory() {
     if (!res.ok) throw new Error('load failed');
     const data = await res.json();
     applyMemory(data.memory); renderMemory(); saveState();
+    await loadMemoryInspector({ quiet: true });
   } catch (error) {
     reportMemoryIssue('load failed', error);
   } finally { state.syncingMemory = false; updateTheme(); }
@@ -802,6 +953,7 @@ async function patchMemory(patch) {
   try {
     const data = await memoryRequest('PATCH', { sessionId: state.memory.sessionId, patch });
     applyMemory(data.memory); renderMemory(); saveState();
+    await loadMemoryInspector({ quiet: true });
   } catch (error) {
     reportMemoryIssue('patch failed', error);
   } finally { state.syncingMemory = false; updateTheme(); }
@@ -880,6 +1032,7 @@ async function consolidateMemory() {
     if (!res.ok) throw new Error('Consolidation failed');
     const data = await res.json();
     applyMemory(data.memory); renderMemory(); saveState();
+    await loadMemoryInspector({ quiet: true });
   } catch (error) {
     reportMemoryIssue('consolidation failed', error);
   } finally { state.consolidating = false; updateTheme(); }
@@ -972,6 +1125,7 @@ async function sendMessage() {
       state.messages.push({ role: 'assistant', content: parsed.text, mood: parsed.mood, toolsUsed: Array.isArray(finalData.meta?.toolsUsed) ? finalData.meta.toolsUsed : [] });
     }
     state.mood = parsed.mood; state.presence = 'present'; state.turns = finalData.meta?.turns || state.turns + 1; applyMemory(finalData.memory); maybeSpeak(parsed.text); updateBrainModeUi(finalData.meta || null);
+    window.setTimeout(() => { loadMemoryInspector({ quiet: true }); }, 150);
   } catch (error) {
     const prefix = state.memory.brainMode === 'shadow'
       ? 'Shadow brain did not return a reply.'
@@ -991,6 +1145,7 @@ async function sendMessage() {
   }
 }
 
+ensureMemoryInspectorUi();
 for (const tab of els.tabs) tab.addEventListener('click', () => switchPanel(tab.dataset.panel));
 els.send.addEventListener('click', sendMessage);
 
@@ -1097,6 +1252,38 @@ els.brainModeLocal?.addEventListener('change', async () => {
 });
 els.refreshMemory.addEventListener('click', loadDurableMemory);
 els.clearAllMemories?.addEventListener('click', async () => { await patchMemory({ memories: [] }); });
+els.memoryInspectorToolbar?.addEventListener('click', async (event) => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  try {
+    if (button.id === 'refreshMemoryInspector') {
+      await loadMemoryInspector();
+      return;
+    }
+    if (button.id === 'purgeSessionArchive') {
+      await purgeMemoryScopes({ clearSessionArchive: true });
+      return;
+    }
+    if (button.id === 'purgeGlobalArchive') {
+      await purgeMemoryScopes({ clearGlobalArchive: true });
+      return;
+    }
+    if (button.id === 'purgeEmbeddings') {
+      await purgeMemoryScopes({ clearEmbeddings: true });
+    }
+  } catch (error) {
+    reportMemoryIssue('inspector purge failed', error);
+  }
+});
+els.memoryInspectorPanel?.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-review-action]');
+  if (!button) return;
+  try {
+    await reviewMemoryPromotion(button.dataset.reviewId, button.dataset.reviewAction);
+  } catch (error) {
+    reportMemoryIssue('memory review failed', error);
+  }
+});
 els.memoryList?.addEventListener('click', async (event) => {
   const button = event.target.closest('.memory-remove'); if (!button || button.dataset.kind !== 'memory') return;
   const index = Number(button.dataset.index); const memories = [...(state.memory.memories || [])]; memories.splice(index, 1); await patchMemory({ memories });

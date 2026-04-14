@@ -75,10 +75,12 @@ Normal chat flow:
 3. Backend merges browser memory settings with durable disk memory
 4. Backend chooses `brainMode`
 5. For local mode, backend selects `chat` vs `tool` lane
-6. The selected lane resolves its preferred model and transport family
-7. Reply comes back with a visible text response plus a hidden mood tag
-8. Frontend parses the mood tag and updates Penny's visual state
-9. Durable memory is written back to `data/penny-memory.json`
+6. For chat-like turns, backend retrieves a bounded archive context from the hybrid memory layer
+7. The selected lane resolves its preferred model and transport family
+8. Reply comes back with a visible text response plus a hidden mood tag
+9. Frontend parses the mood tag and updates Penny's visual state
+10. Canonical explicit memory is written back to `data/penny-memory.json`
+11. Archive consolidation runs after successful turns and writes episodic/derived memory to `data/penny-memory-archive.json`
 
 ## Backend subsystems
 
@@ -104,9 +106,9 @@ If you need the older canon/source stack that informed the runtime blend, start 
 
 ### 2. Durable memory
 
-Durable memory is stored in a local runtime file at `data/penny-memory.json`, seeded from tracked `data/penny-memory.seed.json` when missing.
+Canonical explicit memory is stored in a local runtime file at `data/penny-memory.json`, seeded from tracked `data/penny-memory.seed.json` when missing.
 
-The memory model currently tracks:
+The explicit memory model currently tracks:
 
 - `sessionId`
 - `userName`
@@ -122,6 +124,20 @@ Important behavior:
 - server merges browser settings with disk-backed state
 - memory selection for prompts is relevance-scored, not full-dump
 - obvious test sessions are purged on server startup
+
+Hybrid archive overlay:
+
+- `data/penny-memory-archive.json`
+  - global episodes, summaries, patterns, and promotion queue
+  - session buckets with episodic history, summaries, open loops, and last retrieval provenance
+- `data/penny-memory-embeddings.json`
+  - embedding cache used for semantic archive retrieval when a local embed model is available
+
+Important trust boundary:
+
+- explicit memory remains canonical
+- archive-derived summaries/patterns do not auto-overwrite `memories[]`
+- promotion into stronger explicit memory requires inspector review
 
 ### 3. LM Studio transport layer
 
@@ -209,6 +225,9 @@ Current important endpoints:
 - `GET /api/penny/status`
 - `GET /api/penny/memory`
 - `POST /api/penny/memory`
+- `GET /api/penny/memory/inspector`
+- `POST /api/penny/memory/review`
+- `POST /api/penny/memory/purge`
 - `POST /api/penny/consolidate`
 - `GET /api/penny/lmstudio/status`
 - `POST /api/penny/lmstudio/model`
@@ -227,13 +246,13 @@ Current split:
 - `public/app.js`
   tiny module bootstrap
 - `public/js/penny-app.js`
-  main SPA orchestration
+  main SPA orchestration, memory inspector rendering, and review/purge controls
 - `public/js/penny-lmstudio-ui.js`
   LM Studio diagnostics/model UI helpers
 - `public/js/penny-attachments.js`
   image/file attachment prep and preview handling
 - `public/js/penny-storage.js`
-  local browser persistence/session helpers
+  local browser persistence/session helpers; archive inspector data stays server-side
 
 Main remaining responsibilities in `public/js/penny-app.js`:
 
@@ -260,6 +279,10 @@ Reasserts the LM Studio preset/default state Penny expects.
 Shared LM Studio preparation flow used by startup, preflight, QA, and eval scripts.
 - `scripts/penny-preflight.js`
 Cheap local environment and LM Studio readiness checks.
+- `PENNY_LMSTUDIO_EMBED_MODEL`
+Soft-dependency embedding model for semantic memory. If it is missing or unloaded, Penny falls back to keyword retrieval instead of failing chat.
+- In-app local embedding backend
+Considered and intentionally deferred for a later cycle. This branch uses LM Studio embeddings only.
 - `scripts/penny-wait-ready.js`
 Readiness poller used by the durable launcher and tests.
 - `scripts/eval-penny-models.js`
