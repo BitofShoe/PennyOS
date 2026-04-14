@@ -3,6 +3,7 @@
 Date: 2026-04-12
 
 Thread reviewed:
+
 - Reddit: [How do you stop codebase from degenerating into an un-maintainable AI-slop mess?](https://www.reddit.com/r/LocalLLaMA/comments/1sjbvm7/how_do_you_stop_codebase_from_degenerating_into/)
 
 ## What the thread mostly converged on
@@ -38,9 +39,9 @@ The `penny-voice/` folder is basically the thread's "document first, compress co
 
 Files that show this clearly:
 
-- [`penny-voice/README.md`](./penny-voice/README.md)
-- [`penny-voice/canon-sources.md`](./penny-voice/canon-sources.md)
-- [`penny-voice/runtime/penny-operational-blend.md`](./penny-voice/runtime/penny-operational-blend.md)
+- `[penny-voice/README.md](./penny-voice/README.md)`
+- `[penny-voice/canon-sources.md](./penny-voice/canon-sources.md)`
+- `[penny-voice/runtime/penny-operational-blend.md](./penny-voice/runtime/penny-operational-blend.md)`
 
 This is worth copying as a pattern for backend/runtime architecture too, not just voice.
 
@@ -48,10 +49,10 @@ This is worth copying as a pattern for backend/runtime architecture too, not jus
 
 There is real evidence of intentional QA and comparison work:
 
-- [`scripts/eval-penny-models.js`](./scripts/eval-penny-models.js)
-- [`PENNY_MODEL_EVAL.md`](./PENNY_MODEL_EVAL.md)
-- [`OPENCLAW_SHADOW_EVAL.md`](./OPENCLAW_SHADOW_EVAL.md)
-- UI QA scripts like [`qa-mood-audit.mjs`](./qa-mood-audit.mjs) and [`qa-composer-round.mjs`](./qa-composer-round.mjs)
+- `[scripts/eval-penny-models.js](./scripts/eval-penny-models.js)`
+- `[PENNY_MODEL_EVAL.md](./PENNY_MODEL_EVAL.md)`
+- `[OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)`
+- UI QA scripts like `[qa-mood-audit.mjs](./qa-mood-audit.mjs)` and `[qa-composer-round.mjs](./qa-composer-round.mjs)`
 
 That lines up with the thread's repeated advice to test, compare, and review instead of blindly trusting the model.
 
@@ -68,7 +69,7 @@ That is exactly the kind of boundary-setting the thread was recommending.
 
 ### 4. The current skepticism about OpenClaw is justified
 
-One thread comment explicitly called out OpenClaw-style on-the-fly generated app behavior as a bad idea. That is not proof by itself, but it matches this repo's own conclusion in [`OPENCLAW_SHADOW_EVAL.md`](./OPENCLAW_SHADOW_EVAL.md): keep shadow parked unless it gives Penny a real browser/PC/agentic capability win.
+One thread comment explicitly called out OpenClaw-style on-the-fly generated app behavior as a bad idea. That is not proof by itself, but it matches this repo's own conclusion in `[OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)`: keep shadow parked unless it gives Penny a real browser/PC/agentic capability win.
 
 For this project, that advice absolutely applies.
 
@@ -86,7 +87,7 @@ One of the better comments in the thread suggested creating architecture docs fo
 
 There is also a telling comparison point:
 
-- [`checkpoints/good-enough-penny-2026-04-08/server.js`](./checkpoints/good-enough-penny-2026-04-08/server.js) is only 455 lines
+- `[checkpoints/good-enough-penny-2026-04-08/server.js](./checkpoints/good-enough-penny-2026-04-08/server.js)` is only 455 lines
 
 So the current shape is not just "big because the product is big." It also reflects rapid feature accretion into one file.
 
@@ -164,7 +165,7 @@ It should describe:
 
 ### High priority
 
-2. Create `CODEBASE.md`.
+1. Create `CODEBASE.md`.
 
 Keep it short and practical:
 
@@ -177,7 +178,7 @@ This is one of the most directly useful thread suggestions for this repo.
 
 ### High priority
 
-3. Split `server.js` by responsibility before adding many more features.
+1. Split `server.js` by responsibility before adding many more features.
 
 A sensible first split would be:
 
@@ -195,7 +196,7 @@ I would not do a giant rewrite. I would peel off one coherent slice at a time an
 
 ### High priority
 
-4. Add unit tests for the non-UI brains.
+1. Add unit tests for the non-UI brains.
 
 Start with:
 
@@ -209,7 +210,7 @@ Those are precisely the sort of rules that quietly rot if only exercised through
 
 ### Medium priority
 
-5. Add a style/contract layer.
+1. Add a style/contract layer.
 
 This can be lightweight:
 
@@ -222,7 +223,7 @@ The thread was right that shared rules matter because otherwise each AI pass inv
 
 ### Medium priority
 
-6. Fence off eval artifacts more clearly.
+1. Fence off eval artifacts more clearly.
 
 Ideas:
 
@@ -233,7 +234,7 @@ Ideas:
 
 ### Medium priority
 
-7. Keep leaning into deterministic routes for common coding/help requests.
+1. Keep leaning into deterministic routes for common coding/help requests.
 
 This repo is already strongest when it:
 
