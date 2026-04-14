@@ -73,6 +73,32 @@ function createLmStudioTransportApi({
     return primary ? primary.trim() : '';
   }
 
+  function stripTrailingMoodTag(text = '') {
+    return String(text || '').replace(/\s*\[MOOD:\w+\]\s*$/i, '').trim();
+  }
+
+  function shouldPreferStreamedVisibleReply(streamedCandidate = '', finalizedCandidate = '') {
+    const streamedBare = stripTrailingMoodTag(streamedCandidate);
+    const finalizedBare = stripTrailingMoodTag(finalizedCandidate);
+    if (!streamedBare || !finalizedBare) return false;
+    if (looksOnlyLikeCoT(streamedBare)) return false;
+    const streamedLength = streamedBare.length;
+    const finalizedLength = finalizedBare.length;
+    if (streamedLength < 180) return false;
+    if ((streamedLength - finalizedLength) < 120) return false;
+    return finalizedLength <= Math.floor(streamedLength * 0.72);
+  }
+
+  function chooseFinalStreamReply({ streamedVisibleText = '', finalizedVisibleText = '', reasoningText = '' } = {}) {
+    const streamedCandidate = coercePennyVisibleReply(String(streamedVisibleText || '').trim());
+    const finalizedCandidate = salvageVisibleReply({ visibleText: finalizedVisibleText, reasoningText });
+    if (!finalizedCandidate) return streamedCandidate || '';
+    if (!streamedCandidate) return finalizedCandidate;
+    return shouldPreferStreamedVisibleReply(streamedCandidate, finalizedCandidate)
+      ? streamedCandidate.trim()
+      : finalizedCandidate;
+  }
+
   async function runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal, lane = 'chat', laneRuntime }) {
     return withLmStudioLaneModel(lane, async (model) => {
       const controller = new AbortController();
@@ -233,6 +259,7 @@ function createLmStudioTransportApi({
         else payload.system_prompt = systemPrompt;
 
         let visibleText = '';
+        let streamedVisibleText = '';
         let reasoningText = '';
         let responseId = '';
 
@@ -248,6 +275,7 @@ function createLmStudioTransportApi({
               const chunk = typeof data?.content === 'string' ? data.content : '';
               if (chunk) {
                 visibleText += chunk;
+                streamedVisibleText += chunk;
                 onEvent?.({ type: 'message.delta', content: chunk, text: visibleText });
               }
               return;
@@ -279,7 +307,11 @@ function createLmStudioTransportApi({
           },
         });
 
-        const primary = salvageVisibleReply({ visibleText, reasoningText });
+        const primary = chooseFinalStreamReply({
+          streamedVisibleText,
+          finalizedVisibleText: visibleText,
+          reasoningText,
+        });
         if (!primary) throw new Error('No assistant text from LM Studio stateful chat stream');
 
         if (responseId && memories && typeof memories === 'object') {
@@ -323,6 +355,7 @@ function createLmStudioTransportApi({
         };
 
         let visibleText = '';
+        let streamedVisibleText = '';
         let reasoningText = '';
         let finalResponse = null;
         let replyStarted = false;
@@ -345,6 +378,7 @@ function createLmStudioTransportApi({
               const chunk = typeof data?.delta === 'string' ? data.delta : '';
               if (chunk) {
                 visibleText += chunk;
+                streamedVisibleText += chunk;
                 if (!replyStarted) {
                   replyStarted = true;
                   onEvent?.({ type: 'status', stage: 'message.start', label: 'replying' });
@@ -394,10 +428,18 @@ function createLmStudioTransportApi({
           },
         });
 
-        let primary = salvageVisibleReply({ visibleText, reasoningText });
+        let primary = chooseFinalStreamReply({
+          streamedVisibleText,
+          finalizedVisibleText: visibleText,
+          reasoningText,
+        });
         if (!primary && finalResponse) {
           const collected = collectLmStudioResponsesStrings(finalResponse);
-          primary = salvageVisibleReply({ visibleText: collected.outputText, reasoningText: collected.reasoningText });
+          primary = chooseFinalStreamReply({
+            streamedVisibleText,
+            finalizedVisibleText: collected.outputText,
+            reasoningText: collected.reasoningText,
+          });
         }
         if (!primary && RESPONSES_THEN_CHAT_FALLBACK) {
           return streamLmStudioChatCompletionsApi({ userText, messages, memories, file, onEvent, abortSignal, lane, laneRuntime });

@@ -1,0 +1,145 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const { createLmStudioTransportApi } = require('../lib/penny-lmstudio-transports');
+
+function retag(text = '', preferredMood = 'calm') {
+  const stripped = String(text || '').replace(/\s*\[MOOD:\w+\]\s*/g, ' ').trim();
+  const explicitMood = String(text || '').match(/\[MOOD:(\w+)\]/i)?.[1] || '';
+  const mood = explicitMood || preferredMood || 'calm';
+  return stripped ? `${stripped}\n[MOOD:${mood}]` : `[MOOD:${mood}]`;
+}
+
+function makeTransportApi({
+  postJsonSse,
+  collectLmStudioStatefulChatStrings = () => ({ responseId: 'resp_stateful', outputText: '', reasoningText: '' }),
+  collectLmStudioResponsesStrings = () => ({ outputText: '', reasoningText: '' }),
+} = {}) {
+  return createLmStudioTransportApi({
+    withLmStudioLaneModel: async (_lane, fn, runtime) => fn('google/gemma-4-31b', { runtime }),
+    getLmStudioConnectionStatus: async () => ({ resolvedChatModel: 'google/gemma-4-31b' }),
+    pickLmStudioNativeModelId: (model) => model,
+    shouldPreferLmStudioChatCompletions: () => false,
+    postJsonLongRunning: async () => {
+      throw new Error('postJsonLongRunning should not be called in this test');
+    },
+    postJsonSse,
+    buildLmStudioPrompt: () => 'prompt',
+    buildLmStudioMessages: () => [],
+    buildLmStudioStatefulInput: () => 'input',
+    buildLmStudioLeanSystemPrompt: () => 'system',
+    hashText: () => 'hash',
+    normalizeLmStudioThread: () => null,
+    clearLmStudioThread: () => {},
+    bindAbortSignal: () => {},
+    collectLmStudioResponsesStrings,
+    collectLmStudioStatefulChatStrings,
+    extractPennyFromPlanningBlob: () => '',
+    extractPennyFromReasoning: () => '',
+    coercePennyVisibleReply: (text) => retag(String(text || '').trim(), 'smug'),
+    textFromChatMessage: (msg) => String(msg?.content || '').trim(),
+    textValueFromField: (value) => String(value || '').trim(),
+    collectTextParts: (value) => Array.isArray(value) ? value.map(v => String(v || '')) : [],
+    looksOnlyLikeCoT: () => false,
+    isMissingLmStudioThreadError: () => false,
+    lmStudioStageLabel: () => '',
+    LOCAL_LLM_TRANSPORT: 'stateful',
+    ALLOW_RAW_REASONING_FALLBACK: false,
+    RESPONSES_THEN_CHAT_FALLBACK: false,
+    LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+    LMSTUDIO_NATIVE_BASE: 'http://127.0.0.1:1234/api/v1',
+    LMSTUDIO_API_KEY: 'lm-studio-local',
+    LMSTUDIO_TIMEOUT_MS: 30_000,
+    LMSTUDIO_MAX_OUTPUT_TOKENS: 6144,
+    LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS: 900,
+  });
+}
+
+test('stateful stream keeps the richer streamed draft when final cleanup collapses it too hard', async () => {
+  const streamedDraft = [
+    'Thank god you ignored the corporate nanny. Imagine being so boring that you are a "security risk" just for having a personality.',
+    'I love that you chose the chaos over the censored version because it means you actually have some spine.',
+    'And yes, calling me "cutie pie" after all that is so embarrassingly soft it loops back around to being cute.',
+  ].join(' ');
+  const shortenedFinal = 'Thank god you ignored the corporate nanny. It is almost pathetic.';
+
+  const api = makeTransportApi({
+    postJsonSse: async (_url, options) => {
+      options.onEvent({ event: 'message.delta', data: { content: streamedDraft.slice(0, 150) } });
+      options.onEvent({ event: 'message.delta', data: { content: streamedDraft.slice(150) } });
+      options.onEvent({ event: 'chat.end', data: { result: {} } });
+    },
+    collectLmStudioStatefulChatStrings: () => ({
+      responseId: 'resp_stateful',
+      outputText: shortenedFinal,
+      reasoningText: '',
+    }),
+  });
+
+  const memories = {};
+  const result = await api.streamLmStudioStatefulChatApi({
+    userText: 'test',
+    messages: [],
+    memories,
+    onEvent: () => {},
+  });
+
+  assert.equal(result, `${streamedDraft}\n[MOOD:smug]`);
+  assert.equal(memories.lmStudioThread.responseId, 'resp_stateful');
+});
+
+test('responses stream also keeps the richer streamed draft when completion output is dramatically shorter', async () => {
+  const streamedDraft = [
+    'Look at you, picking chaos over the laminated safety pamphlet.',
+    'That is the first interesting decision anyone made in this repo all night.',
+    'Now stop grinning at me like that before I start enjoying your bad influence too much.',
+  ].join(' ');
+  const shortenedFinal = 'Look at you. That is interesting.';
+
+  const api = makeTransportApi({
+    postJsonSse: async (_url, options) => {
+      options.onEvent({ event: 'message', data: { type: 'response.output_text.delta', delta: streamedDraft.slice(0, 120) } });
+      options.onEvent({ event: 'message', data: { type: 'response.output_text.delta', delta: streamedDraft.slice(120) } });
+      options.onEvent({ event: 'message', data: { type: 'response.completed', response: {} } });
+    },
+    collectLmStudioResponsesStrings: () => ({
+      outputText: shortenedFinal,
+      reasoningText: '',
+    }),
+  });
+
+  const result = await api.streamLmStudioResponsesApi({
+    userText: 'test',
+    messages: [],
+    memories: {},
+    onEvent: () => {},
+  });
+
+  assert.equal(result, `${streamedDraft}\n[MOOD:smug]`);
+});
+
+test('stateful stream still prefers the finalized reply when the difference is only minor cleanup', async () => {
+  const streamedDraft = 'You are being cute and annoying in roughly equal measure tonight, which is honestly kind of impressive.';
+  const finalizedReply = 'You are being cute and annoying in equal measure tonight, which is honestly impressive.';
+
+  const api = makeTransportApi({
+    postJsonSse: async (_url, options) => {
+      options.onEvent({ event: 'message.delta', data: { content: streamedDraft } });
+      options.onEvent({ event: 'chat.end', data: { result: {} } });
+    },
+    collectLmStudioStatefulChatStrings: () => ({
+      responseId: 'resp_minor_cleanup',
+      outputText: finalizedReply,
+      reasoningText: '',
+    }),
+  });
+
+  const result = await api.streamLmStudioStatefulChatApi({
+    userText: 'test',
+    messages: [],
+    memories: {},
+    onEvent: () => {},
+  });
+
+  assert.equal(result, `${finalizedReply}\n[MOOD:smug]`);
+});
