@@ -1259,7 +1259,7 @@ ${userText}
 
 End with exactly one mood tag on its own line:
 [MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised] or [MOOD:flirty] or [MOOD:smug] or [MOOD:annoyed]
-Pick the mood that BEST matches the vibe of your reply. Use variety — rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange. Most banter should be happy, smug, or excited.`;
+Pick the mood that BEST matches the vibe of your reply. Use variety — rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange.`;
 }
 
 async function runOpenClawShadow({ sessionId, userText, messages, memories, abortSignal }) {
@@ -1835,7 +1835,7 @@ Output rules:
 
 End your reply with exactly one mood tag on its own line:
 [MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised] or [MOOD:flirty] or [MOOD:smug] or [MOOD:annoyed]
-Pick the mood that BEST matches the vibe of your reply. Use variety - rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange. Most banter should be happy, smug, or excited.`;
+Pick the mood that BEST matches the vibe of your reply. Use variety - rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange.`;
 }
 
 function buildLmStudioSystemPrompt({ memories }) {
@@ -1984,7 +1984,7 @@ Just know them the way a close person would. Let it color your responses without
 
 End your reply with exactly one mood tag on its own line:
 [MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised] or [MOOD:flirty] or [MOOD:smug] or [MOOD:annoyed]
-Pick the mood that BEST matches the vibe of your reply. Use variety — rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange. Most banter should be happy, smug, or excited.`;
+Pick the mood that BEST matches the vibe of your reply. Use variety — rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange.`;
 }
 
 function buildLmStudioPrompt({ userText, messages, memories, file }) {
