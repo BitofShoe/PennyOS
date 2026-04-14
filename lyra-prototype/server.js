@@ -133,6 +133,8 @@ const PENNY_CHAT_HISTORY_LIMIT = Number(process.env.PENNY_CHAT_HISTORY_LIMIT || 
 const SEMANTIC_RENDER_MAX_TOOL_RECORDS = Number(process.env.PENNY_SEMANTIC_RENDER_MAX_TOOL_RECORDS || 8);
 /** Set to 1 only for debugging — surfaces chain-of-thought in the chat bubble */
 const ALLOW_RAW_REASONING_FALLBACK = process.env.PENNY_ALLOW_RAW_REASONING_FALLBACK === '1';
+const LOG_LMSTUDIO_REASONING = process.env.PENNY_LOG_LMSTUDIO_REASONING === '1';
+const LOG_LMSTUDIO_REASONING_MAX_CHARS = Number(process.env.PENNY_LOG_LMSTUDIO_REASONING_MAX_CHARS || 6000);
 /** When /v1/responses returns only reasoning_text (no output_text), retry with /v1/chat/completions */
 const RESPONSES_THEN_CHAT_FALLBACK = process.env.PENNY_RESPONSES_CHAT_FALLBACK !== '0';
 const MAX_REQUEST_BODY_BYTES = Number(process.env.PENNY_MAX_REQUEST_BODY_BYTES || 10 * 1024 * 1024);
@@ -225,6 +227,19 @@ const PENNY_CHAT_DIRECTIVES_FALLBACK = `
 
 function normalizePromptAssetText(text = '') {
   return String(text || '').replace(/\r\n/g, '\n').trim();
+}
+function trimReasoningForLog(text = '', limit = LOG_LMSTUDIO_REASONING_MAX_CHARS) {
+  const value = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!value) return '';
+  if (value.length <= limit) return value;
+  return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}...`;
+}
+function reportLmStudioReasoning({ transport = '', lane = 'chat', model = '', reasoningText = '' } = {}) {
+  if (!LOG_LMSTUDIO_REASONING) return;
+  const snippet = trimReasoningForLog(reasoningText, LOG_LMSTUDIO_REASONING_MAX_CHARS);
+  if (!snippet) return;
+  console.log(`[PENNY_REASONING lane=${lane} transport=${transport || 'unknown'} model=${model || 'unknown'}]`);
+  console.log(snippet);
 }
 function readPromptAsset(relativeOrAbsolutePath, fallback = '') {
   const assetPath = path.isAbsolute(relativeOrAbsolutePath)
@@ -2140,6 +2155,7 @@ const lmStudioTransportApi = createLmStudioTransportApi({
   LMSTUDIO_TIMEOUT_MS,
   LMSTUDIO_MAX_OUTPUT_TOKENS,
   LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
+  reportLmStudioReasoning,
 });
 const {
   runLmStudioLocal: runLmStudioLocalApi,

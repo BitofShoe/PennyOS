@@ -33,6 +33,7 @@ function createLmStudioTransportApi({
   LMSTUDIO_TIMEOUT_MS,
   LMSTUDIO_MAX_OUTPUT_TOKENS,
   LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
+  reportLmStudioReasoning,
 } = {}) {
   if (typeof withLmStudioLaneModel !== 'function') throw new TypeError('createLmStudioTransportApi requires withLmStudioLaneModel');
   if (typeof getLmStudioConnectionStatus !== 'function') throw new TypeError('createLmStudioTransportApi requires getLmStudioConnectionStatus');
@@ -59,6 +60,14 @@ function createLmStudioTransportApi({
   if (typeof looksOnlyLikeCoT !== 'function') throw new TypeError('createLmStudioTransportApi requires looksOnlyLikeCoT');
   if (typeof isMissingLmStudioThreadError !== 'function') throw new TypeError('createLmStudioTransportApi requires isMissingLmStudioThreadError');
   if (typeof lmStudioStageLabel !== 'function') throw new TypeError('createLmStudioTransportApi requires lmStudioStageLabel');
+
+  function maybeReportReasoning({ transport = '', lane = 'chat', model = '', reasoningText = '' } = {}) {
+    const text = String(reasoningText || '').trim();
+    if (!text || typeof reportLmStudioReasoning !== 'function') return;
+    try {
+      reportLmStudioReasoning({ transport, lane, model, reasoningText: text });
+    } catch {}
+  }
 
   function salvageVisibleReply({ visibleText = '', reasoningText = '' } = {}) {
     let primary = coercePennyVisibleReply(String(visibleText || '').trim());
@@ -133,6 +142,7 @@ function createLmStudioTransportApi({
           throw new Error(`LM Studio responses: invalid JSON: ${bodyText.slice(0, 400)}`);
         }
         const { outputText, reasoningText } = collectLmStudioResponsesStrings(parsed);
+        maybeReportReasoning({ transport: 'responses', lane, model, reasoningText });
         const primary = salvageVisibleReply({ visibleText: outputText, reasoningText });
         if (!primary && RESPONSES_THEN_CHAT_FALLBACK) {
           return runLmStudioChatCompletionsApi({ userText, messages, memories, file, abortSignal, lane, laneRuntime });
@@ -200,6 +210,7 @@ function createLmStudioTransportApi({
         }
 
         const { responseId, outputText, reasoningText } = collectLmStudioStatefulChatStrings(parsed);
+        maybeReportReasoning({ transport: 'native-stateful', lane, model: nativeModel, reasoningText });
         const primary = salvageVisibleReply({ visibleText: outputText, reasoningText });
         if (!primary) {
           throw new Error(`No assistant text from LM Studio stateful chat: ${bodyText.slice(0, 800)}`);
@@ -312,6 +323,7 @@ function createLmStudioTransportApi({
           finalizedVisibleText: visibleText,
           reasoningText,
         });
+        maybeReportReasoning({ transport: 'native-stateful-stream', lane, model: nativeModel, reasoningText });
         if (!primary) throw new Error('No assistant text from LM Studio stateful chat stream');
 
         if (responseId && memories && typeof memories === 'object') {
@@ -433,6 +445,7 @@ function createLmStudioTransportApi({
           finalizedVisibleText: visibleText,
           reasoningText,
         });
+        maybeReportReasoning({ transport: 'responses-stream', lane, model, reasoningText });
         if (!primary && finalResponse) {
           const collected = collectLmStudioResponsesStrings(finalResponse);
           primary = chooseFinalStreamReply({
@@ -440,6 +453,7 @@ function createLmStudioTransportApi({
             finalizedVisibleText: collected.outputText,
             reasoningText: collected.reasoningText,
           });
+          maybeReportReasoning({ transport: 'responses-stream-final', lane, model, reasoningText: collected.reasoningText });
         }
         if (!primary && RESPONSES_THEN_CHAT_FALLBACK) {
           return streamLmStudioChatCompletionsApi({ userText, messages, memories, file, onEvent, abortSignal, lane, laneRuntime });
@@ -531,6 +545,7 @@ function createLmStudioTransportApi({
         });
 
         const primary = salvageVisibleReply({ visibleText, reasoningText });
+        maybeReportReasoning({ transport: 'chat-completions-stream', lane, model, reasoningText });
         if (!primary) throw new Error('No assistant text from chat/completions stream');
         clearLmStudioThread(memories);
         return primary;
@@ -577,6 +592,10 @@ function createLmStudioTransportApi({
           throw new Error(`LM Studio chat/completions: invalid JSON: ${bodyText.slice(0, 400)}`);
         }
         const msg = parsed?.choices?.[0]?.message;
+        const reasoningText = [
+          textValueFromField(msg?.reasoning_content, 'reasoning') || String(msg?.reasoning_content ?? '').trim(),
+          textValueFromField(msg?.reasoning, 'reasoning') || String(msg?.reasoning ?? '').trim(),
+        ].filter(Boolean).join('\n').trim();
         let text = textFromChatMessage(msg);
         if (!text) {
           const delta = parsed?.choices?.[0]?.delta;
@@ -584,6 +603,7 @@ function createLmStudioTransportApi({
             typeof delta === 'object' ? { content: delta?.content, reasoning_content: delta?.reasoning_content } : {},
           );
         }
+        maybeReportReasoning({ transport: 'chat-completions', lane, model, reasoningText });
         if (!text) throw new Error(`No assistant text from chat/completions: ${bodyText.slice(0, 800)}`);
         clearLmStudioThread(memories);
         return text.trim();

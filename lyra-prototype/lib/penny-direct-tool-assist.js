@@ -212,7 +212,15 @@ function createDirectToolAssistApi({
       (intent.name === 'read_project_file' || intent.name === 'read_project_file_around_match')
       && (shouldUseDirectReadReply(userText) || (intent.name === 'read_project_file_around_match' && intent.args?.query))
     ) {
-      return { text: composeDirectReadReply(result.data), toolsUsed, toolRecords, skipSemanticRender: true };
+      return {
+        text: composeDirectReadReply({
+          ...(result.data || {}),
+          questionType: intent.args?.questionType || result.data?.questionType || '',
+        }),
+        toolsUsed,
+        toolRecords,
+        skipSemanticRender: true,
+      };
     }
     if (intent.name === 'list_project_files') {
       return { text: composeDirectFileListReply(result.data), toolsUsed, toolRecords, skipSemanticRender: true };

@@ -93,6 +93,27 @@ test('resolveDirectToolIntent upgrades focused file questions into targeted read
   assert.equal(intent.args.query, 'attachments');
 });
 
+test('resolveDirectToolIntent upgrades natural line-definition questions into targeted reads', () => {
+  const intent = resolveDirectToolIntent('Without editing anything, tell me what line currently defines MEMORY_PROMPT_LIMIT in server.js.');
+  assert.ok(intent);
+  assert.equal(intent.name, 'read_project_file_around_match');
+  assert.equal(intent.args.path, 'server.js');
+  assert.equal(intent.args.query, 'MEMORY_PROMPT_LIMIT');
+  assert.equal(intent.args.questionType, 'definition');
+});
+
+test('composeDirectReadReply stays honest when a file only mentions a symbol instead of defining it', () => {
+  const text = composeDirectReadReply({
+    path: 'server.js',
+    query: 'MEMORY_PROMPT_LIMIT',
+    questionType: 'definition',
+    matchLine: 11,
+    excerpt: '11:  MEMORY_PROMPT_LIMIT,\n12:  mergeMemoryItems,',
+  });
+  assert.match(text, /does not appear to define MEMORY_PROMPT_LIMIT there/i);
+  assert.match(text, /supporting line 11/i);
+});
+
 test('resolveDirectToolIntent upgrades richer web requests into inspect_web_result', () => {
   const intent = resolveDirectToolIntent('Search the web for the official OpenClaw browser tool docs and tell me the page title, the URL, and one short sentence about what it is.');
   assert.ok(intent);

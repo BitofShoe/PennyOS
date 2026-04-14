@@ -219,6 +219,17 @@ function createDirectIntentApi({
     return editVerb && creativeCue;
   }
 
+  function classifyLineLevelFileQuestion(text = '') {
+    const lower = String(text || '').toLowerCase();
+    if (!lower) return '';
+    const mentionsLine = /\b(what line|which line|line number|where in)\b/.test(lower)
+      || (/\bline\b/.test(lower) && /\b(currently|right now|defines?|defined|sets?|declares?)\b/.test(lower))
+      || /\b(tell me|show me)\b[\s\S]{0,40}\bline\b/.test(lower);
+    if (!mentionsLine) return '';
+    if (/\b(defines?|defined|declares?|sets?)\b/.test(lower)) return 'definition';
+    return 'line';
+  }
+
   function shouldForceLocalToolLoop(text = '') {
     const explicitPath = extractExplicitProjectPath(text);
     return !!(explicitPath && looksLikeOpenEndedProjectEdit(text));
@@ -287,6 +298,20 @@ function createDirectIntentApi({
     if (explicitPath && looksLikeOpenEndedProjectEdit(text)) {
       return null;
     }
+    const searchQuery = extractDirectSearchQuery(text);
+    const lineQuestionType = explicitPath ? classifyLineLevelFileQuestion(text) : '';
+    if (explicitPath && searchQuery && lineQuestionType) {
+      return {
+        name: 'read_project_file_around_match',
+        args: {
+          path: explicitPath,
+          query: searchQuery,
+          beforeLines: 8,
+          afterLines: 24,
+          questionType: lineQuestionType,
+        },
+      };
+    }
     if (explicitPath && /\b(read|open|show|inspect|explain|summarize|check|look at|walk through|search|find|grep|look for)\b/i.test(lower)) {
       const symbolQuery = extractDirectSearchQuery(text) || extractDirectReadFocusQuery(text, explicitPath);
       if (symbolQuery && !/^(git diff|git status)$/i.test(symbolQuery) && !extractExplicitProjectPath(symbolQuery)) {
@@ -302,7 +327,6 @@ function createDirectIntentApi({
       }
       return { name: 'read_project_file', args: { path: explicitPath, startLine: 1, endLine: 160 } };
     }
-    const searchQuery = extractDirectSearchQuery(text);
     if (!explicitPath && searchQuery && looksLikeProjectPathDiscoveryIntent(text, searchQuery)) {
       return { name: 'list_project_files', args: { path: '.', recursive: true, pattern: searchQuery, limit: 24 } };
     }
@@ -406,19 +430,46 @@ function createDirectIntentApi({
       .filter((line) => line.text);
   }
 
+  function escapeRegExp(text = '') {
+    return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function looksLikeDefinitionLine(lineText = '', query = '') {
+    const line = String(lineText || '').trim();
+    const symbol = String(query || '').trim();
+    if (!line || !symbol) return false;
+    const escaped = escapeRegExp(symbol);
+    return new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\b`).test(line)
+      || new RegExp(`\\bfunction\\s+${escaped}\\b`).test(line)
+      || new RegExp(`\\bclass\\s+${escaped}\\b`).test(line)
+      || new RegExp(`\\b${escaped}\\s*=`).test(line)
+      || new RegExp(`\\b${escaped}\\s*:`).test(line)
+      || new RegExp(`\\bmodule\\.exports\\.${escaped}\\b`).test(line)
+      || new RegExp(`\\bexports\\.${escaped}\\b`).test(line);
+  }
+
   function composeDirectReadReply(result = {}) {
     const pathLabel = String(result.path || 'that file').trim();
     const query = String(result.query || '').trim();
+    const questionType = String(result.questionType || '').trim().toLowerCase();
     const excerpt = String(result.excerpt || '').trim();
     if (query) {
       const excerptLines = parseExcerptLines(excerpt);
-      const focusLine = excerptLines.find((line) => line.text.toLowerCase().includes(query.toLowerCase()))
+      const matchingLines = excerptLines.filter((line) => line.text.toLowerCase().includes(query.toLowerCase()));
+      const focusLine = (questionType === 'definition'
+        ? matchingLines.find((line) => looksLikeDefinitionLine(line.text, query))
+        : null)
+        || matchingLines[0]
         || excerptLines.find((line) => line.text);
       const focusLineNumber = focusLine?.lineNumber || result.matchLine || result.startLine || 1;
       const supportText = focusLine?.text ? truncateText(focusLine.text, 220) : '';
-      const answer = supportText
-        ? `i checked ${pathLabel} for "${query}". short version: it does mention ${query} around line ${focusLineNumber}.`
-        : `i checked ${pathLabel} for "${query}". short version: there is relevant context around line ${focusLineNumber}.`;
+      const answer = questionType === 'definition'
+        ? (supportText && looksLikeDefinitionLine(supportText, query)
+          ? `i checked ${pathLabel} for "${query}". short version: ${query} looks defined around line ${focusLineNumber}.`
+          : `i checked ${pathLabel} for "${query}". short version: ${pathLabel} does not appear to define ${query} there; the strongest live mention is around line ${focusLineNumber}.`)
+        : (supportText
+          ? `i checked ${pathLabel} for "${query}". short version: it does mention ${query} around line ${focusLineNumber}.`
+          : `i checked ${pathLabel} for "${query}". short version: there is relevant context around line ${focusLineNumber}.`);
       const support = supportText
         ? `\n\nsupporting line ${focusLineNumber}: ${supportText}`
         : '';

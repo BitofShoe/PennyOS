@@ -14,6 +14,7 @@ function makeTransportApi({
   postJsonSse,
   collectLmStudioStatefulChatStrings = () => ({ responseId: 'resp_stateful', outputText: '', reasoningText: '' }),
   collectLmStudioResponsesStrings = () => ({ outputText: '', reasoningText: '' }),
+  reportLmStudioReasoning = () => {},
 } = {}) {
   return createLmStudioTransportApi({
     withLmStudioLaneModel: async (_lane, fn, runtime) => fn('google/gemma-4-31b', { runtime }),
@@ -52,6 +53,7 @@ function makeTransportApi({
     LMSTUDIO_TIMEOUT_MS: 30_000,
     LMSTUDIO_MAX_OUTPUT_TOKENS: 6144,
     LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS: 900,
+    reportLmStudioReasoning,
   });
 }
 
@@ -142,4 +144,34 @@ test('stateful stream still prefers the finalized reply when the difference is o
   });
 
   assert.equal(result, `${finalizedReply}\n[MOOD:smug]`);
+});
+
+test('stateful stream can report reasoning to server logs without leaking it into the visible reply', async () => {
+  const reported = [];
+  const api = makeTransportApi({
+    postJsonSse: async (_url, options) => {
+      options.onEvent({ event: 'message.delta', data: { content: 'Visible reply only.' } });
+      options.onEvent({ event: 'reasoning.delta', data: { content: 'Internal chain goes here.' } });
+      options.onEvent({ event: 'chat.end', data: { result: {} } });
+    },
+    collectLmStudioStatefulChatStrings: () => ({
+      responseId: 'resp_reasoning_log',
+      outputText: 'Visible reply only.',
+      reasoningText: 'Internal chain goes here.',
+    }),
+    reportLmStudioReasoning: (payload) => reported.push(payload),
+  });
+
+  const result = await api.streamLmStudioStatefulChatApi({
+    userText: 'test',
+    messages: [],
+    memories: {},
+    onEvent: () => {},
+  });
+
+  assert.equal(result, 'Visible reply only.\n[MOOD:smug]');
+  assert.equal(reported.length, 1);
+  assert.equal(reported[0].transport, 'native-stateful-stream');
+  assert.equal(reported[0].lane, 'chat');
+  assert.match(reported[0].reasoningText, /Internal chain goes here/);
 });

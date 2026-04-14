@@ -235,3 +235,34 @@ test('runDirectToolAssist keeps focused read-around-match requests deterministic
   assert.match(result.text, /short version: it does mention attachments around line 42/i);
   assert.equal(getLmAssistCalls(), 0);
 });
+
+test('runDirectToolAssist keeps definition questions honest when the file only mentions the symbol', async () => {
+  const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
+    executePennyTool: async () => ({
+      ok: true,
+      label: 'read server.js around MEMORY_PROMPT_LIMIT',
+      data: {
+        path: 'server.js',
+        query: 'MEMORY_PROMPT_LIMIT',
+        matchLine: 11,
+        startLine: 9,
+        endLine: 13,
+        excerpt: '11:  MEMORY_PROMPT_LIMIT,\n12:  mergeMemoryItems,',
+      },
+    }),
+  });
+
+  const result = await runDirectToolAssist({
+    userText: 'Without editing anything, tell me what line currently defines MEMORY_PROMPT_LIMIT in server.js.',
+    messages: [],
+    memories: {},
+    intent: {
+      name: 'read_project_file_around_match',
+      args: { path: 'server.js', query: 'MEMORY_PROMPT_LIMIT', questionType: 'definition' },
+    },
+  });
+
+  assert.equal(result.skipSemanticRender, true);
+  assert.match(result.text, /does not appear to define MEMORY_PROMPT_LIMIT there/i);
+  assert.equal(getLmAssistCalls(), 0);
+});
