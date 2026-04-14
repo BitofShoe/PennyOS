@@ -49,6 +49,13 @@ Optional overlay context:
 - `penny-voice/runtime/`: live prompt-facing voice assets
 - `scripts/`: QA, eval, and launcher helpers
 
+## Repo-local skills
+
+- This repo now ships a local skill pack in `./.codex/skills/`.
+- Start with `./.codex/skills/README.md` when a task smells like LM Studio ops, memory inspection, or Penny QA/release work.
+- Use those skills to avoid rediscovering the same Penny-specific workflows from scratch.
+- Keep the first wave narrow: LM Studio ops, memory inspector, and QA/release only.
+
 ## Guardrails
 
 - Prefer read-only investigation in parallel and one main editing agent for actual changes.
