@@ -46,6 +46,13 @@ function trimText(value = '', limit = 1600) {
   return normalizeText(String(value || '')).slice(0, limit);
 }
 
+function normalizeEmbedModelId(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (/nomic-embed-text-v1\.5/i.test(text)) return 'text-embedding-nomic-embed-text-v1.5';
+  return text;
+}
+
 function classifySensitivity(text = '') {
   const raw = String(text || '');
   return SENSITIVE_PATTERNS.some((pattern) => pattern.test(raw)) ? 'high' : 'normal';
@@ -146,7 +153,7 @@ function createMemoryArchiveApi({
   if (!path || typeof path.dirname !== 'function') throw new TypeError('createMemoryArchiveApi requires path');
   if (typeof fetch !== 'function') throw new TypeError('createMemoryArchiveApi requires fetch');
 
-  const configuredEmbedModel = String(PENNY_LMSTUDIO_EMBED_MODEL || '').trim();
+  const configuredEmbedModel = normalizeEmbedModelId(PENNY_LMSTUDIO_EMBED_MODEL);
   const modelComparator = typeof modelsLookEquivalent === 'function'
     ? modelsLookEquivalent
     : ((left = '', right = '') => String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase());
@@ -268,7 +275,7 @@ function createMemoryArchiveApi({
       ...base.meta,
       ...(parsed.meta && typeof parsed.meta === 'object' ? parsed.meta : {}),
       schemaVersion: ARCHIVE_SCHEMA_VERSION,
-      embedModel: String((parsed.meta && parsed.meta.embedModel) || configuredEmbedModel || '').trim(),
+      embedModel: normalizeEmbedModelId(configuredEmbedModel || (parsed.meta && parsed.meta.embedModel) || ''),
       reviewDecisions: parsed.meta?.reviewDecisions && typeof parsed.meta.reviewDecisions === 'object'
         ? { ...parsed.meta.reviewDecisions }
         : {},
@@ -299,7 +306,7 @@ function createMemoryArchiveApi({
       ...base.meta,
       ...(parsed.meta && typeof parsed.meta === 'object' ? parsed.meta : {}),
       schemaVersion: EMBEDDINGS_SCHEMA_VERSION,
-      embedModel: String((parsed.meta && parsed.meta.embedModel) || configuredEmbedModel || '').trim(),
+      embedModel: normalizeEmbedModelId(configuredEmbedModel || (parsed.meta && parsed.meta.embedModel) || ''),
       updatedAt: trimIso(parsed.meta?.updatedAt, ''),
     };
     const items = parsed.items && typeof parsed.items === 'object' ? parsed.items : {};
@@ -368,6 +375,43 @@ function createMemoryArchiveApi({
     return (values || []).some(value => modelComparator(value, model));
   }
 
+  async function probeEmbeddingAvailability(model = configuredEmbedModel) {
+    if (!model) return { ok: false, error: 'No embedding model is configured.' };
+    try {
+      const response = await fetch(`${LMSTUDIO_BASE}/embeddings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${LMSTUDIO_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          input: 'penny semantic memory probe',
+        }),
+      });
+      const bodyText = await response.text();
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: `LM Studio embeddings error ${response.status}: ${bodyText}`.trim(),
+        };
+      }
+      let parsed = {};
+      try {
+        parsed = bodyText ? JSON.parse(bodyText) : {};
+      } catch {
+        parsed = {};
+      }
+      const vector = parseEmbeddingResponse(parsed);
+      return {
+        ok: Array.isArray(vector) && vector.length > 0,
+        error: '',
+      };
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error).trim() };
+    }
+  }
+
   async function getSemanticMemoryStatus({ force = false, lmStatus = null } = {}) {
     const now = nowMs();
     if (!force && embedStatusCache.value && now < embedStatusCache.expiresAt) {
@@ -389,9 +433,11 @@ function createMemoryArchiveApi({
       ...(Array.isArray(status?.availableModels) ? status.availableModels : []),
     ];
     const installed = matchConfiguredModel(installedModels);
-    const loaded = matchConfiguredModel(runtimeModels);
+    const listedAsLoaded = matchConfiguredModel(runtimeModels);
     const reachable = status?.reachable === true;
-    const ready = !!configuredEmbedModel && reachable && installed && loaded;
+    const liveProbe = reachable && installed ? await probeEmbeddingAvailability() : { ok: false, error: '' };
+    const loaded = listedAsLoaded || liveProbe.ok;
+    const ready = !!configuredEmbedModel && reachable && installed && liveProbe.ok;
     const value = {
       configuredModel: configuredEmbedModel,
       reachable,
@@ -408,8 +454,10 @@ function createMemoryArchiveApi({
           : !installed
             ? `Embedding model ${configuredEmbedModel} is not installed in LM Studio.`
             : !loaded
-              ? `Embedding model ${configuredEmbedModel} is installed but not currently loaded.`
-              : '',
+              ? `Embedding model ${configuredEmbedModel} is installed but not currently ready.`
+              : !ready && liveProbe.error
+                ? liveProbe.error
+               : '',
     };
     embedStatusCache = {
       expiresAt: now + (ready ? EMBEDDING_STATUS_CACHE_MS : EMBEDDING_ERROR_CACHE_MS),

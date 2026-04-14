@@ -279,7 +279,7 @@ async function runProbesForModel(model) {
   ]);
 
   const inspect = await chatRequest(`probe-${model.slug}-inspect`, [
-    { role: 'user', content: 'Inspect the code and explain how Penny decides which stored details matter for a given reply.' },
+    { role: 'user', content: 'Inspect lib/penny-memory.js and explain how Penny decides which stored details matter for a given reply.' },
   ]);
 
   const readonly = await chatRequest(`probe-${model.slug}-readonly`, [

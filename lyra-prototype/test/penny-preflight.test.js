@@ -179,7 +179,7 @@ test('runPreflight reports semantic memory fallback when embedding model is not 
       nodeVersion: '24.14.0',
       baseUrl: `http://127.0.0.1:${address.port}/v1`,
       env: fixture.env,
-      embedModel: 'nomic-ai/nomic-embed-text-v1.5',
+      embedModel: 'text-embedding-nomic-embed-text-v1.5',
       spawnSyncImpl: makeSpawnSyncImpl({ installed, loaded }),
     });
 

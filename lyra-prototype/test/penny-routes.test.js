@@ -64,7 +64,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
   process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
   process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
-  process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'nomic-ai/nomic-embed-text-v1.5';
+  process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -95,7 +95,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(lmStatus.statusCode, 200);
     assert.equal(lmStatus.json.chatPreferredModel, 'unsloth/gemma-4-31b-it');
     assert.equal(lmStatus.json.toolPreferredModel, 'google/gemma-4-e4b');
-    assert.equal(lmStatus.json.embedPreferredModel, 'nomic-ai/nomic-embed-text-v1.5');
+    assert.equal(lmStatus.json.embedPreferredModel, 'text-embedding-nomic-embed-text-v1.5');
     assert.equal(lmStatus.json.routingMode, 'auto');
 
     const updatedModel = await requestJson(`http://127.0.0.1:${address.port}/api/penny/lmstudio/model`, {
@@ -331,7 +331,7 @@ test('memory inspector tracks archived turns and review approval promotes a pend
   process.env.PENNY_LMSTUDIO_BASE = 'http://127.0.0.1:1234/v1';
   process.env.PENNY_LMSTUDIO_NATIVE_BASE = 'http://127.0.0.1:1234/api/v1';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
-  process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'nomic-ai/nomic-embed-text-v1.5';
+  process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];

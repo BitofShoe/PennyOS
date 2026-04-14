@@ -124,7 +124,7 @@ The browser cache is not the source of truth for long-term memory.
   - `PENNY_LMSTUDIO_CHAT_MODEL` defaults to `google/gemma-4-31b`
   - `PENNY_LMSTUDIO_TOOL_MODEL` defaults to `google/gemma-4-e4b`
 - Semantic memory uses a separate soft-dependency model:
-  - `PENNY_LMSTUDIO_EMBED_MODEL` defaults to `nomic-ai/nomic-embed-text-v1.5`
+- `PENNY_LMSTUDIO_EMBED_MODEL` defaults to `text-embedding-nomic-embed-text-v1.5`
   - if that model is missing or unloaded, Penny falls back to keyword-style archive retrieval instead of failing chat
 - `npm run lmstudio:prepare` verifies local preset wiring, checks installed/loaded models, and tries to load the requested chat model for QA/startup flows.
 - The settings-panel model picker is now a chat-lane override only. Tool-lane selection is config-driven.

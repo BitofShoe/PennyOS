@@ -55,7 +55,7 @@ async function checkLmStudioApi({
   env = process.env,
   chatModel = String(process.env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim(),
   toolModel = String(process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b').trim(),
-  embedModel = String(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'nomic-ai/nomic-embed-text-v1.5').trim(),
+  embedModel = String(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5').trim(),
   presetIdentifier = String(process.env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny').trim() || '@local:penny',
 } = {}) {
   const result = await runPrepare({
@@ -112,7 +112,7 @@ async function runPreflight({
   env = process.env,
   chatModel = String(process.env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim(),
   toolModel = String(process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b').trim(),
-  embedModel = String(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'nomic-ai/nomic-embed-text-v1.5').trim(),
+  embedModel = String(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5').trim(),
   presetIdentifier = String(process.env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny').trim() || '@local:penny',
 } = {}) {
   const checks = [];

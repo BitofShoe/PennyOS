@@ -1,8 +1,11 @@
 function createLmStudioAutomationApi({
   fs,
   path,
+  fetch,
   execFileText,
   lmStudioStatusApi,
+  LMSTUDIO_BASE = '',
+  LMSTUDIO_API_KEY = 'lm-studio-local',
   APPDATA = '',
   USER_HOME = '',
   LMSTUDIO_SETTINGS_FILE = '',
@@ -17,9 +20,17 @@ function createLmStudioAutomationApi({
   if (!path || typeof path.join !== 'function' || typeof path.resolve !== 'function') {
     throw new TypeError('createLmStudioAutomationApi requires path');
   }
+  if (typeof fetch !== 'function') throw new TypeError('createLmStudioAutomationApi requires fetch');
   if (typeof execFileText !== 'function') throw new TypeError('createLmStudioAutomationApi requires execFileText');
   if (!lmStudioStatusApi || typeof lmStudioStatusApi.getLmStudioConnectionStatus !== 'function') {
     throw new TypeError('createLmStudioAutomationApi requires lmStudioStatusApi');
+  }
+
+  function normalizeEmbedModelId(value = '') {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    if (/nomic-embed-text-v1\.5/i.test(text)) return 'text-embedding-nomic-embed-text-v1.5';
+    return text;
   }
 
   const PRESET_IDENTIFIER = String(PENNY_LMSTUDIO_PRESET_IDENTIFIER || '').trim() || '@local:penny';
@@ -130,7 +141,7 @@ function createLmStudioAutomationApi({
       const { stdout } = await execFileText('lms', ['ls', '--json'], { timeout: 15000 });
       const parsed = stdout ? JSON.parse(stdout) : [];
       return Array.isArray(parsed)
-        ? parsed.filter(item => item && typeof item === 'object' && String(item.type || '').toLowerCase() === 'llm')
+        ? parsed.filter(item => item && typeof item === 'object' && ['llm', 'embedding'].includes(String(item.type || '').toLowerCase()))
         : [];
     } catch {
       return [];
@@ -171,9 +182,11 @@ function createLmStudioAutomationApi({
     const requestedToolModel = String(toolModel || '').trim()
       || String(PENNY_LMSTUDIO_TOOL_MODEL || '').trim()
       || (typeof lmStudioStatusApi.getPreferredModelForLane === 'function' ? lmStudioStatusApi.getPreferredModelForLane('tool') : 'google/gemma-4-e4b');
-    const requestedEmbedModel = String(embedModel || '').trim()
+    const requestedEmbedModel = normalizeEmbedModelId(
+      String(embedModel || '').trim()
       || String(PENNY_LMSTUDIO_EMBED_MODEL || '').trim()
-      || 'nomic-ai/nomic-embed-text-v1.5';
+      || 'text-embedding-nomic-embed-text-v1.5',
+    );
     return {
       requestedChatModel,
       requestedToolModel,
@@ -401,10 +414,45 @@ function createLmStudioAutomationApi({
     return inspection;
   }
 
-  async function loadChatModel(modelId = '') {
+  async function loadModel(modelId = '', label = 'model') {
     const clean = String(modelId || '').trim();
-    if (!clean) throw new Error('No chat model id was provided for lmstudio:prepare.');
+    if (!clean) throw new Error(`No ${label} id was provided for lmstudio:prepare.`);
     return execFileText('lms', ['load', clean, '-y'], { timeout: 20 * 60 * 1000 });
+  }
+
+  async function probeEmbeddingModel(modelId = '') {
+    const clean = normalizeEmbedModelId(modelId);
+    if (!clean) return { ok: false, error: 'No embedding model id was provided.' };
+    try {
+      const response = await fetch(`${LMSTUDIO_BASE}/embeddings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${LMSTUDIO_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: clean,
+          input: 'penny semantic memory probe',
+        }),
+      });
+      const bodyText = await response.text();
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: `LM Studio embeddings error ${response.status}: ${bodyText}`.trim(),
+        };
+      }
+      let parsed = {};
+      try {
+        parsed = bodyText ? JSON.parse(bodyText) : {};
+      } catch {
+        parsed = {};
+      }
+      const vector = parsed?.data?.[0]?.embedding;
+      return { ok: Array.isArray(vector) && vector.length > 0, error: '' };
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error).trim() };
+    }
   }
 
   function buildLaneFallbackFlags({
@@ -423,6 +471,7 @@ function createLmStudioAutomationApi({
     reportOnly = false,
     repairPreset = !reportOnly,
     loadChatModel: shouldLoadChatModel = !reportOnly,
+    loadEmbedModel: shouldLoadEmbedModel = !reportOnly,
     chatModel = '',
     toolModel = '',
     embedModel = '',
@@ -441,6 +490,10 @@ function createLmStudioAutomationApi({
     let chatLoadAttempted = false;
     let chatLoadSucceeded = false;
     let chatLoadError = '';
+    let embedLoadAttempted = false;
+    let embedLoadSucceeded = false;
+    let embedLoadError = '';
+    let embedProbe = { ok: false, error: '' };
 
     if (!cliCheck.ok) {
       blockers.push(cliCheck.detail);
@@ -466,6 +519,11 @@ function createLmStudioAutomationApi({
     installedModels = await listInstalledModels();
     loadedModels = await listLoadedModels();
     statusBefore = await lmStudioStatusApi.getLmStudioConnectionStatus({ force: true });
+    installedModels = uniqueStrings([
+      ...installedModels,
+      ...(Array.isArray(statusBefore?.installedModels) ? statusBefore.installedModels : []),
+      ...loadedModels,
+    ]);
     preset = repairPreset
       ? await ensurePresetWiring({ chatModel: requestedChatModel, toolModel: requestedToolModel })
       : await inspectPresetWiring({ chatModel: requestedChatModel, toolModel: requestedToolModel });
@@ -484,12 +542,15 @@ function createLmStudioAutomationApi({
 
     const exactChatInstalled = installedModels.some(model => modelsLookEquivalent(model, requestedChatModel));
     const exactToolInstalled = installedModels.some(model => modelsLookEquivalent(model, requestedToolModel));
+    const exactEmbedInstalled = requestedEmbedModel
+      ? installedModels.some(model => modelsLookEquivalent(model, requestedEmbedModel))
+      : false;
     const exactChatLoadedBefore = loadedModels.some(model => modelsLookEquivalent(model, requestedChatModel));
 
     if (shouldLoadChatModel && !reportOnly && exactChatInstalled && !exactChatLoadedBefore) {
       chatLoadAttempted = true;
       try {
-        await loadChatModel(requestedChatModel);
+        await loadModel(requestedChatModel, 'chat model');
         chatLoadSucceeded = true;
         actions.push(`chat-model-loaded:${requestedChatModel}`);
       } catch (error) {
@@ -498,8 +559,33 @@ function createLmStudioAutomationApi({
       }
     }
 
+    if (requestedEmbedModel && exactEmbedInstalled) {
+      embedProbe = await probeEmbeddingModel(requestedEmbedModel);
+      if (!embedProbe.ok && shouldLoadEmbedModel && !reportOnly) {
+        embedLoadAttempted = true;
+        try {
+          await loadModel(requestedEmbedModel, 'embedding model');
+          embedLoadSucceeded = true;
+          actions.push(`embed-model-loaded:${requestedEmbedModel}`);
+        } catch (error) {
+          embedLoadError = String(error?.message || error).trim();
+          warnings.push(`Failed to load embedding model ${requestedEmbedModel}: ${embedLoadError}`);
+        }
+        embedProbe = await probeEmbeddingModel(requestedEmbedModel);
+      }
+    }
+
     loadedModels = await listLoadedModels();
     statusAfter = await lmStudioStatusApi.getLmStudioConnectionStatus({ force: true });
+    loadedModels = uniqueStrings([
+      ...loadedModels,
+      ...(Array.isArray(statusAfter?.nativeAvailableModels) ? statusAfter.nativeAvailableModels : []),
+    ]);
+    installedModels = uniqueStrings([
+      ...installedModels,
+      ...(Array.isArray(statusAfter?.installedModels) ? statusAfter.installedModels : []),
+      ...loadedModels,
+    ]);
 
     if (!statusAfter?.reachable) {
       blockers.push(statusAfter?.error || 'LM Studio API is unreachable.');
@@ -523,20 +609,14 @@ function createLmStudioAutomationApi({
     }
 
     const exactToolLoaded = loadedModels.some(model => modelsLookEquivalent(model, requestedToolModel));
-    const exactEmbedInstalled = requestedEmbedModel
-      ? installedModels.some(model => modelsLookEquivalent(model, requestedEmbedModel))
-      : false;
-    const exactEmbedLoaded = requestedEmbedModel
-      ? loadedModels.some(model => modelsLookEquivalent(model, requestedEmbedModel))
-        || (Array.isArray(statusAfter?.nativeAvailableModels) && statusAfter.nativeAvailableModels.some(model => modelsLookEquivalent(model, requestedEmbedModel)))
-      : false;
+    const exactEmbedLoaded = requestedEmbedModel ? embedProbe.ok : false;
     if (exactToolInstalled && !exactToolLoaded) {
       warnings.push(`Tool model ${requestedToolModel} is installed but not currently loaded, so the tool lane may fall back.`);
     }
     if (requestedEmbedModel && !exactEmbedInstalled) {
       warnings.push(`Embedding model ${requestedEmbedModel} is not installed, so semantic memory will fall back to keyword retrieval.`);
     } else if (requestedEmbedModel && !exactEmbedLoaded) {
-      warnings.push(`Embedding model ${requestedEmbedModel} is installed but not currently loaded, so semantic memory is in graceful fallback mode.`);
+      warnings.push(`Embedding model ${requestedEmbedModel} is installed but not currently ready, so semantic memory is in graceful fallback mode.${embedProbe.error ? ` ${embedProbe.error}` : ''}`);
     }
 
     const laneFallback = buildLaneFallbackFlags({
@@ -571,6 +651,9 @@ function createLmStudioAutomationApi({
       chatLoadAttempted,
       chatLoadSucceeded,
       chatLoadError,
+      embedLoadAttempted,
+      embedLoadSucceeded,
+      embedLoadError,
       embedInstalled: exactEmbedInstalled,
       embedLoaded: exactEmbedLoaded,
       semanticMemoryReady: !!requestedEmbedModel && exactEmbedInstalled && exactEmbedLoaded,

@@ -30,7 +30,7 @@ function buildArchiveApi({
   archiveFile,
   embeddingsFile,
   embedReady = true,
-  embedModel = 'nomic-ai/nomic-embed-text-v1.5',
+  embedModel = 'text-embedding-nomic-embed-text-v1.5',
 } = {}) {
   let fetchCalls = 0;
   const api = createMemoryArchiveApi({

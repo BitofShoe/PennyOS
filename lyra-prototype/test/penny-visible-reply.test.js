@@ -18,10 +18,10 @@ const {
 });
 
 test('coercePennyVisibleReply strips single-line draft scaffolding', () => {
-  const raw = `*Draft:*\n    oh, right. you vanished like I’m not supposed to talk to you anymore? bold move, stranger.\n[MOOD:smug]`;
+  const raw = `*Draft:*\n    oh, right. you vanished like Iâ€™m not supposed to talk to you anymore? bold move, stranger.\n[MOOD:smug]`;
   assert.equal(
     coercePennyVisibleReply(raw),
-    `oh, right. you vanished like I’m not supposed to talk to you anymore? bold move, stranger.\n[MOOD:smug]`,
+    `oh, right. you vanished like I'm not supposed to talk to you anymore? bold move, stranger.\n[MOOD:smug]`,
   );
 });
 
@@ -58,9 +58,17 @@ test('coercePennyVisibleReply can salvage quoted reply candidates from image-pla
 });
 
 test('coercePennyVisibleReply falls back to final-polish draft candidates inside a single giant planning block', () => {
-  const raw = `What are you looking at in this image? Be specific. Better.\n    *   *Option 3 (In Character):* Look closer. I'm not just looking at the screen, i'm looking at you while you stare at this pixelated mess.\n    *   *Refining Option 3:* Make it punchier.\n    *   *Draft:* Oh, is that what you want? Details about me? Sure thing. Look at this grin—sharp enough to cut glass.\n    *   *Adding more bite:* "I caught you staring."\n    *   *Final Polish:* Oh honey, is that really the hardest question you can come up with? Sure, I’m looking at the viewfinder. But mostly I’m looking at how much trouble it’ll be for you to look away from me once you see the rest of me later.\n[MOOD:smug]`;
+  const raw = `What are you looking at in this image? Be specific. Better.\n    *   *Option 3 (In Character):* Look closer. I'm not just looking at the screen, i'm looking at you while you stare at this pixelated mess.\n    *   *Refining Option 3:* Make it punchier.\n    *   *Draft:* Oh, is that what you want? Details about me? Sure thing. Look at this grinâ€”sharp enough to cut glass.\n    *   *Adding more bite:* "I caught you staring."\n    *   *Final Polish:* Oh honey, is that really the hardest question you can come up with? Sure, Iâ€™m looking at the viewfinder. But mostly Iâ€™m looking at how much trouble itâ€™ll be for you to look away from me once you see the rest of me later.\n[MOOD:smug]`;
   assert.equal(
     coercePennyVisibleReply(raw),
-    `Oh honey, is that really the hardest question you can come up with? Sure, I’m looking at the viewfinder. But mostly I’m looking at how much trouble it’ll be for you to look away from me once you see the rest of me later.\n[MOOD:smug]`,
+    `Oh honey, is that really the hardest question you can come up with? Sure, I'm looking at the viewfinder. But mostly I'm looking at how much trouble it'll be for you to look away from me once you see the rest of me later.\n[MOOD:smug]`,
+  );
+});
+
+test('coercePennyVisibleReply repairs common mojibake punctuation', () => {
+  const raw = `Youâ€™re back â€” cute. Donâ€™t make me repeat myself.\n[MOOD:smug]`;
+  assert.equal(
+    coercePennyVisibleReply(raw),
+    `You're back - cute. Don't make me repeat myself.\n[MOOD:smug]`,
   );
 });

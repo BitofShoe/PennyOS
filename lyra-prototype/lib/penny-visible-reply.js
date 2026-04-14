@@ -62,12 +62,26 @@ function createVisibleReplyApi({
     return String(text || '').replace(/^(?:penny|assistant)\s*:\s*/i, '').trim();
   }
 
+  function repairCommonMojibake(text = '') {
+    return String(text || '')
+      .replace(/â€™|â€˜/g, "'")
+      .replace(/â€œ|â€/g, '"')
+      .replace(/â€“|â€”|â€‘/g, '-')
+      .replace(/â€¦/g, '...')
+      .replace(/Â /g, ' ')
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201c\u201d]/g, '"')
+      .replace(/[\u2011\u2013\u2014\u2015]/g, '-')
+      .replace(/\u2026/g, '...')
+      .replace(/\u00a0/g, ' ');
+  }
+
   function normalizeMetaLead(line = '') {
-    return String(line || '')
+    return repairCommonMojibake(String(line || ''))
       .trim()
       .replace(/^[>\-*+\d.\s)]+/, '')
       .replace(/\*/g, '')
-      .replace(/[`â€œâ€]/g, '"')
+      .replace(/[`\u201c\u201d]/g, '"')
       .trim();
   }
 
@@ -98,8 +112,8 @@ function createVisibleReplyApi({
   }
 
   function cleanDraftCandidate(text = '') {
-    let out = String(text || '').trim().replace(/\s+\[MOOD:\w+\]\s*$/i, '');
-    out = out.replace(/^["â€œâ€]\s*/, '').trim();
+    let out = repairCommonMojibake(String(text || '').trim()).replace(/\s+\[MOOD:\w+\]\s*$/i, '');
+    out = out.replace(/^["\u201c\u201d]\s*/, '').trim();
     if ((out.match(/"/g) || []).length % 2 === 1 && out.startsWith('"')) {
       out = out.slice(1).trim();
     }
@@ -168,7 +182,7 @@ function createVisibleReplyApi({
   }
 
   function coercePennyVisibleReply(raw) {
-    let t = stripThinkSpans(String(raw || '').trim());
+    let t = stripThinkSpans(repairCommonMojibake(String(raw || '').trim()));
     t = t.replace(/^<\|channel\>\s*(?:thought|analysis)\s*/i, '').trim();
     if (!t || ALLOW_RAW_REASONING_FALLBACK) return t;
     const tagged = extractTaggedVisibleReply(t);
@@ -199,7 +213,7 @@ function createVisibleReplyApi({
       if (!body) body = stripLeadingMetaLines(before);
       body = cleanDraftCandidate(body);
       const out = `${body}\n${moodTag}${afterMood ? `\n${afterMood}` : ''}`.trim();
-      return retagAssistantReply(out.replace(/\n{3,}/g, '\n\n'), lastMood[1] || '');
+      return retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n')), lastMood[1] || '');
     }
     const draftCandidates = collectDraftCandidates(t);
     const quoteCandidates = collectQuotedReplyCandidates(t);
@@ -216,7 +230,7 @@ function createVisibleReplyApi({
     }
     if (!out) out = stripLeadingMetaLines(t);
     out = cleanDraftCandidate(out);
-    return retagAssistantReply(out.replace(/\n{3,}/g, '\n\n'));
+    return retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n')));
   }
 
   function collectLmStudioResponsesStrings(parsed) {
@@ -338,10 +352,10 @@ function createVisibleReplyApi({
 
   function textFromChatMessage(msg) {
     if (!msg || typeof msg !== 'object') return '';
-    const content = stripThinkSpans(textValueFromField(msg.content, 'visible') || String(msg.content ?? '').trim());
+    const content = stripThinkSpans(repairCommonMojibake(textValueFromField(msg.content, 'visible') || String(msg.content ?? '').trim()));
     const reasoning = [
-      textValueFromField(msg.reasoning_content, 'reasoning') || String(msg.reasoning_content ?? '').trim(),
-      textValueFromField(msg.reasoning, 'reasoning') || String(msg.reasoning ?? '').trim(),
+      repairCommonMojibake(textValueFromField(msg.reasoning_content, 'reasoning') || String(msg.reasoning_content ?? '').trim()),
+      repairCommonMojibake(textValueFromField(msg.reasoning, 'reasoning') || String(msg.reasoning ?? '').trim()),
     ].filter(Boolean).join('\n').trim();
     let out = '';
     if (content) out = coercePennyVisibleReply(content);
@@ -428,6 +442,7 @@ function createVisibleReplyApi({
     collectLmStudioStatefulChatStrings,
     isMissingLmStudioThreadError,
     lmStudioStageLabel,
+    repairCommonMojibake,
   };
 }
 

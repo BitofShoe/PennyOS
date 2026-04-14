@@ -17,6 +17,7 @@ function createFixture({
   loadedModels,
   chatModel = 'google/gemma-4-31b',
   toolModel = 'google/gemma-4-e4b',
+  embedModel = 'text-embedding-nomic-embed-text-v1.5',
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-lmstudio-'));
   const env = {
@@ -53,8 +54,14 @@ function createFixture({
         modelKey: 'google/gemma-4-31b',
         selectedVariant: 'google/gemma-4-31b@q8_0',
       },
+      {
+        type: 'embedding',
+        modelKey: 'text-embedding-nomic-embed-text-v1.5',
+        path: 'nomic-ai/nomic-embed-text-v1.5-GGUF/nomic-embed-text-v1.5.Q4_K_M.gguf',
+      },
     ],
     loaded: [...(loadedModels || ['google/gemma-4-e4b'])],
+    embedReady: false,
   };
 
   const execFileText = async (command, args) => {
@@ -69,17 +76,39 @@ function createFixture({
     }
     if (args[0] === 'load') {
       const modelKey = args[1];
-      if (!state.loaded.includes(modelKey)) state.loaded.push(modelKey);
+      if (String(modelKey).includes('text-embedding-nomic-embed-text-v1.5')) {
+        state.embedReady = true;
+      } else if (!state.loaded.includes(modelKey)) {
+        state.loaded.push(modelKey);
+      }
       return { stdout: `loaded ${modelKey}`, stderr: '' };
     }
     throw new Error(`Unexpected lms command: ${args.join(' ')}`);
   };
 
-  const fetchImpl = async () => ({
-    ok: true,
-    status: 200,
-    text: async () => JSON.stringify({ data: state.loaded.map(id => ({ id })) }),
-  });
+  const fetchImpl = async (url, options = {}) => {
+    if (String(url).endsWith('/embeddings')) {
+      const payload = JSON.parse(String(options.body || '{}'));
+      const matchesEmbed = String(payload.model || '').includes('text-embedding-nomic-embed-text-v1.5');
+      if (matchesEmbed && state.embedReady) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+        };
+      }
+      return {
+        ok: false,
+        status: 400,
+        text: async () => 'embedding model not ready',
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ data: state.loaded.map(id => ({ id })) }),
+    };
+  };
 
   const statusApi = createLmStudioStatusApi({
     fetch: fetchImpl,
@@ -100,13 +129,17 @@ function createFixture({
   const automationApi = createLmStudioAutomationApi({
     fs,
     path,
+    fetch: fetchImpl,
     execFileText,
     lmStudioStatusApi: statusApi,
+    LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+    LMSTUDIO_API_KEY: 'lm-studio-local',
     APPDATA: env.APPDATA,
     USER_HOME: env.USERPROFILE,
     LMSTUDIO_SETTINGS_FILE: settingsPath,
     PENNY_LMSTUDIO_CHAT_MODEL: chatModel,
     PENNY_LMSTUDIO_TOOL_MODEL: toolModel,
+    PENNY_LMSTUDIO_EMBED_MODEL: embedModel,
     PENNY_LMSTUDIO_PRESET_IDENTIFIER: '@local:penny',
   });
 
@@ -158,6 +191,30 @@ test('prepareLmStudio loads the requested chat model when it is installed but no
   assert.equal(report.chatLoadSucceeded, true);
   assert.ok(report.loadedModels.includes('google/gemma-4-31b'));
   assert.equal(report.laneFallback.chat, false);
+});
+
+test('prepareLmStudio normalizes and readies the embedding model through the live embeddings probe', async () => {
+  const fixture = createFixture({
+    loadedModels: ['google/gemma-4-e4b'],
+    embedModel: 'nomic-ai/nomic-embed-text-v1.5',
+  });
+
+  const report = await fixture.automationApi.prepareLmStudio({
+    reportOnly: false,
+    repairPreset: true,
+    loadChatModel: false,
+    loadEmbedModel: true,
+    chatModel: 'google/gemma-4-31b',
+    toolModel: 'google/gemma-4-e4b',
+    embedModel: 'nomic-ai/nomic-embed-text-v1.5',
+  });
+
+  assert.equal(report.requestedEmbedModel, 'text-embedding-nomic-embed-text-v1.5');
+  assert.equal(report.embedInstalled, true);
+  assert.equal(report.embedLoadAttempted, true);
+  assert.equal(report.embedLoadSucceeded, true);
+  assert.equal(report.embedLoaded, true);
+  assert.equal(report.semanticMemoryReady, true);
 });
 
 test('prepareLmStudio warns when the requested chat model is missing but a chat fallback is already loaded', async () => {

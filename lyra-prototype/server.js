@@ -96,12 +96,18 @@ function deriveLmStudioNativeBase(base) {
   if (/\/v1$/i.test(trimmed)) return trimmed.replace(/\/v1$/i, '/api/v1');
   return `${trimmed}/api/v1`;
 }
+function normalizeEmbedModelId(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (/nomic-embed-text-v1\.5/i.test(text)) return 'text-embedding-nomic-embed-text-v1.5';
+  return text;
+}
 const LMSTUDIO_NATIVE_BASE = (process.env.PENNY_LMSTUDIO_NATIVE_BASE || deriveLmStudioNativeBase(LMSTUDIO_BASE)).replace(/\/$/, '');
 const PENNY_LMSTUDIO_CHAT_MODEL = process.env.PENNY_LMSTUDIO_CHAT_MODEL
   || process.env.PENNY_LMSTUDIO_MODEL
   || 'google/gemma-4-31b';
 const PENNY_LMSTUDIO_TOOL_MODEL = process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b';
-const PENNY_LMSTUDIO_EMBED_MODEL = process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'nomic-ai/nomic-embed-text-v1.5';
+const PENNY_LMSTUDIO_EMBED_MODEL = normalizeEmbedModelId(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5');
 const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 /** Full request budget for /chat/completions and /responses (prompt eval + generation). Large quants (e.g. 30B+) and multi-step local tool turns can legitimately take a long time; LM Studio logs "Client disconnected" if this fires first. Override with PENNY_LMSTUDIO_TIMEOUT_MS (ms). */
@@ -2841,7 +2847,7 @@ function startServer(options = {}) {
     console.log(`Penny companion prototype running at http://localhost:${boundPort} (LM Studio chat timeout ${LMSTUDIO_TIMEOUT_MS}ms)`);
     const addrs = listLanIPv4Addresses();
     if (addrs.length) {
-      console.log('Same Wi‑Fi / LAN — open on your phone:');
+      console.log('Same Wi-Fi / LAN - open on your phone:');
       for (const ip of addrs) console.log(`  http://${ip}:${boundPort}`);
     }
   });

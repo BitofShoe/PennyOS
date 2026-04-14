@@ -57,7 +57,7 @@ function createAutomationApi({
   lmStudioApiKey = env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local',
   chatModel = String(env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim(),
   toolModel = String(env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b').trim(),
-  embedModel = String(env.PENNY_LMSTUDIO_EMBED_MODEL || 'nomic-ai/nomic-embed-text-v1.5').trim(),
+  embedModel = String(env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5').trim(),
   presetIdentifier = String(env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny').trim() || '@local:penny',
 } = {}) {
   const lmStudioStatusApi = createLmStudioStatusApi({
@@ -78,8 +78,11 @@ function createAutomationApi({
   return createLmStudioAutomationApi({
     fs: fsImpl,
     path: pathImpl,
+    fetch: fetchImpl,
     execFileText: execFileTextImpl,
     lmStudioStatusApi,
+    LMSTUDIO_BASE: lmStudioBase,
+    LMSTUDIO_API_KEY: lmStudioApiKey,
     APPDATA: env.APPDATA || '',
     USER_HOME: env.USERPROFILE || env.HOME || '',
     LMSTUDIO_SETTINGS_FILE: pathImpl.join(env.APPDATA || '', 'LM Studio', 'settings.json'),
@@ -142,7 +145,7 @@ async function runPrepare({
   lmStudioApiKey = env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local',
   chatModel = String(env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim(),
   toolModel = String(env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b').trim(),
-  embedModel = String(env.PENNY_LMSTUDIO_EMBED_MODEL || 'nomic-ai/nomic-embed-text-v1.5').trim(),
+  embedModel = String(env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5').trim(),
   presetIdentifier = String(env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny').trim() || '@local:penny',
 } = {}) {
   const automationApi = createAutomationApi({
