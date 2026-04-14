@@ -18,6 +18,16 @@ function looksLikeCasualFeatureMention(text = '') {
   return selfNarration && changeVerb && featureMention && !explicitAsk;
 }
 
+function looksLikeExplicitWebToolRequest(text = '') {
+  const lower = String(text || '').toLowerCase();
+  if (!lower) return false;
+  if (/\b(search(?: the)? web|search online|search the internet|check(?: the)? web|check online|check the internet|look up\b|google\b|read(?: the)? (?:page|result)\b|open(?: the)? (?:page|result)\b|inspect(?: the)? (?:page|result)\b)\b/.test(lower)) {
+    return true;
+  }
+  return /\b(find|get|check|show|tell me|read|open|look up)\b[\s\S]{0,60}\b(latest|current|today'?s|today|news)\b[\s\S]{0,40}\b(on|about|for)\b/.test(lower)
+    || /\b(what(?:'s| is) the latest on|latest news on|latest news about|current status of)\b/.test(lower);
+}
+
 function shouldOfferLocalTools(userText = '') {
   const text = String(userText || '').toLowerCase();
   if (!text) return false;
@@ -25,7 +35,7 @@ function shouldOfferLocalTools(userText = '') {
   const actionable = looksLikeActionableToolRequest(text);
   if (/\b(server\.js|app\.js|styles\.css|index\.html|package\.json|readme|penny_how_we_got_here_and_next_steps\.md)\b/.test(text)) return actionable;
   if (/\b(log|logs|stack trace|traceback|runtime|lm studio|model|models|status|diagnostic|diagnostics|error|errors|bug|bugs)\b/.test(text)) return actionable;
-  if (/\b(web|internet|online|look up|latest|current|today's|today|news)\b/.test(text)) return actionable;
+  if (looksLikeExplicitWebToolRequest(text)) return true;
   if (/\b(read|open|show|inspect|search|find|grep|list|scan|summarize|explain)\b/.test(text) && /\b(file|files|folder|folders|directory|directories|code|repo|project)\b/.test(text)) return true;
   if (/\b(fix|change|edit|update|patch|rewrite|refactor|implement|add|remove|create|build|test|lint|check)\b/.test(text) && /\b(file|files|server\.js|app\.js|styles\.css|index\.html|code|repo|project|button|composer|ui|tool)\b/.test(text)) return true;
   if (/\b(which file|what file|where is|line \d+|function|route|endpoint)\b/.test(text)) return true;
@@ -101,6 +111,7 @@ async function executeDirectProjectInspectIntent({ intent = {}, onToolEvent, exe
 module.exports = {
   looksLikeActionableToolRequest,
   looksLikeCasualFeatureMention,
+  looksLikeExplicitWebToolRequest,
   shouldOfferLocalTools,
   executeDirectProjectInspectIntent,
 };

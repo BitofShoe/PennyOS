@@ -40,6 +40,7 @@ const {
   extractExplicitProjectPath,
   shouldForceLocalToolLoop,
   resolveDirectToolIntent,
+  composeDirectReadReply,
   composeToolRecordFallback,
   looksLikeWeakToolReply,
 } = buildApi();
@@ -82,6 +83,14 @@ test('resolveDirectToolIntent still keeps explicit read requests on the direct p
   assert.ok(intent);
   assert.match(intent.name, /^read_project_file/);
   assert.equal(intent.args.path, "Penny's Playground/Penny's Very Own Paper (bot languege version).md");
+});
+
+test('resolveDirectToolIntent upgrades focused file questions into targeted reads', () => {
+  const intent = resolveDirectToolIntent('Open public/js/penny-app.js and tell me what it says about attachments.');
+  assert.ok(intent);
+  assert.equal(intent.name, 'read_project_file_around_match');
+  assert.equal(intent.args.path, 'public/js/penny-app.js');
+  assert.equal(intent.args.query, 'attachments');
 });
 
 test('resolveDirectToolIntent upgrades richer web requests into inspect_web_result', () => {
@@ -163,4 +172,16 @@ test('looksLikeWeakToolReply catches truncated exactly-what-I-added claims', () 
     }],
   );
   assert.equal(weak, true);
+});
+
+test('composeDirectReadReply answers focused read questions without pretending it edited anything', () => {
+  const text = composeDirectReadReply({
+    path: 'public/js/penny-app.js',
+    query: 'attachments',
+    matchLine: 42,
+    excerpt: '42:const attachmentUi = createAttachmentUi({ els, setComposerNotice });\n43:attachmentUi.clearAttachment();',
+  });
+  assert.match(text, /short version: it does mention attachments around line 42/i);
+  assert.match(text, /supporting line 42/i);
+  assert.match(text, /did not edit anything/i);
 });

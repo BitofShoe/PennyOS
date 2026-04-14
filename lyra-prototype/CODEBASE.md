@@ -4,7 +4,7 @@ This file is the practical map of the repo: what is source, what is support mate
 
 ## Repo purpose
 
-This project is a local-first Penny companion prototype:
+This project is a single-user local Penny companion prototype:
 
 - browser UI
 - Node backend
@@ -22,7 +22,7 @@ Main backend orchestration. This is still the operational center of gravity.
 - [package.json](./package.json)
 Minimal npm script entrypoints.
 - [start-lyra.ps1](./start-lyra.ps1)
-Background launcher.
+Background launcher with readiness gating.
 - [stop-lyra.ps1](./stop-lyra.ps1)
 Background stopper.
 
@@ -39,7 +39,7 @@ Current verdict on shadow mode.
 - [PENNY_MODEL_EVAL.md](./PENNY_MODEL_EVAL.md)
 Model and QA harness notes.
 - [server-js-section-map.md](./server-js-section-map.md)
-`server.js` function â†’ responsibility bands, route table, and suggested module split order.
+`server.js` function-to-responsibility bands, route table, and suggested module split order.
 
 ### Planning / handoff docs
 
@@ -118,9 +118,9 @@ This is not the live runtime prompt stack. It is source/reference material.
 High-signal files in this folder:
 
 - [PENNY'S_BRAIN.md](./Penny's Playground/PENNY'S_BRAIN.md)
-- [Operational system prompt source](./Penny's Playground/PENNY â€” OPERATIONAL SYSTEM PROMPT.md)
-- [Romantic overlay source](./Penny's Playground/PENNY â€” ROMANTIC OVERLAY.md)
-- [High-intensity overlay source](./Penny's Playground/PENNY â€” HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md)
+- [Operational system prompt source](./Penny's Playground/PENNY — OPERATIONAL SYSTEM PROMPT.md)
+- [Romantic overlay source](./Penny's Playground/PENNY — ROMANTIC OVERLAY.md)
+- [High-intensity overlay source](./Penny's Playground/PENNY — HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md)
 - [Personality Reference (1).md](./Penny's Playground/Personality Reference (1).md)
 - [BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md](./Penny's Playground/BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md)
 
@@ -150,6 +150,12 @@ Important scripts:
 
 - [scripts/ensure-lmstudio-penny-preset.js](./scripts/ensure-lmstudio-penny-preset.js)
 Reasserts the LM Studio Penny preset/default behavior.
+- [scripts/penny-lmstudio-prepare.js](./scripts/penny-lmstudio-prepare.js)
+Shared LM Studio preparation flow for startup, preflight, QA, and evals.
+- [scripts/penny-preflight.js](./scripts/penny-preflight.js)
+Cheap local environment and LM Studio readiness checks.
+- [scripts/penny-wait-ready.js](./scripts/penny-wait-ready.js)
+Readiness poller used by the durable launcher and tests.
 - [scripts/eval-penny-models.js](./scripts/eval-penny-models.js)
 Comparative chat-lane evaluation harness.
 - [scripts/eval-penny-probes.js](./scripts/eval-penny-probes.js)
@@ -171,8 +177,10 @@ Durable runtime state.
 
 Important contents:
 
+- `penny-memory.seed.json`
+Tracked seed used to initialize the live memory store when it is missing.
 - `penny-memory.json`
-Main durable memory store.
+Untracked runtime memory store created on first run.
 - various QA/eval memory files
 Disposable artifacts from benchmarking or smoke tests.
 

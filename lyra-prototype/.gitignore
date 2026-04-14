@@ -7,4 +7,5 @@ tmp/
 .lyra-server.pid
 .lyra-server.meta.json
 data/penny-memory*.json
+!data/penny-memory.seed.json
 .playwright-cli/

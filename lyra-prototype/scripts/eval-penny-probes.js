@@ -1,19 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn, execFile } = require('child_process');
+const { createAutomationApi } = require('./penny-lmstudio-prepare');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
 const PORT = Number(process.env.PENNY_PROBE_PORT || 4346);
 const BASE_URL = process.env.PENNY_PROBE_BASE_URL || `http://127.0.0.1:${PORT}`;
 const MEMORY_FILE = path.resolve(ROOT_DIR, process.env.PENNY_PROBE_MEMORY_FILE || 'data/penny-memory.probes.json');
-const USER_HOME = process.env.USERPROFILE || process.env.HOME || '';
-const MODEL_DEFAULT_CONFIGS = [
-  path.join(USER_HOME, '.lmstudio', '.internal', 'user-concrete-model-default-config', 'google', 'gemma-4-31b.json'),
-  path.join(USER_HOME, '.lmstudio', '.internal', 'user-concrete-model-default-config', 'google', 'gemma-4-31b@lmstudio-community', 'gemma-4-31B-it-GGUF', 'gemma-4-31B-it-Q8_0.gguf.json'),
-  path.join(USER_HOME, '.lmstudio', '.internal', 'user-concrete-model-default-config', 'unsloth', 'gemma-4-31B-it-GGUF', 'gemma-4-31B-it-Q6_K.gguf.json'),
-];
-const PENNY_PRESET_IDENTIFIER = '@local:penny';
 const CONTEXT_LENGTH = Number(process.env.PENNY_PROBE_CONTEXT_LENGTH || 10000);
 const TIMEOUT_MS = Number(process.env.PENNY_PROBE_TIMEOUT_MS || 180000);
 const LOAD_TIMEOUT_MS = Number(process.env.PENNY_PROBE_LOAD_TIMEOUT_MS || 1200000);
@@ -115,10 +109,6 @@ function scoreReadonlyHonesty(result) {
 function writeJsonFile(filePath, value) {
   ensureDir(path.dirname(filePath));
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function readJsonFile(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
 async function unloadAllModels() {
@@ -271,17 +261,6 @@ async function stopServerProcess(child) {
   }
 }
 
-function ensurePennyPresetDefaults() {
-  for (const filePath of MODEL_DEFAULT_CONFIGS) {
-    if (!fs.existsSync(filePath)) continue;
-    const config = readJsonFile(filePath);
-    config.preset = PENNY_PRESET_IDENTIFIER;
-    config.operation = config.operation || { fields: [] };
-    config.load = config.load || { fields: [] };
-    writeJsonFile(filePath, config);
-  }
-}
-
 async function runProbesForModel(model) {
   await unloadAllModels();
   await loadModel(model.key);
@@ -348,7 +327,20 @@ async function runProbesForModel(model) {
 
 async function main() {
   ensureDir(OUTPUT_DIR);
-  ensurePennyPresetDefaults();
+  const automationApi = createAutomationApi({
+    chatModel: CHAT_MODEL,
+    toolModel: MODELS[0]?.key || 'google/gemma-4-e4b',
+  });
+  const preparation = await automationApi.prepareLmStudio({
+    reportOnly: false,
+    repairPreset: true,
+    loadChatModel: false,
+    chatModel: CHAT_MODEL,
+    toolModel: MODELS[0]?.key || 'google/gemma-4-e4b',
+  });
+  if (!preparation.ok) {
+    throw new Error(`LM Studio is not ready for probe evals: ${preparation.blockers.join(' ')}`);
+  }
   const server = createServerProcess();
   const payload = {
     startedAt: new Date().toISOString(),
@@ -356,6 +348,14 @@ async function main() {
     memoryFile: MEMORY_FILE,
     contextLength: CONTEXT_LENGTH,
     maxOutputTokens: Number(MAX_OUTPUT_TOKENS),
+    preparation: {
+      ok: preparation.ok,
+      requestedChatModel: preparation.requestedChatModel,
+      requestedToolModel: preparation.requestedToolModel,
+      loadedModels: preparation.loadedModels,
+      warnings: preparation.warnings,
+      blockers: preparation.blockers,
+    },
     models: [],
     workflow: {
       stageOne: 'Run these tiny deterministic probes first.',
@@ -383,7 +383,13 @@ async function main() {
   console.log(`Saved probe results to ${OUTPUT_PATH}`);
 }
 
-main().catch((error) => {
-  console.error(error?.stack || error?.message || String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error?.stack || error?.message || String(error));
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  main,
+};

@@ -4,6 +4,7 @@ const https = require('https');
 const path = require('path');
 const { spawn, execFile } = require('child_process');
 const { URL } = require('url');
+const { createAutomationApi } = require('./penny-lmstudio-prepare');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
@@ -303,6 +304,20 @@ async function stopServerProcess(child) {
 
 async function main() {
   ensureDir(OUTPUT_DIR);
+  const automationApi = createAutomationApi({
+    chatModel: CHAT_MODEL,
+    toolModel: TOOL_MODEL,
+  });
+  const preparation = await automationApi.prepareLmStudio({
+    reportOnly: false,
+    repairPreset: true,
+    loadChatModel: true,
+    chatModel: CHAT_MODEL,
+    toolModel: TOOL_MODEL,
+  });
+  if (!preparation.ok) {
+    throw new Error(`LM Studio is not ready for QA: ${preparation.blockers.join(' ')}`);
+  }
   const server = SPAWN_SERVER ? createServerProcess() : null;
   const payload = {
     startedAt: new Date().toISOString(),
@@ -310,6 +325,14 @@ async function main() {
     serverMode: SPAWN_SERVER ? 'spawned-disposable' : 'existing-main-server',
     qaMode: FULL_QA ? 'full' : 'light',
     memoryFile: SPAWN_SERVER ? MEMORY_FILE : null,
+    preparation: {
+      ok: preparation.ok,
+      requestedChatModel: preparation.requestedChatModel,
+      requestedToolModel: preparation.requestedToolModel,
+      loadedModels: preparation.loadedModels,
+      warnings: preparation.warnings,
+      blockers: preparation.blockers,
+    },
     prompts: [],
     serverLogs: SPAWN_SERVER ? {
       stdout: SERVER_STDOUT_PATH,
@@ -352,7 +375,14 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error?.stack || error?.message || String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error?.stack || error?.message || String(error));
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  summarize,
+  main,
+};

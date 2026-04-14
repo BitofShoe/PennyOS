@@ -127,3 +127,175 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('direct write route survives semantic-render gating on side-effecting turns', async () => {
+  const originalEnv = {
+    PORT: process.env.PORT,
+    PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
+    PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+  };
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-write-'));
+  const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  const repoTempFile = path.join(__dirname, '..', 'tmp', 'route-semantic-render-bug.js');
+  fs.mkdirSync(path.dirname(repoTempFile), { recursive: true });
+  if (fs.existsSync(repoTempFile)) fs.rmSync(repoTempFile, { force: true });
+
+  process.env.PORT = '0';
+  process.env.PENNY_MEMORY_FILE = memoryFile;
+  process.env.PENNY_LMSTUDIO_BASE = 'http://127.0.0.1:1234/v1';
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = 'http://127.0.0.1:1234/api/v1';
+  process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const serverModule = require('../server.js');
+  const started = serverModule.startServer({ port: 0, silent: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (started.listening) {
+        resolve();
+        return;
+      }
+      started.once('listening', resolve);
+      started.once('error', reject);
+    });
+
+    const address = started.address();
+    const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'route-semantic-render-bug',
+        messages: [
+          { role: 'user', content: 'Write tmp/route-semantic-render-bug.js with exactly this line: console.log("hi");' },
+        ],
+        memories: { brainMode: 'local' },
+      }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json.meta.localLane, 'tool');
+    assert.match(response.json.text, /tmp\/route-semantic-render-bug\.js/i);
+    assert.equal(fs.existsSync(repoTempFile), true);
+  } finally {
+    await new Promise((resolve) => started.close(() => resolve()));
+    delete require.cache[modulePath];
+    if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
+    if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
+    if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    if (fs.existsSync(repoTempFile)) fs.rmSync(repoTempFile, { force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('direct web inspect fallback stays deterministic on the public chat route', async () => {
+  const originalEnv = {
+    PORT: process.env.PORT,
+    PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
+    PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+  };
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-web-'));
+  const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  process.env.PORT = '0';
+  process.env.PENNY_MEMORY_FILE = memoryFile;
+  process.env.PENNY_LMSTUDIO_BASE = 'http://127.0.0.1:1234/v1';
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = 'http://127.0.0.1:1234/api/v1';
+  process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+
+  const toolRegistryModulePath = require.resolve('../lib/penny-tool-registry');
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  delete require.cache[toolRegistryModulePath];
+  require.cache[toolRegistryModulePath] = {
+    id: toolRegistryModulePath,
+    filename: toolRegistryModulePath,
+    loaded: true,
+    exports: {
+      createToolRegistry() {
+        return {
+          toolLabelFromResult() {
+            return '';
+          },
+          async executePennyTool(name, args = {}) {
+            if (name === 'search_web') {
+              return {
+                ok: true,
+                label: 'searched the web',
+                data: {
+                  query: args.query,
+                  results: [
+                    {
+                      title: 'Browser Tool',
+                      url: 'https://docs.openclaw.ai/tools/browser',
+                      snippet: 'Browser automation for websites and page interactions.',
+                    },
+                  ],
+                },
+              };
+            }
+            if (name === 'read_web_page') {
+              return {
+                ok: false,
+                label: 'failed to read browser docs',
+                data: {
+                  error: 'too large',
+                  url: 'https://docs.openclaw.ai/tools/browser',
+                },
+              };
+            }
+            throw new Error(`Unexpected tool ${name}`);
+          },
+        };
+      },
+    },
+  };
+
+  const serverModule = require('../server.js');
+  const started = serverModule.startServer({ port: 0, silent: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (started.listening) {
+        resolve();
+        return;
+      }
+      started.once('listening', resolve);
+      started.once('error', reject);
+    });
+
+    const address = started.address();
+    const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'route-web-fallback-test',
+        messages: [
+          { role: 'user', content: 'Search the web for the OpenClaw browser docs and tell me what it is.' },
+        ],
+        memories: { brainMode: 'local' },
+      }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json.meta.localLane, 'tool');
+    assert.match(response.json.text, /Browser Tool/);
+    assert.match(response.json.text, /Browser automation for websites and page interactions\./);
+  } finally {
+    await new Promise((resolve) => started.close(() => resolve()));
+    delete require.cache[modulePath];
+    delete require.cache[toolRegistryModulePath];
+    if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
+    if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
+    if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

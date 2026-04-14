@@ -148,6 +148,7 @@ test('runDirectToolAssist keeps inspect_web_result useful when page fetch fails'
 
   assert.match(result.text, /Browser Tool/);
   assert.match(result.text, /Browser automation for websites and page interactions\./);
+  assert.equal(result.skipSemanticRender, true);
   assert.equal(getLmAssistCalls(), 0);
 });
 
@@ -205,4 +206,32 @@ test('runDirectToolAssist keeps read, search, and list intents on deterministic 
     assert.match(result.text, scenario.expected, `${scenario.label} reply should stay deterministic`);
     assert.equal(getLmAssistCalls(), 0, `${scenario.label} should not call LM tool assist`);
   }
+});
+
+test('runDirectToolAssist keeps focused read-around-match requests deterministic', async () => {
+  const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
+    executePennyTool: async () => ({
+      ok: true,
+      label: 'read public/js/penny-app.js around attachments',
+      data: {
+        path: 'public/js/penny-app.js',
+        query: 'attachments',
+        matchLine: 42,
+        startLine: 40,
+        endLine: 44,
+        excerpt: '42:const attachmentUi = createAttachmentUi({ els, setComposerNotice });',
+      },
+    }),
+  });
+
+  const result = await runDirectToolAssist({
+    userText: 'Open public/js/penny-app.js and tell me what it says about attachments.',
+    messages: [],
+    memories: {},
+    intent: { name: 'read_project_file_around_match', args: { path: 'public/js/penny-app.js', query: 'attachments' } },
+  });
+
+  assert.equal(result.skipSemanticRender, true);
+  assert.match(result.text, /short version: it does mention attachments around line 42/i);
+  assert.equal(getLmAssistCalls(), 0);
 });

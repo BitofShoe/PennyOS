@@ -67,3 +67,16 @@ test('LM Studio tool lane surfaces fallback when E4B is unavailable', async () =
   assert.equal(runtime.resolvedModel, 'google/gemma-4-31b');
   assert.equal(runtime.laneFallback, true);
 });
+
+test('LM Studio status treats quantized chat aliases as equivalent families', async () => {
+  const api = makeStatusApi({
+    models: ['google/gemma-4-31b@q8_0'],
+  });
+
+  const runtime = {};
+  const chosen = await api.withLmStudioLaneModel('chat', async (model) => model, runtime);
+
+  assert.equal(chosen, 'google/gemma-4-31b@q8_0');
+  assert.equal(runtime.requestedModel, 'google/gemma-4-31b');
+  assert.equal(runtime.laneFallback, false);
+});

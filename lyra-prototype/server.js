@@ -64,6 +64,9 @@ const PENNY_VOICE_DIR = path.join(__dirname, 'penny-voice');
 const MEMORY_FILE = process.env.PENNY_MEMORY_FILE
   ? path.resolve(__dirname, process.env.PENNY_MEMORY_FILE)
   : path.join(DATA_DIR, 'penny-memory.json');
+const MEMORY_SEED_FILE = process.env.PENNY_MEMORY_SEED_FILE
+  ? path.resolve(__dirname, process.env.PENNY_MEMORY_SEED_FILE)
+  : path.join(DATA_DIR, 'penny-memory.seed.json');
 const OPENCLAW_ENABLED = process.env.PENNY_OPENCLAW_ENABLED === '1';
 const OPENCLAW_TIMEOUT_MS = Number(process.env.PENNY_OPENCLAW_TIMEOUT_MS || 20000);
 const GATEWAY_PORT = Number(process.env.PENNY_GATEWAY_PORT || 18789);
@@ -238,6 +241,20 @@ function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.mkdirSync(path.dirname(MEMORY_FILE), { recursive: true });
 }
+function defaultMemoryStore() { return { sessions: {} }; }
+function ensureMemoryStoreFile() {
+  ensureDataDir();
+  if (fs.existsSync(MEMORY_FILE)) return;
+  let initial = defaultMemoryStore();
+  try {
+    if (fs.existsSync(MEMORY_SEED_FILE)) {
+      const raw = fs.readFileSync(MEMORY_SEED_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') initial = parsed;
+    }
+  } catch {}
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(initial, null, 2));
+}
 function defaultMemoryRecord(sessionId = 'default') { return { sessionId, userName: '', memories: [], voiceOn: false, brainMode: 'local', lmStudioThread: null, updatedAt: new Date().toISOString() }; }
 function isLikelyTestSessionId(sessionId = '') { return /^(penny-durable-test|penny-controls-test|cmp-local-|smoke-shadow|ui-repro|style-pass-smoke|memory-pass-smoke|qa-|verify-)/i.test(String(sessionId)); }
 function normalizeBrainMode(value = '') { return value === 'shadow' ? 'shadow' : 'local'; }
@@ -271,8 +288,8 @@ const {
   normalizeUserName,
   normalizeBrainMode,
 });
-function readMemoryStore() { try { ensureDataDir(); if (!fs.existsSync(MEMORY_FILE)) return { sessions: {} }; const raw = fs.readFileSync(MEMORY_FILE, 'utf8'); const parsed = JSON.parse(raw); return parsed && typeof parsed === 'object' ? parsed : { sessions: {} }; } catch { return { sessions: {} }; } }
-function writeMemoryStore(store) { ensureDataDir(); fs.writeFileSync(MEMORY_FILE, JSON.stringify(store, null, 2)); }
+function readMemoryStore() { try { ensureMemoryStoreFile(); const raw = fs.readFileSync(MEMORY_FILE, 'utf8'); const parsed = JSON.parse(raw); return parsed && typeof parsed === 'object' ? parsed : defaultMemoryStore(); } catch { return defaultMemoryStore(); } }
+function writeMemoryStore(store) { ensureMemoryStoreFile(); fs.writeFileSync(MEMORY_FILE, JSON.stringify(store, null, 2)); }
 function getStoredMemory(sessionId = 'default') {
   const store = readMemoryStore();
   const record = store.sessions?.[sessionId];
@@ -1581,7 +1598,7 @@ function shouldUseSemanticRender({ file, toolRecords = [], draftText = '' }) {
   const draft = String(draftText || '');
   if (/<\|channel/i.test(draft)) return true;
   const cleaned = cleanDraftForSemanticRender(draft);
-  if (cleaned && looksOnlyLikeCoT(cleaned)) return true;
+  if (cleaned && looksOnlyLikeCoTApi(cleaned)) return true;
   const names = toolRecords.map(record => String(record?.name || '').trim()).filter(Boolean);
   if (names.length === 1 && SEMANTIC_RENDER_SKIP_SINGLE_TOOL.has(names[0])) return false;
   if (names.length >= 2) return true;

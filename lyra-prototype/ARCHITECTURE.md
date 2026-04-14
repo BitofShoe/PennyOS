@@ -14,11 +14,11 @@ Current verdict on whether shadow mode is actually worth keeping around.
 Outside review notes pulled from the LocalLLaMA maintainability discussion and compared against this repo.
 - [PENNY'S_BRAIN.md](./Penny's Playground/PENNY'S_BRAIN.md)
 Higher-level Penny intent and personality source material.
-- [Operational system prompt source](./Penny's Playground/PENNY â€” OPERATIONAL SYSTEM PROMPT.md)
+- [Operational system prompt source](./Penny's Playground/PENNY — OPERATIONAL SYSTEM PROMPT.md)
 Legacy/source operational prompt material.
-- [Romantic overlay source](./Penny's Playground/PENNY â€” ROMANTIC OVERLAY.md)
+- [Romantic overlay source](./Penny's Playground/PENNY — ROMANTIC OVERLAY.md)
 Legacy/source romantic blend material.
-- [High-intensity overlay source](./Penny's Playground/PENNY â€” HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md)
+- [High-intensity overlay source](./Penny's Playground/PENNY — HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md)
 Legacy/source high-intensity overlay material.
 
 ## System shape
@@ -32,13 +32,13 @@ Extracted backend modules for memory helpers, direct-intent parsing/replies, dir
 - `public/index.html`
 Single-page shell for the Penny UI.
 - `public/app.js`
-Frontend state, SSE chat streaming, panel switching, mood/sprite updates, settings, local browser persistence.
+Frontend bootstrap only.
 - `public/styles.css`
 UI styling and animation.
 - `penny-voice/runtime/*`
 The prompt-facing voice system actually injected into Penny's live runtime.
 
-This is not a distributed system. It is a local-first prototype with a monolithic server.
+This is not a distributed system. It is a single-user local prototype with a monolithic server.
 
 ## Runtime modes
 
@@ -55,6 +55,7 @@ There are two runtime brain families:
 - Chat lane defaults to `google/gemma-4-31b`.
 - Tool lane defaults to `google/gemma-4-e4b`.
 - The settings-panel model picker is a chat-lane override only.
+- The local `@local:penny` preset belongs to LM Studio; Penny only verifies and reasserts the local wiring for startup and QA flows.
 
 1. Optional lane: OpenClaw shadow
 
@@ -103,7 +104,7 @@ If you need the older canon/source stack that informed the runtime blend, start 
 
 ### 2. Durable memory
 
-Durable memory is stored in `data/penny-memory.json`.
+Durable memory is stored in a local runtime file at `data/penny-memory.json`, seeded from tracked `data/penny-memory.seed.json` when missing.
 
 The memory model currently tracks:
 
@@ -243,7 +244,7 @@ Main remaining responsibilities in `public/js/penny-app.js`:
 - mood-driven sprite swaps
 - settings and model list fetches
 
-This is intentionally dependency-light, but the tradeoff is that `public/app.js` is also growing large and stateful.
+This is intentionally dependency-light, but the tradeoff is that `public/js/penny-app.js` is still large and stateful even though `public/app.js` is only bootstrap glue.
 
 ## Operational scripts
 
@@ -255,6 +256,12 @@ Starts Penny in the background and writes PID / meta files.
 Stops the background Penny server.
 - `scripts/ensure-lmstudio-penny-preset.js`
 Reasserts the LM Studio preset/default state Penny expects.
+- `scripts/penny-lmstudio-prepare.js`
+Shared LM Studio preparation flow used by startup, preflight, QA, and eval scripts.
+- `scripts/penny-preflight.js`
+Cheap local environment and LM Studio readiness checks.
+- `scripts/penny-wait-ready.js`
+Readiness poller used by the durable launcher and tests.
 - `scripts/eval-penny-models.js`
 Comparative chat-lane model harness with a fixed tool-lane model.
 - `scripts/eval-penny-probes.js`

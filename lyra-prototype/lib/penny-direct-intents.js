@@ -161,6 +161,36 @@ function createDirectIntentApi({
     return '';
   }
 
+  function cleanDirectReadFocusCandidate(candidate = '') {
+    const cleaned = collapseWhitespace(String(candidate || ''))
+      .replace(/^[`"'“”‘’]+|[`"'“”‘’]+$/g, '')
+      .replace(/[?.!,:;]+$/g, '')
+      .trim();
+    if (!cleaned) return '';
+    if (extractExplicitProjectPath(cleaned)) return '';
+    if (/^(it|this|that|the file|the doc|the document|anything|something)$/i.test(cleaned)) return '';
+    if (cleaned.length < 2 || cleaned.length > 80) return '';
+    return cleaned;
+  }
+
+  function extractDirectReadFocusQuery(text = '', explicitPath = '') {
+    if (!explicitPath) return '';
+    const raw = String(text || '');
+    const patterns = [
+      /\bwhat does [\s\S]*?\bsay about\s+([`"'“”‘’]?[^`"'“”‘’?.!\n]+[`"'“”‘’]?)/i,
+      /\btell me what [\s\S]*?\bsays about\s+([`"'“”‘’]?[^`"'“”‘’?.!\n]+[`"'“”‘’]?)/i,
+      /\bwhat does [\s\S]*?\bmention about\s+([`"'“”‘’]?[^`"'“”‘’?.!\n]+[`"'“”‘’]?)/i,
+      /\btell me what [\s\S]*?\bmentions about\s+([`"'“”‘’]?[^`"'“”‘’?.!\n]+[`"'“”‘’]?)/i,
+      /\b(?:about|regarding|on)\s+([`"'“”‘’]?[^`"'“”‘’?.!\n]+[`"'“”‘’]?)(?=(?:\s+in\b|\s+from\b|[?.!]|$))/i,
+    ];
+    for (const pattern of patterns) {
+      const match = raw.match(pattern);
+      const candidate = cleanDirectReadFocusCandidate(match?.[1] || '');
+      if (candidate) return candidate;
+    }
+    return '';
+  }
+
   function looksLikeProjectPathDiscoveryIntent(text = '', query = '') {
     if (!query) return false;
     const lower = String(text || '').toLowerCase();
@@ -258,7 +288,7 @@ function createDirectIntentApi({
       return null;
     }
     if (explicitPath && /\b(read|open|show|inspect|explain|summarize|check|look at|walk through|search|find|grep|look for)\b/i.test(lower)) {
-      const symbolQuery = extractDirectSearchQuery(text);
+      const symbolQuery = extractDirectSearchQuery(text) || extractDirectReadFocusQuery(text, explicitPath);
       if (symbolQuery && !/^(git diff|git status)$/i.test(symbolQuery) && !extractExplicitProjectPath(symbolQuery)) {
         return {
           name: 'read_project_file_around_match',
@@ -354,13 +384,46 @@ function createDirectIntentApi({
   function shouldUseDirectReadReply(userText = '') {
     const lower = String(userText || '').toLowerCase();
     if (!lower) return false;
-    return /\b(do not edit|don't edit|did you change|did you verify|whether you changed|whether you verified|current note string|what does it say|just tell me|just show me)\b/.test(lower);
+    return /\b(do not edit|don't edit|did you change|did you verify|whether you changed|whether you verified|current note string|what does it say|just tell me|just show me|say about|says about|mention about|mentions about)\b/.test(lower);
+  }
+
+  function parseExcerptLines(excerpt = '') {
+    return String(excerpt || '')
+      .split('\n')
+      .map((line) => {
+        const match = line.match(/^(\d+):(.*)$/);
+        if (match) {
+          return {
+            lineNumber: Number(match[1]),
+            text: String(match[2] || '').trim(),
+          };
+        }
+        return {
+          lineNumber: null,
+          text: String(line || '').trim(),
+        };
+      })
+      .filter((line) => line.text);
   }
 
   function composeDirectReadReply(result = {}) {
     const pathLabel = String(result.path || 'that file').trim();
     const query = String(result.query || '').trim();
     const excerpt = String(result.excerpt || '').trim();
+    if (query) {
+      const excerptLines = parseExcerptLines(excerpt);
+      const focusLine = excerptLines.find((line) => line.text.toLowerCase().includes(query.toLowerCase()))
+        || excerptLines.find((line) => line.text);
+      const focusLineNumber = focusLine?.lineNumber || result.matchLine || result.startLine || 1;
+      const supportText = focusLine?.text ? truncateText(focusLine.text, 220) : '';
+      const answer = supportText
+        ? `i checked ${pathLabel} for "${query}". short version: it does mention ${query} around line ${focusLineNumber}.`
+        : `i checked ${pathLabel} for "${query}". short version: there is relevant context around line ${focusLineNumber}.`;
+      const support = supportText
+        ? `\n\nsupporting line ${focusLineNumber}: ${supportText}`
+        : '';
+      return `${answer}${support}\n\ni did not edit anything, and i did not run a verification step.\n[MOOD:thinking]`;
+    }
     const scope = query
       ? `around "${query}" in ${pathLabel}`
       : `${pathLabel} lines ${result.startLine || result.matchLine || 1}-${result.endLine || result.startLine || result.matchLine || 1}`;
@@ -530,6 +593,7 @@ function createDirectIntentApi({
     parseDirectAppendInstruction,
     extractDirectWebQuery,
     extractDirectSearchQuery,
+    extractDirectReadFocusQuery,
     looksLikeProjectPathDiscoveryIntent,
     looksLikeDirectProjectInspectIntent,
     looksLikeOpenEndedProjectEdit,

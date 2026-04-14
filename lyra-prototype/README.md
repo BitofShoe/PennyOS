@@ -30,7 +30,7 @@ Read these in order if you need the current truth:
 - LM Studio is Penny's real primary brain.
 - OpenClaw shadow exists, but it is optional and experimental.
 - Browser storage uses the `penny:v3` key for local vessel/settings continuity.
-- Durable memory lives on disk in `data/penny-memory.json`.
+- Durable memory now defaults to an untracked `data/penny-memory.json`, seeded from tracked `data/penny-memory.seed.json` when missing.
 
 ## Project layout
 
@@ -60,6 +60,9 @@ cd C:\Users\malac\.openclaw\workspace-main\lyra-prototype
 powershell -ExecutionPolicy Bypass -File .\start-lyra.ps1
 ```
 
+That launcher now waits for `GET /api/penny/status` before it claims Penny is up.
+It also runs `npm run lmstudio:prepare` in best-effort mode first unless `PENNY_SKIP_LMSTUDIO_PREP=1`.
+
 Then open:
 
 - [http://localhost:4317](http://localhost:4317)
@@ -81,6 +84,8 @@ npm start
 ## Useful commands
 
 ```powershell
+npm run preflight
+npm run lmstudio:prepare
 npm test
 npm run eval:probes
 npm run qa:voice-redo
@@ -95,7 +100,7 @@ Penny stores two different kinds of continuity:
 - Browser-side vessel/settings state in `localStorage`
 This is lightweight UI continuity like voice toggle, selected brain mode, and other client-side preferences.
 - Durable server-side memory in `data/penny-memory.json`
-This is the actual local memory store used for prompt relevance and longer continuity.
+This is the actual runtime memory store used for prompt relevance and longer continuity. The repo tracks `data/penny-memory.seed.json`; the live `data/penny-memory.json` is created on first run and stays local.
 
 The browser cache is not the source of truth for long-term memory.
 
@@ -105,7 +110,9 @@ The browser cache is not the source of truth for long-term memory.
 - Chat lane and tool lane have separate preferred models:
   - `PENNY_LMSTUDIO_CHAT_MODEL` defaults to `google/gemma-4-31b`
   - `PENNY_LMSTUDIO_TOOL_MODEL` defaults to `google/gemma-4-e4b`
+- `npm run lmstudio:prepare` verifies local preset wiring, checks installed/loaded models, and tries to load the requested chat model for QA/startup flows.
 - The settings-panel model picker is now a chat-lane override only. Tool-lane selection is config-driven.
+- The local `@local:penny` preset is operator-owned LM Studio state. Penny can verify and reassert the wiring, but the repo does not own the preset body.
 - Depending on the loaded model, Penny may use native stateful chat, chat completions, or responses-style fallbacks.
 - Large local models can be slow, especially on first turn and on image turns.
 - The max output token cap is a ceiling, not a target. Raising it prevents clipping; it does not force Penny to ramble if the model naturally stops earlier.
@@ -120,7 +127,7 @@ See [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md) for the current verdict
 
 ## Local security posture
 
-This is a localhost-oriented prototype. Treat it that way:
+This is a single-user local prototype. Treat it that way:
 
 - keep it bound to local/private use
 - do not expose the raw server to the public internet

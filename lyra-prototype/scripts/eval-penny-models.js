@@ -1,21 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn, execFile } = require('child_process');
+const { createAutomationApi } = require('./penny-lmstudio-prepare');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
 const PORT = Number(process.env.PENNY_EVAL_PORT || 4342);
 const BASE_URL = process.env.PENNY_EVAL_BASE_URL || `http://127.0.0.1:${PORT}`;
 const MEMORY_FILE = path.resolve(ROOT_DIR, process.env.PENNY_EVAL_MEMORY_FILE || 'data/penny-memory.model-eval.json');
-const USER_HOME = process.env.USERPROFILE || process.env.HOME || '';
-const LMSTUDIO_SETTINGS_PATH = path.join(process.env.APPDATA || '', 'LM Studio', 'settings.json');
-const PENNY_PRESET_IDENTIFIER = '@local:penny';
-const MODEL_DEFAULT_CONFIGS = [
-  path.join(USER_HOME, '.lmstudio', '.internal', 'user-concrete-model-default-config', 'google', 'gemma-4-31b.json'),
-  path.join(USER_HOME, '.lmstudio', '.internal', 'user-concrete-model-default-config', 'unsloth', 'gemma-4-31B-it-GGUF', 'gemma-4-31B-it-Q6_K.gguf.json'),
-  path.join(USER_HOME, '.lmstudio', '.internal', 'user-concrete-model-default-config', 'unsloth', 'gemma-4-31B-it-GGUF', 'gemma-4-31B-it-Q4_K_S.gguf.json'),
-  path.join(USER_HOME, '.lmstudio', '.internal', 'user-concrete-model-default-config', 'HauhauCS', 'Gemma-4-E4B-Uncensored-HauhauCS-Aggressive', 'Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf.json'),
-];
 const CONTEXT_LENGTH = Number(process.env.PENNY_EVAL_CONTEXT_LENGTH || 10000);
 const GENERAL_TIMEOUT_MS = Number(process.env.PENNY_EVAL_GENERAL_TIMEOUT_MS || 420000);
 const AGENTIC_TIMEOUT_MS = Number(process.env.PENNY_EVAL_AGENTIC_TIMEOUT_MS || 900000);
@@ -68,10 +60,6 @@ function ensureDir(dirPath) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function readJsonFile(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
 function writeJsonFile(filePath, value) {
@@ -161,23 +149,6 @@ function execFileText(command, args, timeoutMs = 120000) {
       resolve({ stdout, stderr });
     });
   });
-}
-
-function ensurePennyPresetDefaults() {
-  if (fs.existsSync(LMSTUDIO_SETTINGS_PATH)) {
-    const settings = readJsonFile(LMSTUDIO_SETTINGS_PATH);
-    settings.developer = settings.developer || {};
-    settings.developer.experimentalLoadPresets = true;
-    writeJsonFile(LMSTUDIO_SETTINGS_PATH, settings);
-  }
-  for (const filePath of MODEL_DEFAULT_CONFIGS) {
-    if (!fs.existsSync(filePath)) continue;
-    const config = readJsonFile(filePath);
-    config.preset = PENNY_PRESET_IDENTIFIER;
-    config.operation = config.operation || { fields: [] };
-    config.load = config.load || { fields: [] };
-    writeJsonFile(filePath, config);
-  }
 }
 
 async function unloadAllModels() {
@@ -467,7 +438,20 @@ function buildOverallSummary(results = []) {
 
 async function main() {
   ensureDir(OUTPUT_DIR);
-  ensurePennyPresetDefaults();
+  const automationApi = createAutomationApi({
+    chatModel: MODELS[0]?.key || 'google/gemma-4-31b',
+    toolModel: TOOL_MODEL,
+  });
+  const preparation = await automationApi.prepareLmStudio({
+    reportOnly: false,
+    repairPreset: true,
+    loadChatModel: false,
+    chatModel: MODELS[0]?.key || 'google/gemma-4-31b',
+    toolModel: TOOL_MODEL,
+  });
+  if (!preparation.ok) {
+    throw new Error(`LM Studio is not ready for model evals: ${preparation.blockers.join(' ')}`);
+  }
   const server = createServerProcess();
   const payload = {
     startedAt: new Date().toISOString(),
@@ -475,6 +459,14 @@ async function main() {
     memoryFile: MEMORY_FILE,
     contextLength: CONTEXT_LENGTH,
     maxOutputTokens: Number(MAX_OUTPUT_TOKENS),
+    preparation: {
+      ok: preparation.ok,
+      requestedChatModel: preparation.requestedChatModel,
+      requestedToolModel: preparation.requestedToolModel,
+      loadedModels: preparation.loadedModels,
+      warnings: preparation.warnings,
+      blockers: preparation.blockers,
+    },
     rubric: RUBRIC,
     models: [],
   };
@@ -508,7 +500,13 @@ async function main() {
   console.log(`Saved eval results to ${OUTPUT_PATH}`);
 }
 
-main().catch((error) => {
-  console.error(error?.stack || error?.message || String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error?.stack || error?.message || String(error));
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  main,
+};

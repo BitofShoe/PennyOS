@@ -188,6 +188,7 @@ function createDirectToolAssistApi({
         text: sequence.fallbackText || composeToolRecordFallback(sequence.results),
         toolsUsed: sequence.toolsUsed,
         toolRecords: sequence.results,
+        skipSemanticRender: true,
       };
     }
     onToolEvent?.({ type: 'tool', state: 'running', name: intent.name, label: `using ${intent.name}` });
@@ -207,7 +208,10 @@ function createDirectToolAssistApi({
     if (intent.name === 'search_project_text') {
       return { text: composeDirectSearchReply(result.data), toolsUsed, toolRecords, skipSemanticRender: true };
     }
-    if ((intent.name === 'read_project_file' || intent.name === 'read_project_file_around_match') && shouldUseDirectReadReply(userText)) {
+    if (
+      (intent.name === 'read_project_file' || intent.name === 'read_project_file_around_match')
+      && (shouldUseDirectReadReply(userText) || (intent.name === 'read_project_file_around_match' && intent.args?.query))
+    ) {
       return { text: composeDirectReadReply(result.data), toolsUsed, toolRecords, skipSemanticRender: true };
     }
     if (intent.name === 'list_project_files') {
