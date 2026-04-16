@@ -4,6 +4,7 @@ const path = require('path');
 const { spawn, execFile } = require('child_process');
 const { createAutomationApi } = require('./penny-lmstudio-prepare');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
+const { buildQaTrust } = require('../lib/penny-qa-trust');
 const { buildQaEnvironmentValidity } = require('../lib/penny-qa-validity');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -64,8 +65,32 @@ const MODE_CONFIGS = Object.freeze({
   }),
 });
 
-const PRIMARY_MODE_KEYS = Object.freeze(['off', 'on']);
+const PRIMARY_MODE_KEYS = Object.freeze(['off', 'synthesis-only']);
 const DIAGNOSTIC_MODE_KEYS = Object.freeze(['caution-only', 'synthesis-only']);
+
+function parseArgValue(name, argv = process.argv.slice(2)) {
+  const dashed = `--${name}`;
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = String(argv[index] || '');
+    if (value === dashed) return argv[index + 1] || '';
+    if (value.startsWith(`${dashed}=`)) return value.slice(dashed.length + 1);
+  }
+  return '';
+}
+
+function resolvePrimaryModeKeys(raw = '', fallback = PRIMARY_MODE_KEYS) {
+  const requested = Array.isArray(raw)
+    ? raw
+    : String(raw || '')
+      .split(',')
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+  const deduped = [...new Set(requested)];
+  if (deduped.length !== 2 || deduped.some((item) => !MODE_CONFIGS[item])) {
+    return [...fallback];
+  }
+  return deduped;
+}
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -474,24 +499,25 @@ function classifyModeLabel(modeResult, bestScore = 0) {
   return 'valid failure';
 }
 
-function buildPairSummary(modes = []) {
-  const off = modes.find((item) => item?.mode === 'off') || null;
-  const on = modes.find((item) => item?.mode === 'on') || null;
-  const validPair = !!off && !!on && off.environment?.valid === true && on.environment?.valid === true;
-  const abortedPair = countCaseAborts(off?.cases) > 0 || countCaseAborts(on?.cases) > 0;
-  const scoreDelta = round(Math.abs(Number(on?.totalScore || 0) - Number(off?.totalScore || 0)), 2);
+function buildPairSummary(modes = [], primaryModeKeys = PRIMARY_MODE_KEYS) {
+  const [leftKey, rightKey] = resolvePrimaryModeKeys(primaryModeKeys, PRIMARY_MODE_KEYS);
+  const left = modes.find((item) => item?.mode === leftKey) || null;
+  const right = modes.find((item) => item?.mode === rightKey) || null;
+  const validPair = !!left && !!right && left.environment?.valid === true && right.environment?.valid === true;
+  const abortedPair = countCaseAborts(left?.cases) > 0 || countCaseAborts(right?.cases) > 0;
+  const scoreDelta = round(Math.abs(Number(right?.totalScore || 0) - Number(left?.totalScore || 0)), 2);
 
   let pairedVerdict = 'invalid environment';
   let winner = '';
   if (validPair && !abortedPair) {
     if (scoreDelta <= AMBIGUOUS_SCORE_DELTA) {
       pairedVerdict = 'ambiguous';
-    } else if (Number(on?.totalScore || 0) > Number(off?.totalScore || 0)) {
-      pairedVerdict = 'on';
-      winner = 'on';
+    } else if (Number(right?.totalScore || 0) > Number(left?.totalScore || 0)) {
+      pairedVerdict = rightKey;
+      winner = rightKey;
     } else {
-      pairedVerdict = 'off';
-      winner = 'off';
+      pairedVerdict = leftKey;
+      winner = leftKey;
     }
   } else if (validPair && abortedPair) {
     pairedVerdict = 'aborted run';
@@ -505,6 +531,7 @@ function buildPairSummary(modes = []) {
   );
 
   return {
+    primaryModes: [leftKey, rightKey],
     pairedVerdict,
     ambiguous: pairedVerdict === 'ambiguous',
     scoreDelta,
@@ -523,10 +550,16 @@ function shouldRunDiagnosticMatrix(pairedSummary = null, policy = DIAGNOSTIC_POL
   return pairedSummary?.pairedVerdict === 'ambiguous';
 }
 
-function buildModePlan({ pairedSummary = null, policy = DIAGNOSTIC_POLICY } = {}) {
-  const keys = [...PRIMARY_MODE_KEYS];
+function buildModePlan({
+  primaryModeKeys = PRIMARY_MODE_KEYS,
+  pairedSummary = null,
+  policy = DIAGNOSTIC_POLICY,
+} = {}) {
+  const keys = [...resolvePrimaryModeKeys(primaryModeKeys, PRIMARY_MODE_KEYS)];
   if (shouldRunDiagnosticMatrix(pairedSummary, policy)) {
-    keys.push(...DIAGNOSTIC_MODE_KEYS);
+    for (const key of DIAGNOSTIC_MODE_KEYS) {
+      if (!keys.includes(key)) keys.push(key);
+    }
   }
   return keys.map((key) => MODE_CONFIGS[key]);
 }
@@ -534,11 +567,36 @@ function buildModePlan({ pairedSummary = null, policy = DIAGNOSTIC_POLICY } = {}
 function buildCompareTrace(payload = {}) {
   const modes = Array.isArray(payload.modes) ? payload.modes : [];
   const allCases = modes.flatMap((mode) => (Array.isArray(mode?.cases) ? mode.cases : []));
+  const primaryModes = Array.isArray(payload?.summary?.primaryModes) && payload.summary.primaryModes.length
+    ? payload.summary.primaryModes
+    : resolvePrimaryModeKeys(payload?.primaryModes, PRIMARY_MODE_KEYS);
   const laneCounts = allCases.reduce((counts, item) => {
     const lane = String(item?.artifactSummary?.selectedLane || '').trim() || 'unknown';
     counts[lane] = (counts[lane] || 0) + 1;
     return counts;
   }, {});
+  const aggregatedEnvironment = {
+    valid: modes.every((item) => item?.environment?.valid !== false),
+    reasons: modes
+      .filter((item) => item?.environment?.valid === false)
+      .flatMap((item) => (Array.isArray(item?.environment?.reasons) ? item.environment.reasons.map((reason) => `${item.mode}: ${reason}`) : [])),
+    degradedArtifacts: modes.reduce((sum, item) => sum + Number(item?.environment?.degradedArtifacts || 0), 0),
+    laneFallbackArtifacts: modes.reduce((sum, item) => sum + Number(item?.environment?.laneFallbackArtifacts || 0), 0),
+    usedFallbackArtifacts: modes.reduce((sum, item) => sum + Number(item?.environment?.usedFallbackArtifacts || 0), 0),
+  };
+  const trust = buildQaTrust({
+    environment: aggregatedEnvironment,
+    ambiguous: payload?.summary?.ambiguous === true,
+    artifactValidatedCount: allCases.filter((item) => item?.artifact && typeof item.artifact === 'object').length,
+    expectedArtifactCount: allCases.length,
+    degradedArtifacts: aggregatedEnvironment.degradedArtifacts,
+    fallbackArtifacts: aggregatedEnvironment.laneFallbackArtifacts + aggregatedEnvironment.usedFallbackArtifacts,
+    failedResultCount: allCases.filter((item) => item?.ok === false).length,
+    reasonCodes: [
+      modes.some((item) => item?.environment?.valid === false) ? 'mode_environments_invalid' : '',
+      allCases.some((item) => item?.ok === false) ? 'case_aborts_present' : '',
+    ].filter(Boolean),
+  });
 
   return validateQaTrace(buildQaTrace({
     runId: `epistemic-compare-${payload.startedAt || STAMP}`,
@@ -546,7 +604,8 @@ function buildCompareTrace(payload = {}) {
     finishedAt: payload.finishedAt,
     promptVersion: 'eval-penny-epistemic-compare.v2',
     laneDecision: {
-      primaryModes: PRIMARY_MODE_KEYS.length,
+      primaryModeCount: primaryModes.length,
+      primaryModes: primaryModes.join(', '),
       diagnosticModes: modes.filter((item) => item?.manifest?.diagnostic === true).length,
       chatLaneTurns: laneCounts.chat || 0,
       toolLaneTurns: laneCounts.tool || 0,
@@ -597,15 +656,18 @@ function buildCompareTrace(payload = {}) {
         ? round(allCases.reduce((sum, item) => sum + Number(item?.seconds || 0), 0) / allCases.length, 2)
         : 0,
     },
+    trust,
     validation: {
       validModes: modes.filter((item) => item?.environment?.valid === true).length,
       invalidModes: modes.filter((item) => item?.environment?.valid === false).length,
       pairedVerdict: payload?.summary?.pairedVerdict || '',
-      diagnosticsPolicy: DIAGNOSTIC_POLICY,
+      diagnosticsPolicy: payload?.diagnosticsPolicy || DIAGNOSTIC_POLICY,
     },
     outcome: {
+      primaryPair: primaryModes.join(', '),
       off: payload?.summary?.perMode?.off || '',
       on: payload?.summary?.perMode?.on || '',
+      synthesisOnly: payload?.summary?.perMode?.['synthesis-only'] || '',
       winner: payload?.summary?.winner || '',
       ambiguous: payload?.summary?.ambiguous === true,
     },
@@ -693,6 +755,14 @@ async function runMode(modeConfig) {
 
 async function main() {
   ensureDir(OUTPUT_DIR);
+  const primaryModeKeys = resolvePrimaryModeKeys(
+    parseArgValue('primary-modes') || parseArgValue('primary')
+      || process.env.PENNY_EPISTEMIC_COMPARE_PRIMARY_MODES,
+    PRIMARY_MODE_KEYS,
+  );
+  const diagnosticsPolicy = String(
+    parseArgValue('diagnostics') || parseArgValue('diagnostic-matrix') || DIAGNOSTIC_POLICY,
+  ).trim().toLowerCase() || DIAGNOSTIC_POLICY;
   const payload = {
     startedAt: new Date().toISOString(),
     baseUrl: BASE_URL,
@@ -703,24 +773,30 @@ async function main() {
     contextLength: CONTEXT_LENGTH,
     toolContextLength: TOOL_CONTEXT_LENGTH,
     modelTtlSeconds: MODEL_TTL_SECONDS,
-    diagnosticsPolicy: DIAGNOSTIC_POLICY,
+    diagnosticsPolicy,
+    primaryModes: primaryModeKeys,
     modes: [],
     summary: null,
     trace: null,
   };
 
-  const primaryModes = buildModePlan({ policy: 'never' });
+  const primaryModes = buildModePlan({ primaryModeKeys, policy: 'never' });
   for (const modeConfig of primaryModes) {
     payload.modes.push(await runMode(modeConfig));
   }
 
-  payload.summary = buildPairSummary(payload.modes);
+  payload.summary = buildPairSummary(payload.modes, primaryModeKeys);
 
-  if (shouldRunDiagnosticMatrix(payload.summary, DIAGNOSTIC_POLICY)) {
-    for (const modeConfig of DIAGNOSTIC_MODE_KEYS.map((key) => MODE_CONFIGS[key])) {
+  if (shouldRunDiagnosticMatrix(payload.summary, diagnosticsPolicy)) {
+    const diagnosticModes = buildModePlan({
+      primaryModeKeys,
+      pairedSummary: payload.summary,
+      policy: diagnosticsPolicy,
+    }).filter((modeConfig) => !primaryModeKeys.includes(modeConfig.key));
+    for (const modeConfig of diagnosticModes) {
       payload.modes.push(await runMode(modeConfig));
     }
-    payload.summary = buildPairSummary(payload.modes);
+    payload.summary = buildPairSummary(payload.modes, primaryModeKeys);
   }
 
   const bestScore = Number(payload.summary?.bestScore || 0);
@@ -730,6 +806,7 @@ async function main() {
 
   payload.finishedAt = new Date().toISOString();
   payload.trace = buildCompareTrace(payload);
+  payload.trust = payload.trace.trust;
   fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
   console.log(`Saved epistemic comparison to ${OUTPUT_PATH}`);
 }
@@ -746,8 +823,10 @@ module.exports = {
   MODE_CONFIGS,
   buildModePlan,
   buildPairSummary,
+  buildCompareTrace,
   classifyModeLabel,
   flattenServerStatus,
+  resolvePrimaryModeKeys,
   shouldRunDiagnosticMatrix,
   main,
 };

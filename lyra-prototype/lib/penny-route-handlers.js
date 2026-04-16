@@ -150,12 +150,14 @@ function createPennyRouteHandlers(deps = {}) {
     mergeMemoryState,
     reviewPromotion,
     purgeArchiveMemory,
+    purgeResearchLedger,
     buildChatMemoryState,
     sanitizeChatMessages,
     sanitizeImageDataUrl,
     sanitizeFileAttachment,
     appendAttachmentContext,
     buildRuntimeMemoryContext,
+    scheduleResearchLedgerUpdate,
     selectLocalLane,
     runLmStudioLocalSmart,
     streamLmStudioLocalSmart,
@@ -333,6 +335,28 @@ function createPennyRouteHandlers(deps = {}) {
     }
   }
 
+  function ledgerIfEligible({
+    sessionId,
+    requestedMode,
+    localLane,
+    userText,
+    assistantText,
+    toolRecords,
+    provenance,
+    backend,
+  }) {
+    if (requestedMode === 'shadow') return;
+    scheduleResearchLedgerUpdate?.({
+      sessionId,
+      userText,
+      assistantText,
+      selectedLane: localLane,
+      backend,
+      toolRecords,
+      provenance,
+    });
+  }
+
   function recordAssistantTurn(text) {
     sessionState.lastMood = pickMood(text);
     sessionState.memory.push({ role: 'assistant', content: stripReplyMoodTags(text), ts: Date.now() });
@@ -437,6 +461,11 @@ function createPennyRouteHandlers(deps = {}) {
           clearGlobalArchive: payload.clearGlobalArchive === true,
           clearEmbeddings: payload.clearEmbeddings === true,
         });
+        purgeResearchLedger?.({
+          sessionId,
+          clearSessionLedger: payload.clearSessionArchive === true,
+          clearGlobalLedger: payload.clearGlobalArchive === true,
+        });
         const inspector = await buildCombinedMemoryInspector(sessionId, memory);
         sendJson(res, 200, { ok: true, memory, inspector, archive });
       } catch (error) {
@@ -529,6 +558,7 @@ function createPennyRouteHandlers(deps = {}) {
             semanticMemoryMode,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
+            researchLedgerContext: runtimeMemoryContext.researchLedger,
             matchedBooks,
             epistemics,
             synthesis,
@@ -598,6 +628,7 @@ function createPennyRouteHandlers(deps = {}) {
             semanticMemoryMode,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
+            researchLedgerContext: runtimeMemoryContext.researchLedger,
             matchedBooks,
             epistemics,
             synthesis,
@@ -665,6 +696,7 @@ function createPennyRouteHandlers(deps = {}) {
             semanticMemoryMode,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
+            researchLedgerContext: runtimeMemoryContext.researchLedger,
             matchedBooks,
             shadowError: error.message,
             epistemics,
@@ -990,6 +1022,7 @@ function createPennyRouteHandlers(deps = {}) {
             toolRecords,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
+            researchLedgerContext: runtimeMemoryContext.researchLedger,
             matchedBooks,
             repair,
             epistemics,
@@ -1038,6 +1071,16 @@ function createPennyRouteHandlers(deps = {}) {
             retrieval: runtimeMemoryContext.retrieval,
             provenance: turnProvenance,
             reviewCandidates: turnReviewCandidates,
+          });
+          ledgerIfEligible({
+            sessionId,
+            requestedMode,
+            localLane,
+            userText,
+            assistantText: text,
+            toolRecords,
+            provenance: turnProvenance,
+            backend,
           });
 
           if (!clientClosed) {
@@ -1232,6 +1275,7 @@ function createPennyRouteHandlers(deps = {}) {
         toolRecords,
         retrieval: runtimeMemoryContext.retrieval,
         archiveContext: runtimeMemoryContext.archiveContext,
+        researchLedgerContext: runtimeMemoryContext.researchLedger,
         matchedBooks,
         repair,
         epistemics,
@@ -1281,6 +1325,16 @@ function createPennyRouteHandlers(deps = {}) {
         retrieval: runtimeMemoryContext.retrieval,
         provenance: turnProvenance,
         reviewCandidates: turnReviewCandidates,
+      });
+      ledgerIfEligible({
+        sessionId,
+        requestedMode,
+        localLane,
+        userText,
+        assistantText: text,
+        toolRecords,
+        provenance: turnProvenance,
+        backend,
       });
       sendJson(res, 200, {
         text,

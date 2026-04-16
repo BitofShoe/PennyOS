@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  buildMemoryQaTrace,
   parseMemoryQaArgs,
   MEMORY_QA_SEGMENT_IDS,
   MEMORY_QA_SEGMENT_ORDER,
@@ -35,4 +36,65 @@ test('parseMemoryQaArgs rejects invalid segment combinations', () => {
     'contradiction-premise',
     'mixed-drift',
   ]);
+});
+
+test('buildMemoryQaTrace emits a fallback trust verdict when lane fallback polluted the run', () => {
+  const trace = buildMemoryQaTrace({
+    startedAt: '2026-04-16T12:00:00.000Z',
+    finishedAt: '2026-04-16T12:10:00.000Z',
+    runMode: 'segment',
+    segmentId: 'semantic-archive',
+    suites: [
+      {
+        environment: {
+          valid: false,
+          laneFallbackArtifacts: 1,
+          usedFallbackArtifacts: 0,
+          reasons: ['runtime artifacts reported lane fallback on 1 turn(s)'],
+        },
+        serverStatus: {
+          resolvedChatModel: 'q6',
+          toolPreferredModel: 'e4b',
+          embedPreferredModel: 'nomic',
+          availableModels: ['q6', 'e4b'],
+          maxOutputTokens: 320,
+        },
+        scenarios: [
+          {
+            ok: true,
+            seconds: 10,
+            meta: {
+              localLane: 'chat',
+              laneFallback: true,
+              artifact: {
+                performance: { archiveRetrieval: { sessionItems: 1, globalItems: 0 } },
+                readiness: { warmState: 'warm' },
+              },
+              toolsUsed: [],
+            },
+            memory: { memories: [] },
+            inspectorAfter: { inspector: { archive: { global: { promotionQueue: [] } } } },
+          },
+        ],
+      },
+    ],
+    summary: {
+      completed: 1,
+      failed: 0,
+      invalid: 0,
+      totalScenarioSeconds: 10,
+      averageScenarioSeconds: 10,
+    },
+    preparation: {
+      loadedModels: ['q6', 'e4b'],
+    },
+    qaModelPolicy: {
+      chat: 'q6',
+      tool: 'e4b',
+      embed: 'nomic',
+    },
+  });
+
+  assert.equal(trace.trust.verdict, 'fallback');
+  assert.match(trace.trust.reasonCodes.join(','), /lane_fallback/);
 });

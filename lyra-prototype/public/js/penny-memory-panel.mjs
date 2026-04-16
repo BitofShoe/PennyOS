@@ -73,6 +73,7 @@ export function buildMemoryInspectorViewModel(inspector = null) {
   const global = inspector?.archive?.global || {};
   const books = inspector?.memoryBooks || {};
   const semantic = inspector?.embeddings?.semanticMemory || {};
+  const ledger = inspector?.ledger || {};
   const routing = inspector?.routing || {};
   const artifact = inspector?.artifact || routing?.artifact || null;
   const retrieval = session.lastRetrieval || { session: [], global: [] };
@@ -88,6 +89,7 @@ export function buildMemoryInspectorViewModel(inspector = null) {
     global,
     books,
     semantic,
+    ledger,
     routing,
     artifact,
     retrieval,
@@ -274,6 +276,7 @@ function renderTraceArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) 
   const retrievalChannels = Array.isArray(trace.retrievalChannels) ? trace.retrievalChannels : [];
   const contradictions = Array.isArray(trace.contradictions) ? trace.contradictions : [];
   const openQuestions = Array.isArray(trace.openQuestions) ? trace.openQuestions : [];
+  const ongoingInvestigations = Array.isArray(trace.ongoingInvestigations) ? trace.ongoingInvestigations : [];
   const evidenceAccepted = Array.isArray(trace.evidenceAccepted) ? trace.evidenceAccepted : [];
   const evidenceRejected = Array.isArray(trace.evidenceRejected) ? trace.evidenceRejected : [];
   const qaValidity = trace.qaValidity && typeof trace.qaValidity === 'object' ? trace.qaValidity : { active: false, verdict: 'n/a', reasons: [] };
@@ -295,6 +298,10 @@ function renderTraceArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) 
   const openQuestionSummary = openQuestions
     .slice(0, 2)
     .map((item) => `${item?.status || 'open'}: ${item?.detail || ''}`)
+    .filter(Boolean);
+  const investigationSummary = ongoingInvestigations
+    .slice(0, 2)
+    .map((item) => `${item?.label || 'investigation'}: ${item?.detail || item?.status || ''}`)
     .filter(Boolean);
   const acceptedSummary = evidenceAccepted
     .slice(0, 3)
@@ -325,8 +332,8 @@ function renderTraceArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) 
     </div>
     <div class="list-item">
       <div class="memory-copy">
-        Contradictions: ${escapeHtmlFn(String(contradictions.length))} &middot; Open questions: ${escapeHtmlFn(String(openQuestions.length))}
-        <small>${escapeHtmlFn([...contradictionSummary, ...openQuestionSummary].join(' | ') || 'No contradictions or open questions were active.')}</small>
+        Contradictions: ${escapeHtmlFn(String(contradictions.length))} &middot; Open questions: ${escapeHtmlFn(String(openQuestions.length))} &middot; Investigations: ${escapeHtmlFn(String(ongoingInvestigations.length))}
+        <small>${escapeHtmlFn([...contradictionSummary, ...openQuestionSummary, ...investigationSummary].join(' | ') || 'No contradictions, open questions, or investigations were active.')}</small>
       </div>
     </div>
     <div class="list-item">
@@ -339,6 +346,100 @@ function renderTraceArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) 
       ? `<div class="list-item"><div class="memory-copy">QA validity: <strong>${escapeHtmlFn(qaValidity.verdict || 'unknown')}</strong><small>${escapeHtmlFn((qaValidity.reasons || []).join(' | ') || 'No QA validity notes recorded.')}</small></div></div>`
       : ''}
   `;
+}
+
+function summarizeEvidenceRefs(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .slice(0, 3)
+    .map((item) => item?.ref || item?.label || item?.note || '')
+    .filter(Boolean)
+    .join(', ');
+}
+
+function renderTraceProvenance(artifact = null, escapeHtmlFn = escapeHtml) {
+  const provenance = artifact?.provenance && typeof artifact.provenance === 'object' ? artifact.provenance : null;
+  if (!provenance) {
+    return '<div class="list-item"><div class="memory-copy">No trace provenance details are available for the last turn yet.</div></div>';
+  }
+  const retrieval = Array.isArray(provenance.retrieval) ? provenance.retrieval : [];
+  const contradictions = Array.isArray(provenance.contradictions) ? provenance.contradictions : [];
+  const openQuestions = Array.isArray(provenance.openQuestions) ? provenance.openQuestions : [];
+  const ongoingInvestigations = Array.isArray(provenance.ongoingInvestigations) ? provenance.ongoingInvestigations : [];
+  const acceptedEvidence = Array.isArray(provenance.acceptedEvidence) ? provenance.acceptedEvidence : [];
+  const rejectedEvidence = Array.isArray(provenance.rejectedEvidence) ? provenance.rejectedEvidence : [];
+  const wakeContext = [
+    contradictions.length ? `contradictions ${contradictions.slice(0, 2).map((item) => item?.label || item?.detail || 'correction').filter(Boolean).join(', ')}` : '',
+    openQuestions.length ? `open ${openQuestions.slice(0, 2).map((item) => item?.detail || item?.label || 'question').filter(Boolean).join(', ')}` : '',
+    ongoingInvestigations.length ? `investigations ${ongoingInvestigations.slice(0, 2).map((item) => item?.label || item?.detail || 'topic').filter(Boolean).join(', ')}` : '',
+  ].filter(Boolean);
+  const evidenceLedger = [
+    acceptedEvidence.length ? `accepted ${acceptedEvidence.length}` : '',
+    rejectedEvidence.length ? `held ${rejectedEvidence.length}` : '',
+  ].filter(Boolean).join(' · ');
+  const retrievalRows = retrieval.slice(0, 6).map((item) => {
+    const identity = [
+      item?.injected === false ? 'held back' : 'used',
+      item?.channel || '',
+      item?.scope || '',
+      item?.reason || '',
+      Array.isArray(item?.sourceSessionIds) && item.sourceSessionIds.length ? `sessions ${item.sourceSessionIds.join(', ')}` : '',
+      Array.isArray(item?.sourceTurnIds) && item.sourceTurnIds.length ? `turns ${item.sourceTurnIds.slice(0, 3).join(', ')}` : '',
+      Array.isArray(item?.sourceEpisodeIds) && item.sourceEpisodeIds.length ? `episodes ${item.sourceEpisodeIds.slice(0, 3).join(', ')}` : '',
+      summarizeEvidenceRefs(item?.evidenceRefs) ? `evidence ${summarizeEvidenceRefs(item.evidenceRefs)}` : '',
+    ].filter(Boolean).join(' · ');
+    return `
+      <div class="list-item memory-item">
+        <div class="memory-copy">
+          ${escapeHtmlFn(item?.sourceLabel || item?.sourceId || item?.channel || 'source')}
+          <small>${escapeHtmlFn(identity || 'No provenance identity details were recorded.')}</small>
+          ${item?.snippet ? `<small>${escapeHtmlFn(item.snippet)}</small>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+  return `
+    <div class="list-item">
+      <div class="memory-copy">
+        Trace provenance
+        <small>${escapeHtmlFn(wakeContext.join(' | ') || 'No contradiction, open-loop, or investigation context was attached to this trace.')}</small>
+        ${evidenceLedger ? `<small>${escapeHtmlFn(evidenceLedger)}</small>` : ''}
+      </div>
+    </div>
+    ${retrievalRows || '<div class="list-item"><div class="memory-copy">No retrieval provenance rows were recorded for the last turn.</div></div>'}
+  `;
+}
+
+function renderResearchLedger(ledger = {}, escapeHtmlFn = escapeHtml) {
+  const contextTopics = Array.isArray(ledger?.context?.topics) ? ledger.context.topics : [];
+  const recentTopics = Array.isArray(ledger?.recentTopics) ? ledger.recentTopics : [];
+  const items = contextTopics.length ? contextTopics : recentTopics;
+  if (!items.length) {
+    return '<div class="list-item"><div class="memory-copy">No research continuity topics are stored right now.</div></div>';
+  }
+  return items.map((item) => {
+    const evidenceCount = Array.isArray(item?.evidenceRefs) ? item.evidenceRefs.length : 0;
+    const followUp = Array.isArray(item?.openFollowUps) && item.openFollowUps.length ? item.openFollowUps[0] : '';
+    const detail = item?.summary || item?.conclusion || item?.question || '';
+    const evidenceSummary = summarizeEvidenceRefs(item?.evidenceRefs);
+    const sourceSummary = [
+      Array.isArray(item?.sourceSessionIds) && item.sourceSessionIds.length ? `sessions ${item.sourceSessionIds.join(', ')}` : '',
+      Array.isArray(item?.sourceTurnIds) && item.sourceTurnIds.length ? `turns ${item.sourceTurnIds.slice(0, 3).join(', ')}` : '',
+      Array.isArray(item?.contradictions) && item.contradictions.length
+        ? `contradictions ${item.contradictions.map((entry) => entry?.conflictKey || entry?.newText || '').filter(Boolean).slice(0, 2).join(', ')}`
+        : '',
+    ].filter(Boolean).join(' · ');
+    return `
+      <div class="list-item memory-item">
+        <div class="memory-copy">
+          ${escapeHtmlFn(item?.topicLabel || item?.topicId || 'investigation')}
+          <small>${escapeHtmlFn(`${item?.status || 'advisory'}${evidenceCount ? ` · evidence ${evidenceCount}` : ''}${followUp ? ` · ${followUp}` : ''}`)}</small>
+          ${detail ? `<small>${escapeHtmlFn(detail)}</small>` : ''}
+          ${evidenceSummary ? `<small>${escapeHtmlFn(`Evidence refs: ${evidenceSummary}`)}</small>` : ''}
+          ${sourceSummary ? `<small>${escapeHtmlFn(`Source trail: ${sourceSummary}`)}</small>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 function renderActiveContradictions(items = [], escapeHtmlFn = escapeHtml) {
@@ -413,7 +514,7 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
     </div>
     <div class="list-item">
       <div class="memory-copy">
-        Explicit facts: ${escapeHtmlFn(String(viewModel.explicit.count || 0))} &middot; Memory books: ${escapeHtmlFn(String(viewModel.books.enabledCount || 0))} enabled &middot; Session archive: ${escapeHtmlFn(String(viewModel.session.episodeCount || 0))} episodes / ${escapeHtmlFn(String(viewModel.session.chapterCount || 0))} chapters &middot; Global patterns: ${escapeHtmlFn(String(viewModel.global.patternCount || 0))}
+        Explicit facts: ${escapeHtmlFn(String(viewModel.explicit.count || 0))} &middot; Memory books: ${escapeHtmlFn(String(viewModel.books.enabledCount || 0))} enabled &middot; Session archive: ${escapeHtmlFn(String(viewModel.session.episodeCount || 0))} episodes / ${escapeHtmlFn(String(viewModel.session.chapterCount || 0))} chapters &middot; Global patterns: ${escapeHtmlFn(String(viewModel.global.patternCount || 0))} &middot; Investigations: ${escapeHtmlFn(String(viewModel.ledger.topicCount || 0))}
       </div>
     </div>
     ${renderRoutingSummary(viewModel.routing, escapeHtmlFn)}
@@ -421,6 +522,9 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
     ${renderArtifactSummary(viewModel.artifact, escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Trace artifact</div>
     ${renderTraceArtifactSummary(viewModel.artifact, escapeHtmlFn)}
+    ${renderTraceProvenance(viewModel.artifact, escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Research continuity ledger</div>
+    ${renderResearchLedger(viewModel.ledger, escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Recency protection</div>
     ${renderRecencyProtection(viewModel.session.recencyProtection, escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Last retrieval for Penny's reply</div>

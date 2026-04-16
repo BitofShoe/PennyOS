@@ -22,6 +22,7 @@ test('qa trace normalizes a replayable harness envelope', () => {
     memoryWrites: { successfulTurns: 8 },
     toolCalls: { recordedTools: 0 },
     latency: { averageTurnSeconds: 12.4 },
+    trust: { verdict: 'pass', scope: 'ok', reasonCodes: ['checks_clean'], reasons: ['Trace and environment checks were clean.'] },
     validation: { completedScenarios: 4, failedScenarios: 0 },
     outcome: { completedScenarios: 4, failedScenarios: 0, releaseReady: true },
   }));
@@ -29,6 +30,8 @@ test('qa trace normalizes a replayable harness envelope', () => {
   assert.equal(trace.version, QA_TRACE_VERSION);
   assert.deepEqual(trace.loadedModels, ['q6', 'e4b']);
   assert.equal(trace.laneDecision.chatLaneTurns, 6);
+  assert.equal(trace.trust.verdict, 'pass');
+  assert.deepEqual(trace.trust.reasonCodes, ['checks_clean']);
   assert.equal(trace.validation.failedScenarios, 0);
   assert.equal(trace.outcome.releaseReady, true);
 });

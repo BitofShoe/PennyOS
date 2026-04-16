@@ -3,6 +3,7 @@ const path = require('path');
 const { spawn, execFile } = require('child_process');
 const { createAutomationApi } = require('./penny-lmstudio-prepare');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
+const { buildQaTrust } = require('../lib/penny-qa-trust');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
@@ -212,6 +213,18 @@ function buildProbeTrace(payload = {}) {
   const averageSeconds = results.length
     ? Math.round((results.reduce((sum, item) => sum + Number(item?.seconds || 0), 0) / results.length) * 100) / 100
     : 0;
+  const failedProbeCount = totalProbeCount - passedProbeCount;
+  const trust = buildQaTrust({
+    artifactValidatedCount: results.filter((item) => item?.artifact && typeof item.artifact === 'object').length,
+    expectedArtifactCount: results.length,
+    failedResultCount: failedProbeCount > 0 ? 1 : 0,
+    reasonCodes: [
+      failedProbeCount > 0 ? 'probe_failures_present' : '',
+    ].filter(Boolean),
+    reasons: [
+      failedProbeCount > 0 ? `${failedProbeCount} probe assertion(s) missed the full score target.` : '',
+    ].filter(Boolean),
+  });
 
   return validateQaTrace(buildQaTrace({
     runId: `probe-eval-${payload.startedAt || STAMP}`,
@@ -254,10 +267,11 @@ function buildProbeTrace(payload = {}) {
       averageTurnSeconds: averageSeconds,
       modelCount: models.length,
     },
+    trust,
     validation: {
       probeCount: totalProbeCount,
       passedProbeCount,
-      failedProbeCount: totalProbeCount - passedProbeCount,
+      failedProbeCount,
       maxScore: models.reduce((sum, item) => sum + Number(item?.maxScore || 0), 0),
     },
     outcome: {
@@ -614,6 +628,7 @@ async function main() {
 
   payload.finishedAt = new Date().toISOString();
   payload.trace = buildProbeTrace(payload);
+  payload.trust = payload.trace.trust;
   writeJsonFile(OUTPUT_PATH, payload);
   console.log(`Saved probe results to ${OUTPUT_PATH}`);
 }
@@ -626,5 +641,6 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildProbeTrace,
   main,
 };

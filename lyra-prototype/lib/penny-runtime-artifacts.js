@@ -247,6 +247,25 @@ function normalizeSideEffectEntry(raw = {}) {
   };
 }
 
+function normalizeEvidenceRefSummary(raw = {}) {
+  if (!raw || typeof raw !== 'object') return null;
+  const type = String(raw.type || '').trim() || 'evidence';
+  const tool = trimText(raw.tool || '', 80);
+  const ref = trimText(raw.ref || raw.target || raw.path || raw.url || raw.query || '', 220);
+  const label = trimText(raw.label || '', 160);
+  const note = trimText(raw.note || '', 220);
+  const status = String(raw.status || '').trim() || 'verified';
+  if (!ref && !label && !note) return null;
+  return {
+    type,
+    tool,
+    ref,
+    label,
+    note,
+    status,
+  };
+}
+
 function normalizeRetrievalTraceEntry(raw = {}) {
   if (!raw || typeof raw !== 'object') return null;
   const channel = String(raw.channel || '').trim() || 'archive';
@@ -256,6 +275,22 @@ function normalizeRetrievalTraceEntry(raw = {}) {
   const contradictionState = trimText(raw.contradictionState || 'none', 80) || 'none';
   const injected = raw.injected !== false;
   const score = Number.isFinite(Number(raw.score)) ? Math.round(Number(raw.score) * 1000) / 1000 : 0;
+  const sourceType = trimText(raw.sourceType || '', 80);
+  const scope = trimText(raw.scope || raw.sourceScope || '', 80);
+  const createdAt = trimIso(raw.createdAt, '');
+  const snippet = trimText(raw.snippet || raw.evidenceSnippet || raw.detail || raw.text || '', 220);
+  const sourceEpisodeIds = uniqueStrings(raw.sourceEpisodeIds || raw.evidenceIds || [], 8);
+  const sourceSessionIds = uniqueStrings(
+    raw.sourceSessionIds
+      || (raw.sourceSessionId ? [raw.sourceSessionId] : []),
+    8,
+  );
+  const sourceTurnIds = uniqueStrings(raw.sourceTurnIds || [], 12);
+  const matchedTokens = uniqueStrings(raw.matchedTokens || [], 6);
+  const evidenceRefs = (Array.isArray(raw.evidenceRefs) ? raw.evidenceRefs : [])
+    .map(normalizeEvidenceRefSummary)
+    .filter(Boolean)
+    .slice(0, 4);
   if (!sourceId && !sourceLabel) return null;
   return {
     channel,
@@ -265,6 +300,15 @@ function normalizeRetrievalTraceEntry(raw = {}) {
     reason,
     contradictionState,
     injected,
+    sourceType,
+    scope,
+    createdAt,
+    snippet,
+    sourceEpisodeIds,
+    sourceSessionIds,
+    sourceTurnIds,
+    matchedTokens,
+    evidenceRefs,
   };
 }
 
@@ -317,6 +361,37 @@ function normalizeQaValiditySummary(raw = {}) {
   };
 }
 
+function normalizeArtifactProvenance(raw = {}, defaults = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  return {
+    retrieval: (Array.isArray(value.retrieval) ? value.retrieval : fallback.retrieval || [])
+      .map(normalizeRetrievalTraceEntry)
+      .filter(Boolean)
+      .slice(0, 12),
+    contradictions: (Array.isArray(value.contradictions) ? value.contradictions : fallback.contradictions || [])
+      .map(normalizeTraceStateEntry)
+      .filter(Boolean)
+      .slice(0, 6),
+    openQuestions: (Array.isArray(value.openQuestions) ? value.openQuestions : fallback.openQuestions || [])
+      .map(normalizeTraceStateEntry)
+      .filter(Boolean)
+      .slice(0, 6),
+    ongoingInvestigations: (Array.isArray(value.ongoingInvestigations) ? value.ongoingInvestigations : fallback.ongoingInvestigations || [])
+      .map(normalizeTraceStateEntry)
+      .filter(Boolean)
+      .slice(0, 6),
+    acceptedEvidence: (Array.isArray(value.acceptedEvidence) ? value.acceptedEvidence : fallback.acceptedEvidence || [])
+      .map(normalizeTraceEvidenceEntry)
+      .filter(Boolean)
+      .slice(0, 8),
+    rejectedEvidence: (Array.isArray(value.rejectedEvidence) ? value.rejectedEvidence : fallback.rejectedEvidence || [])
+      .map(normalizeTraceEvidenceEntry)
+      .filter(Boolean)
+      .slice(0, 8),
+  };
+}
+
 function normalizeTraceState(raw = {}, defaults = {}) {
   const value = raw && typeof raw === 'object' ? raw : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
@@ -345,6 +420,10 @@ function normalizeTraceState(raw = {}, defaults = {}) {
       .filter(Boolean)
       .slice(0, 6),
     openQuestions: (Array.isArray(value.openQuestions) ? value.openQuestions : fallback.openQuestions || [])
+      .map(normalizeTraceStateEntry)
+      .filter(Boolean)
+      .slice(0, 6),
+    ongoingInvestigations: (Array.isArray(value.ongoingInvestigations) ? value.ongoingInvestigations : fallback.ongoingInvestigations || [])
       .map(normalizeTraceStateEntry)
       .filter(Boolean)
       .slice(0, 6),
@@ -392,7 +471,7 @@ function sourceLabelForRetrievalItem(item = {}) {
   return 'archive';
 }
 
-function buildRetrievalTraceState(retrieval = null, matchedBooks = []) {
+function buildRetrievalTraceState(retrieval = null, matchedBooks = [], researchLedgerContext = null) {
   const entries = [];
   const contradictionState = Array.isArray(retrieval?.provenance) && retrieval.provenance.length
     ? 'tracked'
@@ -407,6 +486,12 @@ function buildRetrievalTraceState(retrieval = null, matchedBooks = []) {
       reason: reason || 'archive-session',
       contradictionState,
       injected: true,
+      sourceType: item?.sourceType || 'archive',
+      scope: item?.scope || 'session',
+      createdAt: item?.createdAt || '',
+      snippet: item?.evidenceSnippet || item?.text || '',
+      sourceEpisodeIds: item?.sourceEpisodeIds || [],
+      matchedTokens: item?.matchedTokens || [],
     });
   }
   for (const item of Array.isArray(retrieval?.global) ? retrieval.global : []) {
@@ -418,6 +503,12 @@ function buildRetrievalTraceState(retrieval = null, matchedBooks = []) {
       reason: reason || 'archive-global',
       contradictionState,
       injected: true,
+      sourceType: item?.sourceType || 'archive',
+      scope: item?.scope || 'global',
+      createdAt: item?.createdAt || '',
+      snippet: item?.evidenceSnippet || item?.text || '',
+      sourceEpisodeIds: item?.sourceEpisodeIds || [],
+      matchedTokens: item?.matchedTokens || [],
     });
   }
   for (const item of Array.isArray(retrieval?.compression?.chapters) ? retrieval.compression.chapters : []) {
@@ -429,6 +520,12 @@ function buildRetrievalTraceState(retrieval = null, matchedBooks = []) {
       reason: String(retrieval?.compression?.reasonCode || '').trim() || 'chapter-compression',
       contradictionState,
       injected: retrieval?.compression?.used === true,
+      sourceType: item?.sourceType || 'chapter',
+      scope: 'chapter',
+      createdAt: item?.createdAt || '',
+      snippet: item?.evidenceSnippet || item?.text || '',
+      sourceEpisodeIds: item?.sourceEpisodeIds || [],
+      matchedTokens: item?.matchedTokens || [],
     });
   }
   for (const item of Array.isArray(matchedBooks) ? matchedBooks : []) {
@@ -440,12 +537,46 @@ function buildRetrievalTraceState(retrieval = null, matchedBooks = []) {
       reason: 'memory-book-match',
       contradictionState: 'none',
       injected: true,
+      sourceType: 'memory-book',
+      scope: item?.placement || 'memory',
+      snippet: item?.evidenceSnippet || item?.text || '',
+      matchedTokens: item?.matchedPhrases || [],
+    });
+  }
+  for (const item of Array.isArray(researchLedgerContext?.topics) ? researchLedgerContext.topics : []) {
+    entries.push({
+      channel: 'research-ledger',
+      sourceId: item?.topicId || '',
+      sourceLabel: trimText(item?.topicLabel || item?.summary || 'ongoing-investigation', 140),
+      score: item?.status === 'open' ? 1 : item?.status === 'provisional' ? 0.75 : 0.5,
+      reason: 'research-continuity-ledger',
+      contradictionState: Array.isArray(item?.contradictions) && item.contradictions.length ? 'tracked' : 'none',
+      injected: true,
+      sourceType: 'research-ledger',
+      scope: 'research-ledger',
+      createdAt: item?.lastTouchedAt || '',
+      snippet: item?.summary || item?.conclusion || item?.question || '',
+      sourceSessionIds: item?.sourceSessionIds || [],
+      sourceTurnIds: item?.sourceTurnIds || [],
+      evidenceRefs: item?.evidenceRefs || [],
     });
   }
   return entries
     .map(normalizeRetrievalTraceEntry)
     .filter(Boolean)
     .slice(0, 12);
+}
+
+function buildArtifactProvenance({ retrievalTrace = [], trace = null } = {}) {
+  const traceState = trace && typeof trace === 'object' ? trace : {};
+  return normalizeArtifactProvenance({
+    retrieval: retrievalTrace,
+    contradictions: traceState.contradictions || [],
+    openQuestions: traceState.openQuestions || [],
+    ongoingInvestigations: traceState.ongoingInvestigations || [],
+    acceptedEvidence: traceState.evidenceAccepted || [],
+    rejectedEvidence: traceState.evidenceRejected || [],
+  });
 }
 
 function buildToolArtifactState(toolRecords = [], toolsUsed = []) {
@@ -549,12 +680,14 @@ function buildRuntimeTraceState({
   toolState = null,
   retrieval = null,
   archiveContext = null,
+  researchLedgerContext = null,
 } = {}) {
   const toolEvidence = Array.isArray(toolState?.evidence) ? toolState.evidence : [];
   const activeContradictions = Array.isArray(archiveContext?.activeContradictions)
     ? archiveContext.activeContradictions
     : (Array.isArray(retrieval?.provenance) ? retrieval.provenance : []);
   const openQuestions = Array.isArray(archiveContext?.openLoops) ? archiveContext.openLoops : [];
+  const ongoingInvestigations = Array.isArray(researchLedgerContext?.topics) ? researchLedgerContext.topics : [];
   const sessionCount = Array.isArray(retrieval?.session) ? retrieval.session.length : 0;
   const injectedCount = retrievalTrace.filter((item) => item?.injected !== false).length;
   const rejectedCount = retrievalTrace.filter((item) => item?.injected === false).length;
@@ -643,6 +776,15 @@ function buildRuntimeTraceState({
         count: openQuestions.length,
       },
       {
+        layer: 'ongoing-investigations',
+        label: 'Ongoing investigations',
+        detail: ongoingInvestigations.length
+          ? `${ongoingInvestigations.length} research continuity topic(s) were available as advisory wake context.`
+          : 'No ongoing investigation topics were active for this turn.',
+        status: ongoingInvestigations.length ? 'present' : 'clear',
+        count: ongoingInvestigations.length,
+      },
+      {
         layer: 'advisory-retrieval',
         label: 'Advisory retrieval hints',
         detail: retrievalTrace.length
@@ -667,6 +809,13 @@ function buildRuntimeTraceState({
       status: String(item?.status || 'open').trim() || 'open',
       count: 1,
     })),
+    ongoingInvestigations: ongoingInvestigations.map((item) => ({
+      layer: 'research-ledger',
+      label: trimText(item?.topicLabel || item?.topicId || 'investigation', 140),
+      detail: trimText(item?.summary || item?.conclusion || item?.question || '', 220),
+      status: String(item?.status || 'advisory').trim() || 'advisory',
+      count: Array.isArray(item?.openFollowUps) ? item.openFollowUps.length : 0,
+    })),
     evidenceAccepted,
     evidenceRejected,
   });
@@ -688,6 +837,7 @@ function buildRuntimeArtifact({
   toolRecords = [],
   retrieval = null,
   archiveContext = null,
+  researchLedgerContext = null,
   matchedBooks = [],
   repair = null,
   shadowEnabled = false,
@@ -707,7 +857,7 @@ function buildRuntimeArtifact({
   const normalizedSynthesis = normalizeArchiveSynthesis(synthesis);
   const toolState = buildToolArtifactState(toolRecords, toolsUsed);
   const retrievalState = buildRetrievalArtifactState(retrieval, matchedBooks);
-  const retrievalTrace = buildRetrievalTraceState(retrieval, matchedBooks);
+  const retrievalTrace = buildRetrievalTraceState(retrieval, matchedBooks, researchLedgerContext);
   const reasonCodes = uniqueStrings([
     reason,
     retrieval?.reasonCode,
@@ -764,6 +914,11 @@ function buildRuntimeArtifact({
     toolState,
     retrieval,
     archiveContext,
+    researchLedgerContext,
+  });
+  const provenance = buildArtifactProvenance({
+    retrievalTrace,
+    trace,
   });
 
   return normalizeRuntimeArtifact({
@@ -804,6 +959,7 @@ function buildRuntimeArtifact({
     artifacts,
     retrievalTrace,
     trace,
+    provenance,
     sideEffects,
     reasonCodes,
     epistemics: normalizedEpistemics,
@@ -888,6 +1044,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       .filter(Boolean)
       .slice(0, 12),
     trace: normalizeTraceState(raw.trace || fallback.trace, fallback.trace),
+    provenance: normalizeArtifactProvenance(raw.provenance || fallback.provenance, fallback.provenance),
     sideEffects: (Array.isArray(raw.sideEffects) ? raw.sideEffects : fallback.sideEffects || [])
       .map(normalizeSideEffectEntry)
       .filter(Boolean)
@@ -941,6 +1098,7 @@ function normalizeLastRouteInfo(value) {
       resolvedModel: String(value.resolvedModel || '').trim(),
       semanticMemoryReady: value.semanticMemoryReady === true,
       semanticMemoryMode: String(value.semanticMemoryMode || '').trim() || 'disabled',
+      researchLedgerContext: value.researchLedgerContext || null,
       repair,
       epistemics,
       synthesis,
@@ -986,6 +1144,7 @@ function buildLastRouteInfo({
   toolRecords = [],
   retrieval = null,
   archiveContext = null,
+  researchLedgerContext = null,
   matchedBooks = [],
   repair = null,
   shadowEnabled = false,
@@ -1043,6 +1202,7 @@ function buildLastRouteInfo({
       toolRecords,
       retrieval,
       archiveContext,
+      researchLedgerContext,
       matchedBooks,
       repair,
       shadowEnabled,
@@ -1063,6 +1223,7 @@ function buildCombinedMemoryInspector({
   sessionId = 'default',
   explicitMemory = {},
   inspector = {},
+  ledger = {},
   books = {},
   lmStudio = {},
   shadowEnabled = false,
@@ -1111,6 +1272,7 @@ function buildCombinedMemoryInspector({
       semanticMemoryMode: routingBase.semanticMemoryMode || inspector?.embeddings?.semanticMemory?.mode || 'disabled',
       retrieval: inspector?.archive?.session?.lastRetrieval || null,
       archiveContext: inspectorArchiveContext,
+      researchLedgerContext: ledger?.context || null,
       matchedBooks,
       repair: routingBase.repair,
       epistemics: routingBase.epistemics,
@@ -1134,6 +1296,7 @@ function buildCombinedMemoryInspector({
     semanticMemoryMode: routing.semanticMemoryMode,
     retrieval: inspector?.archive?.session?.lastRetrieval || null,
     archiveContext: inspectorArchiveContext,
+    researchLedgerContext: ledger?.context || null,
     matchedBooks,
     repair: routing.repair,
     epistemics: routing.epistemics,
@@ -1155,6 +1318,7 @@ function buildCombinedMemoryInspector({
 
   return {
     ...inspector,
+    ledger,
     memoryBooks: {
       ...books,
       matchedBooks,

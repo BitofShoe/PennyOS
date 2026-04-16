@@ -88,6 +88,27 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
         configuredModel: 'text-embedding-nomic-embed-text-v1.5',
       },
     },
+    ledger: {
+      topicCount: 1,
+      openCount: 1,
+      provisionalCount: 0,
+      settledCount: 0,
+      context: {
+        topics: [
+          {
+            topicId: 'path-package-json',
+            topicLabel: 'package.json',
+            status: 'open',
+            summary: 'open follow-up - verify the vitest migration.',
+            evidenceRefs: [{ ref: 'package.json' }],
+            openFollowUps: ['verify the vitest migration'],
+            sourceSessionIds: ['qa-ledger'],
+            sourceTurnIds: ['qa-ledger:turn-1'],
+          },
+        ],
+      },
+      recentTopics: [],
+    },
     routing: {
       selectedLane: 'tool',
       requestedMode: 'local',
@@ -147,14 +168,17 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
           { layer: 'active-session', label: 'Active session context', detail: '1 session recall hit was available.', status: 'present', count: 1 },
         ],
         retrievalChannels: [
-          { channel: 'archive-session', sourceId: 'session-1', sourceLabel: 'archive-session', score: 0.91, reason: 'direct-inspect', contradictionState: 'tracked', injected: true },
-          { channel: 'archive-chapter', sourceId: 'chapter-1', sourceLabel: 'chapter', score: 0.48, reason: 'compression_low_retrieval_confidence', contradictionState: 'tracked', injected: false },
+          { channel: 'archive-session', sourceId: 'session-1', sourceLabel: 'archive-session', score: 0.91, reason: 'direct-inspect', contradictionState: 'tracked', injected: true, scope: 'session', sourceEpisodeIds: ['episode-1'], snippet: 'Favorite tea is lapsang souchong now.' },
+          { channel: 'archive-chapter', sourceId: 'chapter-1', sourceLabel: 'chapter', score: 0.48, reason: 'compression_low_retrieval_confidence', contradictionState: 'tracked', injected: false, scope: 'chapter', sourceEpisodeIds: ['episode-1', 'episode-2'] },
         ],
         contradictions: [
           { layer: 'contradiction', label: 'favorite tea', detail: 'Favorite tea is lapsang souchong', status: 'active', count: 1 },
         ],
         openQuestions: [
           { layer: 'open-question', label: 'open', detail: 'Check whether the red glove is still on dryer three', status: 'open', count: 1 },
+        ],
+        ongoingInvestigations: [
+          { layer: 'research-ledger', label: 'package.json', detail: 'open follow-up - verify the vitest migration.', status: 'open', count: 1 },
         ],
         evidenceAccepted: [
           { type: 'route', channel: 'runtime', label: 'local/tool', detail: 'local-lmstudio-tools', status: 'selected' },
@@ -163,6 +187,27 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
           { type: 'retrieval', channel: 'archive-chapter', label: 'chapter', detail: 'compression_low_retrieval_confidence', status: 'held-back' },
         ],
         qaValidity: { active: false, verdict: 'n/a', reasons: [] },
+      },
+      provenance: {
+        retrieval: [
+          { channel: 'archive-session', sourceId: 'session-1', sourceLabel: 'archive-session', score: 0.91, reason: 'direct-inspect', contradictionState: 'tracked', injected: true, scope: 'session', sourceEpisodeIds: ['episode-1'], snippet: 'Favorite tea is lapsang souchong now.' },
+          { channel: 'research-ledger', sourceId: 'path-package-json', sourceLabel: 'package.json', score: 1, reason: 'research-continuity-ledger', contradictionState: 'none', injected: true, scope: 'research-ledger', sourceSessionIds: ['qa-ledger'], sourceTurnIds: ['qa-ledger:turn-1'], evidenceRefs: [{ ref: 'package.json' }], snippet: 'open follow-up - verify the vitest migration.' },
+        ],
+        contradictions: [
+          { layer: 'contradiction', label: 'favorite tea', detail: 'Favorite tea is lapsang souchong', status: 'active', count: 1 },
+        ],
+        openQuestions: [
+          { layer: 'open-question', label: 'open', detail: 'Check whether the red glove is still on dryer three', status: 'open', count: 1 },
+        ],
+        ongoingInvestigations: [
+          { layer: 'research-ledger', label: 'package.json', detail: 'open follow-up - verify the vitest migration.', status: 'open', count: 1 },
+        ],
+        acceptedEvidence: [
+          { type: 'route', channel: 'runtime', label: 'local/tool', detail: 'local-lmstudio-tools', status: 'selected' },
+        ],
+        rejectedEvidence: [
+          { type: 'retrieval', channel: 'archive-chapter', label: 'chapter', detail: 'compression_low_retrieval_confidence', status: 'held-back' },
+        ],
       },
       sideEffects: [{ type: 'memory-persist', target: 'lastRoute', status: 'verified' }],
       reasonCodes: ['direct-inspect'],
@@ -197,6 +242,7 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
 
   assert.equal(viewModel.explicit.count, 3);
   assert.equal(viewModel.books.enabledCount, 2);
+  assert.equal(viewModel.ledger.topicCount, 1);
   assert.equal(viewModel.matchedBooks.length, 1);
   assert.equal(viewModel.compression.used, true);
   assert.equal(viewModel.compression.explanation.selectedSignals[0], 'active-contradiction');
@@ -268,6 +314,27 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
           configuredModel: 'text-embedding-nomic-embed-text-v1.5',
         },
       },
+      ledger: {
+        topicCount: 1,
+        openCount: 1,
+        provisionalCount: 0,
+        settledCount: 0,
+        context: {
+          topics: [
+            {
+              topicId: 'path-package-json',
+              topicLabel: 'package.json',
+              status: 'open',
+              summary: 'open follow-up - verify the vitest migration.',
+              evidenceRefs: [{ ref: 'package.json' }],
+              openFollowUps: ['verify the vitest migration'],
+              sourceSessionIds: ['qa-ledger'],
+              sourceTurnIds: ['qa-ledger:turn-1'],
+            },
+          ],
+        },
+        recentTopics: [],
+      },
       routing: {
         selectedLane: 'tool',
         requestedMode: 'local',
@@ -323,14 +390,17 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
           { layer: 'active-session', label: 'Active session context', detail: 'No session archive hits were selected for this turn.', status: 'empty', count: 0 },
         ],
         retrievalChannels: [
-          { channel: 'archive-session', sourceId: 'session-1', sourceLabel: 'archive-session', score: 0.91, reason: 'direct-inspect', contradictionState: 'tracked', injected: true },
-          { channel: 'archive-chapter', sourceId: 'chapter-1', sourceLabel: 'chapter', score: 0.48, reason: 'compression_low_retrieval_confidence', contradictionState: 'tracked', injected: false },
+          { channel: 'archive-session', sourceId: 'session-1', sourceLabel: 'archive-session', score: 0.91, reason: 'direct-inspect', contradictionState: 'tracked', injected: true, scope: 'session', sourceEpisodeIds: ['episode-1'], snippet: 'Favorite tea is lapsang souchong now.' },
+          { channel: 'archive-chapter', sourceId: 'chapter-1', sourceLabel: 'chapter', score: 0.48, reason: 'compression_low_retrieval_confidence', contradictionState: 'tracked', injected: false, scope: 'chapter', sourceEpisodeIds: ['episode-1', 'episode-2'] },
         ],
         contradictions: [
           { layer: 'contradiction', label: 'favorite tea', detail: 'Favorite tea is lapsang souchong', status: 'active', count: 1 },
         ],
         openQuestions: [
           { layer: 'open-question', label: 'open', detail: 'Check whether the red glove is still on dryer three', status: 'open', count: 1 },
+        ],
+        ongoingInvestigations: [
+          { layer: 'research-ledger', label: 'package.json', detail: 'open follow-up - verify the vitest migration.', status: 'open', count: 1 },
         ],
         evidenceAccepted: [
           { type: 'route', channel: 'runtime', label: 'local/tool', detail: 'local-lmstudio-tools', status: 'selected' },
@@ -340,6 +410,28 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
           { type: 'retrieval', channel: 'archive-chapter', label: 'chapter', detail: 'compression_low_retrieval_confidence', status: 'held-back' },
         ],
         qaValidity: { active: false, verdict: 'n/a', reasons: [] },
+      },
+      provenance: {
+        retrieval: [
+          { channel: 'archive-session', sourceId: 'session-1', sourceLabel: 'archive-session', score: 0.91, reason: 'direct-inspect', contradictionState: 'tracked', injected: true, scope: 'session', sourceEpisodeIds: ['episode-1'], snippet: 'Favorite tea is lapsang souchong now.' },
+          { channel: 'research-ledger', sourceId: 'path-package-json', sourceLabel: 'package.json', score: 1, reason: 'research-continuity-ledger', contradictionState: 'none', injected: true, scope: 'research-ledger', sourceSessionIds: ['qa-ledger'], sourceTurnIds: ['qa-ledger:turn-1'], evidenceRefs: [{ ref: 'package.json' }], snippet: 'open follow-up - verify the vitest migration.' },
+        ],
+        contradictions: [
+          { layer: 'contradiction', label: 'favorite tea', detail: 'Favorite tea is lapsang souchong', status: 'active', count: 1 },
+        ],
+        openQuestions: [
+          { layer: 'open-question', label: 'open', detail: 'Check whether the red glove is still on dryer three', status: 'open', count: 1 },
+        ],
+        ongoingInvestigations: [
+          { layer: 'research-ledger', label: 'package.json', detail: 'open follow-up - verify the vitest migration.', status: 'open', count: 1 },
+        ],
+        acceptedEvidence: [
+          { type: 'route', channel: 'runtime', label: 'local/tool', detail: 'local-lmstudio-tools', status: 'selected' },
+          { type: 'tool', channel: 'verified-tool', label: 'read_project_file', detail: 'README.md', status: 'verified' },
+        ],
+        rejectedEvidence: [
+          { type: 'retrieval', channel: 'archive-chapter', label: 'chapter', detail: 'compression_low_retrieval_confidence', status: 'held-back' },
+        ],
       },
       sideEffects: [{ type: 'memory-persist', target: 'lastRoute', status: 'verified' }],
         reasonCodes: ['direct-inspect'],
@@ -382,6 +474,12 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Readiness:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /tool-heavy/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Trace artifact/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Trace provenance/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Research continuity ledger/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /package\.json/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /episodes episode-1/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /turns qa-ledger:turn-1/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Evidence refs: package\.json/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Wake hierarchy/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Retrieval channels: 2/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Evidence accepted: 2/);

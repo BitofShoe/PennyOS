@@ -218,6 +218,9 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   const archiveSynthesis = memories?.archiveSynthesis && typeof memories.archiveSynthesis === 'object'
     ? memories.archiveSynthesis
     : null;
+  const researchLedgerContext = memories?.researchLedgerContext && typeof memories.researchLedgerContext === 'object'
+    ? memories.researchLedgerContext
+    : null;
   const retrievalHints = [];
   const retrievalReason = normalizeText(archiveContext?.reasonCode || '');
   const compressionUsed = archiveContext?.compression?.used === true;
@@ -258,15 +261,30 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
     ...correctionItems.map((item) => `correction: ${item.newText} (replaces: ${item.oldText})`),
     ...openLoops.map((item) => `open question: ${item}`),
   ];
+  const ongoingInvestigations = Array.isArray(researchLedgerContext?.topics)
+    ? researchLedgerContext.topics
+      .map((item) => {
+        const topicLabel = normalizeText(item?.topicLabel || '');
+        const summary = normalizeText(item?.summary || item?.conclusion || item?.question || '');
+        const status = normalizeText(item?.status || 'advisory');
+        if (!topicLabel && !summary) return '';
+        if (summary) return `${topicLabel || 'investigation'} (${status}): ${summary}`;
+        return `${topicLabel} (${status})`;
+      })
+      .filter(Boolean)
+      .slice(0, 2)
+    : [];
 
   const stableFactsSection = formatPromptSection('Wake state - stable facts', stableFacts);
   const sessionContextSection = formatPromptSection('Wake state - active session context', sessionContext);
   const contradictionSection = formatPromptSection('Wake state - contradictions/open questions', contradictionAndLoopLines);
+  const investigationsSection = formatPromptSection('Wake state - ongoing investigations (advisory)', ongoingInvestigations);
   const retrievalHintsSection = formatPromptSection('Wake state - retrieval hints (advisory)', retrievalHints);
 
   if (stableFactsSection) sections.push(stableFactsSection);
   if (sessionContextSection) sections.push(sessionContextSection);
   if (contradictionSection) sections.push(contradictionSection);
+  if (investigationsSection) sections.push(investigationsSection);
   if (retrievalHintsSection) sections.push(retrievalHintsSection);
   if (!sections.length) return fallback;
   return sections.join('\n');

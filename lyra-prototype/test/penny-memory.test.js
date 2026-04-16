@@ -243,3 +243,45 @@ test('formatPromptMemories surfaces retrieval caution when archive recall is wea
   assert.match(out, /retrieval caution:/i);
   assert.match(out, /archive-global: They keep returning to midnight rain/i);
 });
+
+test('formatPromptMemories inserts ongoing investigations after contradictions and before retrieval hints', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const out = formatPromptMemories({
+    memories: [
+      { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: now },
+    ],
+    archiveContext: {
+      activeContradictions: [
+        {
+          conflictKey: 'favorite tea',
+          oldText: 'Favorite tea is oolong',
+          newText: 'Favorite tea is lapsang souchong',
+        },
+      ],
+      global: [
+        { text: 'They keep returning to midnight rain.', sourceLabel: 'archive-global' },
+      ],
+    },
+    researchLedgerContext: {
+      topics: [
+        {
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+          status: 'open',
+          summary: 'open follow-up - verify whether the Vitest migration is still pending.',
+        },
+      ],
+    },
+  }, 'What should we verify next?', 3, '- Nothing yet.', now);
+
+  const contradictionsIndex = out.indexOf('Wake state - contradictions/open questions:');
+  const investigationsIndex = out.indexOf('Wake state - ongoing investigations (advisory):');
+  const retrievalIndex = out.indexOf('Wake state - retrieval hints (advisory):');
+
+  assert.ok(contradictionsIndex >= 0);
+  assert.ok(investigationsIndex >= 0);
+  assert.ok(retrievalIndex >= 0);
+  assert.ok(contradictionsIndex < investigationsIndex);
+  assert.ok(investigationsIndex < retrievalIndex);
+  assert.match(out, /package\.json \(open\): open follow-up/i);
+});

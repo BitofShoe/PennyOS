@@ -21,6 +21,9 @@ const {
   createMemoryBooksApi,
 } = require('./lib/penny-memory-books');
 const {
+  createResearchLedgerApi,
+} = require('./lib/penny-research-ledger');
+const {
   buildPromptStack,
 } = require('./lib/penny-prompt-stack');
 const {
@@ -109,6 +112,9 @@ const MEMORY_ARCHIVE_FILE = process.env.PENNY_MEMORY_ARCHIVE_FILE
 const MEMORY_EMBEDDINGS_FILE = process.env.PENNY_MEMORY_EMBEDDINGS_FILE
   ? path.resolve(__dirname, process.env.PENNY_MEMORY_EMBEDDINGS_FILE)
   : path.join(DATA_DIR, 'penny-memory-embeddings.json');
+const MEMORY_LEDGER_FILE = process.env.PENNY_MEMORY_LEDGER_FILE
+  ? path.resolve(__dirname, process.env.PENNY_MEMORY_LEDGER_FILE)
+  : path.join(path.dirname(MEMORY_FILE), 'penny-memory-ledger.json');
 const MEMORY_BOOKS_FILE = process.env.PENNY_MEMORY_BOOKS_FILE
   ? path.resolve(__dirname, process.env.PENNY_MEMORY_BOOKS_FILE)
   : path.join(DATA_DIR, 'penny-memory-books.json');
@@ -308,6 +314,7 @@ function reportLmStudioReasoning({ transport = '', lane = 'chat', model = '', re
 function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.mkdirSync(path.dirname(MEMORY_FILE), { recursive: true });
+  fs.mkdirSync(path.dirname(MEMORY_LEDGER_FILE), { recursive: true });
 }
 function defaultMemoryStore() { return { sessions: {} }; }
 function ensureMemoryStoreFile() {
@@ -388,6 +395,10 @@ async function buildRuntimeMemoryContext({
   const budget = latencyBudget && typeof latencyBudget === 'object'
     ? latencyBudget
     : resolveLatencyBudget({ userText, lane, attachmentType });
+  const researchLedger = getResearchLedgerContextApi({
+    sessionId,
+    userText,
+  });
   const memoryBooks = matchMemoryBooksApi({
     sessionId,
     userText,
@@ -431,9 +442,11 @@ async function buildRuntimeMemoryContext({
     }, archive.archiveContext, {
       epistemicCaution: epistemics,
       archiveSynthesis: synthesis,
+      researchLedger,
     }),
     archiveContext: archive.archiveContext,
     memoryBooks,
+    researchLedger,
     retrieval,
     semanticMemory: archive.semanticMemory,
     epistemics,
@@ -461,6 +474,30 @@ function scheduleArchiveConsolidation({
     }).catch((error) => {
       console.warn(`[penny archive] turn consolidation failed: ${error?.message || error}`);
     });
+  });
+}
+function scheduleResearchLedgerUpdate({
+  sessionId = 'default',
+  userText = '',
+  assistantText = '',
+  selectedLane = 'chat',
+  backend = '',
+  toolRecords = [],
+  provenance = [],
+} = {}) {
+  if (!String(userText || '').trim() || !String(assistantText || '').trim()) return;
+  queueMicrotask(() => {
+    try {
+      updateResearchLedgerFromTurnApi({
+        sessionId,
+        userText,
+        assistantText: stripReplyMoodTags(String(assistantText || '')),
+        selectedLane,
+        backend,
+        toolRecords,
+        provenance,
+      });
+    } catch {}
   });
 }
 function execFileText(file, args = [], options = {}) {
@@ -535,6 +572,17 @@ const {
   reviewPromotion: reviewPromotionApi,
   purgeMemory: purgeArchiveMemoryApi,
 } = memoryArchiveApi;
+const researchLedgerApi = createResearchLedgerApi({
+  fs,
+  path,
+  LEDGER_FILE: MEMORY_LEDGER_FILE,
+});
+const {
+  getPromptContext: getResearchLedgerContextApi,
+  getResearchLedgerInspector: getResearchLedgerInspectorApi,
+  updateResearchLedgerFromTurn: updateResearchLedgerFromTurnApi,
+  purgeResearchLedger: purgeResearchLedgerApi,
+} = researchLedgerApi;
 const memoryBooksApi = createMemoryBooksApi({
   fs,
   path,
@@ -1224,12 +1272,13 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'list_project_files',
-      description: 'List files or folders inside the Penny project. Use this before reading a file if you need to discover paths.',
+      description: 'List files or folders inside the Penny project with bounded traversal. Defaults ignore generated or heavy folders like .git, node_modules, output, tmp, and logs.',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Project-relative folder path. Defaults to the repo root.' },
           recursive: { type: 'boolean', description: 'Whether to recurse into child folders.' },
+          maxDepth: { type: 'integer', description: 'Optional traversal depth cap when recursive mode is on.' },
           pattern: { type: 'string', description: 'Optional case-insensitive substring filter for returned file names.' },
           limit: { type: 'integer', description: 'Maximum number of results to return.' },
         },
@@ -1241,7 +1290,7 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'read_project_file',
-      description: 'Read a text file from the Penny project, optionally with a line range.',
+      description: 'Read a bounded excerpt from a text file in the Penny project. This stays inside the repo root and only reads allowed text/code files.',
       parameters: {
         type: 'object',
         properties: {
@@ -1258,7 +1307,7 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'read_project_file_around_match',
-      description: 'Read a focused excerpt from one project file around the first line that matches a query.',
+      description: 'Read a focused bounded excerpt from one project file around the first line that matches a query.',
       parameters: {
         type: 'object',
         properties: {
@@ -1276,12 +1325,13 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'search_project_text',
-      description: 'Search project text files for a phrase and return matching lines with file paths.',
+      description: 'Search project text files for a phrase with bounded traversal. Defaults ignore generated or heavy folders and skips large/non-text files.',
       parameters: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Case-insensitive text to search for.' },
           path: { type: 'string', description: 'Optional project-relative folder or file path to narrow the search.' },
+          maxDepth: { type: 'integer', description: 'Optional traversal depth cap for folder searches.' },
           limit: { type: 'integer', description: 'Maximum number of matches to return.' },
         },
         required: ['query'],
@@ -1293,7 +1343,7 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'write_project_file',
-      description: 'Create or fully rewrite a text/code file inside the Penny project. Use this for new files or intentional full-file rewrites.',
+      description: 'Create or fully rewrite an allowed text/code file inside the Penny project. Runtime write-size caps still apply.',
       parameters: {
         type: 'object',
         properties: {
@@ -1309,7 +1359,7 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'replace_in_project_file',
-      description: 'Replace a specific string inside a text/code file. Prefer this over full-file rewrites when making targeted edits.',
+      description: 'Replace a specific string inside an allowed text/code file. Prefer this over full-file rewrites when making targeted edits.',
       parameters: {
         type: 'object',
         properties: {
@@ -2605,6 +2655,7 @@ const routeHandlers = createPennyRouteHandlers({
       sessionId,
       explicitMemory,
       inspector: await getMemoryInspectorApi({ sessionId, explicitMemory, semanticMemory }),
+      ledger: getResearchLedgerInspectorApi({ sessionId }),
       books: getMemoryBooksInspectorApi(),
       lmStudio,
       shadowEnabled: OPENCLAW_ENABLED,
@@ -2616,14 +2667,16 @@ const routeHandlers = createPennyRouteHandlers({
   mergeMemoryState,
   reviewPromotion: reviewPromotionApi,
   purgeArchiveMemory: purgeArchiveMemoryApi,
+  purgeResearchLedger: purgeResearchLedgerApi,
   buildChatMemoryState,
   sanitizeChatMessages,
   sanitizeImageDataUrl,
   sanitizeFileAttachment,
-  appendAttachmentContext,
-  buildRuntimeMemoryContext,
-  selectLocalLane,
-  runLmStudioLocalSmart,
+    appendAttachmentContext,
+    buildRuntimeMemoryContext,
+    scheduleResearchLedgerUpdate,
+    selectLocalLane,
+    runLmStudioLocalSmart,
   streamLmStudioLocalSmart,
   buildPennyReply,
   scheduleArchiveConsolidation,

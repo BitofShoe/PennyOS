@@ -1,3 +1,5 @@
+const { normalizeQaTrust } = require('./penny-qa-trust');
+
 const QA_TRACE_VERSION = 'penny-qa-trace.v1';
 
 function trimText(value = '', limit = 220) {
@@ -77,6 +79,7 @@ function buildQaTrace({
   memoryWrites = {},
   toolCalls = {},
   latency = {},
+  trust = {},
   validation = {},
   outcome = {},
 } = {}) {
@@ -95,6 +98,7 @@ function buildQaTrace({
     memoryWrites: normalizeMetricObject(memoryWrites),
     toolCalls: normalizeMetricObject(toolCalls),
     latency: normalizeMetricObject(latency),
+    trust: normalizeQaTrust(trust),
     validation: normalizeMetricObject(validation),
     outcome: normalizeMetricObject(outcome),
   };
@@ -111,6 +115,7 @@ function validateQaTrace(trace = {}) {
     'memoryWrites',
     'toolCalls',
     'latency',
+    'trust',
     'validation',
     'outcome',
   ];

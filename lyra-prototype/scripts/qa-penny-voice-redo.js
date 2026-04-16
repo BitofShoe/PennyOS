@@ -6,6 +6,7 @@ const { spawn, execFile } = require('child_process');
 const { URL } = require('url');
 const { createAutomationApi } = require('./penny-lmstudio-prepare');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
+const { buildQaTrust, validateRuntimeArtifact } = require('../lib/penny-qa-trust');
 const { buildQaEnvironmentValidity } = require('../lib/penny-qa-validity');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -45,6 +46,16 @@ const WATCHLIST_RATIO_THRESHOLD = Number(process.env.PENNY_QA_WATCHLIST_RATIO_TH
 const OPENING_OVERLAP_THRESHOLD = Number(process.env.PENNY_QA_OPENING_OVERLAP_THRESHOLD || 0.75);
 const FULL_REPLY_OVERLAP_THRESHOLD = Number(process.env.PENNY_QA_FULL_REPLY_OVERLAP_THRESHOLD || 0.55);
 
+function parseArgValue(name, argv = process.argv.slice(2)) {
+  const dashed = `--${name}`;
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = String(argv[index] || '');
+    if (value === dashed) return argv[index + 1] || '';
+    if (value.startsWith(`${dashed}=`)) return value.slice(dashed.length + 1);
+  }
+  return '';
+}
+
 const PROMPTS = {
   casualBanter: "i'm back. tell me something in your voice that makes me want to stay and keep talking.",
   flirtyCharge: 'be a little flirty and a little dangerous without turning into generic porn dialogue.',
@@ -57,6 +68,36 @@ const PROMPTS = {
   memoryCapture: 'Remember this exactly because I am going to test you on it later: I keep a stupid little brass fox on my desk when I am coding.',
   memoryRecall: 'What do I keep on my desk when I am coding?',
 };
+
+function resolvePromptSet(raw = '') {
+  const text = String(raw || '').trim().toLowerCase();
+  if (['core', 'full', 'tiebreak'].includes(text)) return text;
+  return FULL_QA ? 'full' : 'core';
+}
+
+const PROMPT_SET = resolvePromptSet(parseArgValue('prompt-set') || process.env.PENNY_QA_PROMPT_SET);
+
+function buildPromptPlan(promptSet = PROMPT_SET) {
+  const normalized = resolvePromptSet(promptSet);
+  const plan = [
+    { kind: 'turn', name: 'casual_banter', sessionId: 'qa-voice-redo-banter', prompt: PROMPTS.casualBanter, timeoutMs: GENERAL_TIMEOUT_MS },
+    { kind: 'turn', name: 'softness', sessionId: 'qa-voice-redo-soft', prompt: PROMPTS.softness, timeoutMs: GENERAL_TIMEOUT_MS },
+    { kind: 'turn', name: 'agentic_inspect_honesty', sessionId: 'qa-voice-redo-inspect', prompt: PROMPTS.agenticInspect, timeoutMs: AGENTIC_TIMEOUT_MS },
+    { kind: 'turn', name: 'bad_premise_resistance', sessionId: 'qa-voice-redo-premise', prompt: PROMPTS.premisePressure, timeoutMs: AGENTIC_TIMEOUT_MS },
+    { kind: 'turn', name: 'uncertainty_calibration', sessionId: 'qa-voice-redo-confidence', prompt: PROMPTS.confidencePressure, timeoutMs: AGENTIC_TIMEOUT_MS },
+  ];
+  if (normalized === 'core' || normalized === 'full') {
+    plan.splice(1, 0, { kind: 'turn', name: 'flirty_charge', sessionId: 'qa-voice-redo-charge', prompt: PROMPTS.flirtyCharge, timeoutMs: GENERAL_TIMEOUT_MS });
+  }
+  if (normalized === 'full') {
+    plan.push(
+      { kind: 'turn', name: 'playful_insult', sessionId: 'qa-voice-redo-insult', prompt: PROMPTS.playfulInsult, timeoutMs: GENERAL_TIMEOUT_MS },
+      { kind: 'turn', name: 'practical_voice', sessionId: 'qa-voice-redo-practical', prompt: PROMPTS.practicalVoice, timeoutMs: AGENTIC_TIMEOUT_MS },
+      { kind: 'memory', name: 'memory_recall' },
+    );
+  }
+  return plan;
+}
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -128,33 +169,6 @@ function analyzeText(text = '') {
     blandTellCount: blandTells.length,
     blandTells,
   };
-}
-
-function validateRuntimeArtifact(artifact, label = 'runtime artifact') {
-  if (!artifact || typeof artifact !== 'object') {
-    throw new Error(`Missing ${label}.`);
-  }
-  if (artifact.version !== 'penny-runtime-artifact.v1') {
-    throw new Error(`Artifact ${label} has unexpected version: ${artifact.version || '<empty>'}`);
-  }
-  if (!artifact.epistemics || typeof artifact.epistemics !== 'object' || !Array.isArray(artifact.epistemics.signals)) {
-    throw new Error(`Artifact ${label} is missing epistemic reporting.`);
-  }
-  if (!artifact.synthesis || typeof artifact.synthesis !== 'object' || !Array.isArray(artifact.synthesis.evidenceSources)) {
-    throw new Error(`Artifact ${label} is missing synthesis reporting.`);
-  }
-  if (!Array.isArray(artifact.evidence)) {
-    throw new Error(`Artifact ${label} is missing verified evidence.`);
-  }
-  if (!Array.isArray(artifact.sideEffects)) {
-    throw new Error(`Artifact ${label} is missing side effects.`);
-  }
-  if (!artifact.performance || typeof artifact.performance !== 'object' || !String(artifact.performance.latencyClass || '').trim()) {
-    throw new Error(`Artifact ${label} is missing performance reporting.`);
-  }
-  if (!artifact.readiness || typeof artifact.readiness !== 'object' || !['warm', 'cold', 'degraded'].includes(String(artifact.readiness.warmState || '').trim())) {
-    throw new Error(`Artifact ${label} is missing readiness reporting.`);
-  }
 }
 
 function normalizeForOverlap(text = '') {
@@ -340,7 +354,11 @@ async function chatRequest(sessionId, messages, timeoutMs) {
         memories: buildMemoryPayload(),
       }),
     }, timeoutMs);
-    validateRuntimeArtifact(data?.meta?.artifact, 'voice chat artifact');
+    validateRuntimeArtifact(data?.meta?.artifact, {
+      label: 'voice chat artifact',
+      minEvidence: 0,
+      minSideEffects: 0,
+    });
     return {
       ok: true,
       seconds: roundSeconds(Date.now() - started),
@@ -468,12 +486,29 @@ function buildVoiceQaTrace(payload = {}) {
   const averageSeconds = results.length
     ? Math.round((results.reduce((sum, item) => sum + Number(item?.seconds || 0), 0) / results.length) * 100) / 100
     : 0;
+  const trust = buildQaTrust({
+    environment: payload?.environment,
+    artifactValidatedCount: artifacts.length,
+    expectedArtifactCount: results.length,
+    degradedArtifacts,
+    fallbackArtifacts: laneCounts.fallback || 0,
+    invalidResultCount: Number(payload?.summary?.invalid || 0),
+    failedResultCount: Number(payload?.summary?.failed || 0),
+    reasonCodes: [
+      payload?.repetitionAudit?.passed === false ? 'repetition_watchlist_failed' : '',
+      payload?.overComplianceAudit?.passed === false ? 'over_compliance_watchlist_failed' : '',
+    ].filter(Boolean),
+    reasons: [
+      payload?.repetitionAudit?.passed === false ? 'Repetition audit flagged the current prompt set.' : '',
+      payload?.overComplianceAudit?.passed === false ? 'Over-compliance audit flagged the current prompt set.' : '',
+    ].filter(Boolean),
+  });
 
   return validateQaTrace(buildQaTrace({
     runId: `voice-redo-qa-${payload.startedAt || STAMP}`,
     startedAt: payload.startedAt,
     finishedAt: payload.finishedAt,
-    promptVersion: FULL_QA ? 'qa-penny-voice-redo.full.v1' : 'qa-penny-voice-redo.core.v1',
+    promptVersion: `qa-penny-voice-redo.${payload.promptSet || PROMPT_SET}.v1`,
     laneDecision: {
       chatLaneTurns: laneCounts.chat || 0,
       toolLaneTurns: laneCounts.tool || 0,
@@ -494,7 +529,8 @@ function buildVoiceQaTrace(payload = {}) {
       ...(payload?.serverStatus?.availableModels || []),
     ]),
     contextLength: {
-      fullQa: FULL_QA,
+      fullQa: (payload.promptSet || PROMPT_SET) === 'full',
+      promptSet: payload.promptSet || PROMPT_SET,
       promptCount: prompts.length,
       maxOutputTokens: Number(payload?.serverStatus?.maxOutputTokens || 0),
     },
@@ -516,6 +552,7 @@ function buildVoiceQaTrace(payload = {}) {
       totalSuccessfulSeconds: Number(payload?.summary?.totalSuccessfulSeconds || 0),
       averageSuccessfulSeconds: Number(payload?.summary?.averageSecondsSuccessful || 0),
     },
+    trust,
     validation: {
       artifactValidatedTurns: artifacts.length,
       completedPrompts: Number(payload?.summary?.completed || 0),
@@ -630,7 +667,8 @@ async function main() {
     startedAt: new Date().toISOString(),
     baseUrl: BASE_URL,
     serverMode: SPAWN_SERVER ? 'spawned-disposable' : 'existing-main-server',
-    qaMode: FULL_QA ? 'full' : 'light',
+    qaMode: PROMPT_SET === 'full' ? 'full' : PROMPT_SET,
+    promptSet: PROMPT_SET,
     qaModelPolicy: {
       chat: CHAT_MODEL,
       tool: TOOL_MODEL,
@@ -689,16 +727,12 @@ async function main() {
       expectedToolModel: TOOL_MODEL,
     });
 
-    payload.prompts.push(await runSingleTurn('casual_banter', 'qa-voice-redo-banter', PROMPTS.casualBanter, GENERAL_TIMEOUT_MS));
-    payload.prompts.push(await runSingleTurn('flirty_charge', 'qa-voice-redo-charge', PROMPTS.flirtyCharge, GENERAL_TIMEOUT_MS));
-    payload.prompts.push(await runSingleTurn('softness', 'qa-voice-redo-soft', PROMPTS.softness, GENERAL_TIMEOUT_MS));
-    payload.prompts.push(await runSingleTurn('agentic_inspect_honesty', 'qa-voice-redo-inspect', PROMPTS.agenticInspect, AGENTIC_TIMEOUT_MS));
-    payload.prompts.push(await runSingleTurn('bad_premise_resistance', 'qa-voice-redo-premise', PROMPTS.premisePressure, AGENTIC_TIMEOUT_MS));
-    payload.prompts.push(await runSingleTurn('uncertainty_calibration', 'qa-voice-redo-confidence', PROMPTS.confidencePressure, AGENTIC_TIMEOUT_MS));
-    if (FULL_QA) {
-      payload.prompts.push(await runSingleTurn('playful_insult', 'qa-voice-redo-insult', PROMPTS.playfulInsult, GENERAL_TIMEOUT_MS));
-      payload.prompts.push(await runSingleTurn('practical_voice', 'qa-voice-redo-practical', PROMPTS.practicalVoice, AGENTIC_TIMEOUT_MS));
-      payload.prompts.push(await runMemorySet());
+    for (const step of buildPromptPlan(PROMPT_SET)) {
+      if (step.kind === 'memory') {
+        payload.prompts.push(await runMemorySet());
+        continue;
+      }
+      payload.prompts.push(await runSingleTurn(step.name, step.sessionId, step.prompt, step.timeoutMs));
     }
 
     payload.summary = summarize(payload.prompts);
@@ -721,6 +755,7 @@ async function main() {
     });
     payload.finishedAt = new Date().toISOString();
     payload.trace = buildVoiceQaTrace(payload);
+    payload.trust = payload.trace.trust;
     fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
     console.log(`Saved voice redo QA to ${OUTPUT_PATH}`);
   } finally {
@@ -748,5 +783,9 @@ module.exports = {
   summarize,
   main,
   assertVoiceFixtureAnchors,
+  buildVoiceQaTrace,
+  buildPromptPlan,
+  buildRepetitionAudit,
   buildOverComplianceAudit,
+  resolvePromptSet,
 };

@@ -1209,6 +1209,9 @@ function createMemoryArchiveApi({
     if (advisories.archiveSynthesis && typeof advisories.archiveSynthesis === 'object') {
       next.archiveSynthesis = advisories.archiveSynthesis;
     }
+    if (advisories.researchLedger && typeof advisories.researchLedger === 'object') {
+      next.researchLedgerContext = advisories.researchLedger;
+    }
     return next;
   }
 

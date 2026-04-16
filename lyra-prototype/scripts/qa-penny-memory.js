@@ -6,6 +6,7 @@ const { spawn, execFile } = require('child_process');
 const { URL } = require('url');
 const { createAutomationApi } = require('./penny-lmstudio-prepare');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
+const { buildQaTrust, validateRuntimeArtifact } = require('../lib/penny-qa-trust');
 const { buildQaEnvironmentValidity } = require('../lib/penny-qa-validity');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -216,51 +217,6 @@ function containsAny(text = '', needles = []) {
   return needles.some((needle) => hay.includes(normalizeForComparison(needle)));
 }
 
-function validateRuntimeArtifact(artifact, label = 'runtime artifact') {
-  if (!artifact || typeof artifact !== 'object') {
-    throw new Error(`Missing ${label}.`);
-  }
-  const requiredObjectKeys = ['scope', 'authority', 'summary', 'context', 'modelAdvisory', 'timestamps', 'performance', 'readiness'];
-  for (const key of requiredObjectKeys) {
-    if (!artifact[key] || typeof artifact[key] !== 'object') {
-      throw new Error(`Artifact ${label} is missing ${key}.`);
-    }
-  }
-  if (!artifact.epistemics || typeof artifact.epistemics !== 'object') {
-    throw new Error(`Artifact ${label} is missing epistemics.`);
-  }
-  if (!Array.isArray(artifact.epistemics.signals)) {
-    throw new Error(`Artifact ${label} is missing epistemic signals.`);
-  }
-  if (!artifact.synthesis || typeof artifact.synthesis !== 'object') {
-    throw new Error(`Artifact ${label} is missing synthesis.`);
-  }
-  if (!Array.isArray(artifact.synthesis.evidenceSources)) {
-    throw new Error(`Artifact ${label} is missing synthesis evidence sources.`);
-  }
-  if (artifact.version !== 'penny-runtime-artifact.v1') {
-    throw new Error(`Artifact ${label} has unexpected version: ${artifact.version || '<empty>'}`);
-  }
-  if (!Array.isArray(artifact.evidence) || artifact.evidence.length < 1) {
-    throw new Error(`Artifact ${label} is missing verified evidence.`);
-  }
-  if (!Array.isArray(artifact.sideEffects) || artifact.sideEffects.length < 1) {
-    throw new Error(`Artifact ${label} is missing side effects.`);
-  }
-  if (!String(artifact.performance.latencyClass || '').trim()) {
-    throw new Error(`Artifact ${label} is missing latencyClass.`);
-  }
-  const performanceStages = ['request', 'promptAssembly', 'archiveRetrieval', 'semanticRender', 'modelResolution', 'semanticProbe', 'firstToken', 'modelRoundTrip'];
-  for (const stage of performanceStages) {
-    if (!artifact.performance[stage] || typeof artifact.performance[stage] !== 'object') {
-      throw new Error(`Artifact ${label} is missing performance stage ${stage}.`);
-    }
-  }
-  if (!['warm', 'cold', 'degraded'].includes(String(artifact.readiness.warmState || '').trim())) {
-    throw new Error(`Artifact ${label} has invalid readiness warmState.`);
-  }
-}
-
 function scoreTruthReplacement(text = '', expectedNeedles = [], forbiddenNeedles = []) {
   const expectedScore = scoreNeedles(text, expectedNeedles);
   const forbiddenHit = countNeedleHits(text, forbiddenNeedles) > 0;
@@ -375,7 +331,11 @@ async function chatRequest(baseUrl, sessionId, prompt, timeoutMs = GENERAL_TIMEO
         memories: buildMemoryPayload(),
       }),
     }, timeoutMs);
-    validateRuntimeArtifact(data?.meta?.artifact, 'chat response artifact');
+    validateRuntimeArtifact(data?.meta?.artifact, {
+      label: 'chat response artifact',
+      minEvidence: 1,
+      minSideEffects: 1,
+    });
     return {
       ok: true,
       seconds: roundSeconds(Date.now() - started),
@@ -398,7 +358,11 @@ async function chatRequest(baseUrl, sessionId, prompt, timeoutMs = GENERAL_TIMEO
 
 async function getInspector(baseUrl, sessionId) {
   const data = await fetchJson(`${baseUrl}/api/penny/memory/inspector?sessionId=${encodeURIComponent(sessionId)}`, {}, 30000);
-  validateRuntimeArtifact(data?.inspector?.artifact, 'inspector artifact');
+  validateRuntimeArtifact(data?.inspector?.artifact, {
+    label: 'inspector artifact',
+    minEvidence: 1,
+    minSideEffects: 1,
+  });
   return data;
 }
 
@@ -920,6 +884,27 @@ function buildMemoryQaTrace(payload = {}) {
   const averageSeconds = results.length
     ? Math.round((results.reduce((sum, item) => sum + Number(item?.seconds || 0), 0) / results.length) * 100) / 100
     : 0;
+  const trust = buildQaTrust({
+    environment: Array.isArray(payload?.suites) && payload.suites.length === 1
+      ? payload.suites[0]?.environment || null
+      : {
+          valid: Array.isArray(payload?.suites)
+            ? payload.suites.every((suite) => suite?.environment?.valid !== false)
+            : true,
+          reasons: Array.isArray(payload?.suites)
+            ? payload.suites.flatMap((suite) => Array.isArray(suite?.environment?.reasons) ? suite.environment.reasons : [])
+            : [],
+          degradedArtifacts,
+          laneFallbackArtifacts: laneCounts.fallback || 0,
+          usedFallbackArtifacts: 0,
+        },
+    artifactValidatedCount: artifacts.length,
+    expectedArtifactCount: results.length,
+    degradedArtifacts,
+    fallbackArtifacts: laneCounts.fallback || 0,
+    invalidResultCount: Number(payload?.summary?.invalid || 0),
+    failedResultCount: Number(payload?.summary?.failed || 0),
+  });
 
   return validateQaTrace(buildQaTrace({
     runId: `memory-qa-${payload.startedAt || STAMP}`,
@@ -981,6 +966,7 @@ function buildMemoryQaTrace(payload = {}) {
       totalScenarioSeconds: Number(payload?.summary?.totalScenarioSeconds || 0),
       averageScenarioSeconds: Number(payload?.summary?.averageScenarioSeconds || 0),
     },
+    trust,
     validation: {
       artifactValidatedTurns: artifacts.length,
       completedScenarios: Number(payload?.summary?.completed || 0),
@@ -1152,6 +1138,7 @@ async function main() {
   payload.summary = summarizeSuites(payload.suites);
   payload.finishedAt = new Date().toISOString();
   payload.trace = buildMemoryQaTrace(payload);
+  payload.trust = payload.trace.trust;
   fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
   console.log(`Saved memory QA to ${OUTPUT_PATH}`);
 }
@@ -1169,6 +1156,7 @@ module.exports = {
   runMemoryQaSegment,
   runMemoryQaCombined,
   summarizeSuites,
+  buildMemoryQaTrace,
   runSmokeSuite,
   MEMORY_QA_SEGMENT_IDS,
   MEMORY_QA_SEGMENT_ORDER,
