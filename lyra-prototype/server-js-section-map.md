@@ -1,7 +1,11 @@
 # `server.js` section map
 
 **Purpose:** current-state map for the remaining `server.js` monolith after the 2026-04-13 direct-intent/tool extraction pass and the automatic dual-lane LM Studio split.  
-**Companion docs:** [ARCHITECTURE.md](./ARCHITECTURE.md), [CODEBASE.md](./CODEBASE.md), [Notes on Penny's Code From a Project Manager.md](./Notes%20on%20Penny's%20Code%20From%20a%20Project%20Manager.md)
+**Companion docs:** [ARCHITECTURE.md](./ARCHITECTURE.md), [CODEBASE.md](./CODEBASE.md), [Notes on Penny's Code From a Project Manager.md](./Notes%20on%20Penny's%20Code%20From%20a%20Project%20Manager.md), [docs/penny-module-ownership.md](./docs/penny-module-ownership.md), [docs/penny-memory-archive-audit.md](./docs/penny-memory-archive-audit.md)
+
+This map is for backend ownership only. During the boring-sprint cleanup, new backend behavior should go into the smallest named `lib/` owner or a new route-specific module before it grows inside `server.js`.
+
+Delegation note: when a task crosses backend, frontend, tests, and docs, use subagents for the read-only exploration, QA inspection, and doc mapping first, then consolidate through one primary editor per file boundary. Codex only gets six live subagents at once, so a spawn-limit error should be fixed immediately by closing or reusing agents before work continues. If that work needs a written plan, start from [docs/plans/TEMPLATE.md](./docs/plans/TEMPLATE.md).
 
 Line numbers will drift. Treat **function names and module boundaries** as the stable key.
 
@@ -193,6 +197,12 @@ Still in `server.js` for this lane:
 
 - the top-level orchestration that chooses direct deterministic handling versus the full tool loop
 
+Ownership reminder:
+
+- direct-intent detection and deterministic reply shaping belong in the direct-intent owners
+- `server.js` should only choose the branch and pass through the result
+- lane choice stays thin and reason-code driven
+
 ### M. Full tool loop
 
 Primary ownership now lives in [lib/penny-tool-loop.js](./lib/penny-tool-loop.js).
@@ -237,6 +247,12 @@ Still in `server.js` for this lane:
 - `runLmStudioLocalSmart(...)`
 - `streamLmStudioLocalSmart(...)`
 - route-level orchestration and semantic-render gating
+
+Ownership reminder:
+
+- transport behavior belongs in the LM Studio transport owner
+- route handlers own HTTP behavior and meta shaping
+- archive and prompt-stack policy must not drift into transport code
 
 ### T. Memory extraction
 
@@ -303,8 +319,10 @@ Those direct-intent helpers are re-exported from the extracted module so the reg
 | [lib/penny-visible-reply.js](./lib/penny-visible-reply.js) | Thinking-spill cleanup and speakable reply salvage |
 | [lib/penny-tool-loop.js](./lib/penny-tool-loop.js) | Planner/manual tool loop orchestration plus tool-context answer |
 | [lib/penny-lmstudio-transports.js](./lib/penny-lmstudio-transports.js) | Stateful chat, chat completions, responses, and transport selection |
-| [lib/penny-direct-intents.js](./lib/penny-direct-intents.js) | Direct path extraction, routing heuristics, deterministic reply helpers |
+| [lib/penny-direct-intents.js](./lib/penny-direct-intents.js) | Direct path extraction and routing heuristics |
+| `lib/penny-direct-intent-replies.js` | Deterministic reply shaping and weak deterministic-reply detection |
 | [lib/penny-direct-tool-assist.js](./lib/penny-direct-tool-assist.js) | Direct sequence runner, targeted web inspect flow, one-shot direct tool handling |
+| [lib/penny-memory-archive.js](./lib/penny-memory-archive.js) | Archive lifecycle, retrieval orchestration, contradiction/provenance persistence, and inspector archive shaping |
 | [lib/penny-project-tools.js](./lib/penny-project-tools.js) | Project path resolution, file read/search/edit helpers, `node --check` |
 | [lib/penny-web-tools.js](./lib/penny-web-tools.js) | Web search and page fetch helpers |
 | [lib/penny-git-tools.js](./lib/penny-git-tools.js) | Git status/diff helpers |
@@ -321,3 +339,11 @@ Those direct-intent helpers are re-exported from the extracted module so the reg
 4. Prompt-asset loading and config cleanup
 
 That order keeps chipping away at `server.js` where the remaining risk is now concentrated: orchestration, route glue, and the last duplicate legacy bands.
+
+## How to add backend behavior without re-monolithing
+
+- keep request-specific routing and startup glue in `server.js`
+- put stateful memory, heuristic, and transport logic in a named module first
+- if a helper starts answering more than one subsystem, split it before adding the next feature
+- if a route needs a fallback or reason code, make that decision visible in the owning module instead of hiding it in the router closure
+- for cross-cutting tasks, delegate the independent reads and QA slices first, then write once from the consolidated view

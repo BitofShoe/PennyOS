@@ -128,7 +128,7 @@ Tool offering and direct intents (`penny-tool-intents.js`) are inherently heuris
 
 You have high-signal docs next to `output/` artifacts, QA scripts, multiple planning markdowns, raw personality sources, and playful filenames.
 
-**Specific callout:** `big ass file to manageable chapters.md` is memorable but **costly**:
+**Specific callout:** `docs/penny-document-chunking-notes.md` fixes what `big ass file to manageable chapters.md` got wrong about naming, because the old title was memorable but **costly**:
 
 - unprofessional in shared links
 - awkward in terminal autocomplete
@@ -162,7 +162,7 @@ Examples: `PENNY'S_BRAIN.md` and `BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md` ap
 ### Strengths
 
 - Cross-linked evals (`OPENCLAW_SHADOW_EVAL.md`, `PENNY_MODEL_EVAL.md`, `RYS_FOLLOWUP_REVIEW.md`) show **decision traces**—this is project management gold.
-- `big ass file to manageable chapters.md` (content, not title) aligns well with your semantic-core / bounded-context approach.
+- `docs/penny-document-chunking-notes.md` (content, not the old title) aligns well with your semantic-core / bounded-context approach.
 
 ### Weakness: absolute file URLs inside markdown
 
@@ -244,7 +244,7 @@ The encouraging part: you have already proven you can document decisions well; n
 
 ## Appendix: files explicitly reviewed for this note
 
-- `ARCHITECTURE.md`, `CODEBASE.md`, `OPENCLAW_SHADOW_EVAL.md`, `PENNY_MODEL_EVAL.md`, `RYS_FOLLOWUP_REVIEW.md`, `big ass file to manageable chapters.md`
+- `ARCHITECTURE.md`, `CODEBASE.md`, `OPENCLAW_SHADOW_EVAL.md`, `PENNY_MODEL_EVAL.md`, `RYS_FOLLOWUP_REVIEW.md`, `docs/penny-document-chunking-notes.md`
 - `package.json`, `.gitignore`, `README.md`
 - `server.js` (structure, memory helpers), `lib/penny-memory.js`, `lib/penny-tool-intents.js`
 - `test/*.test.js`, `scripts/eval-penny-probes.js` (partial)

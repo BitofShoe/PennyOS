@@ -12,8 +12,7 @@ compatibility:
     - LM Studio local API
   models:
     chat:
-      - google/gemma-4-31b
-      - unsloth/gemma-4-31b-it
+      - unsloth/gemma-4-31b-it@q6_k
     tool:
       - google/gemma-4-e4b
     embed:
@@ -46,7 +45,10 @@ Use this skill for Penny's local LM Studio workflow, not for general model advic
 
 - Do not add per-turn model hot-swapping.
 - Do not run broad unload/reload loops unless the task explicitly asks for them.
+- Treat Q6 `unsloth/gemma-4-31b-it@q6_k` as the practical heavy-QA chat default on this machine.
 - Treat `google/gemma-4-e4b` as the tool lane target.
+- Avoid treating Q8-class chat models as implicit test defaults.
+- Do not broaden a normal readiness check into dual-lane stress testing unless that is the task.
 - Treat the embed model as a soft dependency. Penny should degrade gracefully when it is unavailable.
 - Report fallback truth plainly instead of pretending Penny is fully dual-lane ready.
 

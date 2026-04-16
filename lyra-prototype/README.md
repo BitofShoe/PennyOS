@@ -91,10 +91,12 @@ npm start
 npm run preflight
 npm run lmstudio:prepare
 npm test
+npm run qa:memory:smoke
 npm run eval:probes
 npm run qa:voice-redo
 npm run eval:models
 npm run preset:lmstudio
+npm run bundle:review
 ```
 
 ## Memory model
@@ -115,6 +117,11 @@ Penny's runtime memory is now hybrid:
 - Embedding cache in `data/penny-memory-embeddings.json`
   This supports semantic recall when a local embedding model is available.
 
+For memory QA, use `npm run qa:memory:smoke` for the fast regression slice and `npm run qa:memory` for the full release-style run. On the current Q6 setup the full run is expected to take roughly 80-90 minutes end to end.
+For automated QA, the standard baseline is Q6 chat/memory plus `google/gemma-4-e4b` tooling. Do not treat a Q8-class chat model or a dual-lane stress setup as the default unless that is the specific thing under test.
+
+For handoffs and outside review, use `npm run bundle:review` to build a filtered copy under `tmp/review-bundle/` without QA artifacts, local logs, or runtime debris.
+
 The browser cache is not the source of truth for long-term memory.
 
 ## LM Studio notes
@@ -130,6 +137,10 @@ The browser cache is not the source of truth for long-term memory.
 - The settings-panel model picker is now a chat-lane override only. Tool-lane selection is config-driven.
 - The local `@local:penny` preset is operator-owned LM Studio state. Penny can verify and reassert the wiring, but the repo does not own the preset body.
 - Depending on the loaded model, Penny may use native stateful chat, chat completions, or responses-style fallbacks.
+- LM Studio `Context Length` still matters even though Penny chats through this app instead of the LM Studio UI. Penny still sends her prompt stack, recent conversation, and memory context into the loaded LM Studio runtime each turn, and the native stateful lane can preserve a live LM Studio thread across turns.
+- Practical default on this machine is roughly `10k-12k` context for normal Penny use. Raising it helps with longer pasted inputs, longer live threads, and heavier prompt injection, but it also increases prompt-eval latency and memory pressure.
+- `PENNY_CHAT_HISTORY_LIMIT` counts individual recent messages, not user/assistant pairs. The main chat path now defaults to `6`, while the shadow path keeps its own tighter handling.
+- In Penny's UI, `New chat` creates a fresh Penny session and a fresh LM Studio thread context. `Clear memory` is the stronger reset if you also want to wipe the current session's saved memory state.
 - Large local models can be slow, especially on first turn and on image turns.
 - The max output token cap is a ceiling, not a target. Raising it prevents clipping; it does not force Penny to ramble if the model naturally stops earlier.
 - An in-app local embedding path was considered and intentionally deferred. This cycle uses LM Studio embeddings only, with graceful fallback when they are unavailable.

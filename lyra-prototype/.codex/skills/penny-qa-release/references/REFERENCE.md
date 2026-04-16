@@ -10,9 +10,9 @@
 
 ## Lane Expectations
 
-- Voice redo: chat-lane leaning, practical default is Q6 `unsloth/gemma-4-31b-it`
+- Voice redo: chat-lane leaning, practical default is Q6 `unsloth/gemma-4-31b-it@q6_k`
 - Probes: tool-lane leaning, target `google/gemma-4-e4b`
-- Model evals: compare chat models while keeping the tool lane stable
+- Model evals: compare chat models while keeping the tool lane stable, and only include Q8-class candidates when the operator explicitly requests them
 
 ## Artifact Expectations
 
@@ -28,6 +28,8 @@
 - Call out when a failure is harness drift rather than Penny regressions.
 - `qa:voice-redo` reuses the live Penny server by default unless the operator explicitly isolates it.
 - `eval:probes` and `eval:models` can unload and reload LM Studio models, so treat them as state-clobbering runs.
+- Treat Q6 chat/memory + E4B tooling as the default QA split.
+- Do not silently broaden a normal QA run into a dual-lane stress test.
 
 ## Best Source Files
 
@@ -46,3 +48,4 @@
 - assuming the heavier Q8 chat path is the right automated default
 - reading the JSON artifact summary without checking the scenario-level timings and failures
 - forgetting to mention which lane/model combination a run actually used
+- forgetting to clear QA-generated explicit memory, archive, and embeddings files after the run, which pollutes later memory checks

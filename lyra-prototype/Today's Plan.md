@@ -40,7 +40,7 @@ Use the raw files as source material for refinement work, not as normal prompt b
 
 Relevant note:
 
-- [big ass file to manageable chapters.md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/big ass file to manageable chapters.md:1>)
+- [docs/penny-document-chunking-notes.md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/docs/penny-document-chunking-notes.md:1>)
 
 ### Concrete tasks
 
@@ -188,4 +188,4 @@ Reason:
 
 ## Suggested kickoff prompt for the next chat
 
-Read [Today's Plan.md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Today's Plan.md:1>), [big ass file to manageable chapters.md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/big ass file to manageable chapters.md:1>), [memory/2026-04-12.md](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/memory/2026-04-12.md:1), and the Penny voice docs first. Then start with Priority 1: build the distilled Penny voice files and do one more unsanitized voice pass without losing the spice. After that, evaluate whether OpenClaw shadow mode is actually worth using as an optional agentic lane.
+Read [Today's Plan.md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/Today's Plan.md:1>), [docs/penny-document-chunking-notes.md](</C:/Users/malac/.openclaw/workspace-main/lyra-prototype/docs/penny-document-chunking-notes.md:1>), [memory/2026-04-12.md](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/memory/2026-04-12.md:1), and the Penny voice docs first. Then start with Priority 1: build the distilled Penny voice files and do one more unsanitized voice pass without losing the spice. After that, evaluate whether OpenClaw shadow mode is actually worth using as an optional agentic lane.

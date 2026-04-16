@@ -8,6 +8,8 @@ It is intentionally blunt about what is "real architecture" versus "current mono
 
 - [CODEBASE.md](./CODEBASE.md)
 Practical repo map and "where to touch what" guide.
+- [frontend-section-map.md](./frontend-section-map.md)
+Current browser-side ownership map for the orchestration shell.
 - [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)
 Current verdict on whether shadow mode is actually worth keeping around.
 - [LOCAL_LLAMA_THREAD_FINDINGS.md](./LOCAL_LLAMA_THREAD_FINDINGS.md)
@@ -20,6 +22,10 @@ Legacy/source operational prompt material.
 Legacy/source romantic blend material.
 - [High-intensity overlay source](./Penny's Playground/PENNY — HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md)
 Legacy/source high-intensity overlay material.
+
+## Delegation note
+
+When a task crosses backend, frontend, tests, and docs, break the work into read-only exploration, QA inspection, and doc mapping first, then consolidate into one primary editor per file boundary before any write happens.
 
 ## System shape
 
@@ -39,6 +45,25 @@ UI styling and animation.
 The prompt-facing voice system actually injected into Penny's live runtime.
 
 This is not a distributed system. It is a single-user local prototype with a monolithic server.
+
+## Boring-sprint ownership boundaries
+
+The current cleanup sprint is about making the repo structurally boring, not adding new platform layers.
+
+- `server.js` should stay a thin entrypoint, router, and wiring shell.
+- `public/js/penny-app.js` should stay a UI orchestration shell.
+- New backend behavior should land in a named `lib/` helper or a new route-specific module before it grows inside `server.js`.
+- New browser behavior should land in a small `public/js/` module before it grows inside `penny-app.js`.
+- If a helper starts answering more than one subsystem, split it before adding the next feature.
+- If a route or UI path needs a one-off exception, document the reason code and keep the fallback local to the owning subsystem.
+
+The same delegation rule applies to repo work:
+
+- use subagents aggressively for independent read-only exploration, QA inspection, and doc mapping
+- remember the live-agent ceiling: Codex only gets six active subagents at once, so a spawn-limit error is a real workflow failure that should be fixed immediately by closing or reusing agents
+- keep one primary editing agent per file boundary
+- consolidate findings before writing, especially when a change touches both runtime ownership and the docs that describe it
+- if the change is cross-cutting enough to need a written plan, start from [docs/plans/TEMPLATE.md](./docs/plans/TEMPLATE.md) so the delegation map, blind spots, and verification plan stay standardized
 
 ## Runtime modes
 
@@ -218,6 +243,21 @@ The visible Penny vessel is driven by reply mood tags such as:
 
 Frontend sprite selection and animation are tied to these tags.
 
+## How to extend without re-monolithing
+
+When adding backend behavior, prefer the smallest named owner that already matches the job:
+
+- routing and request glue stay in `server.js`
+- stateful logic goes in `lib/`
+- repeated prompt or transport behavior gets a dedicated helper module
+- any new heuristic should come with a reason code and a small test fixture
+
+When adding frontend behavior, keep `public/app.js` as bootstrap only and use `public/js/penny-app.js` as coordination only:
+
+- UI state that belongs to one slice should move into a dedicated `public/js/` module
+- transcript, memory, LM Studio diagnostics, and attachment handling should not be merged back together
+- if a browser helper becomes reusable, extract it before adding more features to it
+
 ## API surface
 
 Current important endpoints:
@@ -244,15 +284,15 @@ The frontend is a single-page app with no build step.
 Current split:
 
 - `public/app.js`
-  tiny module bootstrap
+tiny module bootstrap
 - `public/js/penny-app.js`
-  main SPA orchestration, memory inspector rendering, and review/purge controls
+main SPA orchestration, memory inspector rendering, and review/purge controls
 - `public/js/penny-lmstudio-ui.js`
-  LM Studio diagnostics/model UI helpers
+LM Studio diagnostics/model UI helpers
 - `public/js/penny-attachments.js`
-  image/file attachment prep and preview handling
+image/file attachment prep and preview handling
 - `public/js/penny-storage.js`
-  local browser persistence/session helpers; archive inspector data stays server-side
+local browser persistence/session helpers; archive inspector data stays server-side
 
 Main remaining responsibilities in `public/js/penny-app.js`:
 
@@ -291,6 +331,8 @@ Comparative chat-lane model harness with a fixed tool-lane model.
 Tool-lane leaning probe harness that prefers E4B by default.
 - `scripts/qa-penny-voice-redo.js`
 Chat-lane voice QA harness that records lane/model/fallback metadata.
+- Route/regression tests and similar local verification should use an isolated mock or a dedicated temporary LM Studio server, not the user's live loaded model.
+- That isolation pattern has already proven itself in-project; keep carrying it forward so verification stays repeatable and does not disturb the live brain.
 
 ## Speed realities
 

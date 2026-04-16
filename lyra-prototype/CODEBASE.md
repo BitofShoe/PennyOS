@@ -32,6 +32,8 @@ Background stopper.
 Quick run/use notes.
 - [ARCHITECTURE.md](./ARCHITECTURE.md)
 Runtime architecture overview.
+- [frontend-section-map.md](./frontend-section-map.md)
+Current-state map for the browser-side orchestration split.
 - [LOCAL_LLAMA_THREAD_FINDINGS.md](./LOCAL_LLAMA_THREAD_FINDINGS.md)
 Outside-eye review notes on maintainability patterns that do and do not fit this repo.
 - [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)
@@ -40,6 +42,13 @@ Current verdict on shadow mode.
 Model and QA harness notes.
 - [server-js-section-map.md](./server-js-section-map.md)
 `server.js` function-to-responsibility bands, route table, and suggested module split order.
+
+Delegation note:
+
+- when a task crosses backend, frontend, tests, and docs, split the read-only exploration, QA inspection, and doc mapping before any writing
+- codex only supports six active subagents at once; if spawning another one fails because of that ceiling, close or reuse agents immediately instead of silently continuing
+- keep one primary editing agent per file boundary and consolidate the evidence before patching
+- when the task needs a written cross-cutting plan, start from [docs/plans/TEMPLATE.md](./docs/plans/TEMPLATE.md) instead of inventing a fresh handoff format
 
 ### Planning / handoff docs
 
@@ -50,7 +59,7 @@ These are useful for project continuity, but they are not runtime code:
 - `PENNY_REDESIGN_PLAN.md`
 - `PENNY_UI_HANDOFF.md`
 - `LOCAL_LLAMA_THREAD_FINDINGS.md`
-- `big ass file to manageable chapters.md`
+- `docs/penny-document-chunking-notes.md`
 
 ## Main directories
 
@@ -65,7 +74,7 @@ HTML shell.
 - [public/app.js](./public/app.js)
 Frontend bootstrap only.
 - `public/js/penny-app.js`
-Main browser orchestration, transcript flow, mood/sprite updates, and settings wiring.
+Main browser orchestration, transcript flow, mood/sprite updates, memory/settings actions, and inspector wiring.
 - `public/js/penny-lmstudio-ui.js`
 LM Studio diagnostics and chat-model picker helpers.
 - `public/js/penny-attachments.js`
@@ -83,6 +92,13 @@ Touch this area when:
 - changing composer/chat rendering
 - changing settings panel behavior
 - changing mood presentation or sprite logic
+
+For the boring-sprint ownership boundary:
+
+- `public/app.js` stays bootstrap only
+- `public/js/penny-app.js` stays the coordination layer
+- new browser behavior should go into a small named `public/js/` helper before it grows into the orchestrator again
+- if a behavior slice becomes reusable, extract it instead of teaching `penny-app.js` another job
 
 ### `penny-voice/`
 
@@ -108,6 +124,13 @@ Touch this area when:
 - changing Penny's voice
 - changing what should be injected into prompts
 - refining personality from canon without blowing up context size
+
+For the boring-sprint ownership boundary:
+
+- backend route glue stays in `server.js` only when the logic is truly request-specific
+- stateful or heuristic backend behavior should move into a named `lib/` module
+- add a small reason code and a test fixture whenever a helper has more than one valid path
+- avoid adding one-off fallback logic directly to the monolith unless there is no better owner yet
 
 ### `Penny's Playground/`
 
@@ -338,6 +361,7 @@ These matter when navigating the repo:
 - `public/js/penny-app.js` is still getting big enough to deserve more structure even though `public/app.js` is now only bootstrap glue
 - there are many artifact and handoff files at repo root, which makes the root noisier than it should be
 - planning docs, evaluation docs, and runtime code are all close together, so it is easy to read the wrong thing first
+- the boring-sprint docs now define the intended ownership boundary: thin entrypoints, named subsystem owners, and no new feature work directly in the orchestration shells
 
 ## Good defaults for future contributors
 

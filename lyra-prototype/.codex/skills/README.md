@@ -19,9 +19,10 @@ Use them when the task clearly matches the workflow instead of re-discovering th
 - Favor progressive disclosure. Read the `SKILL.md` first, then load its `references/REFERENCE.md` only if needed.
 - Do not run heavy local evals in parallel.
 - Respect the current local model split:
-  - chat lane: `google/gemma-4-31b` or `unsloth/gemma-4-31b-it`
+  - routine QA chat/memory: `unsloth/gemma-4-31b-it@q6_k`
   - tool lane: `google/gemma-4-e4b`
   - semantic memory embed model: `text-embedding-nomic-embed-text-v1.5` (soft dependency)
+- Do not treat Q8-class chat models as the default QA path, and do not broaden a normal QA pass into a dual-lane test unless that specific behavior is under inspection.
 
 ## Sources of Truth
 

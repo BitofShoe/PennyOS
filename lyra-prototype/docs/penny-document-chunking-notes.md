@@ -1,4 +1,6 @@
-# Big Ass File To Manageable Chapters
+# Penny Document Chunking Notes
+
+> Canonical note: the master research entrypoint is [docs/penny-research-master-synthesis-2026-04-16.md](./penny-research-master-synthesis-2026-04-16.md). Keep this note as cited source material for chunking and chapter-fallback design.
 
 ## The short version
 

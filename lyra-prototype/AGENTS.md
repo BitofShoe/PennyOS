@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repo is the Penny app. If an agent wakes up inside `lyra-prototype`, this file should be enough to get oriented even if the wider workspace is not present.
+This repo is the Penny app. If an agent wakes up inside `lyra-prototype`, this file should be enough to get oriented on Penny even if the wider workspace is not present.
 
 ## Read order
 
@@ -32,6 +32,8 @@ Optional overlay context:
 - Explicit memory in `data/penny-memory.json` is canonical.
 - Archive memory in `data/penny-memory-archive.json` is additive, inspectable, and review-gated before promotion.
 - Semantic memory depends softly on `PENNY_LMSTUDIO_EMBED_MODEL`; fallback keyword retrieval is expected when the embed model is missing or unloaded.
+- `server.js` is now supposed to be a thin orchestration shell; extend extracted backend owners in `lib/` before growing it again.
+- `public/js/penny-app.js` is now supposed to be a thin browser orchestration shell; extend extracted browser owners in `public/js/` before growing it again.
 
 ## Commands
 
@@ -61,3 +63,28 @@ Optional overlay context:
 - Prefer read-only investigation in parallel and one main editing agent for actual changes.
 - Avoid editing overlapping files from multiple agents at the same time.
 - Keep docs honest about the current implementation, especially around local-only, single-user, and frontend/backend ownership boundaries.
+- Route/regression verification must use an isolated mock or dedicated temporary LM Studio server instead of the user's live loaded model. This pattern is proven in-project and should carry forward.
+- Heavy LM Studio QA and eval runs should happen one harness at a time. Do not overlap full voice QA, memory QA, and probe/eval runs against the same local model setup.
+- After QA runs, clear all disposable QA-generated explicit memory, archive memory, and embedding files so the next pass does not inherit test pollution.
+
+## Delegation-First Workflow
+
+- Use subagents aggressively for independent read-only exploration, QA inspection, and doc mapping.
+- Codex can have at most six live subagents at once; trying to spawn more without closing or reusing older ones will error.
+- If a subagent spawn fails because the active-agent limit was hit, fix that immediately before continuing. Do not pretend the delegation succeeded.
+- Keep one primary editing agent per file boundary.
+- Consolidate what the subagents find before writing anything.
+- If a task crosses backend, frontend, tests, and docs, treat that as the cue to delegate the independent reads and QA slices before a single editor applies the final patch.
+- For cross-cutting Penny work that needs a written plan, start from [docs/plans/TEMPLATE.md](./docs/plans/TEMPLATE.md) and keep the delegation map plus verification plan in that artifact instead of scattering the policy across handoff notes.
+
+## Current ownership hints
+
+- Backend orchestration splits now live primarily in:
+  - `lib/penny-route-handlers.js`
+  - `lib/penny-server-http.js`
+  - `lib/penny-prompt-assets.js`
+  - `lib/penny-chat-runtime.js`
+- Browser orchestration splits now live primarily in:
+  - `public/js/penny-expression-runtime.mjs`
+  - `public/js/penny-transcript-ui.mjs`
+  - `public/js/penny-memory-panel.mjs`

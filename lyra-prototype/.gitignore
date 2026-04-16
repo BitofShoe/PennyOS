@@ -8,4 +8,5 @@ tmp/
 .lyra-server.meta.json
 data/penny-memory*.json
 !data/penny-memory.seed.json
+!data/penny-memory-books.seed.json
 .playwright-cli/

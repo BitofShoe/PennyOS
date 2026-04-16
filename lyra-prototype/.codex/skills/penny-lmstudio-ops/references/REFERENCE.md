@@ -19,8 +19,10 @@
 
 - Penny can still run if the embed model is missing. Semantic memory falls back.
 - Penny can still start if only one lane model is ready. Preflight should warn clearly.
-- Q6 `unsloth/gemma-4-31b-it` is the practical automated chat model for testing on this machine.
+- Q6 `unsloth/gemma-4-31b-it@q6_k` is the practical automated chat model for testing on this machine.
+- `google/gemma-4-e4b` is the practical tooling target for QA on this machine.
 - Avoid auto-testing the heavier Q8 path unless explicitly needed.
+- Do not broaden a normal readiness/QA check into a dual-lane stress test unless that exact behavior is what you are diagnosing.
 
 ## Best Source Files
 

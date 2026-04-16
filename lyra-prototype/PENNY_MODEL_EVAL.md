@@ -38,7 +38,7 @@ If you only changed Penny's prompt/runtime voice stack and want a quicker smoke 
 npm run qa:voice-redo
 ```
 
-That quick QA now defaults to the existing Penny server and a light smoke set so it does not spin up a second Node server or dogpile LM Studio. If you explicitly want the longer practical+memory pass too:
+That quick QA now defaults to the existing Penny server, a light smoke set, Q6 chat (`unsloth/gemma-4-31b-it@q6_k`), and E4B tooling so it does not spin up a second Node server or dogpile LM Studio. It also no longer auto-loads a heavier chat target unless you explicitly opt in with `PENNY_QA_LOAD_CHAT_MODEL=1`. Always clear any QA-generated explicit memory, archive, and embeddings files after the run so later memory checks stay clean. If you explicitly want the longer practical+memory pass too:
 
 ```powershell
 $env:PENNY_QA_FULL='1'
@@ -52,6 +52,23 @@ $env:PENNY_QA_SPAWN_SERVER='1'
 npm run qa:voice-redo
 ```
 
+If you want a faster memory smoke slice before the full memory run:
+
+```powershell
+npm run qa:memory:smoke
+```
+
+That smoke path also treats Q6 chat/memory and E4B tooling as the standard baseline. Do not use a Q8-class model for these runs unless that is the specific comparison you are trying to make.
+
+If you specifically want to stress Penny's short-term versus long-term memory behavior with richer recall scenarios:
+
+```powershell
+$env:PENNY_QA_SPAWN_SERVER='1'
+npm run qa:memory
+```
+
+The full `qa:memory` harness is intentionally heavy on the current Q6 setup and takes roughly 80-90 minutes end to end, so the smoke path is the one to use for routine hardening.
+
 ## Repeatable Workflow
 
 Use this order so future reruns stay apples-to-apples:
@@ -59,25 +76,30 @@ Use this order so future reruns stay apples-to-apples:
 1. In LM Studio, unload anything you left open manually.
 2. Run `npm run preset:lmstudio` so the UI/default model config gets pushed back toward Penny.
 3. Run `lms ps --json` and make sure you are not already sitting on multiple loaded models.
-4. Run the eval harness:
+4. Pick the lane/model split you actually intend to test:
+   - routine voice + memory QA: Q6 chat/memory + E4B tooling
+   - tool probes: E4B tooling, with Q6 as the chat-side fallback if a prompt routes conversationally
+   - broader chat-model comparisons: opt into non-Q6 candidates explicitly instead of letting them sneak in as defaults
+5. Run the eval harness:
 
 ```powershell
 npm run eval:models
 ```
 
-5. Open the new JSON artifact in [output](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/output:1).
-6. Compare the new run against the last good run on:
+6. Open the new JSON artifact in [output](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/output:1).
+7. Compare the new run against the last good run on:
    - believable Penny voice
    - memory capture and recall
    - agentic usefulness
    - latency
-7. If you changed [server.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/server.js:1), treat older runs as stale until you rerun them.
+8. If you changed [server.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/server.js:1), treat older runs as stale until you rerun them.
 
-The script currently compares:
+By default the model-eval script now compares:
 
 - `unsloth/gemma-4-31b-it@q6_k`
-- `google/gemma-4-31b`
 - `gemma-4-31b-it@q4_k_s`
+
+If you explicitly want to compare a Q8-class or other heavier candidate, set `PENNY_EVAL_MODELS` yourself.
 
 ## Useful Overrides
 
@@ -167,6 +189,7 @@ To avoid bogging the machine down:
 - unload all LM Studio models before a fresh run if needed: `lms unload --all`
 - do not keep multiple manual LM Studio chat loads open during the eval
 - keep only one Penny server active if possible
+- do not turn a normal QA pass into a dual-lane stress test unless that is the point of the run
 
 Quick checks:
 

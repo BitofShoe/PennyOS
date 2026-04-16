@@ -1,398 +1,200 @@
-# Penny Memory Branch Handoff
+# Penny Current Branch Handoff
 
-This is the current handoff for the experimental branch `codex/penny-memory-next` as of April 13, 2026.
+This is the shortest honest handoff for the current Penny branch state as of April 15, 2026.
 
-Use this file if you want the shortest honest explanation of what was built on this branch, why it was built, what worked, what was tricky, and what future agents should know before touching it.
+Use this file when you need to know what landed recently, what is stable, what still needs follow-up, and what rules the next agent should not rediscover the hard way.
 
-## What This Branch Was For
+## What Landed
 
-The branch goal was not "make memory bigger."
+### 1. Penny-native memory and prompt work
 
-It was:
+These pieces are now in the repo and wired into the live app:
 
-- keep Penny's existing explicit fact memory stable
-- add a richer archive memory that feels more human over time
-- make that richer memory useful without slowing every turn to a crawl
-- keep everything local-first
-- avoid turning Penny into a brittle science project
+- prompt-slot assembly via [lib/penny-prompt-stack.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-prompt-stack.js)
+- lane-aware overlays via [penny-voice/runtime/penny-overlays.json](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/penny-voice/runtime/penny-overlays.json)
+- scoped memory books via [lib/penny-memory-books.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-memory-books.js)
+- archive session chapters and compression fallback via [lib/penny-memory-archive.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-memory-archive.js)
+- expression-pack manifest runtime via [public/sprites/packs/default/manifest.json](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/sprites/packs/default/manifest.json) and [public/js/penny-expression-runtime.mjs](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/js/penny-expression-runtime.mjs)
+- inspector visibility for matched books, compression, and retrieval provenance
 
-The product target was a Penny who feels more continuous across weeks or months, not just better at parroting explicit remembered facts.
+Important trust boundary:
 
-## Branch and Key Commits
+- explicit memory in `data/penny-memory.json` remains canonical
+- archive, books, and chapters are additive and inspectable
+- promotion into stronger explicit memory is still review-gated
 
-Branch:
+### 2. Contradiction and drift hardening
 
-- `codex/penny-memory-next`
+The repo now has bounded correction provenance and tighter QA hooks for long-session truth drift.
 
-Key commits on this branch:
+What that means in practice:
 
-- `4d2d2d3` - `Add Penny hybrid memory archive`
-- `6a1adb0` - `Ready Penny semantic memory and fix mojibake QA`
-- `95c8af0` - `Relax Penny mood tag steering`
+- deterministic correction-style provenance is tracked in the archive layer
+- last-retrieval metadata can show bounded provenance details
+- chapter compression got a fact-first bias instead of pure scene scaffolding
+- prompt slots and lane rules are stricter about what can influence chat, tool, and semantic-render turns
 
-Those sit on top of the earlier dual-lane and LM Studio prep work from mainline:
+### 3. Boring engineering sprint
 
-- `d2a226e` - `Harden Penny runtime and LM Studio prep`
+The recent cleanup pass was intentionally about structure, not new capability.
 
-## Goals Established and Completed
+The main extractions that matter:
 
-### 1. Hybrid memory instead of replacing explicit memory
+- backend route/runtime ownership:
+  - [lib/penny-route-handlers.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-route-handlers.js)
+  - [lib/penny-server-http.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-server-http.js)
+  - [lib/penny-prompt-assets.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-prompt-assets.js)
+  - [lib/penny-chat-runtime.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-chat-runtime.js)
+- browser ownership:
+  - [public/js/penny-expression-runtime.mjs](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/js/penny-expression-runtime.mjs)
+  - [public/js/penny-transcript-ui.mjs](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/js/penny-transcript-ui.mjs)
+  - [public/js/penny-memory-panel.mjs](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/js/penny-memory-panel.mjs)
 
-Completed.
+The follow-up cleanup pass also removed the dead duplicated wrapper bodies from [public/js/penny-app.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/js/penny-app.js), so the browser shell is now much closer to a real orchestrator.
 
-The current design keeps explicit memory canonical in `data/penny-memory.json`, and adds a separate archive layer for richer continuity:
+## Current Architecture Truths
 
-- `data/penny-memory-archive.json`
-- `data/penny-memory-embeddings.json`
+- Penny is still a single-user, local, LM Studio-backed companion.
+- `server.js` should be treated as a thin orchestration shell now, not as the default home for new subsystem logic.
+- `public/js/penny-app.js` should be treated as a browser coordination shell now, not as the default home for new UI slices.
+- Route shape is intentionally stable. Internal cleanup should prefer extracted owners over public API changes.
+- The frontend and backend ownership maps are now documented in:
+  - [server-js-section-map.md](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/server-js-section-map.md)
+  - [frontend-section-map.md](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/frontend-section-map.md)
 
-The explicit fact store was not demoted or replaced.
+## Testing Rules That Must Carry Forward
 
-### 2. Post-reply archive consolidation
+### 1. Do not hit the user's live LM Studio model for route regressions
 
-Completed.
+This is no longer hypothetical. It has already been proven in-project.
 
-Archive writes happen after successful turns rather than in the middle of the live reply path. That keeps the hot path bounded and avoids making normal chat pay the full cost of memory processing before Penny can answer.
+The route regression suite now uses a mock LM Studio server in:
 
-### 3. Semantic retrieval with graceful fallback
-
-Completed.
-
-The archive layer can use LM Studio embeddings when available, but Penny still works if the embedding model is missing or not ready. In fallback mode, the archive retrieval drops back to keyword-style retrieval instead of breaking chat.
-
-### 4. Review-gated promotion
-
-Completed.
-
-Derived patterns and summaries do not silently become canonical explicit memories. Candidate promotions go through a queue and require inspector review.
-
-### 5. Better LM Studio readiness and cleaner QA artifacts
-
-Completed.
-
-This branch fixed two important practical problems:
-
-- the embedding model naming/readiness story
-- mojibake corruption in saved outputs
-
-## The Most Important Files
-
-Hybrid memory core:
-
-- [lib/penny-memory-archive.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-memory-archive.js)
-- [lib/penny-memory.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-memory.js)
-- [lib/penny-memory-state.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-memory-state.js)
-- [server.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/server.js)
-
-LM Studio prep and readiness:
-
-- [lib/penny-lmstudio-automation.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-lmstudio-automation.js)
-- [scripts/penny-lmstudio-prepare.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/penny-lmstudio-prepare.js)
-- [scripts/penny-preflight.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/penny-preflight.js)
-
-Visible text cleanup:
-
-- [lib/penny-visible-reply.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-visible-reply.js)
-
-QA and eval harnesses:
-
-- [scripts/qa-penny-voice-redo.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/qa-penny-voice-redo.js)
-- [scripts/eval-penny-probes.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/eval-penny-probes.js)
-
-Main test coverage:
-
-- [test/penny-memory-archive.test.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/test/penny-memory-archive.test.js)
-- [test/penny-lmstudio-automation.test.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/test/penny-lmstudio-automation.test.js)
-- [test/penny-visible-reply.test.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/test/penny-visible-reply.test.js)
 - [test/penny-routes.test.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/test/penny-routes.test.js)
 
-## The Memory Model, Plainly
+Rule going forward:
 
-Penny now has three different memory ideas, and they are intentionally not the same thing.
+- route/regression verification should use an isolated mock or a dedicated temporary LM Studio server
+- do not pound the user's live loaded model just to verify routes or serialization
 
-### 1. Canonical explicit memory
+### 2. Heavy LM Studio QA should run one harness at a time
 
-This is still the source of truth for direct known facts and preferences.
+This remains an operational rule:
 
-Examples:
+- do not overlap voice QA, memory QA, and probe/eval runs
+- the local model setup is easy to overload, and overlapping runs create misleading failures
 
-- user name
-- durable preference statements
-- direct "remember this" facts
-- client settings and stable runtime state
+### 3. QA artifacts must clean up after themselves
 
-This lives in `data/penny-memory.json`.
+Disposable QA runs should continue to isolate and then delete:
 
-This layer is deliberately conservative and controllable.
+- explicit memory files
+- archive memory files
+- embedding files
 
-### 2. Archive memory
+This is already reinforced in the QA docs and should stay true.
 
-This is the richer continuity layer.
+## Current Test State
 
-It stores:
+Most recent stable local verification after the cleanup pass:
 
-- episodes
-- summaries
-- repeated patterns
-- session-specific continuity
-- a promotion queue for candidate long-term items
+- `npm test`
+- result: `108 passing, 0 failing, 3 todo`
 
-This layer is allowed to remember much more of normal conversation, including emotional and intimate content, but it does not automatically rewrite the canonical explicit fact store.
+The remaining TODOs are explicit placeholder tests in:
 
-### 3. Embedding cache
+- [test/penny-native-upgrades.todo.test.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/test/penny-native-upgrades.todo.test.js)
 
-This is not "memory" in the human-readable sense. It is support infrastructure for semantic retrieval.
+They are reminders for:
 
-It stores embedding vectors and metadata so archive retrieval can find older or less keyword-obvious context by meaning rather than exact word overlap.
+- memory books bounded prompt behavior
+- chapter compression fallback gating
+- prompt-slot separation between overlays and verified facts
 
-## Why This Design Was Chosen
+These are not failing tests.
 
-Pure explicit fact memory was too shallow.
+## QA Notes That Matter
 
-Pure RAG/journal memory would have been too slippery and too hard to trust.
+### Repetition audit
 
-So the branch uses a hybrid design:
+The voice QA harness now has a repetition audit in:
 
-- explicit facts stay stable and readable
-- archive memory gives Penny deeper continuity
-- promotion into stronger long-term memory is review-gated
-- the runtime can still fall back safely if semantic retrieval is unavailable
+- [scripts/qa-penny-voice-redo.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/qa-penny-voice-redo.js)
 
-That balance is the core design decision of this branch.
+Important current default:
 
-## How Retrieval Works
+- `disaster` is in the watchlist by default
 
-Prompt memory is assembled in layers with caps.
+That means the "Penny keeps calling people a disaster" issue is now supposed to be measured during voice QA rather than handled as a vague vibe complaint.
 
-The intended order is:
+### Compression fallback
 
-1. explicit facts first
-2. session archive recalls second
-3. global archive summaries and patterns third
+Compression fallback is working, but it is still the weakest memory path.
 
-The point is not to stuff the prompt with memory.
+Current follow-up note:
 
-The point is to keep the memory block bounded while still making room for:
+- tighten compression fallback later so it prioritizes concrete nouns and scene facts more consistently and does not over-index on repeated scaffolding language
 
-- direct personal facts
-- recent session continuity
-- older thematic continuity
+This is a real follow-up item, not a blocker.
 
-The archive layer is not allowed to explode the prompt window.
+### LM Studio setting preference
 
-## Promotion Rules
+Operational preference from the user:
 
-Promotion was intentionally designed to be cautious.
+- LM Studio `Context Overflow = Rolling Window`
 
-Important rule:
+The app does not enforce that setting programmatically, but it is the preferred testing/runtime setting for this project right now.
 
-- derived archive items do not silently become explicit memory
+## Most Important Files Right Now
 
-What can happen automatically:
+Memory and provenance:
 
-- archive episodes can be stored
-- archive summaries can be derived
-- patterns can be detected
-- candidate promotions can be queued
+- [lib/penny-memory.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-memory.js)
+- [lib/penny-memory-state.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-memory-state.js)
+- [lib/penny-memory-archive.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-memory-archive.js)
+- [lib/penny-memory-books.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-memory-books.js)
 
-What cannot happen automatically:
+Prompt and lane assembly:
 
-- sensitive archive content becoming canonical explicit memory
-- patterns silently entering the explicit `memories[]` list
+- [lib/penny-prompt-stack.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-prompt-stack.js)
+- [lib/penny-local-lanes.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-local-lanes.js)
+- [lib/penny-direct-intents.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-direct-intents.js)
+- [lib/penny-visible-reply.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-visible-reply.js)
 
-Inspector review is required for promotion.
+Backend orchestration boundaries:
 
-## The LM Studio Integration Story
+- [server.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/server.js)
+- [lib/penny-route-handlers.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-route-handlers.js)
+- [lib/penny-server-http.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-server-http.js)
+- [lib/penny-chat-runtime.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-chat-runtime.js)
+- [lib/penny-prompt-assets.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/lib/penny-prompt-assets.js)
 
-This was one of the trickiest parts of the work.
+Frontend orchestration boundaries:
 
-### Chat lane and tool lane
+- [public/js/penny-app.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/js/penny-app.js)
+- [public/js/penny-expression-runtime.mjs](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/js/penny-expression-runtime.mjs)
+- [public/js/penny-transcript-ui.mjs](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/js/penny-transcript-ui.mjs)
+- [public/js/penny-memory-panel.mjs](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/public/js/penny-memory-panel.mjs)
 
-Penny already had lane splitting before this branch:
+QA and eval seams:
 
-- chat lane on the 31B family
-- tool lane on `google/gemma-4-e4b`
+- [scripts/qa-penny-memory.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/qa-penny-memory.js)
+- [scripts/qa-penny-voice-redo.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/qa-penny-voice-redo.js)
+- [scripts/eval-penny-probes.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/eval-penny-probes.js)
+- [test/penny-routes.test.js](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/test/penny-routes.test.js)
 
-This branch did not change the architecture of that split.
+## Recommended Next Steps
 
-What it did change was the semantic-memory readiness story on top of LM Studio.
+If the next agent wants the most leverage with the least chaos, this is the order:
 
-### What went wrong at first
+1. Run the next QA round one harness at a time, with the repetition audit and cleanup rules respected.
+2. Investigate whether `disaster` is still overused in fresh voice QA artifacts and adjust prompt guidance only if the metric stays noisy.
+3. Tighten compression fallback so chapter summaries prefer durable concrete details over repeated framing language.
+4. Only after that, start another research pass or new feature plan.
 
-The repo was using the embedding model identifier:
+## What Not To Do
 
-- `nomic-ai/nomic-embed-text-v1.5`
-
-But on this machine, LM Studio actually exposes the loaded embedding model under:
-
-- `text-embedding-nomic-embed-text-v1.5`
-
-That mismatch mattered.
-
-It made Penny think the embedding model was absent or not ready even when LM Studio already had the model downloaded and usable.
-
-### The actual fix
-
-The branch now normalizes any `nomic-embed-text-v1.5` family reference to LM Studio's real identifier:
-
-- `text-embedding-nomic-embed-text-v1.5`
-
-That normalization happens in:
-
-- `server.js`
-- `lib/penny-lmstudio-automation.js`
-- `lib/penny-memory-archive.js`
-- prep/preflight/test paths
-
-### Why `lms ps` was not enough
-
-Another important wrinkle:
-
-- `lms ps --json` did not reliably list the embedding model as "loaded"
-
-So "is the embedding model active?" could not be answered just by looking at loaded-model lists.
-
-The real fix was to probe the embedding API directly:
-
-- POST to `/v1/embeddings`
-
-If that returns a vector, semantic memory is truly ready.
-
-That is now the readiness check that matters.
-
-### Final result
-
-`npm run lmstudio:prepare -- --json` now reports semantic memory honestly.
-
-When the embedding model is installed and actually callable, Penny reports:
-
-- `embedInstalled: true`
-- `embedLoaded: true`
-- `semanticMemoryReady: true`
-
-If embeddings are unavailable, Penny falls back gracefully instead of pretending everything is fine.
-
-## The Mojibake Problem
-
-This branch also fixed a real output cleanliness issue.
-
-Symptoms looked like:
-
-- `â€™`
-- `â€”`
-- `Â `
-
-This was not a logic bug in Penny's personality. It was text corruption at the boundary between local model output, Windows logging, and saved QA artifacts.
-
-The practical fix was:
-
-- centralize visible reply cleanup in `lib/penny-visible-reply.js`
-- normalize common mojibake sequences into safe ASCII punctuation
-- remove duplicate helper definitions that had started to drift
-- clean the startup banner so logs do not keep introducing ugly Unicode noise
-
-Result:
-
-- fresh QA artifacts now save cleanly
-- no `â€™`/`â€”` style corruption remained in the final verified branch artifacts
-
-## QA Results That Matter
-
-### Clean Q6 voice run before the mood-line experiment
-
-Artifact:
-
-- [voice-redo-qa-2026-04-14T04-38-17-131Z.json](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/output/voice-redo-qa-2026-04-14T04-38-17-131Z.json)
-
-Summary:
-
-- `8/8` completed
-- `0` failures
-- `0` bland tells
-- no mojibake corruption
-
-### Clean E4B probe run after the probe-fix cleanup
-
-Artifact:
-
-- [probe-eval-2026-04-14T04-50-50-395Z.json](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/output/probe-eval-2026-04-14T04-50-50-395Z.json)
-
-Summary:
-
-- `4/4`
-- inspect route and read-only honesty were both clean
-
-### Mood-line experiment
-
-The line removed was:
-
-- `Most banter should be happy, smug, or excited.`
-
-Result:
-
-- it did not change the mood-tag distribution
-- both compared clean runs came out `smug: 5, calm: 2, annoyed: 1`
-
-So this line was not the actual cause of smug-heavy tagging.
-
-However, the more recent pass felt slightly better in wording, so the line-removal change was kept.
-
-Artifact:
-
-- [voice-redo-qa-2026-04-14T05-19-14-855Z.json](C:/Users/malac/.openclaw/workspace-main/lyra-prototype/output/voice-redo-qa-2026-04-14T05-19-14-855Z.json)
-
-## Important Process Lesson
-
-Do not run heavy QA flows in parallel on the same local model setup.
-
-This happened once during the branch work:
-
-- a full voice QA run
-- a full test run or probe flow
-- both hitting LM Studio at the same time
-
-That overloaded the machine and created misleading failures.
-
-For this repo, with Q6 chat plus local tooling:
-
-- run one heavy thing at a time
-- especially do not overlap full voice QA with tool-probe harnesses
-- probe harnesses may unload/reload models, so they can sabotage chat QA if run in parallel
-
-This is an engineering rule now, not just a convenience note.
-
-## What Still Needs Investigation Later
-
-Two interesting questions remain open, but they are not blockers:
-
-### 1. Why some later passes sounded slightly better but took longer
-
-There is likely a real interaction between:
-
-- prompt shape
-- local load state
-- lane/model resolution
-- LM Studio scheduling behavior
-
-This is worth investigating later, but it is not needed to trust the branch.
-
-### 2. Why smug still dominates mood tags
-
-The removed instruction line was not the root cause.
-
-Possibilities include:
-
-- the 31B model's natural preference under this prompt stack
-- other Penny instructions weighting toward smug cadence
-- the prompt mix in the voice QA suite
-
-If this becomes important later, it should be studied directly rather than by guessing through one sentence at a time.
-
-## Bottom-Line Verdict
-
-This branch succeeded.
-
-It added a real hybrid memory system, a real semantic-memory readiness story, a real embedding integration that works with LM Studio on this machine, cleaner output handling, and branch-local QA evidence that Penny still feels like Penny.
-
-The biggest design win is that the new memory depth was added without replacing the stable explicit memory layer.
-
-That is the reason this branch feels ambitious without becoming a fragile science project.
+- Do not re-monolith the extracted browser or backend owners.
+- Do not use the user's live LM Studio runtime for route regression verification.
+- Do not overlap heavy QA runs.
+- Do not treat archive/chapter/book layers as permission to silently rewrite canonical explicit memory.
