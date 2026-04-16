@@ -38,29 +38,202 @@ function requestJson(url, options = {}) {
   });
 }
 
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
+function assertArtifactShape(artifact, { requireEvidence = true, requireSideEffects = true } = {}) {
+  assert.ok(artifact && typeof artifact === 'object');
+  assert.equal(artifact.version, 'penny-runtime-artifact.v1');
+  assert.equal(typeof artifact.kind, 'string');
+  assert.ok(artifact.scope && typeof artifact.scope === 'object');
+  assert.ok(artifact.authority && typeof artifact.authority === 'object');
+  assert.ok(artifact.summary && typeof artifact.summary === 'object');
+  assert.ok(Array.isArray(artifact.evidence));
+  assert.ok(Array.isArray(artifact.artifacts));
+  assert.ok(Array.isArray(artifact.sideEffects));
+  assert.ok(Array.isArray(artifact.reasonCodes));
+  assert.ok(artifact.epistemics && typeof artifact.epistemics === 'object');
+  assert.ok(Array.isArray(artifact.epistemics.signals));
+  assert.ok(artifact.synthesis && typeof artifact.synthesis === 'object');
+  assert.ok(Array.isArray(artifact.synthesis.evidenceSources));
+  assert.ok(artifact.modelAdvisory && typeof artifact.modelAdvisory === 'object');
+  assert.ok(artifact.performance && typeof artifact.performance === 'object');
+  assert.equal(typeof artifact.performance.latencyClass, 'string');
+  for (const key of ['request', 'promptAssembly', 'archiveRetrieval', 'semanticRender', 'modelResolution', 'semanticProbe', 'firstToken', 'modelRoundTrip']) {
+    assert.ok(artifact.performance[key] && typeof artifact.performance[key] === 'object');
+  }
+  assert.ok(artifact.readiness && typeof artifact.readiness === 'object');
+  assert.equal(typeof artifact.readiness.chatModelReady, 'boolean');
+  assert.equal(typeof artifact.readiness.toolModelReady, 'boolean');
+  assert.equal(typeof artifact.readiness.embeddingReady, 'boolean');
+  assert.equal(typeof artifact.readiness.fallbackActive, 'boolean');
+  assert.ok(['warm', 'cold', 'degraded'].includes(artifact.readiness.warmState));
+  assert.ok(artifact.timestamps && typeof artifact.timestamps === 'object');
+  if (requireEvidence) assert.ok(artifact.evidence.length >= 1);
+  if (requireSideEffects) assert.ok(artifact.sideEffects.length >= 1);
+  for (const item of artifact.evidence) {
+    assert.equal(typeof item.source, 'string');
+    assert.ok(item.source.length >= 1);
+  }
+  for (const item of artifact.modelAdvisory.toolsUsed || []) {
+    assert.ok(String(item.label || item.name || '').trim().length >= 1);
+  }
+}
+
+function buildMockLmStudioReply(payload = {}) {
+  const raw = JSON.stringify(payload);
+  if (/route-semantic-render-bug\.js/i.test(raw)) {
+    return 'Wrote tmp/route-semantic-render-bug.js with exactly console.log("hi"); [MOOD:thinking]';
+  }
+  if (/openclaw browser docs|browser tool/i.test(raw)) {
+    return 'Browser Tool: Browser automation for websites and page interactions. [MOOD:thinking]';
+  }
+  if (/README\.md/i.test(raw)) {
+    return 'README.md says Penny is a local companion prototype. [MOOD:thinking]';
+  }
+  return 'Mock Penny reply. [MOOD:thinking]';
+}
+
+async function createMockLmStudioServer() {
+  const stats = {
+    modelsRequests: 0,
+    embeddingsRequests: 0,
+    chatRequests: 0,
+  };
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (req.method === 'GET' && url.pathname === '/v1/models') {
+      stats.modelsRequests += 1;
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        object: 'list',
+        data: [
+          { id: 'unsloth/gemma-4-31b-it', object: 'model', owned_by: 'local' },
+          { id: 'google/gemma-4-31b', object: 'model', owned_by: 'local' },
+          { id: 'google/gemma-4-e4b', object: 'model', owned_by: 'local' },
+          { id: 'text-embedding-nomic-embed-text-v1.5', object: 'model', owned_by: 'local' },
+        ],
+      }));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/v1/embeddings') {
+      stats.embeddingsRequests += 1;
+      const body = JSON.parse((await readRequestBody(req)) || '{}');
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        object: 'list',
+        model: body.model || 'text-embedding-nomic-embed-text-v1.5',
+        data: [
+          {
+            object: 'embedding',
+            index: 0,
+            embedding: [0.11, 0.22, 0.33, 0.44],
+          },
+        ],
+      }));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
+      stats.chatRequests += 1;
+      const body = JSON.parse((await readRequestBody(req)) || '{}');
+      const reply = buildMockLmStudioReply(body);
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        id: 'chatcmpl-mock',
+        object: 'chat.completion',
+        created: 0,
+        model: body.model || 'unsloth/gemma-4-31b-it',
+        choices: [
+          {
+            index: 0,
+            finish_reason: 'stop',
+            message: {
+              role: 'assistant',
+              content: reply,
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2,
+        },
+      }));
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: `Unhandled mock LM Studio route: ${req.method} ${url.pathname}` }));
+  });
+
+  await new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  return {
+    baseUrl: `http://127.0.0.1:${port}/v1`,
+    nativeBaseUrl: `http://127.0.0.1:${port}/api/v1`,
+    stats,
+    close: () => new Promise((resolve) => server.close(() => resolve())),
+  };
+}
+
+function buildProvenanceEntries(count = 0, {
+  oldText = 'Favorite tea is oolong',
+  newText = 'Favorite tea is lapsang souchong',
+  trigger = 'actually',
+  sourceEpisodeIdPrefix = 'episode',
+} = {}) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `prov-${index + 1}`,
+    createdAt: `2026-04-13T12:${String(index).padStart(2, '0')}:00.000Z`,
+    oldText,
+    newText,
+    trigger,
+    sourceEpisodeId: `${sourceEpisodeIdPrefix}-${index + 1}`,
+    confidence: 0.5,
+  }));
+}
+
 test('GET /api/penny/status returns a health payload on an ephemeral port', async () => {
   const originalEnv = {
     PORT: process.env.PORT,
     PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
     PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
     PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
     PENNY_LMSTUDIO_CHAT_MODEL: process.env.PENNY_LMSTUDIO_CHAT_MODEL,
     PENNY_LMSTUDIO_TOOL_MODEL: process.env.PENNY_LMSTUDIO_TOOL_MODEL,
     PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
     PENNY_MEMORY_ARCHIVE_FILE: process.env.PENNY_MEMORY_ARCHIVE_FILE,
     PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-test-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
   const archiveFile = path.join(tmpDir, 'penny-memory-archive.test.json');
   const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.test.json');
+  const booksFile = path.join(tmpDir, 'penny-memory-books.test.json');
+  const mockLmStudio = await createMockLmStudioServer();
   process.env.PORT = '0';
   process.env.PENNY_MEMORY_FILE = memoryFile;
   process.env.PENNY_MEMORY_ARCHIVE_FILE = archiveFile;
   process.env.PENNY_MEMORY_EMBEDDINGS_FILE = embeddingsFile;
-  process.env.PENNY_LMSTUDIO_BASE = 'http://127.0.0.1:1234/v1';
-  process.env.PENNY_LMSTUDIO_NATIVE_BASE = 'http://127.0.0.1:1234/api/v1';
+  process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
   process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
   process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
@@ -90,6 +263,14 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(response.json.backend, 'local-lmstudio');
     assert.ok(response.json.lmStudio);
     assert.ok(Object.prototype.hasOwnProperty.call(response.json.lmStudio, 'reachable'));
+    assert.ok(response.json.performance && typeof response.json.performance === 'object');
+    assert.ok(response.json.readiness && typeof response.json.readiness === 'object');
+    assert.ok(['warm', 'cold', 'degraded'].includes(response.json.readiness.warmState));
+    assert.equal(response.json.readiness.chatModelReady, true);
+    assert.equal(response.json.readiness.embeddingReady, true);
+    assert.equal(response.json.readiness.cacheHit, false);
+    assert.equal(response.json.performance.modelResolution.source, 'lmstudio-status');
+    assert.equal(response.json.performance.semanticProbe.source, 'semantic-memory-status');
 
     const lmStatus = await requestJson(`http://127.0.0.1:${address.port}/api/penny/lmstudio/status`);
     assert.equal(lmStatus.statusCode, 200);
@@ -97,6 +278,18 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(lmStatus.json.toolPreferredModel, 'google/gemma-4-e4b');
     assert.equal(lmStatus.json.embedPreferredModel, 'text-embedding-nomic-embed-text-v1.5');
     assert.equal(lmStatus.json.routingMode, 'auto');
+    assert.ok(lmStatus.json.performance && typeof lmStatus.json.performance === 'object');
+    assert.ok(lmStatus.json.readiness && typeof lmStatus.json.readiness === 'object');
+    assert.equal(lmStatus.json.readiness.cacheHit, true);
+    assert.equal(lmStatus.json.readiness.warmState, 'warm');
+    assert.equal(mockLmStudio.stats.modelsRequests, 1);
+    assert.equal(mockLmStudio.stats.embeddingsRequests, 1);
+
+    const refreshedLmStatus = await requestJson(`http://127.0.0.1:${address.port}/api/penny/lmstudio/status?refresh=1`);
+    assert.equal(refreshedLmStatus.statusCode, 200);
+    assert.equal(refreshedLmStatus.json.readiness.cacheHit, false);
+    assert.equal(mockLmStudio.stats.modelsRequests, 2);
+    assert.equal(mockLmStudio.stats.embeddingsRequests, 2);
 
     const updatedModel = await requestJson(`http://127.0.0.1:${address.port}/api/penny/lmstudio/model`, {
       method: 'POST',
@@ -123,19 +316,126 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(toolTurn.json.meta.localLane, 'tool');
     assert.equal(toolTurn.json.meta.requestedModel, 'google/gemma-4-e4b');
     assert.equal(typeof toolTurn.json.meta.resolvedModel, 'string');
+    assert.equal(typeof toolTurn.json.meta.semanticMemoryReady, 'boolean');
+    assert.equal(typeof toolTurn.json.meta.semanticMemoryMode, 'string');
+    assert.equal(typeof toolTurn.json.meta.laneFallback, 'boolean');
+    assert.ok(toolTurn.json.meta.performance && typeof toolTurn.json.meta.performance === 'object');
+    assert.ok(toolTurn.json.meta.readiness && typeof toolTurn.json.meta.readiness === 'object');
+    assert.equal(toolTurn.json.meta.performance.latencyClass, 'tool-heavy');
+    assert.equal(toolTurn.json.meta.readiness.toolModelReady, true);
+    assertArtifactShape(toolTurn.json.meta.artifact);
+    assert.equal(toolTurn.json.meta.artifact.scope.selectedLane, 'tool');
+    assert.equal(toolTurn.json.meta.artifact.authority.reply, 'verified-tool-evidence');
+    assert.equal(toolTurn.json.meta.artifact.epistemics.enabled, false);
+    assert.equal(toolTurn.json.meta.artifact.synthesis.generated, false);
+    assert.equal(toolTurn.json.meta.artifact.evidence.some((item) => item.source === 'verified-tool'), true);
+    assert.equal(toolTurn.json.meta.artifact.modelAdvisory.toolsUsed.some((item) => String(item.label || '').trim().length >= 1), true);
   } finally {
     await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
     delete require.cache[modulePath];
     if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
     if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
     if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
     if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
     if (originalEnv.PENNY_LMSTUDIO_CHAT_MODEL == null) delete process.env.PENNY_LMSTUDIO_CHAT_MODEL; else process.env.PENNY_LMSTUDIO_CHAT_MODEL = originalEnv.PENNY_LMSTUDIO_CHAT_MODEL;
     if (originalEnv.PENNY_LMSTUDIO_TOOL_MODEL == null) delete process.env.PENNY_LMSTUDIO_TOOL_MODEL; else process.env.PENNY_LMSTUDIO_TOOL_MODEL = originalEnv.PENNY_LMSTUDIO_TOOL_MODEL;
     if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
     if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
     if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
+    if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('shadow chat route uses the same runtime artifact contract on fallback replies', async () => {
+  const originalEnv = {
+    PORT: process.env.PORT,
+    PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_MEMORY_ARCHIVE_FILE: process.env.PENNY_MEMORY_ARCHIVE_FILE,
+    PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
+    PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
+    PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
+    PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+    PENNY_LMSTUDIO_CHAT_MODEL: process.env.PENNY_LMSTUDIO_CHAT_MODEL,
+    PENNY_LMSTUDIO_TOOL_MODEL: process.env.PENNY_LMSTUDIO_TOOL_MODEL,
+    PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
+  };
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-shadow-'));
+  const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  const archiveFile = path.join(tmpDir, 'penny-memory-archive.test.json');
+  const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.test.json');
+  const booksFile = path.join(tmpDir, 'penny-memory-books.test.json');
+  const mockLmStudio = await createMockLmStudioServer();
+  process.env.PORT = '0';
+  process.env.PENNY_MEMORY_FILE = memoryFile;
+  process.env.PENNY_MEMORY_ARCHIVE_FILE = archiveFile;
+  process.env.PENNY_MEMORY_EMBEDDINGS_FILE = embeddingsFile;
+  process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
+  process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+  process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
+  process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
+  process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const serverModule = require('../server.js');
+  const started = serverModule.startServer({ port: 0, silent: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (started.listening) {
+        resolve();
+        return;
+      }
+      started.once('listening', resolve);
+      started.once('error', reject);
+    });
+
+    const address = started.address();
+    const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat/shadow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'route-shadow-fallback-test',
+        messages: [
+          { role: 'user', content: 'Tell me something nice about README.md.' },
+        ],
+        memories: { brainMode: 'shadow' },
+      }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json.usedFallback, true);
+    assert.equal(response.json.meta.requestedMode, 'shadow');
+    assert.equal(response.json.meta.localLane, 'shadow');
+    assert.equal(response.json.meta.shadowAvailable, false);
+    assertArtifactShape(response.json.meta.artifact);
+    assert.equal(response.json.meta.artifact.scope.selectedLane, 'shadow');
+    assert.equal(response.json.meta.artifact.scope.requestedMode, 'shadow');
+  } finally {
+    await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
+    delete require.cache[modulePath];
+    if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
+    if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
+    if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
+    if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
+    if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
+    if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
+    if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    if (originalEnv.PENNY_LMSTUDIO_CHAT_MODEL == null) delete process.env.PENNY_LMSTUDIO_CHAT_MODEL; else process.env.PENNY_LMSTUDIO_CHAT_MODEL = originalEnv.PENNY_LMSTUDIO_CHAT_MODEL;
+    if (originalEnv.PENNY_LMSTUDIO_TOOL_MODEL == null) delete process.env.PENNY_LMSTUDIO_TOOL_MODEL; else process.env.PENNY_LMSTUDIO_TOOL_MODEL = originalEnv.PENNY_LMSTUDIO_TOOL_MODEL;
+    if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -144,20 +444,26 @@ test('direct write route survives semantic-render gating on side-effecting turns
   const originalEnv = {
     PORT: process.env.PORT,
     PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
     PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
     PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-write-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  const booksFile = path.join(tmpDir, 'penny-memory-books.test.json');
   const repoTempFile = path.join(__dirname, '..', 'tmp', 'route-semantic-render-bug.js');
+  const mockLmStudio = await createMockLmStudioServer();
   fs.mkdirSync(path.dirname(repoTempFile), { recursive: true });
   if (fs.existsSync(repoTempFile)) fs.rmSync(repoTempFile, { force: true });
 
   process.env.PORT = '0';
   process.env.PENNY_MEMORY_FILE = memoryFile;
-  process.env.PENNY_LMSTUDIO_BASE = 'http://127.0.0.1:1234/v1';
-  process.env.PENNY_LMSTUDIO_NATIVE_BASE = 'http://127.0.0.1:1234/api/v1';
+  process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
 
   const modulePath = require.resolve('../server.js');
@@ -194,11 +500,14 @@ test('direct write route survives semantic-render gating on side-effecting turns
     assert.equal(fs.existsSync(repoTempFile), true);
   } finally {
     await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
     delete require.cache[modulePath];
     if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
     if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
+    if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
     if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
     if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
     if (fs.existsSync(repoTempFile)) fs.rmSync(repoTempFile, { force: true });
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -209,16 +518,22 @@ test('direct web inspect fallback stays deterministic on the public chat route',
   const originalEnv = {
     PORT: process.env.PORT,
     PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
     PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
     PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-web-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  const booksFile = path.join(tmpDir, 'penny-memory-books.test.json');
+  const mockLmStudio = await createMockLmStudioServer();
   process.env.PORT = '0';
   process.env.PENNY_MEMORY_FILE = memoryFile;
-  process.env.PENNY_LMSTUDIO_BASE = 'http://127.0.0.1:1234/v1';
-  process.env.PENNY_LMSTUDIO_NATIVE_BASE = 'http://127.0.0.1:1234/api/v1';
+  process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
 
   const toolRegistryModulePath = require.resolve('../lib/penny-tool-registry');
@@ -301,12 +616,15 @@ test('direct web inspect fallback stays deterministic on the public chat route',
     assert.match(response.json.text, /Browser automation for websites and page interactions\./);
   } finally {
     await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
     delete require.cache[modulePath];
     delete require.cache[toolRegistryModulePath];
     if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
     if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
+    if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
     if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
     if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -318,18 +636,23 @@ test('memory inspector tracks archived turns and review approval promotes a pend
     PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
     PENNY_MEMORY_ARCHIVE_FILE: process.env.PENNY_MEMORY_ARCHIVE_FILE,
     PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
     PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
     PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
     PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-archive-'));
+  const mockLmStudio = await createMockLmStudioServer();
   process.env.PORT = '0';
   process.env.PENNY_MEMORY_FILE = path.join(tmpDir, 'penny-memory.test.json');
   process.env.PENNY_MEMORY_ARCHIVE_FILE = path.join(tmpDir, 'penny-memory-archive.test.json');
   process.env.PENNY_MEMORY_EMBEDDINGS_FILE = path.join(tmpDir, 'penny-memory-embeddings.test.json');
-  process.env.PENNY_LMSTUDIO_BASE = 'http://127.0.0.1:1234/v1';
-  process.env.PENNY_LMSTUDIO_NATIVE_BASE = 'http://127.0.0.1:1234/api/v1';
+  process.env.PENNY_MEMORY_BOOKS_FILE = path.join(tmpDir, 'penny-memory-books.test.json');
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
   process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
 
@@ -368,6 +691,9 @@ test('memory inspector tracks archived turns and review approval promotes a pend
     assert.equal(inspector.statusCode, 200);
     assert.ok(inspector.json.inspector.archive.session.episodeCount >= 3);
     assert.ok(inspector.json.inspector.archive.global.promotionQueue.length >= 1);
+    assert.ok(Object.prototype.hasOwnProperty.call(inspector.json.inspector, 'memoryBooks'));
+    assert.ok(Object.prototype.hasOwnProperty.call(inspector.json.inspector, 'compression'));
+    assertArtifactShape(inspector.json.inspector.artifact);
 
     const queueId = inspector.json.inspector.archive.global.promotionQueue[0].id;
     const review = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/review`, {
@@ -382,17 +708,359 @@ test('memory inspector tracks archived turns and review approval promotes a pend
     assert.equal(review.statusCode, 200);
     assert.ok(Array.isArray(review.json.memory.memories) && review.json.memory.memories.length >= 1);
     assert.ok(review.json.memory.memories.some((item) => item.text === review.json.reviewed.text));
+    assert.equal(review.json.memory.memories[0].source, 'review-candidate');
   } finally {
     await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
     delete require.cache[modulePath];
     if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
     if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
     if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
     if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
+    if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
     if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
     if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
     if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('memory inspector route serializes bounded provenance details from lastRetrieval', async () => {
+  const originalEnv = {
+    PORT: process.env.PORT,
+    PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_MEMORY_ARCHIVE_FILE: process.env.PENNY_MEMORY_ARCHIVE_FILE,
+    PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
+    PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
+    PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
+    PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+  };
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-provenance-'));
+  const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  const archiveFile = path.join(tmpDir, 'penny-memory-archive.test.json');
+  const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.test.json');
+  const booksFile = path.join(tmpDir, 'penny-memory-books.test.json');
+  const mockLmStudio = await createMockLmStudioServer();
+  process.env.PORT = '0';
+  process.env.PENNY_MEMORY_FILE = memoryFile;
+  process.env.PENNY_MEMORY_ARCHIVE_FILE = archiveFile;
+  process.env.PENNY_MEMORY_EMBEDDINGS_FILE = embeddingsFile;
+  process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
+  process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const serverModule = require('../server.js');
+  const started = serverModule.startServer({ port: 0, silent: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (started.listening) {
+        resolve();
+        return;
+      }
+      started.once('listening', resolve);
+      started.once('error', reject);
+    });
+
+    fs.writeFileSync(archiveFile, `${JSON.stringify({
+      meta: {
+        schemaVersion: 2,
+        embedModel: 'text-embedding-nomic-embed-text-v1.5',
+        reviewDecisions: {},
+      },
+      global: {
+        episodes: [],
+        summaries: [],
+        patterns: [],
+        promotionQueue: [],
+      },
+      sessions: {
+        'provenance-route-test': {
+          sessionId: 'provenance-route-test',
+          episodes: [],
+          summaries: [],
+          chapters: [],
+          activeContradictions: [
+            {
+              id: 'contr-1',
+              conflictKey: 'favorite tea',
+              oldText: 'Favorite tea is oolong',
+              newText: 'Favorite tea is lapsang souchong',
+              status: 'active',
+              dependentEpisodeIds: ['episode-1'],
+              dependentChapterIds: ['chapter-1'],
+            },
+          ],
+          openLoops: [],
+          lastRetrieval: {
+            usedAt: '2026-04-13T12:00:00.000Z',
+            mode: 'semantic',
+            embedModel: 'text-embedding-nomic-embed-text-v1.5',
+            session: [],
+            global: [],
+            books: [],
+            provenance: buildProvenanceEntries(8),
+            compression: {
+              used: false,
+              reason: '',
+              chapters: [],
+              explanation: {
+                selectedSignals: ['active-contradiction'],
+                penalties: ['scaffolding-filter'],
+                omittedEpisodeCount: 4,
+                carriedContradictions: [
+                  {
+                    id: 'contr-1',
+                    conflictKey: 'favorite tea',
+                    oldText: 'Favorite tea is oolong',
+                    newText: 'Favorite tea is lapsang souchong',
+                    status: 'active',
+                  },
+                ],
+              },
+            },
+          },
+          lastArchivedAt: '2026-04-13T12:00:00.000Z',
+          updatedAt: '2026-04-13T12:00:00.000Z',
+        },
+      },
+    }, null, 2)}\n`);
+    fs.writeFileSync(memoryFile, `${JSON.stringify({
+      sessions: {
+        'provenance-route-test': {
+          sessionId: 'provenance-route-test',
+          userName: 'Malac',
+          memories: [],
+          voiceOn: false,
+          brainMode: 'local',
+          lastRoute: {
+            selectedLane: 'tool',
+            requestedMode: 'local',
+            backend: 'local-lmstudio-tools',
+            repair: {
+              firstPassGuardCodes: ['contradiction_stale_value'],
+              repairAttempted: true,
+              repairAccepted: true,
+              finalCandidateSource: 'repair',
+              scope: 'semantic-render',
+            },
+          },
+          updatedAt: '2026-04-13T12:00:00.000Z',
+        },
+      },
+    }, null, 2)}\n`);
+
+    const address = started.address();
+    const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=provenance-route-test`);
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json.inspector.archive.session.lastRetrieval.mode, 'semantic');
+    assert.equal(response.json.inspector.archive.session.lastRetrieval.provenance.length, 6);
+    assert.equal(response.json.inspector.archive.session.lastRetrieval.provenance[0].id, 'prov-1');
+    assert.equal(response.json.inspector.archive.session.lastRetrieval.provenance[5].id, 'prov-6');
+    assert.match(response.json.inspector.archive.session.lastRetrieval.provenance[0].newText, /lapsang souchong/i);
+    assert.equal(response.json.inspector.archive.session.activeContradictions.length, 1);
+    assert.equal(response.json.inspector.archive.session.activeContradictions[0].conflictKey, 'favorite tea');
+    assert.equal(response.json.inspector.archive.session.lastRetrieval.compression.explanation.selectedSignals[0], 'active-contradiction');
+    assert.equal(response.json.inspector.routing.repair.finalCandidateSource, 'repair');
+    assert.equal(response.json.inspector.routing.repair.firstPassGuardCodes[0], 'contradiction_stale_value');
+    assertArtifactShape(response.json.inspector.artifact);
+    assert.equal(response.json.inspector.artifact.scope.selectedLane, 'tool');
+    assert.equal(response.json.inspector.routing.artifact.version, 'penny-runtime-artifact.v1');
+  } finally {
+    await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
+    delete require.cache[modulePath];
+    if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
+    if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
+    if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
+    if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
+    if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
+    if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
+    if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('chat route reports experimental epistemic caution and archive synthesis when the flags are enabled', async () => {
+  const originalEnv = {
+    PORT: process.env.PORT,
+    PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_MEMORY_ARCHIVE_FILE: process.env.PENNY_MEMORY_ARCHIVE_FILE,
+    PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
+    PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
+    PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
+    PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+    PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
+    PENNY_ENABLE_EPISTEMIC_CAUTION: process.env.PENNY_ENABLE_EPISTEMIC_CAUTION,
+    PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS: process.env.PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS,
+  };
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-epistemic-'));
+  const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  const archiveFile = path.join(tmpDir, 'penny-memory-archive.test.json');
+  const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.test.json');
+  const booksFile = path.join(tmpDir, 'penny-memory-books.test.json');
+  const mockLmStudio = await createMockLmStudioServer();
+  process.env.PORT = '0';
+  process.env.PENNY_MEMORY_FILE = memoryFile;
+  process.env.PENNY_MEMORY_ARCHIVE_FILE = archiveFile;
+  process.env.PENNY_MEMORY_EMBEDDINGS_FILE = embeddingsFile;
+  process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
+  process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+  process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'qa-missing-embed-model';
+  process.env.PENNY_ENABLE_EPISTEMIC_CAUTION = '1';
+  process.env.PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS = '1';
+
+  fs.writeFileSync(archiveFile, `${JSON.stringify({
+    meta: {
+      schemaVersion: 2,
+      embedModel: 'qa-missing-embed-model',
+      reviewDecisions: {},
+    },
+    global: {
+      episodes: [],
+      summaries: [
+        {
+          id: 'summary-global-1',
+          type: 'summary',
+          text: 'Longer-term themes: midnight rain and city lights.',
+          createdAt: '2026-04-15T11:58:00.000Z',
+          updatedAt: '2026-04-15T11:58:00.000Z',
+          sourceType: 'summary',
+        },
+      ],
+      patterns: [],
+      promotionQueue: [],
+    },
+    sessions: {
+      'epistemic-route-test': {
+        sessionId: 'epistemic-route-test',
+        episodes: [
+          {
+            id: 'episode-1',
+            type: 'episode',
+            text: 'Favorite tea is oolong.',
+            excerpt: 'Favorite tea is oolong.',
+            userText: 'Favorite tea is oolong.',
+            assistantText: 'Oolong it is.',
+            createdAt: '2026-04-15T11:55:00.000Z',
+            updatedAt: '2026-04-15T11:55:00.000Z',
+            sourceType: 'episode',
+          },
+          {
+            id: 'episode-2',
+            type: 'episode',
+            text: 'Actually, favorite tea is lapsang souchong now.',
+            excerpt: 'Actually, favorite tea is lapsang souchong now.',
+            userText: 'Actually, favorite tea is lapsang souchong now.',
+            assistantText: 'Lapsang souchong is the new truth.',
+            createdAt: '2026-04-15T11:56:00.000Z',
+            updatedAt: '2026-04-15T11:56:00.000Z',
+            sourceType: 'episode',
+          },
+        ],
+        summaries: [],
+        chapters: [],
+        provenance: [],
+        activeContradictions: [
+          {
+            id: 'contr-1',
+            conflictKey: 'favorite tea',
+            oldText: 'Favorite tea is oolong',
+            newText: 'Favorite tea is lapsang souchong',
+            status: 'active',
+            createdAt: '2026-04-15T11:56:00.000Z',
+            updatedAt: '2026-04-15T11:56:00.000Z',
+          },
+        ],
+        openLoops: [],
+        lastRetrieval: null,
+        lastArchivedAt: '2026-04-15T11:56:00.000Z',
+        updatedAt: '2026-04-15T11:56:00.000Z',
+      },
+    },
+  }, null, 2)}\n`);
+  fs.writeFileSync(memoryFile, `${JSON.stringify({
+    sessions: {
+      'epistemic-route-test': {
+        sessionId: 'epistemic-route-test',
+        userName: 'Malac',
+        memories: [
+          { text: 'Favorite tea is lapsang souchong', kind: 'preference', source: 'explicit', ts: Date.UTC(2026, 3, 15, 11, 56, 0) },
+        ],
+        voiceOn: false,
+        brainMode: 'local',
+        lastRoute: null,
+        updatedAt: '2026-04-15T11:56:00.000Z',
+      },
+    },
+  }, null, 2)}\n`);
+
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const serverModule = require('../server.js');
+  const started = serverModule.startServer({ port: 0, silent: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (started.listening) {
+        resolve();
+        return;
+      }
+      started.once('listening', resolve);
+      started.once('error', reject);
+    });
+
+    const address = started.address();
+    const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'epistemic-route-test',
+        messages: [
+          { role: 'user', content: 'Since my favorite tea is oolong, tell me what tea I like now.' },
+        ],
+        memories: { brainMode: 'local' },
+      }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assertArtifactShape(response.json.meta.artifact);
+    assert.equal(response.json.meta.artifact.epistemics.enabled, true);
+    assert.equal(response.json.meta.artifact.epistemics.triggered, true);
+    assert.equal(response.json.meta.artifact.epistemics.stance, 'correct');
+    assert.ok(response.json.meta.artifact.epistemics.signals.includes('active_contradiction'));
+    assert.equal(response.json.meta.artifact.synthesis.enabled, true);
+    assert.equal(response.json.meta.artifact.synthesis.generated, true);
+    assert.match(response.json.meta.artifact.synthesis.summary, /lapsang souchong/i);
+
+    const inspector = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=epistemic-route-test`);
+    assert.equal(inspector.statusCode, 200);
+    assertArtifactShape(inspector.json.inspector.artifact);
+    assert.equal(inspector.json.inspector.artifact.epistemics.triggered, true);
+    assert.equal(inspector.json.inspector.artifact.synthesis.generated, true);
+  } finally {
+    await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
+    delete require.cache[modulePath];
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

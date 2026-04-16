@@ -5,28 +5,106 @@ const {
   selectMemoriesForPrompt,
   tokenizeMemoryText,
 } = require('./penny-memory');
+const { createMemoryArchivePolicyApi } = require('./penny-memory-archive-policy');
+const {
+  normalizePromotionPacket,
+  validatePromotionPacket,
+} = require('./penny-knowledge-contracts');
 
-const ARCHIVE_SCHEMA_VERSION = 1;
+const ARCHIVE_SCHEMA_VERSION = 2;
 const EMBEDDINGS_SCHEMA_VERSION = 1;
 const EXPLICIT_PROMPT_LIMIT = 6;
 const SESSION_PROMPT_LIMIT = 2;
 const GLOBAL_PROMPT_LIMIT = 2;
+const SESSION_CHAPTER_LIMIT = 6;
+const SESSION_RECENCY_PROTECTED_EPISODES = 6;
+// Let chapter fallback come online sooner so keyword-only sessions
+// can still preserve concrete anchors before the conversation gets huge.
+const SESSION_CHAPTER_TRIGGER_COUNT = 7;
+const SESSION_PROVENANCE_LIMIT = 16;
+const SESSION_ACTIVE_CONTRADICTION_LIMIT = 12;
 const EMBEDDING_STATUS_CACHE_MS = 15000;
 const EMBEDDING_ERROR_CACHE_MS = 60000;
 const SENSITIVE_RETRIEVAL_THRESHOLD = 5.5;
+const COMPRESSION_RETRIEVAL_CONFIDENCE = 0.48;
+const GLOBAL_THEME_MIN_EVIDENCE = 3;
+
+/**
+ * @typedef {'semantic_query' | 'keyword_fallback'} ArchiveRetrievalReasonCode
+ *
+ * @typedef {'compression_not_needed' | 'compression_semantic_unavailable' | 'compression_low_retrieval_confidence'} ArchiveCompressionReasonCode
+ *
+ * @typedef {Object} ArchiveRetrievalDecision
+ * @property {string} usedAt
+ * @property {'semantic' | 'keyword'} mode
+ * @property {ArchiveRetrievalReasonCode} reasonCode
+ * @property {string} embedModel
+ * @property {Array<Object>} session
+ * @property {Array<Object>} global
+ * @property {Object} compression
+ *
+ * @typedef {Object} ArchiveCompressionDecision
+ * @property {boolean} used
+ * @property {ArchiveCompressionReasonCode} reasonCode
+ * @property {string} reason
+ * @property {Array<Object>} chapters
+ */
+const ARCHIVE_RETRIEVAL_REASON_CODES = Object.freeze({
+  SEMANTIC_QUERY: 'semantic_query',
+  KEYWORD_FALLBACK: 'keyword_fallback',
+});
+
+const ARCHIVE_COMPRESSION_REASON_CODES = Object.freeze({
+  NOT_NEEDED: 'compression_not_needed',
+  SEMANTIC_UNAVAILABLE: 'compression_semantic_unavailable',
+  LOW_RETRIEVAL_CONFIDENCE: 'compression_low_retrieval_confidence',
+});
+
+function normalizeCompressionReasonCode(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return ARCHIVE_COMPRESSION_REASON_CODES.NOT_NEEDED;
+  if (text === ARCHIVE_COMPRESSION_REASON_CODES.NOT_NEEDED || text === 'not-needed') {
+    return ARCHIVE_COMPRESSION_REASON_CODES.NOT_NEEDED;
+  }
+  if (text === ARCHIVE_COMPRESSION_REASON_CODES.SEMANTIC_UNAVAILABLE || text === 'semantic-unavailable') {
+    return ARCHIVE_COMPRESSION_REASON_CODES.SEMANTIC_UNAVAILABLE;
+  }
+  if (text === ARCHIVE_COMPRESSION_REASON_CODES.LOW_RETRIEVAL_CONFIDENCE || text === 'low-retrieval-confidence') {
+    return ARCHIVE_COMPRESSION_REASON_CODES.LOW_RETRIEVAL_CONFIDENCE;
+  }
+  return text;
+}
+
+function normalizeConflictKey(value = '') {
+  return trimText(value || '', 100).toLowerCase();
+}
 
 const PHRASE_STOPWORDS = new Set([
-  'about', 'after', 'again', 'also', 'been', 'being', 'came', 'come', 'dont', 'from', 'have', 'into',
-  'just', 'know', 'like', 'maybe', 'more', 'really', 'said', 'some', 'that', 'their', 'them', 'then',
-  'there', 'they', 'this', 'very', 'want', 'with', 'would', 'your', 'youre', 'were', 'when', 'what',
-  'while', 'where', 'which', 'because', 'than', 'over', 'under', 'still', 'keep', 'keeps', 'thing',
-  'things', 'make', 'makes', 'made', 'feel', 'feels', 'feeling',
+  'about', 'after', 'again', 'also', 'and', 'been', 'being', 'came', 'come', 'dont', 'from', 'have',
+  'into', 'just', 'know', 'like', 'maybe', 'more', 'really', 'said', 'some', 'that', 'their', 'them',
+  'then', 'there', 'they', 'this', 'very', 'want', 'with', 'would', 'your', 'youre', 'were', 'when',
+  'what', 'while', 'where', 'which', 'because', 'than', 'over', 'under', 'still', 'keep', 'keeps',
+  'thing', 'things', 'make', 'makes', 'made', 'feel', 'feels', 'feeling', 'im', "i'm", 'ive', "i've",
+  'okay', 'ok', 'yeah', 'honestly', 'actually', 'literally', 'little', 'high', 'low', 'good', 'nice',
+  'bro', 'girl', 'girly', 'brat', 'saying', 'sayin',
 ]);
 
 const SENSITIVE_PATTERNS = [
   /\b(fuck|fucking|horny|orgasm|cum|cock|pussy|dick|throat|spank|dom|sub|breed|wet|naked)\b/i,
   /\b(suicidal|self harm|self-harm|kill myself|cutting|panic attack|trauma)\b/i,
   /\b(crying all night|i feel broken|i hate myself|i want to disappear)\b/i,
+];
+
+const CHAPTER_SCAFFOLDING_PATTERNS = [
+  /\b(keep your reply|one sentence|quick check|long-memory|long memory|tiny format request|what do i keep|what sits|what was sitting|tell me about|remember this exactly)\b/i,
+  /\b(reply to the latest|format request|memory check|fallback check|check:)\b/i,
+  /\?$/,
+];
+
+const CHAPTER_DETAIL_BONUS_PATTERNS = [
+  /\b(red|blue|green|orange|silver|gold|black|white|purple|pink|yellow|brown|gray|grey|neon|mint|coral|sunflower)\b/i,
+  /\b\d+\b/,
+  /\b(smell|smelled|smells|hummed|rattled|taped|balanced|dropped|tucked|flickering|blinking|curtain|hook|mug|glove|thermos|bandana|sticker|sock|basket|fan|dryer|laundromat|arcade|ticket|envelope|detergent|token|booth|counter|register)\b/i,
 ];
 
 function createId(prefix = 'mem') {
@@ -73,6 +151,29 @@ function extractPhrases(text = '', limit = 24) {
   return [...phrases];
 }
 
+function isArchivePhraseInformativeToken(token = '') {
+  const value = String(token || '').trim().toLowerCase();
+  if (!value || PHRASE_STOPWORDS.has(value)) return false;
+  if (!/[a-z]/.test(value)) return false;
+  if (value.length >= 4) return true;
+  return CHAPTER_DETAIL_BONUS_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+function shouldKeepArchivePhrase(phrase = '', evidenceCount = 0) {
+  const words = String(phrase || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return false;
+  const informativeWords = words.filter(isArchivePhraseInformativeToken);
+  if (!informativeWords.length) return false;
+  if (words.length === 1) {
+    if (evidenceCount < GLOBAL_THEME_MIN_EVIDENCE) return false;
+    return isArchivePhraseInformativeToken(words[0]);
+  }
+  if (words.length === 2 && informativeWords.length < 2 && evidenceCount < GLOBAL_THEME_MIN_EVIDENCE) {
+    return false;
+  }
+  return true;
+}
+
 function countPhrases(texts = [], minEvidence = 3) {
   const counts = new Map();
   for (const text of texts) {
@@ -83,6 +184,7 @@ function countPhrases(texts = [], minEvidence = 3) {
   }
   return [...counts.entries()]
     .filter(([, count]) => count >= minEvidence)
+    .filter(([phrase, count]) => shouldKeepArchivePhrase(phrase, count))
     .sort((left, right) => right[1] - left[1]
       || (right[0].split(' ').length - left[0].split(' ').length)
       || left[0].localeCompare(right[0]));
@@ -172,10 +274,24 @@ function createMemoryArchiveApi({
       sessionId,
       episodes: [],
       summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
       openLoops: [],
       lastRetrieval: null,
       lastArchivedAt: '',
       updatedAt: '',
+    };
+  }
+
+  function buildRecencyProtection(session = {}) {
+    const recentEpisodes = Array.isArray(session?.episodes)
+      ? session.episodes.slice(-SESSION_RECENCY_PROTECTED_EPISODES)
+      : [];
+    return {
+      enabled: true,
+      protectedEpisodeCount: recentEpisodes.length,
+      protectedEpisodeIds: recentEpisodes.map((item) => String(item?.id || '').trim()).filter(Boolean),
     };
   }
 
@@ -196,6 +312,26 @@ function createMemoryArchiveApi({
     const createdAt = trimIso(raw.createdAt || raw.updatedAt, new Date().toISOString());
     const text = trimText(raw.text || raw.userText || raw.excerpt || '');
     if (!text) return null;
+    const promotionPacket = raw?.promotionPacket
+      ? normalizePromotionPacket(raw.promotionPacket)
+      : (type === 'promotion'
+        ? normalizePromotionPacket({
+            id: raw.id,
+            kind: raw.originKind || raw.kind || 'observation',
+            proposedMemoryText: raw.text || raw.excerpt || '',
+            sourceType: raw.sourceType || type,
+            originSource: raw.originSource || '',
+            sourceThreadId: raw.sessionId || '',
+            sourceTurnIds: raw.evidenceIds || [],
+            archiveExcerpt: raw.excerpt || raw.evidenceSnippet || raw.text || '',
+            evidenceSnippet: raw.evidenceSnippet || raw.excerpt || raw.text || '',
+            temporalScope: raw.temporalScope || {},
+            reviewStatus: raw.reviewStatus || 'pending',
+            reviewerDecision: raw.reviewerDecision || '',
+            createdAt,
+            reviewedAt: raw.reviewedAt || '',
+          })
+        : null);
     return {
       id: String(raw.id || createId(type)).trim(),
       type,
@@ -214,6 +350,38 @@ function createMemoryArchiveApi({
       promotedAt: trimIso(raw.promotedAt || '', ''),
       patternKey: String(raw.patternKey || '').trim(),
       sourceType: String(raw.sourceType || type).trim(),
+      sourceLabel: String(raw.sourceLabel || '').trim(),
+      originSource: String(raw.originSource || '').trim(),
+      originKind: String(raw.originKind || '').trim(),
+      evidenceSnippet: trimText(raw.evidenceSnippet || raw.excerpt || raw.userText || raw.text || '', 160),
+      reviewStatus: trimText(raw.reviewStatus || '', 40),
+      reviewedAt: trimIso(raw.reviewedAt || '', ''),
+      temporalScope: raw.temporalScope && typeof raw.temporalScope === 'object'
+        ? {
+            label: trimText(raw.temporalScope.label || '', 120),
+            observedAt: trimIso(raw.temporalScope.observedAt || '', ''),
+            startAt: trimIso(raw.temporalScope.startAt || '', ''),
+            endAt: trimIso(raw.temporalScope.endAt || '', ''),
+          }
+        : null,
+      promotionPacket,
+    };
+  }
+
+  function normalizeSessionChapter(raw = {}, sessionId = 'default') {
+    const text = trimText(raw.text || raw.excerpt || '', 220);
+    if (!text) return null;
+    const createdAt = trimIso(raw.createdAt || raw.updatedAt, new Date().toISOString());
+    return {
+      id: String(raw.id || createId('chapter')).trim(),
+      sessionId: String(raw.sessionId || sessionId || '').trim() || undefined,
+      createdAt,
+      updatedAt: trimIso(raw.updatedAt || createdAt, createdAt),
+      text,
+      excerpt: trimText(raw.excerpt || text, 220),
+      sourceEpisodeIds: normalizeEvidenceIds(raw.sourceEpisodeIds || raw.evidenceIds || []),
+      confidence: Math.max(0, Math.min(1, Number(raw.confidence || 0))),
+      sourceType: 'chapter',
     };
   }
 
@@ -228,19 +396,160 @@ function createMemoryArchiveApi({
     };
   }
 
+  function normalizeProvenanceItem(raw = {}) {
+    const oldText = trimText(raw.oldText || '', 220);
+    const newText = trimText(raw.newText || '', 220);
+    if (!oldText || !newText || oldText.toLowerCase() === newText.toLowerCase()) return null;
+    const createdAt = trimIso(raw.createdAt || raw.updatedAt, new Date(nowMs()).toISOString());
+    const conflictKey = normalizeConflictKey(raw.conflictKey || raw.topicKey || '');
+    return {
+      id: String(raw.id || createId('prov')).trim(),
+      createdAt,
+      oldText,
+      newText,
+      conflictKey,
+      trigger: trimText(raw.trigger || '', 80),
+      sourceEpisodeId: String(raw.sourceEpisodeId || '').trim(),
+      confidence: Math.max(0, Math.min(1, Number(raw.confidence || 0))),
+    };
+  }
+
+  function normalizeContradictionItem(raw = {}, sessionId = 'default') {
+    const oldText = trimText(raw.oldText || '', 220);
+    const newText = trimText(raw.newText || '', 220);
+    const conflictKey = normalizeConflictKey(raw.conflictKey || raw.topicKey || '');
+    if (!oldText || !newText || !conflictKey || oldText.toLowerCase() === newText.toLowerCase()) return null;
+    const createdAt = trimIso(raw.createdAt || raw.updatedAt, new Date(nowMs()).toISOString());
+    const updatedAt = trimIso(raw.updatedAt || createdAt, createdAt);
+    const rawStatus = String(raw.status || 'active').trim().toLowerCase();
+    const status = rawStatus === 'superseded' || rawStatus === 'resolved' ? rawStatus : 'active';
+    return {
+      id: String(raw.id || createId('contr')).trim(),
+      sessionId: String(raw.sessionId || sessionId || '').trim() || undefined,
+      createdAt,
+      updatedAt,
+      sourceEpisodeId: String(raw.sourceEpisodeId || '').trim(),
+      trigger: trimText(raw.trigger || '', 80),
+      oldText,
+      newText,
+      conflictKey,
+      status,
+      supersededAt: trimIso(raw.supersededAt, ''),
+      dependentEpisodeIds: normalizeEvidenceIds(raw.dependentEpisodeIds || []),
+      dependentChapterIds: normalizeEvidenceIds(raw.dependentChapterIds || []),
+    };
+  }
+
   function normalizeRetrievalItem(raw = {}) {
+    const text = trimText(raw.text || raw.excerpt || '', 220);
+    if (!text) return null;
+    const scope = String(raw.scope || '').trim() || 'global';
+    const sourceLabel = String(raw.sourceLabel || '').trim()
+      || (scope === 'session' ? 'archive-session' : 'archive-global');
+    return {
+      id: String(raw.id || '').trim(),
+      text,
+      sourceType: String(raw.sourceType || '').trim() || 'archive',
+      scope,
+      sourceLabel,
+      sensitivity: raw.sensitivity === 'high' ? 'high' : 'normal',
+      createdAt: trimIso(raw.createdAt, ''),
+      score: Number.isFinite(Number(raw.score)) ? Number(raw.score) : 0,
+      confidence: Number.isFinite(Number(raw.confidence)) ? Number(raw.confidence) : 0,
+      sourceEpisodeIds: normalizeEvidenceIds(raw.sourceEpisodeIds || raw.evidenceIds || []),
+      matchedTokens: Array.isArray(raw.matchedTokens)
+        ? raw.matchedTokens.map((value) => trimText(value, 40)).filter(Boolean).slice(0, 6)
+        : [],
+      evidenceSnippet: trimText(raw.evidenceSnippet || raw.excerpt || raw.text || '', 160),
+    };
+  }
+
+  function normalizeBookMatch(raw = {}) {
     const text = trimText(raw.text || raw.excerpt || '', 220);
     if (!text) return null;
     return {
       id: String(raw.id || '').trim(),
       text,
-      sourceType: String(raw.sourceType || '').trim() || 'archive',
-      scope: String(raw.scope || '').trim() || 'global',
-      sensitivity: raw.sensitivity === 'high' ? 'high' : 'normal',
-      createdAt: trimIso(raw.createdAt, ''),
+      placement: String(raw.placement || 'memory').trim() || 'memory',
       score: Number.isFinite(Number(raw.score)) ? Number(raw.score) : 0,
-      confidence: Number.isFinite(Number(raw.confidence)) ? Number(raw.confidence) : 0,
+      priority: Number.isFinite(Number(raw.priority)) ? Number(raw.priority) : 0,
+      sensitivity: raw.sensitivity === 'high' ? 'high' : 'normal',
+      source: String(raw.source || '').trim() || 'local',
+      sourceLabel: String(raw.sourceLabel || '').trim() || 'book',
+      matchedPhrases: Array.isArray(raw.matchedPhrases)
+        ? raw.matchedPhrases.map((value) => trimText(value, 100)).filter(Boolean).slice(0, 4)
+        : [],
+      evidenceSnippet: trimText(raw.evidenceSnippet || raw.excerpt || raw.text || (Array.isArray(raw.matchedPhrases) ? raw.matchedPhrases[0] : ''), 160),
+      matchedOn: raw.matchedOn && typeof raw.matchedOn === 'object'
+        ? {
+            lane: String(raw.matchedOn.lane || '').trim() || 'chat',
+            attachmentType: String(raw.matchedOn.attachmentType || '').trim() || 'none',
+          }
+        : { lane: 'chat', attachmentType: 'none' },
     };
+  }
+
+  function normalizeCompressionInfo(raw = {}) {
+    if (!raw || typeof raw !== 'object') {
+      return {
+        used: false,
+        reason: '',
+        reasonCode: ARCHIVE_COMPRESSION_REASON_CODES.NOT_NEEDED,
+        chapters: [],
+        explanation: {
+          selectedSignals: [],
+          penalties: [],
+          omittedEpisodeCount: 0,
+          carriedContradictions: [],
+        },
+      };
+    }
+    const reasonCode = normalizeCompressionReasonCode(raw.reasonCode || raw.reason);
+    return {
+      used: raw.used === true,
+      reason: trimText(raw.reason || '', 80),
+      reasonCode,
+      chapters: Array.isArray(raw.chapters)
+        ? raw.chapters.map(normalizeRetrievalItem).filter(Boolean).slice(0, 4)
+        : [],
+      explanation: {
+        selectedSignals: Array.isArray(raw.explanation?.selectedSignals)
+          ? raw.explanation.selectedSignals.map((value) => trimText(value, 80)).filter(Boolean).slice(0, 8)
+          : [],
+        penalties: Array.isArray(raw.explanation?.penalties)
+          ? raw.explanation.penalties.map((value) => trimText(value, 80)).filter(Boolean).slice(0, 8)
+          : [],
+        omittedEpisodeCount: Math.max(0, Number(raw.explanation?.omittedEpisodeCount || 0)),
+        carriedContradictions: Array.isArray(raw.explanation?.carriedContradictions)
+          ? raw.explanation.carriedContradictions
+            .map((item) => normalizeContradictionItem(item))
+            .filter(Boolean)
+            .slice(0, 4)
+          : [],
+      },
+    };
+  }
+
+  function normalizeProvenanceList(items = [], limit = SESSION_PROVENANCE_LIMIT) {
+    const out = [];
+    for (const raw of Array.isArray(items) ? items : []) {
+      const item = normalizeProvenanceItem(raw);
+      if (!item) continue;
+      out.push(item);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  function normalizeContradictionList(items = [], limit = SESSION_ACTIVE_CONTRADICTION_LIMIT) {
+    const out = [];
+    for (const raw of Array.isArray(items) ? items : []) {
+      const item = normalizeContradictionItem(raw);
+      if (!item) continue;
+      out.push(item);
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
   function normalizeSessionBucket(raw = {}, sessionId = 'default') {
@@ -251,6 +560,11 @@ function createMemoryArchiveApi({
     bucket.summaries = Array.isArray(raw.summaries)
       ? raw.summaries.map(item => normalizeArchiveEntry(item, item?.type || 'summary', sessionId)).filter(Boolean).slice(-24)
       : [];
+    bucket.chapters = Array.isArray(raw.chapters)
+      ? raw.chapters.map(item => normalizeSessionChapter(item, sessionId)).filter(Boolean).slice(-SESSION_CHAPTER_LIMIT)
+      : [];
+    bucket.provenance = normalizeProvenanceList(raw.provenance, SESSION_PROVENANCE_LIMIT);
+    bucket.activeContradictions = normalizeContradictionList(raw.activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT);
     bucket.openLoops = Array.isArray(raw.openLoops)
       ? raw.openLoops.map(normalizeOpenLoop).filter(Boolean).slice(-16)
       : [];
@@ -261,8 +575,17 @@ function createMemoryArchiveApi({
           embedModel: String(raw.lastRetrieval.embedModel || '').trim(),
           session: Array.isArray(raw.lastRetrieval.session) ? raw.lastRetrieval.session.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
           global: Array.isArray(raw.lastRetrieval.global) ? raw.lastRetrieval.global.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
+          books: Array.isArray(raw.lastRetrieval.books) ? raw.lastRetrieval.books.map(normalizeBookMatch).filter(Boolean).slice(0, 4) : [],
+          provenance: normalizeProvenanceList(raw.lastRetrieval.provenance, 6),
+          compression: normalizeCompressionInfo(raw.lastRetrieval.compression),
         }
       : null;
+    if (bucket.lastRetrieval && typeof bucket.lastRetrieval === 'object') {
+      bucket.lastRetrieval.reasonCode = String(bucket.lastRetrieval.reasonCode || '').trim()
+        || (bucket.lastRetrieval.mode === 'semantic'
+          ? ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY
+          : ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK);
+    }
     bucket.lastArchivedAt = trimIso(raw.lastArchivedAt, '');
     bucket.updatedAt = trimIso(raw.updatedAt, '');
     return bucket;
@@ -412,12 +735,62 @@ function createMemoryArchiveApi({
     }
   }
 
+  function buildProbeState({
+    startedAt = '',
+    finishedAt = '',
+    durationMs = 0,
+    cacheHit = false,
+    expiresAt = 0,
+    note = '',
+  } = {}) {
+    const safeStartedAt = trimIso(startedAt, '');
+    const safeFinishedAt = trimIso(finishedAt, safeStartedAt);
+    const checkedAt = safeFinishedAt || safeStartedAt;
+    const checkedAtMs = checkedAt ? Date.parse(checkedAt) : 0;
+    return {
+      startedAt: safeStartedAt,
+      finishedAt: safeFinishedAt,
+      checkedAt,
+      durationMs: Math.max(0, Math.round(Number(durationMs) || 0)),
+      cacheHit: cacheHit === true,
+      cacheAgeMs: checkedAtMs ? Math.max(0, Date.now() - checkedAtMs) : 0,
+      cacheExpiresAt: Number.isFinite(expiresAt) && expiresAt > 0 ? new Date(expiresAt).toISOString() : '',
+      note: String(note || '').trim(),
+    };
+  }
+
+  function decorateSemanticStatus(value = {}, {
+    startedAt = '',
+    finishedAt = '',
+    durationMs = 0,
+    cacheHit = false,
+    expiresAt = 0,
+    note = '',
+  } = {}) {
+    return {
+      ...(value && typeof value === 'object' ? value : {}),
+      probe: buildProbeState({
+        startedAt,
+        finishedAt,
+        durationMs,
+        cacheHit,
+        expiresAt,
+        note: note || value?.reason || '',
+      }),
+    };
+  }
+
   async function getSemanticMemoryStatus({ force = false, lmStatus = null } = {}) {
     const now = nowMs();
     if (!force && embedStatusCache.value && now < embedStatusCache.expiresAt) {
-      return embedStatusCache.value;
+      return decorateSemanticStatus(embedStatusCache.value, {
+        ...(embedStatusCache.value?.probe || {}),
+        cacheHit: true,
+        expiresAt: embedStatusCache.expiresAt,
+      });
     }
 
+    const probeStartedAt = new Date(now).toISOString();
     let status = lmStatus;
     if (!status && typeof getLmStudioConnectionStatus === 'function') {
       try {
@@ -459,11 +832,20 @@ function createMemoryArchiveApi({
                 ? liveProbe.error
                : '',
     };
+    const expiresAt = now + (ready ? EMBEDDING_STATUS_CACHE_MS : EMBEDDING_ERROR_CACHE_MS);
+    const probeFinishedAt = new Date(nowMs()).toISOString();
+    const cachedValue = decorateSemanticStatus(value, {
+      startedAt: probeStartedAt,
+      finishedAt: probeFinishedAt,
+      durationMs: Date.parse(probeFinishedAt) - now,
+      cacheHit: false,
+      expiresAt,
+    });
     embedStatusCache = {
-      expiresAt: now + (ready ? EMBEDDING_STATUS_CACHE_MS : EMBEDDING_ERROR_CACHE_MS),
-      value,
+      expiresAt,
+      value: cachedValue,
     };
-    return value;
+    return cachedValue;
   }
 
   function parseEmbeddingResponse(payload = {}) {
@@ -530,36 +912,6 @@ function createMemoryArchiveApi({
     return { embeddings: store, vector, created: true, hash };
   }
 
-  function buildArchiveCandidate(entry = {}, scope = 'global', sourceType = 'archive') {
-    return {
-      id: String(entry.id || '').trim(),
-      text: trimText(entry.text || entry.excerpt || entry.userText || '', 220),
-      sourceType,
-      scope,
-      createdAt: trimIso(entry.createdAt),
-      sensitivity: entry.sensitivity === 'high' ? 'high' : 'normal',
-    };
-  }
-
-  function scoreArchiveCandidate(candidate = {}, queryTokens = new Set(), now = nowMs(), queryVector = null, vector = null) {
-    const tokens = tokenizeMemoryText(candidate.text || '');
-    let score = candidate.sourceType === 'pattern' ? 3.5 : candidate.sourceType === 'summary' ? 3 : 2.5;
-    let overlap = 0;
-    for (const token of tokens) {
-      if (queryTokens.has(token)) overlap += 1;
-    }
-    score += overlap * 2.25;
-    if (queryVector && vector) score += Math.max(0, cosineSimilarity(queryVector, vector)) * 8;
-    const createdAtMs = Date.parse(candidate.createdAt || '');
-    if (Number.isFinite(createdAtMs)) {
-      const ageDays = Math.max(0, now - createdAtMs) / (1000 * 60 * 60 * 24);
-      score += Math.max(0, 1.5 - Math.min(1.5, ageDays / 14));
-    }
-    if (candidate.scope === 'session') score += 0.75;
-    if (candidate.sensitivity === 'high') score -= 1.5;
-    return score;
-  }
-
   function uniqueCandidateList(items = [], limit = 2) {
     const out = [];
     const seen = new Set();
@@ -580,11 +932,141 @@ function createMemoryArchiveApi({
     return trimText(`${prefix}: ${phrases.map(([phrase]) => phrase).join('; ')}.`, 220);
   }
 
+  function normalizeSearchText(value = '') {
+    return normalizeText(value || '').toLowerCase();
+  }
+
+  function textMentionsNeedle(text = '', needle = '') {
+    const normalizedNeedle = normalizeSearchText(needle);
+    if (!normalizedNeedle) return false;
+    return normalizeSearchText(text).includes(normalizedNeedle);
+  }
+
+  function isActiveContradiction(item = {}) {
+    return String(item?.status || 'active').trim().toLowerCase() === 'active';
+  }
+
+  function textReferencesContradiction(text = '', contradiction = {}) {
+    if (!text || !contradiction || typeof contradiction !== 'object') return false;
+    return [
+      contradiction.conflictKey,
+      contradiction.oldText,
+      contradiction.newText,
+    ].some((needle) => textMentionsNeedle(text, needle));
+  }
+
+  function contradictionTouchesEpisodeIds(contradiction = {}, sourceEpisodeIds = []) {
+    const ids = new Set(normalizeEvidenceIds(sourceEpisodeIds));
+    if (!ids.size) return false;
+    if (ids.has(String(contradiction.sourceEpisodeId || '').trim())) return true;
+    return normalizeEvidenceIds(contradiction.dependentEpisodeIds || []).some((id) => ids.has(id));
+  }
+
+  function appendUniqueId(values = [], id = '', limit = 12) {
+    const nextId = String(id || '').trim();
+    if (!nextId) return normalizeEvidenceIds(values).slice(-limit);
+    return normalizeEvidenceIds([...(Array.isArray(values) ? values : []), nextId]).slice(-limit);
+  }
+
+  function findRelevantContradictionsForChunk(activeContradictions = [], sourceEpisodeIds = [], texts = []) {
+    const chunkTexts = Array.isArray(texts) ? texts : [];
+    return normalizeContradictionList(activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT)
+      .filter(isActiveContradiction)
+      .filter((item) => (
+        contradictionTouchesEpisodeIds(item, sourceEpisodeIds)
+        || chunkTexts.some((text) => textReferencesContradiction(text, item))
+      ));
+  }
+
+  function formatContradictionForChapter(contradiction = {}) {
+    const newText = trimText(contradiction.newText || '', 160);
+    const oldText = trimText(contradiction.oldText || '', 160);
+    if (!newText) return '';
+    if (!oldText || oldText.toLowerCase() === newText.toLowerCase()) return newText;
+    return `${newText} (replaces ${oldText})`;
+  }
+
+  const archivePolicyApi = createMemoryArchivePolicyApi({
+    sessionActiveContradictionLimit: SESSION_ACTIVE_CONTRADICTION_LIMIT,
+    sessionChapterLimit: SESSION_CHAPTER_LIMIT,
+    sessionChapterTriggerCount: SESSION_CHAPTER_TRIGGER_COUNT,
+    sessionRecencyProtectedEpisodeCount: SESSION_RECENCY_PROTECTED_EPISODES,
+    compressionRetrievalConfidence: COMPRESSION_RETRIEVAL_CONFIDENCE,
+    sessionPromptLimit: SESSION_PROMPT_LIMIT,
+    archiveCompressionReasonCodes: ARCHIVE_COMPRESSION_REASON_CODES,
+    chapterScaffoldingPatterns: CHAPTER_SCAFFOLDING_PATTERNS,
+    chapterDetailBonusPatterns: CHAPTER_DETAIL_BONUS_PATTERNS,
+    normalizeContradictionList,
+    isActiveContradiction,
+    textMentionsNeedle,
+    trimText,
+    findRelevantContradictionsForChunk,
+    formatContradictionForChapter,
+    buildRollingSummaryText,
+    normalizeRetrievalItem,
+    tokenizeMemoryText,
+    cosineSimilarity,
+    trimIso,
+    normalizeEvidenceIds,
+  });
+
+  function attachEpisodeDependentsToContradictions(activeContradictions = [], episode = {}) {
+    const episodeId = String(episode?.id || '').trim();
+    if (!episodeId) return normalizeContradictionList(activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT);
+    const episodeText = `${episode?.userText || ''}\n${episode?.assistantText || ''}\n${episode?.text || ''}`;
+    return normalizeContradictionList(activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT)
+      .map((item) => {
+        if (episodeId === String(item.sourceEpisodeId || '').trim()) return item;
+        if (!textReferencesContradiction(episodeText, item)) return item;
+        return normalizeContradictionItem({
+          ...item,
+          updatedAt: trimIso(episode.updatedAt || episode.createdAt || item.updatedAt, item.updatedAt),
+          dependentEpisodeIds: appendUniqueId(item.dependentEpisodeIds, episodeId, 12),
+        });
+      })
+      .filter(Boolean);
+  }
+
+  function attachChapterDependentsToContradictions(activeContradictions = [], chapters = []) {
+    return normalizeContradictionList(activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT)
+      .map((item) => {
+        let next = item;
+        for (const chapter of Array.isArray(chapters) ? chapters : []) {
+          const chapterId = String(chapter?.id || '').trim();
+          if (!chapterId) continue;
+          if (!contradictionTouchesEpisodeIds(item, chapter.sourceEpisodeIds) && !textReferencesContradiction(chapter.text, item)) continue;
+          next = normalizeContradictionItem({
+            ...next,
+            updatedAt: trimIso(chapter.updatedAt || chapter.createdAt || next.updatedAt, next.updatedAt),
+            dependentChapterIds: appendUniqueId(next.dependentChapterIds, chapterId, 8),
+          });
+        }
+        return next;
+      })
+      .filter(Boolean);
+  }
+
+  function buildCompressionExplanation({
+    chapterItems = [],
+    session = {},
+    carriedContradictions = [],
+  } = {}) {
+    return archivePolicyApi.buildCompressionExplanation({
+      chapterItems,
+      session,
+      carriedContradictions,
+    });
+  }
+
   async function buildArchiveContext({
     sessionId = 'default',
     userText = '',
     lane = 'chat',
     now = nowMs(),
+    sessionPromptLimit = SESSION_PROMPT_LIMIT,
+    globalPromptLimit = GLOBAL_PROMPT_LIMIT,
+    allowSemanticQuery = true,
+    allowArchiveCompression = true,
   } = {}) {
     if (lane !== 'chat') {
       const semanticMemory = await getSemanticMemoryStatus();
@@ -597,12 +1079,14 @@ function createMemoryArchiveApi({
 
     const archive = readArchiveStore();
     const session = ensureSessionStore(archive, sessionId);
+    const activeContradictions = normalizeContradictionList(session.activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT)
+      .filter(isActiveContradiction);
     const semanticMemory = await getSemanticMemoryStatus();
     const queryTokens = new Set(tokenizeMemoryText(userText));
     let queryVector = null;
     let embeddings = null;
 
-    if (semanticMemory.ready) {
+    if (semanticMemory.ready && allowSemanticQuery) {
       try {
         const embedded = await ensureEmbeddingForText(userText, readEmbeddingsStore(), semanticMemory);
         embeddings = embedded.embeddings;
@@ -615,12 +1099,15 @@ function createMemoryArchiveApi({
 
     const candidateGroups = {
       session: [
-        ...session.episodes.slice(-48).map(item => buildArchiveCandidate(item, 'session', 'episode')),
-        ...session.summaries.slice(-12).map(item => buildArchiveCandidate(item, 'session', item.type || 'summary')),
+        ...session.episodes.slice(-48).map(item => archivePolicyApi.buildArchiveCandidate(item, 'session', 'episode')),
+        ...session.summaries.slice(-12).map(item => archivePolicyApi.buildArchiveCandidate(item, 'session', item.type || 'summary')),
+      ],
+      chapters: [
+        ...session.chapters.slice(-SESSION_CHAPTER_LIMIT).map(item => archivePolicyApi.buildArchiveCandidate(item, 'session', item.sourceType || 'chapter')),
       ],
       global: [
-        ...archive.global.summaries.slice(-16).map(item => buildArchiveCandidate(item, 'global', 'summary')),
-        ...archive.global.patterns.slice(-16).map(item => buildArchiveCandidate(item, 'global', 'pattern')),
+        ...archive.global.summaries.slice(-16).map(item => archivePolicyApi.buildArchiveCandidate(item, 'global', 'summary')),
+        ...archive.global.patterns.slice(-16).map(item => archivePolicyApi.buildArchiveCandidate(item, 'global', 'pattern')),
       ],
     };
 
@@ -638,12 +1125,15 @@ function createMemoryArchiveApi({
             vector = null;
           }
         }
-        const score = scoreArchiveCandidate(item, queryTokens, now, queryVector, vector);
+        const scored = archivePolicyApi.scoreArchiveCandidate(item, queryTokens, now, queryVector, vector);
+        const score = Number(scored?.score || 0);
         if (item.sensitivity === 'high' && score < SENSITIVE_RETRIEVAL_THRESHOLD) continue;
         ranked.push({
           ...item,
           score,
           confidence: Math.max(0, Math.min(1, score / 12)),
+          matchedTokens: Array.isArray(scored?.overlapTokens) ? scored.overlapTokens : [],
+          evidenceSnippet: trimText(scored?.evidenceSnippet || item.text || '', 160),
         });
       }
       if (workingEmbeddings !== embeddings) {
@@ -657,35 +1147,69 @@ function createMemoryArchiveApi({
       );
     }
 
-    const sessionItems = await rankGroup(candidateGroups.session, SESSION_PROMPT_LIMIT);
-    const globalItems = await rankGroup(candidateGroups.global, GLOBAL_PROMPT_LIMIT);
+    const sessionItems = await rankGroup(candidateGroups.session, sessionPromptLimit);
+    const globalItems = await rankGroup(candidateGroups.global, globalPromptLimit);
+    const strongestConfidence = Math.max(
+      Number(sessionItems[0]?.confidence || 0),
+      Number(globalItems[0]?.confidence || 0),
+    );
+    const {
+      combinedSessionItems,
+      compression,
+    } = await archivePolicyApi.buildCompressionState({
+      candidateGroups: allowArchiveCompression ? candidateGroups : { ...candidateGroups, chapters: [] },
+      session,
+      semanticMemory,
+      strongestConfidence,
+      activeContradictions,
+      sessionItems,
+      rankGroup,
+    });
     const retrieval = {
       usedAt: new Date(now).toISOString(),
       mode: semanticMemory.ready && queryVector ? 'semantic' : 'keyword',
+      reasonCode: semanticMemory.ready && queryVector
+        ? ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY
+        : ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK,
       embedModel: semanticMemory.ready ? configuredEmbedModel : '',
-      session: sessionItems.map(normalizeRetrievalItem).filter(Boolean),
+      session: combinedSessionItems.map(normalizeRetrievalItem).filter(Boolean),
       global: globalItems.map(normalizeRetrievalItem).filter(Boolean),
+      compression,
     };
 
     return {
       archiveContext: {
         mode: retrieval.mode,
+        reasonCode: retrieval.reasonCode,
         embedModel: retrieval.embedModel,
         session: retrieval.session,
         global: retrieval.global,
+        provenance: session.provenance.slice(0, 2),
+        activeContradictions: activeContradictions.slice(0, 3),
         semanticReady: semanticMemory.ready,
+        compression,
+        recencyProtection: buildRecencyProtection(session),
       },
       retrieval,
       semanticMemory,
     };
   }
 
-  function enrichMemoriesForPrompt(memories = {}, archiveContext = null) {
-    if (!archiveContext) return memories;
-    return {
+  function enrichMemoriesForPrompt(memories = {}, archiveContext = null, runtimeAdvisories = null) {
+    const advisories = runtimeAdvisories && typeof runtimeAdvisories === 'object'
+      ? runtimeAdvisories
+      : {};
+    const next = {
       ...memories,
-      archiveContext,
     };
+    if (archiveContext) next.archiveContext = archiveContext;
+    if (advisories.epistemicCaution && typeof advisories.epistemicCaution === 'object') {
+      next.epistemicCaution = advisories.epistemicCaution;
+    }
+    if (advisories.archiveSynthesis && typeof advisories.archiveSynthesis === 'object') {
+      next.archiveSynthesis = advisories.archiveSynthesis;
+    }
+    return next;
   }
 
   function rebuildOpenLoops(session = {}) {
@@ -728,16 +1252,101 @@ function createMemoryArchiveApi({
       const session = archive.sessions[sessionId];
       session.episodes = session.episodes.slice(-160);
       session.summaries = session.summaries.slice(-24);
+      session.chapters = session.chapters.slice(-SESSION_CHAPTER_LIMIT);
+      session.provenance = session.provenance.slice(-SESSION_PROVENANCE_LIMIT);
+      session.activeContradictions = session.activeContradictions.slice(-SESSION_ACTIVE_CONTRADICTION_LIMIT);
       session.openLoops = session.openLoops.slice(-16);
     }
     return archive;
   }
 
+  function looksLikeScaffoldingText(text = '') {
+    return archivePolicyApi.looksLikeScaffoldingText(text);
+  }
+
+  function scoreChapterDetailText(text = '', activeContradictions = []) {
+    return archivePolicyApi.scoreChapterDetailText(text, activeContradictions);
+  }
+
+  function buildSessionChapterText(texts = [], activeContradictions = [], sourceEpisodeIds = []) {
+    return archivePolicyApi.buildSessionChapterText(texts, activeContradictions, sourceEpisodeIds);
+  }
+
+  function buildSessionChapters(session = {}) {
+    return archivePolicyApi.buildSessionChapters(session)
+      .map((item) => {
+        const sourceEpisodeIds = Array.isArray(item.sourceEpisodeIds) ? item.sourceEpisodeIds : [];
+        const createdAt = trimIso(item.createdAt, new Date(nowMs()).toISOString());
+        return normalizeSessionChapter({
+          id: `chapter:${stableHash(sourceEpisodeIds.join('|')).slice(0, 12)}`,
+          sessionId: session.sessionId,
+          createdAt,
+          updatedAt: createdAt,
+          text: item.summary,
+          excerpt: item.summary,
+          sourceEpisodeIds,
+          confidence: item.confidence,
+        }, session.sessionId);
+      })
+      .filter(Boolean)
+      .slice(-SESSION_CHAPTER_LIMIT);
+  }
+
+  function applyProvenanceToContradictions(session = {}, provenanceItems = [], episode = {}, createdAt = '') {
+    let contradictions = normalizeContradictionList(session.activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT);
+    for (const provenanceItem of normalizeProvenanceList(provenanceItems, 4)) {
+      const conflictKey = normalizeConflictKey(provenanceItem.conflictKey || provenanceItem.topicKey || '');
+      if (!conflictKey) continue;
+      const matchingActive = contradictions.find((item) => (
+        isActiveContradiction(item)
+        && item.conflictKey === conflictKey
+        && item.oldText.toLowerCase() === provenanceItem.oldText.toLowerCase()
+        && item.newText.toLowerCase() === provenanceItem.newText.toLowerCase()
+      ));
+      if (matchingActive) {
+        contradictions = contradictions.map((item) => {
+          if (item.id !== matchingActive.id) return item;
+          return normalizeContradictionItem({
+            ...item,
+            updatedAt: createdAt || item.updatedAt,
+            trigger: provenanceItem.trigger || item.trigger,
+            sourceEpisodeId: provenanceItem.sourceEpisodeId || item.sourceEpisodeId,
+          }, session.sessionId);
+        }).filter(Boolean);
+        continue;
+      }
+      contradictions = contradictions.map((item) => {
+        if (!isActiveContradiction(item) || item.conflictKey !== conflictKey) return item;
+        return normalizeContradictionItem({
+          ...item,
+          status: 'superseded',
+          updatedAt: createdAt || item.updatedAt,
+          supersededAt: createdAt || item.supersededAt || item.updatedAt,
+        }, session.sessionId);
+      }).filter(Boolean);
+      const next = normalizeContradictionItem({
+        ...provenanceItem,
+        conflictKey,
+        sessionId: session.sessionId,
+        sourceEpisodeId: provenanceItem.sourceEpisodeId || episode.id,
+        status: 'active',
+        createdAt: provenanceItem.createdAt || createdAt,
+        updatedAt: createdAt || provenanceItem.updatedAt || provenanceItem.createdAt,
+      }, session.sessionId);
+      if (next) contradictions = [next, ...contradictions];
+    }
+    contradictions = attachEpisodeDependentsToContradictions(contradictions, episode);
+    return normalizeContradictionList(contradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT);
+  }
+
   function rebuildGlobalPatterns(archive = {}) {
     const allTexts = archive.global.episodes.map(item => item.userText || item.text || '');
-    const counts = countPhrases(allTexts, 2).slice(0, 12);
+    const counts = countPhrases(allTexts, GLOBAL_THEME_MIN_EVIDENCE).slice(0, 12);
     const patterns = counts.map(([phrase, evidenceCount]) => {
       const text = trimText(`They keep returning to ${phrase}.`, 220);
+      const supportingEpisodes = archive.global.episodes
+        .filter((item) => textMentionsNeedle(item.userText || item.text || '', phrase))
+        .slice(-6);
       return normalizeArchiveEntry({
         id: `pattern:${stableHash(phrase).slice(0, 12)}`,
         type: 'pattern',
@@ -749,6 +1358,8 @@ function createMemoryArchiveApi({
         createdAt: new Date(nowMs()).toISOString(),
         updatedAt: new Date(nowMs()).toISOString(),
         patternKey: phrase,
+        evidenceIds: supportingEpisodes.map((item) => item.id).filter(Boolean),
+        evidenceSnippet: supportingEpisodes[0]?.userText || supportingEpisodes[0]?.text || text,
       }, 'pattern');
     }).filter(Boolean);
     archive.global.patterns = patterns;
@@ -764,6 +1375,23 @@ function createMemoryArchiveApi({
       if ((pattern.evidenceCount || 0) < 3) continue;
       if (reviewDecisions[pattern.patternKey]) continue;
       if (nextQueue.some(item => item.patternKey === pattern.patternKey)) continue;
+      const packet = normalizePromotionPacket({
+        id: `${pattern.id}:packet`,
+        kind: 'observation',
+        proposedMemoryText: pattern.text,
+        sourceType: 'pattern',
+        originSource: 'archive-global-pattern',
+        sourceThreadId: 'archive-global',
+        sourceTurnIds: pattern.evidenceIds && pattern.evidenceIds.length ? pattern.evidenceIds : [pattern.id],
+        archiveExcerpt: pattern.evidenceSnippet || pattern.text,
+        evidenceSnippet: pattern.evidenceSnippet || pattern.text,
+        temporalScope: {
+          label: 'rolling-pattern',
+          observedAt: pattern.updatedAt || pattern.createdAt || '',
+        },
+        reviewStatus: 'pending',
+        createdAt: pattern.updatedAt || pattern.createdAt || '',
+      });
       nextQueue.push(normalizeArchiveEntry({
         id: createId('promotion'),
         type: 'promotion',
@@ -776,9 +1404,84 @@ function createMemoryArchiveApi({
         updatedAt: new Date(nowMs()).toISOString(),
         patternKey: pattern.patternKey,
         sourceType: 'pattern',
+        sourceLabel: 'pattern',
+        evidenceIds: pattern.evidenceIds || [],
+        evidenceSnippet: pattern.evidenceSnippet || pattern.text,
+        temporalScope: packet?.temporalScope || null,
+        reviewStatus: 'pending',
+        promotionPacket: packet,
       }, 'promotion'));
     }
     archive.global.promotionQueue = nextQueue.slice(-40);
+  }
+
+  function buildReviewCandidatePromotionEntry(candidate = {}, episode = {}, createdAt = '') {
+    const text = trimText(candidate?.text || '', 220);
+    if (!text) return null;
+    const evidenceSnippet = trimText(
+      candidate?.origin?.evidenceSnippet
+        || (Array.isArray(candidate?.evidence) ? candidate.evidence[0] : '')
+        || episode?.userText
+        || text,
+      160,
+    );
+    const patternKey = `candidate:${stableHash(normalizeSearchText(text)).slice(0, 16)}`;
+    const packet = normalizePromotionPacket({
+      id: `${patternKey}:packet`,
+      kind: String(candidate?.kind || 'observation').trim() || 'observation',
+      proposedMemoryText: text,
+      sourceType: 'review-candidate',
+      originSource: String(candidate?.origin?.sourceType || 'heuristic-chat').trim() || 'heuristic-chat',
+      sourceThreadId: episode?.sessionId || '',
+      sourceTurnIds: [String(episode?.id || '').trim()].filter(Boolean),
+      archiveExcerpt: evidenceSnippet,
+      evidenceSnippet,
+      temporalScope: {
+        label: 'chat-turn',
+        observedAt: createdAt || episode?.createdAt || '',
+      },
+      reviewStatus: 'pending',
+      createdAt: createdAt || episode?.createdAt || '',
+    });
+    return normalizeArchiveEntry({
+      id: createId('promotion'),
+      type: 'promotion',
+      sessionId: episode?.sessionId || undefined,
+      createdAt,
+      updatedAt: createdAt,
+      text,
+      excerpt: text,
+      sensitivity: classifySensitivity(`${text}\n${evidenceSnippet}`),
+      evidenceCount: Math.max(1, Number(candidate?.evidenceCount || 1)),
+      evidenceIds: [String(episode?.id || '').trim()].filter(Boolean),
+      confidence: Math.max(0.2, Math.min(0.86, Number(candidate?.confidence || 0.42))),
+      patternKey,
+      sourceType: 'review-candidate',
+      sourceLabel: 'review-candidate',
+      originSource: String(candidate?.origin?.sourceType || 'heuristic-chat').trim() || 'heuristic-chat',
+      originKind: String(candidate?.kind || 'observation').trim() || 'observation',
+      evidenceSnippet,
+      reviewStatus: 'pending',
+      temporalScope: packet?.temporalScope || null,
+      promotionPacket: packet,
+    }, 'promotion', episode?.sessionId || '');
+  }
+
+  function queueReviewCandidates(archive = {}, episode = {}, reviewCandidates = [], createdAt = '') {
+    if (!Array.isArray(reviewCandidates) || !reviewCandidates.length) return;
+    archive.meta.reviewDecisions = archive.meta.reviewDecisions || {};
+    const existingQueue = Array.isArray(archive.global.promotionQueue) ? archive.global.promotionQueue : [];
+    const seenKeys = new Set(existingQueue.map((item) => String(item?.patternKey || '').trim()).filter(Boolean));
+    for (const candidate of reviewCandidates.slice(0, 4)) {
+      const queueItem = buildReviewCandidatePromotionEntry(candidate, episode, createdAt);
+      if (!queueItem) continue;
+      if (queueItem.sensitivity === 'high') continue;
+      if (archive.meta.reviewDecisions[queueItem.patternKey]) continue;
+      if (seenKeys.has(queueItem.patternKey)) continue;
+      existingQueue.push(queueItem);
+      seenKeys.add(queueItem.patternKey);
+    }
+    archive.global.promotionQueue = existingQueue.slice(-40);
   }
 
   async function archiveCompletedTurn({
@@ -786,6 +1489,8 @@ function createMemoryArchiveApi({
     userText = '',
     assistantText = '',
     retrieval = null,
+    provenance = [],
+    reviewCandidates = [],
   } = {}) {
     const cleanUserText = trimText(userText, 900);
     const cleanAssistantText = trimText(assistantText, 900);
@@ -816,6 +1521,24 @@ function createMemoryArchiveApi({
       session.episodes.push(episode);
       archive.global.episodes.push(episode);
     }
+    queueReviewCandidates(archive, episode, reviewCandidates, createdAt);
+
+    const normalizedProvenance = normalizeProvenanceList(
+      (Array.isArray(provenance) ? provenance : []).map((item) => ({
+        ...item,
+        conflictKey: normalizeConflictKey(item?.conflictKey || item?.topicKey || ''),
+        createdAt: trimIso(item?.createdAt || createdAt, createdAt),
+        sourceEpisodeId: String(item?.sourceEpisodeId || episode.id).trim() || episode.id,
+      })),
+      4,
+    );
+    if (normalizedProvenance.length) {
+      session.provenance = normalizeProvenanceList([
+        ...normalizedProvenance,
+        ...session.provenance,
+      ], SESSION_PROVENANCE_LIMIT);
+    }
+    session.activeContradictions = applyProvenanceToContradictions(session, normalizedProvenance, episode, createdAt);
 
     const sessionTexts = session.episodes.slice(-8).map(item => item.userText || item.text || '');
     const globalTexts = archive.global.episodes.slice(-20).map(item => item.userText || item.text || '');
@@ -836,7 +1559,7 @@ function createMemoryArchiveApi({
       archive.meta.lastSummarizedAt = createdAt;
     }
 
-    const globalSummaryText = buildRollingSummaryText('Longer-term themes', globalTexts, 2);
+    const globalSummaryText = buildRollingSummaryText('Longer-term themes', globalTexts, GLOBAL_THEME_MIN_EVIDENCE);
     if (globalSummaryText) {
       archive.global.summaries = upsertById(archive.global.summaries, normalizeArchiveEntry({
         id: 'summary:global',
@@ -845,21 +1568,30 @@ function createMemoryArchiveApi({
         updatedAt: createdAt,
         text: globalSummaryText,
         excerpt: globalSummaryText,
-        evidenceCount: Math.max(2, countPhrases(globalTexts, 2)[0]?.[1] || 2),
+        evidenceCount: Math.max(GLOBAL_THEME_MIN_EVIDENCE, countPhrases(globalTexts, GLOBAL_THEME_MIN_EVIDENCE)[0]?.[1] || GLOBAL_THEME_MIN_EVIDENCE),
         confidence: 0.62,
         sourceType: 'summary',
       }, 'summary')).slice(-24);
       archive.meta.lastSummarizedAt = createdAt;
     }
 
+    session.chapters = buildSessionChapters(session);
+    session.activeContradictions = attachChapterDependentsToContradictions(session.activeContradictions, session.chapters);
     session.openLoops = rebuildOpenLoops(session);
     session.lastRetrieval = retrieval && typeof retrieval === 'object'
       ? {
           usedAt: trimIso(retrieval.usedAt || createdAt, createdAt),
           mode: String(retrieval.mode || 'keyword'),
+          reasonCode: String(retrieval.reasonCode || '').trim()
+            || (String(retrieval.mode || 'keyword').trim() === 'semantic'
+              ? ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY
+              : ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK),
           embedModel: String(retrieval.embedModel || ''),
           session: Array.isArray(retrieval.session) ? retrieval.session.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
           global: Array.isArray(retrieval.global) ? retrieval.global.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
+          books: Array.isArray(retrieval.books) ? retrieval.books.map(normalizeBookMatch).filter(Boolean).slice(0, 4) : [],
+          provenance: normalizeProvenanceList(retrieval.provenance || normalizedProvenance, 6),
+          compression: normalizeCompressionInfo(retrieval.compression),
         }
       : session.lastRetrieval;
     session.lastArchivedAt = createdAt;
@@ -879,6 +1611,7 @@ function createMemoryArchiveApi({
       episode.userText,
       sessionSummaryText,
       globalSummaryText,
+      ...session.chapters.map(item => item.text),
       ...archive.global.patterns.map(item => item.text),
     ].filter(Boolean)) {
       try {
@@ -900,6 +1633,7 @@ function createMemoryArchiveApi({
     for (const bucket of Object.values(archive.sessions || {})) {
       texts.push(...(bucket.episodes || []).map(item => item.userText || item.text || ''));
       texts.push(...(bucket.summaries || []).map(item => item.text || ''));
+      texts.push(...(bucket.chapters || []).map(item => item.text || ''));
     }
     for (const text of texts) {
       const normalizedText = trimText(text, 1000);
@@ -914,11 +1648,16 @@ function createMemoryArchiveApi({
     return next;
   }
 
-  function getMemoryInspector({ sessionId = 'default', explicitMemory = {} } = {}) {
+  function getMemoryInspector({ sessionId = 'default', explicitMemory = {}, semanticMemory = null } = {}) {
     const archive = readArchiveStore();
     const session = ensureSessionStore(archive, sessionId);
+    const activeContradictions = normalizeContradictionList(session.activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT)
+      .filter(isActiveContradiction);
     const embeddings = readEmbeddingsStore();
-    return getSemanticMemoryStatus().then((semanticMemory) => ({
+    const semanticMemoryPromise = semanticMemory
+      ? Promise.resolve(semanticMemory)
+      : getSemanticMemoryStatus();
+    return semanticMemoryPromise.then((resolvedSemanticMemory) => ({
       sessionId,
       explicit: {
         count: Array.isArray(explicitMemory?.memories) ? explicitMemory.memories.length : 0,
@@ -929,10 +1668,22 @@ function createMemoryArchiveApi({
         session: {
           episodeCount: session.episodes.length,
           summaryCount: session.summaries.length,
+          chapterCount: session.chapters.length,
+          provenanceCount: session.provenance.length,
+          recencyProtection: buildRecencyProtection(session),
+          activeContradictions: activeContradictions.slice(0, SESSION_ACTIVE_CONTRADICTION_LIMIT),
+          staleDependents: activeContradictions.map((item) => ({
+            id: item.id,
+            conflictKey: item.conflictKey,
+            dependentEpisodeIds: normalizeEvidenceIds(item.dependentEpisodeIds || []).slice(-8),
+            dependentChapterIds: normalizeEvidenceIds(item.dependentChapterIds || []).slice(-6),
+          })).filter((item) => item.dependentEpisodeIds.length || item.dependentChapterIds.length),
           openLoops: session.openLoops.slice(-8),
           lastRetrieval: session.lastRetrieval,
           recentEpisodes: session.episodes.slice(-6).reverse(),
           summaries: session.summaries.slice(-6).reverse(),
+          chapters: session.chapters.slice(-SESSION_CHAPTER_LIMIT).reverse(),
+          provenance: session.provenance.slice(-SESSION_PROVENANCE_LIMIT).reverse(),
         },
         global: {
           episodeCount: archive.global.episodes.length,
@@ -945,7 +1696,7 @@ function createMemoryArchiveApi({
       },
       embeddings: {
         count: Object.keys(embeddings.items || {}).length,
-        semanticMemory,
+        semanticMemory: resolvedSemanticMemory,
       },
     }));
   }
@@ -955,6 +1706,27 @@ function createMemoryArchiveApi({
     const index = archive.global.promotionQueue.findIndex(item => String(item?.id || '').trim() === String(queueId || '').trim());
     if (index === -1) return null;
     const [item] = archive.global.promotionQueue.splice(index, 1);
+    let packet;
+    try {
+      packet = validatePromotionPacket(item?.promotionPacket || {
+        id: item?.id,
+        kind: item?.originKind || 'observation',
+        proposedMemoryText: item?.text || '',
+        sourceType: item?.sourceType || 'promotion',
+        originSource: item?.originSource || '',
+        sourceThreadId: item?.sessionId || '',
+        sourceTurnIds: item?.evidenceIds || [],
+        archiveExcerpt: item?.evidenceSnippet || item?.excerpt || item?.text || '',
+        evidenceSnippet: item?.evidenceSnippet || item?.excerpt || item?.text || '',
+        temporalScope: item?.temporalScope || {},
+        reviewStatus: item?.reviewStatus || 'pending',
+        createdAt: item?.createdAt || '',
+        reviewedAt: item?.reviewedAt || '',
+      });
+    } catch (error) {
+      error.statusCode = 422;
+      throw error;
+    }
     archive.meta.reviewDecisions = archive.meta.reviewDecisions || {};
     archive.meta.reviewDecisions[item.patternKey] = {
       action: action === 'reject' ? 'reject' : 'approve',
@@ -964,12 +1736,31 @@ function createMemoryArchiveApi({
     writeArchiveStore(archive);
     return {
       item,
+      packet: {
+        ...packet,
+        reviewStatus: action === 'reject' ? 'rejected' : 'approved',
+        reviewerDecision: action === 'reject' ? 'reject' : 'approve',
+        reviewedAt: new Date(nowMs()).toISOString(),
+      },
       action: action === 'reject' ? 'reject' : 'approve',
       promotedMemory: action === 'approve'
         ? {
-            text: item.text,
-            kind: 'observation',
+            text: packet.proposedMemoryText,
+            kind: packet.kind || item.originKind || 'observation',
             ts: nowMs(),
+            source: 'review-candidate',
+            evidence: [packet.evidenceSnippet || item.evidenceSnippet || item.text].filter(Boolean),
+            origin: {
+              queueId: item.id,
+              sourceType: packet.sourceType || item.sourceType || 'promotion',
+              scope: packet.sourceThreadId && packet.sourceThreadId !== 'archive-global' ? 'archive-session' : 'archive-global',
+              sourceId: item.patternKey || '',
+              evidenceSnippet: packet.evidenceSnippet || item.evidenceSnippet || '',
+              sourceThreadId: packet.sourceThreadId,
+              sourceChunkId: packet.sourceChunkId,
+              sourceTurnIds: packet.sourceTurnIds,
+              temporalScope: packet.temporalScope,
+            },
           }
         : null,
     };
@@ -987,7 +1778,7 @@ function createMemoryArchiveApi({
       delete archive.sessions[sessionId];
       archive.global.episodes = archive.global.episodes.filter(item => String(item.sessionId || '') !== String(sessionId || ''));
       const globalTexts = archive.global.episodes.slice(-20).map(item => item.userText || item.text || '');
-      const globalSummaryText = buildRollingSummaryText('Longer-term themes', globalTexts, 2);
+      const globalSummaryText = buildRollingSummaryText('Longer-term themes', globalTexts, GLOBAL_THEME_MIN_EVIDENCE);
       archive.global.summaries = globalSummaryText
         ? upsertById(archive.global.summaries, normalizeArchiveEntry({
             id: 'summary:global',
@@ -996,7 +1787,7 @@ function createMemoryArchiveApi({
             excerpt: globalSummaryText,
             createdAt: archive.global.summaries.find(item => item.id === 'summary:global')?.createdAt || new Date(nowMs()).toISOString(),
             updatedAt: new Date(nowMs()).toISOString(),
-            evidenceCount: Math.max(2, countPhrases(globalTexts, 2)[0]?.[1] || 2),
+            evidenceCount: Math.max(GLOBAL_THEME_MIN_EVIDENCE, countPhrases(globalTexts, GLOBAL_THEME_MIN_EVIDENCE)[0]?.[1] || GLOBAL_THEME_MIN_EVIDENCE),
             confidence: 0.62,
             sourceType: 'summary',
           }, 'summary'))
@@ -1035,6 +1826,7 @@ function createMemoryArchiveApi({
     getMemoryInspector,
     reviewPromotion,
     purgeMemory,
+    SESSION_RECENCY_PROTECTED_EPISODES,
   };
 }
 
@@ -1044,6 +1836,11 @@ module.exports = {
   EXPLICIT_PROMPT_LIMIT,
   SESSION_PROMPT_LIMIT,
   GLOBAL_PROMPT_LIMIT,
+  SESSION_CHAPTER_LIMIT,
+  SESSION_CHAPTER_TRIGGER_COUNT,
+  SESSION_RECENCY_PROTECTED_EPISODES,
   SENSITIVE_RETRIEVAL_THRESHOLD,
   createMemoryArchiveApi,
+  ARCHIVE_RETRIEVAL_REASON_CODES,
+  ARCHIVE_COMPRESSION_REASON_CODES,
 };

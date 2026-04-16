@@ -1,0 +1,470 @@
+/**
+ * @typedef {Object} PennyAppState
+ * @property {string} panel
+ * @property {Array<Object>} messages
+ * @property {string} mood
+ * @property {string} presence
+ * @property {boolean} loading
+ * @property {boolean} consolidating
+ * @property {boolean} syncingMemory
+ * @property {number} turns
+ * @property {Object|null} backendStatus
+ * @property {Object} memory
+ * @property {Object|null} memoryInspector
+ */
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+export function ensureMemoryInspectorUi(els = {}) {
+  if (els.memoryInspectorPanel) return els.memoryInspectorPanel;
+  const host = els.memoryList?.parentElement;
+  if (!host) return null;
+
+  const toolbar = host.ownerDocument.createElement('div');
+  toolbar.className = 'memory-toolbar';
+  toolbar.innerHTML = `
+    <div>
+      <div class="section-label">Hybrid memory inspector</div>
+      <div class="memory-toolbar-note">
+        Explicit facts stay canonical. Archive recall, summaries, patterns, and review items live here.
+      </div>
+    </div>
+    <div class="memory-toolbar-actions">
+      <button id="refreshMemoryInspector" class="secondary-btn tiny" type="button">Refresh inspector</button>
+      <button id="purgeSessionArchive" class="secondary-btn tiny danger" type="button">Clear session archive</button>
+      <button id="purgeGlobalArchive" class="secondary-btn tiny danger" type="button">Clear archive</button>
+      <button id="purgeEmbeddings" class="secondary-btn tiny danger" type="button">Clear embeddings</button>
+    </div>
+  `;
+  const panel = host.ownerDocument.createElement('div');
+  panel.id = 'memoryInspectorPanel';
+  panel.className = 'list-block empty';
+  panel.textContent = 'Inspector data will appear here once Penny has a chat to archive.';
+  host.append(toolbar, panel);
+  els.memoryInspectorToolbar = toolbar;
+  els.memoryInspectorPanel = panel;
+  return panel;
+}
+
+export function buildMemoryPanelViewModel(memory = {}) {
+  return {
+    userName: String(memory.userName || ''),
+    voiceOn: memory.voiceOn === true,
+    memories: Array.isArray(memory.memories)
+      ? memory.memories.map((item, index) => ({
+          index,
+          text: String(item?.text || ''),
+          kind: String(item?.kind || 'memory'),
+        }))
+      : [],
+  };
+}
+
+export function buildMemoryInspectorViewModel(inspector = null) {
+  const explicit = inspector?.explicit || {};
+  const session = inspector?.archive?.session || {};
+  const global = inspector?.archive?.global || {};
+  const books = inspector?.memoryBooks || {};
+  const semantic = inspector?.embeddings?.semanticMemory || {};
+  const routing = inspector?.routing || {};
+  const artifact = inspector?.artifact || routing?.artifact || null;
+  const retrieval = session.lastRetrieval || { session: [], global: [] };
+  const matchedBooks = Array.isArray(books.matchedBooks) ? books.matchedBooks : [];
+  const compression = inspector?.compression || retrieval.compression || { used: false, chapters: [] };
+  const activeContradictions = Array.isArray(session.activeContradictions) ? session.activeContradictions : [];
+  const queue = Array.isArray(global.promotionQueue) ? global.promotionQueue : [];
+  const runtime = inspector?.runtime || {};
+
+  return {
+    explicit,
+    session,
+    global,
+    books,
+    semantic,
+    routing,
+    artifact,
+    retrieval,
+    matchedBooks,
+    compression,
+    activeContradictions,
+    queue,
+    runtime,
+  };
+}
+
+function formatDurationMs(value = 0) {
+  const ms = Math.max(0, Math.round(Number(value || 0)));
+  if (!ms) return '0ms';
+  if (ms < 1000) return `${ms}ms`;
+  return `${Math.round((ms / 1000) * 100) / 100}s`;
+}
+
+function formatCacheAge(cacheAgeMs = 0) {
+  const seconds = Math.max(0, Math.round(Number(cacheAgeMs || 0) / 1000));
+  if (seconds < 60) return `${seconds}s old`;
+  const minutes = Math.round(seconds / 60);
+  return `${minutes}m old`;
+}
+
+export function renderMemoryList({ els = {}, memory = {}, escapeHtmlFn = escapeHtml } = {}) {
+  const viewModel = buildMemoryPanelViewModel(memory);
+  if (els.memoryList) {
+    els.memoryList.className = `list-block${viewModel.memories.length ? '' : ' empty'}`;
+    els.memoryList.innerHTML = viewModel.memories.length
+      ? viewModel.memories.map((item) => `<div class="list-item memory-item"><div class="memory-copy">${escapeHtmlFn(item.text)}<small>${escapeHtmlFn(item.kind)}</small></div><button class="memory-remove" data-kind="memory" data-index="${item.index}" type="button">x</button></div>`).join('')
+      : 'Nothing stored yet. Penny will start picking things up as you talk.';
+  }
+  if (els.clearAllMemories) els.clearAllMemories.textContent = 'Clear explicit facts';
+  if (els.nameInput) els.nameInput.value = viewModel.userName;
+  if (els.voiceToggle) els.voiceToggle.checked = viewModel.voiceOn;
+  return viewModel;
+}
+
+function renderItems(items = [], emptyText = 'None right now.', escapeHtmlFn = escapeHtml) {
+  if (!items.length) return `<div class="list-item"><div class="memory-copy">${escapeHtmlFn(emptyText)}</div></div>`;
+  return items.map((item) => `
+    <div class="list-item memory-item">
+      <div class="memory-copy">
+        ${escapeHtmlFn(item.text || item.excerpt || '')}
+        <small>${escapeHtmlFn(item.sourceLabel || item.source || item.sourceType || item.type || 'memory')} &middot; ${escapeHtmlFn(item.sensitivity || 'normal')}${item.evidenceSnippet ? ` &middot; ${escapeHtmlFn(item.evidenceSnippet)}` : ''}</small>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderQueue(queue = [], escapeHtmlFn = escapeHtml) {
+  if (!queue.length) return `<div class="list-item"><div class="memory-copy">Promotion queue is empty.</div></div>`;
+  return queue.map((item) => `
+    <div class="list-item memory-item">
+      <div class="memory-copy">
+        ${escapeHtmlFn(item.text || '')}
+        <small>${escapeHtmlFn(item.sourceLabel || item.sourceType || 'review-candidate')} &middot; evidence ${escapeHtmlFn(String(item.evidenceCount || 0))} &middot; confidence ${escapeHtmlFn(String(Math.round((item.confidence || 0) * 100)))}%${item.evidenceSnippet ? ` &middot; ${escapeHtmlFn(item.evidenceSnippet)}` : ''}</small>
+        ${item.promotionPacket
+          ? `<small>${escapeHtmlFn(`thread ${item.promotionPacket.sourceThreadId || 'unknown'} · turns ${(item.promotionPacket.sourceTurnIds || []).length} · ${item.promotionPacket.temporalScope?.label || 'temporal scope pending'}`)}</small>`
+          : ''}
+      </div>
+      <div class="memory-toolbar-actions">
+        <button class="secondary-btn tiny" type="button" data-review-action="approve" data-review-id="${escapeHtmlFn(item.id || '')}">Approve</button>
+        <button class="secondary-btn tiny danger" type="button" data-review-action="reject" data-review-id="${escapeHtmlFn(item.id || '')}">Reject</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderRoutingSummary(routing = {}, escapeHtmlFn = escapeHtml) {
+  const selectedLane = String(routing.selectedLane || routing.localLane || '').trim() || 'chat';
+  const requestedMode = String(routing.requestedMode || '').trim() || 'local';
+  const backend = String(routing.backend || '').trim() || 'unknown';
+  const repair = routing.repair && typeof routing.repair === 'object' ? routing.repair : null;
+  const repairBits = [];
+  if (repair?.repairAttempted) repairBits.push(`repair attempted (${repair.finalCandidateSource || 'first-pass'})`);
+  if (Array.isArray(repair?.firstPassGuardCodes) && repair.firstPassGuardCodes.length) {
+    repairBits.push(`guards: ${repair.firstPassGuardCodes.join(', ')}`);
+  }
+  if (repair?.repairRejectedReason) repairBits.push(`repair rejected: ${repair.repairRejectedReason}`);
+  return `
+    <div class="list-item">
+      <div class="memory-copy">
+        Requested mode: <strong>${escapeHtmlFn(requestedMode)}</strong> &middot; Selected lane: <strong>${escapeHtmlFn(selectedLane)}</strong> &middot; Backend: <strong>${escapeHtmlFn(backend)}</strong>
+        <small>${escapeHtmlFn(repairBits.join(' · ') || 'No runtime repair was needed on the last reply.')}</small>
+      </div>
+    </div>
+  `;
+}
+
+function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
+  if (!artifact || typeof artifact !== 'object') {
+    return `<div class="list-item"><div class="memory-copy">No runtime artifact is available for the last turn yet.</div></div>`;
+  }
+  const scope = artifact.scope && typeof artifact.scope === 'object' ? artifact.scope : {};
+  const authority = artifact.authority && typeof artifact.authority === 'object' ? artifact.authority : {};
+  const summary = artifact.summary && typeof artifact.summary === 'object' ? artifact.summary : {};
+  const evidence = Array.isArray(artifact.evidence) ? artifact.evidence : [];
+  const artifacts = Array.isArray(artifact.artifacts) ? artifact.artifacts : [];
+  const sideEffects = Array.isArray(artifact.sideEffects) ? artifact.sideEffects : [];
+  const reasonCodes = Array.isArray(artifact.reasonCodes) ? artifact.reasonCodes : [];
+  const epistemics = artifact.epistemics && typeof artifact.epistemics === 'object' ? artifact.epistemics : {};
+  const synthesis = artifact.synthesis && typeof artifact.synthesis === 'object' ? artifact.synthesis : {};
+  const modelAdvisory = artifact.modelAdvisory && typeof artifact.modelAdvisory === 'object' ? artifact.modelAdvisory : {};
+  const performance = artifact.performance && typeof artifact.performance === 'object' ? artifact.performance : {};
+  const readiness = artifact.readiness && typeof artifact.readiness === 'object' ? artifact.readiness : {};
+  const toolLabels = Array.isArray(modelAdvisory.toolsUsed)
+    ? modelAdvisory.toolsUsed
+        .map((item) => String(item?.label || item?.name || '').trim())
+        .filter(Boolean)
+        .slice(0, 4)
+    : [];
+  const evidencePreview = evidence.slice(0, 3).map((item) => {
+    const source = String(item?.source || 'runtime').trim();
+    const label = String(item?.label || item?.type || 'evidence').trim();
+    const text = String(item?.text || item?.target || '').trim();
+    return [source, label, text].filter(Boolean).join(' - ');
+  }).filter(Boolean);
+  const artifactPreview = artifacts.slice(0, 3).map((item) => {
+    const type = String(item?.type || 'artifact').trim();
+    const value = String(item?.value || '').trim();
+    return [type, value].filter(Boolean).join(': ');
+  }).filter(Boolean);
+  return `
+    <div class="list-item">
+      <div class="memory-copy">
+        Artifact: <strong>${escapeHtmlFn(artifact.version || 'unknown')}</strong> &middot; Kind: <strong>${escapeHtmlFn(artifact.kind || 'unknown')}</strong> &middot; Scope: <strong>${escapeHtmlFn(scope.requestedMode || 'local')}</strong>/<strong>${escapeHtmlFn(scope.selectedLane || 'chat')}</strong>
+        <small>${escapeHtmlFn(summary.text || 'No artifact summary available.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Authority: reply ${escapeHtmlFn(authority.reply || 'unknown')} &middot; memory ${escapeHtmlFn(authority.memory || 'unknown')} &middot; archive ${escapeHtmlFn(authority.archive || 'unknown')}
+        <small>${escapeHtmlFn(reasonCodes.join(', ') || 'No reason codes recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Latency class: <strong>${escapeHtmlFn(performance.latencyClass || 'casual-companion')}</strong> &middot; Request ${escapeHtmlFn(formatDurationMs(performance.request?.durationMs || 0))} &middot; Model ${escapeHtmlFn(formatDurationMs(performance.modelRoundTrip?.durationMs || 0))}
+        <small>${escapeHtmlFn(`Prompt ${formatDurationMs(performance.promptAssembly?.durationMs || 0)} · Archive ${formatDurationMs(performance.archiveRetrieval?.durationMs || 0)} · First token ${performance.firstToken?.available ? formatDurationMs(performance.firstToken?.durationMs || 0) : 'n/a'}`)}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Readiness: <strong>${escapeHtmlFn(readiness.warmState || 'cold')}</strong> &middot; chat ${escapeHtmlFn(readiness.chatModelReady ? 'ready' : 'pending')} &middot; tool ${escapeHtmlFn(readiness.toolModelReady ? 'ready' : 'pending')} &middot; embeddings ${escapeHtmlFn(readiness.embeddingReady ? 'ready' : 'fallback')}
+        <small>${escapeHtmlFn(Number.isFinite(Number(readiness.cacheAgeMs)) ? formatCacheAge(readiness.cacheAgeMs) : 'No cache age recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Epistemic caution: <strong>${escapeHtmlFn(epistemics.enabled ? (epistemics.triggered ? `triggered (${epistemics.stance || 'answer'})` : 'enabled, idle') : 'off')}</strong>
+        <small>${escapeHtmlFn((Array.isArray(epistemics.signals) && epistemics.signals.length ? epistemics.signals.join(', ') : (epistemics.note || 'No caution signals recorded.')) || 'No caution signals recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Archive synthesis: <strong>${escapeHtmlFn(synthesis.enabled ? (synthesis.generated ? 'generated' : 'enabled, idle') : 'off')}</strong>
+        <small>${escapeHtmlFn(synthesis.summary || 'No archive synthesis summary recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Evidence items: ${escapeHtmlFn(String(evidence.length))} &middot; Artifacts: ${escapeHtmlFn(String(artifacts.length))} &middot; Side effects: ${escapeHtmlFn(String(sideEffects.length))}
+        <small>${escapeHtmlFn(evidencePreview.join(' | ') || 'No evidence preview recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Tool labels: ${escapeHtmlFn(toolLabels.join(', ') || 'none recorded')}
+        <small>${escapeHtmlFn(artifactPreview.join(' | ') || (modelAdvisory.repair?.repairAttempted ? 'Repair metadata recorded.' : 'No repair metadata recorded.'))}</small>
+      </div>
+    </div>
+  `;
+}
+
+function renderTraceArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
+  const trace = artifact?.trace && typeof artifact.trace === 'object' ? artifact.trace : null;
+  if (!trace) {
+    return '<div class="list-item"><div class="memory-copy">No trace artifact details are available for the last turn yet.</div></div>';
+  }
+  const laneChoice = trace.laneChoice && typeof trace.laneChoice === 'object' ? trace.laneChoice : {};
+  const wakeHierarchy = Array.isArray(trace.wakeHierarchy) ? trace.wakeHierarchy : [];
+  const retrievalChannels = Array.isArray(trace.retrievalChannels) ? trace.retrievalChannels : [];
+  const contradictions = Array.isArray(trace.contradictions) ? trace.contradictions : [];
+  const openQuestions = Array.isArray(trace.openQuestions) ? trace.openQuestions : [];
+  const evidenceAccepted = Array.isArray(trace.evidenceAccepted) ? trace.evidenceAccepted : [];
+  const evidenceRejected = Array.isArray(trace.evidenceRejected) ? trace.evidenceRejected : [];
+  const qaValidity = trace.qaValidity && typeof trace.qaValidity === 'object' ? trace.qaValidity : { active: false, verdict: 'n/a', reasons: [] };
+  const wakeSummary = wakeHierarchy
+    .slice(0, 5)
+    .map((item) => {
+      const countText = Number(item?.count || 0) > 0 ? ` (${Number(item.count)})` : '';
+      return `${item?.label || item?.layer || 'trace'}: ${item?.status || 'noted'}${countText}`;
+    })
+    .filter(Boolean);
+  const retrievalSummary = retrievalChannels
+    .slice(0, 4)
+    .map((item) => `${item?.channel || 'archive'}:${item?.injected === false ? 'held' : 'used'}:${item?.sourceLabel || item?.sourceId || 'source'}`)
+    .filter(Boolean);
+  const contradictionSummary = contradictions
+    .slice(0, 2)
+    .map((item) => `${item?.label || 'correction'}: ${item?.detail || ''}`)
+    .filter(Boolean);
+  const openQuestionSummary = openQuestions
+    .slice(0, 2)
+    .map((item) => `${item?.status || 'open'}: ${item?.detail || ''}`)
+    .filter(Boolean);
+  const acceptedSummary = evidenceAccepted
+    .slice(0, 3)
+    .map((item) => `${item?.channel || item?.type || 'trace'} - ${item?.label || 'entry'}${item?.detail ? ` - ${item.detail}` : ''}`)
+    .filter(Boolean);
+  const rejectedSummary = evidenceRejected
+    .slice(0, 3)
+    .map((item) => `${item?.channel || item?.type || 'trace'} - ${item?.label || 'entry'}${item?.detail ? ` - ${item.detail}` : ''}`)
+    .filter(Boolean);
+  return `
+    <div class="list-item">
+      <div class="memory-copy">
+        Trace lane: <strong>${escapeHtmlFn(laneChoice.requestedMode || 'local')}</strong>/<strong>${escapeHtmlFn(laneChoice.selectedLane || 'chat')}</strong> &middot; Backend <strong>${escapeHtmlFn(laneChoice.backend || 'unknown')}</strong>
+        <small>${escapeHtmlFn(`Route ${laneChoice.route || '/api/penny/chat'} · requested ${laneChoice.requestedModel || 'n/a'} · resolved ${laneChoice.resolvedModel || 'n/a'}${laneChoice.laneFallback ? ' · lane fallback' : ''}${laneChoice.usedFallback ? ' · runtime fallback' : ''}`)}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Wake hierarchy
+        <small>${escapeHtmlFn(wakeSummary.join(' | ') || 'No wake hierarchy details were recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Retrieval channels: ${escapeHtmlFn(String(retrievalChannels.length))}
+        <small>${escapeHtmlFn(retrievalSummary.join(' | ') || 'No retrieval channels were recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Contradictions: ${escapeHtmlFn(String(contradictions.length))} &middot; Open questions: ${escapeHtmlFn(String(openQuestions.length))}
+        <small>${escapeHtmlFn([...contradictionSummary, ...openQuestionSummary].join(' | ') || 'No contradictions or open questions were active.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Evidence accepted: ${escapeHtmlFn(String(evidenceAccepted.length))} &middot; Rejected: ${escapeHtmlFn(String(evidenceRejected.length))}
+        <small>${escapeHtmlFn(acceptedSummary.join(' | ') || rejectedSummary.join(' | ') || 'No trace evidence ledger was recorded.')}</small>
+      </div>
+    </div>
+    ${qaValidity.active
+      ? `<div class="list-item"><div class="memory-copy">QA validity: <strong>${escapeHtmlFn(qaValidity.verdict || 'unknown')}</strong><small>${escapeHtmlFn((qaValidity.reasons || []).join(' | ') || 'No QA validity notes recorded.')}</small></div></div>`
+      : ''}
+  `;
+}
+
+function renderActiveContradictions(items = [], escapeHtmlFn = escapeHtml) {
+  if (!items.length) return `<div class="list-item"><div class="memory-copy">No active contradictions are being tracked right now.</div></div>`;
+  return items.map((item) => `
+    <div class="list-item memory-item">
+      <div class="memory-copy">
+        ${escapeHtmlFn(item.newText || '')}
+        <small>replaces ${escapeHtmlFn(item.oldText || '')} &middot; ${escapeHtmlFn(item.conflictKey || 'fact')} &middot; deps ${(item.dependentEpisodeIds || []).length}/${(item.dependentChapterIds || []).length}</small>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderCompressionExplanation(compression = {}, escapeHtmlFn = escapeHtml) {
+  const explanation = compression?.explanation && typeof compression.explanation === 'object'
+    ? compression.explanation
+    : {};
+  const bits = [];
+  if (compression?.reason) bits.push(`reason: ${compression.reason}`);
+  if (Array.isArray(explanation.selectedSignals) && explanation.selectedSignals.length) {
+    bits.push(`signals: ${explanation.selectedSignals.join(', ')}`);
+  }
+  if (Array.isArray(explanation.penalties) && explanation.penalties.length) {
+    bits.push(`penalties: ${explanation.penalties.join(', ')}`);
+  }
+  if (Number.isFinite(Number(explanation.omittedEpisodeCount)) && Number(explanation.omittedEpisodeCount) > 0) {
+    bits.push(`omitted episodes: ${Number(explanation.omittedEpisodeCount)}`);
+  }
+  if (Array.isArray(explanation.carriedContradictions) && explanation.carriedContradictions.length) {
+    bits.push(`carried contradictions: ${explanation.carriedContradictions.length}`);
+  }
+  if (!bits.length) return '';
+  return `<div class="list-item"><div class="memory-copy"><small>${escapeHtmlFn(bits.join(' · '))}</small></div></div>`;
+}
+
+function renderRecencyProtection(recencyProtection = {}, escapeHtmlFn = escapeHtml) {
+  if (!recencyProtection || recencyProtection.enabled !== true) {
+    return '<div class="list-item"><div class="memory-copy">Recency protection is not active.</div></div>';
+  }
+  const ids = Array.isArray(recencyProtection.protectedEpisodeIds)
+    ? recencyProtection.protectedEpisodeIds.slice(-4)
+    : [];
+  return `
+    <div class="list-item">
+      <div class="memory-copy">
+        Recency protection keeps the newest <strong>${escapeHtmlFn(String(recencyProtection.protectedEpisodeCount || 0))}</strong> session episode(s) out of chapter compression.
+        <small>${escapeHtmlFn(ids.length ? `Protected ids: ${ids.join(', ')}` : 'No protected episode ids recorded yet.')}</small>
+      </div>
+    </div>
+  `;
+}
+
+export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn = escapeHtml } = {}) {
+  ensureMemoryInspectorUi(els);
+  if (!els.memoryInspectorPanel) return null;
+  if (!inspector) {
+    els.memoryInspectorPanel.className = 'list-block empty';
+    els.memoryInspectorPanel.textContent = 'Inspector data will appear here once Penny has a chat to archive.';
+    return null;
+  }
+
+  const viewModel = buildMemoryInspectorViewModel(inspector);
+  const runtimeReadiness = viewModel.runtime?.readiness || {};
+  els.memoryInspectorPanel.className = 'list-block';
+  els.memoryInspectorPanel.innerHTML = `
+    <div class="list-item">
+      <div class="memory-copy">
+        Semantic memory is <strong>${escapeHtmlFn(viewModel.semantic.ready ? 'active' : 'fallback')}</strong>.
+        <small>${escapeHtmlFn(`${viewModel.semantic.configuredModel || 'no embedding model configured'}${runtimeReadiness.warmState ? ` · ${runtimeReadiness.warmState}` : ''}${Number.isFinite(Number(runtimeReadiness.cacheAgeMs)) ? ` · ${formatCacheAge(runtimeReadiness.cacheAgeMs)}` : ''}`)}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Explicit facts: ${escapeHtmlFn(String(viewModel.explicit.count || 0))} &middot; Memory books: ${escapeHtmlFn(String(viewModel.books.enabledCount || 0))} enabled &middot; Session archive: ${escapeHtmlFn(String(viewModel.session.episodeCount || 0))} episodes / ${escapeHtmlFn(String(viewModel.session.chapterCount || 0))} chapters &middot; Global patterns: ${escapeHtmlFn(String(viewModel.global.patternCount || 0))}
+      </div>
+    </div>
+    ${renderRoutingSummary(viewModel.routing, escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Runtime artifact</div>
+    ${renderArtifactSummary(viewModel.artifact, escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Trace artifact</div>
+    ${renderTraceArtifactSummary(viewModel.artifact, escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Recency protection</div>
+    ${renderRecencyProtection(viewModel.session.recencyProtection, escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Last retrieval for Penny's reply</div>
+    ${renderItems([...(viewModel.retrieval.session || []), ...(viewModel.retrieval.global || [])], 'No archive memories were used on the last reply.', escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Active contradictions</div>
+    ${renderActiveContradictions(viewModel.activeContradictions, escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Matched memory books</div>
+    ${renderItems(viewModel.matchedBooks, 'No memory books matched on the last reply.', escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Compression fallback</div>
+    ${viewModel.compression.used
+      ? `${renderCompressionExplanation(viewModel.compression, escapeHtmlFn)}${renderItems(viewModel.compression.chapters || [], `Compression fallback was used because ${viewModel.compression.reason || 'session chapters were needed'}.`, escapeHtmlFn)}`
+      : '<div class="list-item"><div class="memory-copy">Compression fallback was not used on the last reply.</div></div>'}
+    <div class="section-label" style="margin-top:12px;">Session archive</div>
+    ${renderItems(viewModel.session.recentEpisodes || [], 'No archived session episodes yet.', escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Session chapters</div>
+    ${renderItems(viewModel.session.chapters || [], 'No session chapters yet.', escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Longer-term summaries and patterns</div>
+    ${renderItems([...(viewModel.global.summaries || []), ...(viewModel.global.patterns || [])], 'No global summaries or patterns yet.', escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Promotion queue</div>
+    ${renderQueue(viewModel.queue, escapeHtmlFn)}
+  `;
+  return viewModel;
+}
+
+export function buildBrainModeNote({ mode = 'local', meta = null } = {}) {
+  if (!meta) {
+    return mode === 'shadow'
+      ? 'Shadow uses the optional OpenClaw lane. It is still experimental and not Penny\'s main chat brain.'
+      : 'LM Studio is Penny\'s main brain right now. Chat and tool lanes route automatically.';
+  }
+  if (meta.requestedMode === 'shadow' && meta.usedFallback) {
+    const reason = meta.shadowError ? ` ${meta.shadowError}` : '';
+    return `Shadow failed, so this reply used the local placeholder fallback.${reason}`;
+  }
+  if (meta.backend === 'openclaw-shadow') {
+    return 'Shadow brain handled the last reply.';
+  }
+  if (meta.requestedMode === 'local' && meta.localLane) {
+    const lane = meta.localLane === 'tool' ? 'tool lane' : 'chat lane';
+    const modelText = meta.resolvedModel ? ` on ${meta.resolvedModel}` : '';
+    const fallbackText = meta.laneFallback ? ' It had to fall back to the best loaded local model.' : '';
+    return `LM Studio handled the last reply on the ${lane}${modelText}.${fallbackText}`.trim();
+  }
+  return mode === 'local'
+    ? 'LM Studio handled the last reply.'
+    : 'Shadow is selected. This lane is experimental, and Penny will block the reply if OpenClaw fails.';
+}

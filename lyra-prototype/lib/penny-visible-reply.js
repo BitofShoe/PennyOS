@@ -1,3 +1,20 @@
+/**
+ * @typedef {'empty_input' | 'raw_reasoning_fallback' | 'tagged_visible_reply' | 'salvaged_draft_candidate' | 'salvaged_quote_candidate' | 'cleanup_mood_tagged_reply' | 'cleanup_plain_reply'} VisibleReplyReasonCode
+ *
+ * @typedef {Object} VisibleReplyDecision
+ * @property {string} text
+ * @property {VisibleReplyReasonCode} reasonCode
+ */
+const VISIBLE_REPLY_REASON_CODES = Object.freeze({
+  EMPTY_INPUT: 'empty_input',
+  RAW_REASONING_FALLBACK: 'raw_reasoning_fallback',
+  TAGGED_VISIBLE_REPLY: 'tagged_visible_reply',
+  SALVAGED_DRAFT_CANDIDATE: 'salvaged_draft_candidate',
+  SALVAGED_QUOTE_CANDIDATE: 'salvaged_quote_candidate',
+  CLEANUP_MOOD_TAGGED_REPLY: 'cleanup_mood_tagged_reply',
+  CLEANUP_PLAIN_REPLY: 'cleanup_plain_reply',
+});
+
 function createVisibleReplyApi({
   ALLOW_RAW_REASONING_FALLBACK,
   retagAssistantReply,
@@ -181,11 +198,23 @@ function createVisibleReplyApi({
     return paragraphLooksLikeCoT(m.split(/\n\n/)[0] || m);
   }
 
-  function coercePennyVisibleReply(raw) {
+  function classifyVisibleReplyDecision(raw = '') {
     let t = stripThinkSpans(repairCommonMojibake(String(raw || '').trim()));
     t = t.replace(/^<\|channel\>\s*(?:thought|analysis)\s*/i, '').trim();
-    if (!t || ALLOW_RAW_REASONING_FALLBACK) return t;
+    if (!t) {
+      return {
+        text: '',
+        reasonCode: VISIBLE_REPLY_REASON_CODES.EMPTY_INPUT,
+      };
+    }
+    if (ALLOW_RAW_REASONING_FALLBACK) {
+      return {
+        text: t,
+        reasonCode: VISIBLE_REPLY_REASON_CODES.RAW_REASONING_FALLBACK,
+      };
+    }
     const tagged = extractTaggedVisibleReply(t);
+    const sawTaggedVisibleReply = !!tagged;
     if (tagged) t = tagged;
     t = takeAfterLastHorizontalRule(t);
     t = takeAfterFinalCue(t);
@@ -204,16 +233,24 @@ function createVisibleReplyApi({
         parts.shift();
       }
       let body = parts.join('\n\n').trim();
+      let reasonCode = sawTaggedVisibleReply
+        ? VISIBLE_REPLY_REASON_CODES.TAGGED_VISIBLE_REPLY
+        : VISIBLE_REPLY_REASON_CODES.CLEANUP_MOOD_TAGGED_REPLY;
       if ((!body || looksOnlyLikeCoT(body)) && draftCandidates.length) {
         body = draftCandidates[draftCandidates.length - 1];
+        reasonCode = VISIBLE_REPLY_REASON_CODES.SALVAGED_DRAFT_CANDIDATE;
       }
       if ((!body || looksOnlyLikeCoT(body)) && quoteCandidates.length) {
         body = quoteCandidates.join('\n\n');
+        reasonCode = VISIBLE_REPLY_REASON_CODES.SALVAGED_QUOTE_CANDIDATE;
       }
       if (!body) body = stripLeadingMetaLines(before);
       body = cleanDraftCandidate(body);
       const out = `${body}\n${moodTag}${afterMood ? `\n${afterMood}` : ''}`.trim();
-      return retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n')), lastMood[1] || '');
+      return {
+        text: retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n')), lastMood[1] || ''),
+        reasonCode,
+      };
     }
     const draftCandidates = collectDraftCandidates(t);
     const quoteCandidates = collectQuotedReplyCandidates(t);
@@ -222,15 +259,27 @@ function createVisibleReplyApi({
       tailParts.shift();
     }
     let out = tailParts.join('\n\n').trim();
+    let reasonCode = sawTaggedVisibleReply
+      ? VISIBLE_REPLY_REASON_CODES.TAGGED_VISIBLE_REPLY
+      : VISIBLE_REPLY_REASON_CODES.CLEANUP_PLAIN_REPLY;
     if ((!out || looksOnlyLikeCoT(out)) && draftCandidates.length) {
       out = draftCandidates[draftCandidates.length - 1];
+      reasonCode = VISIBLE_REPLY_REASON_CODES.SALVAGED_DRAFT_CANDIDATE;
     }
     if ((!out || looksOnlyLikeCoT(out)) && quoteCandidates.length) {
       out = quoteCandidates.join('\n\n');
+      reasonCode = VISIBLE_REPLY_REASON_CODES.SALVAGED_QUOTE_CANDIDATE;
     }
     if (!out) out = stripLeadingMetaLines(t);
     out = cleanDraftCandidate(out);
-    return retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n')));
+    return {
+      text: retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n'))),
+      reasonCode,
+    };
+  }
+
+  function coercePennyVisibleReply(raw) {
+    return classifyVisibleReplyDecision(raw).text;
   }
 
   function collectLmStudioResponsesStrings(parsed) {
@@ -433,6 +482,7 @@ function createVisibleReplyApi({
     paragraphLooksLikeCoT,
     looksOnlyLikeCoT,
     coercePennyVisibleReply,
+    classifyVisibleReplyDecision,
     collectLmStudioResponsesStrings,
     extractPennyFromPlanningBlob,
     extractPennyFromReasoning,
@@ -443,9 +493,11 @@ function createVisibleReplyApi({
     isMissingLmStudioThreadError,
     lmStudioStageLabel,
     repairCommonMojibake,
+    VISIBLE_REPLY_REASON_CODES,
   };
 }
 
 module.exports = {
   createVisibleReplyApi,
+  VISIBLE_REPLY_REASON_CODES,
 };

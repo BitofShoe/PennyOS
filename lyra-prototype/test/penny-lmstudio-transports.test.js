@@ -12,6 +12,9 @@ function retag(text = '', preferredMood = 'calm') {
 
 function makeTransportApi({
   postJsonSse,
+  postJsonLongRunning = async () => {
+    throw new Error('postJsonLongRunning should not be called in this test');
+  },
   collectLmStudioStatefulChatStrings = () => ({ responseId: 'resp_stateful', outputText: '', reasoningText: '' }),
   collectLmStudioResponsesStrings = () => ({ outputText: '', reasoningText: '' }),
   reportLmStudioReasoning = () => {},
@@ -21,9 +24,7 @@ function makeTransportApi({
     getLmStudioConnectionStatus: async () => ({ resolvedChatModel: 'google/gemma-4-31b' }),
     pickLmStudioNativeModelId: (model) => model,
     shouldPreferLmStudioChatCompletions: () => false,
-    postJsonLongRunning: async () => {
-      throw new Error('postJsonLongRunning should not be called in this test');
-    },
+    postJsonLongRunning,
     postJsonSse,
     buildLmStudioPrompt: () => 'prompt',
     buildLmStudioMessages: () => [],
@@ -174,4 +175,38 @@ test('stateful stream can report reasoning to server logs without leaking it int
   assert.equal(reported[0].transport, 'native-stateful-stream');
   assert.equal(reported[0].lane, 'chat');
   assert.match(reported[0].reasoningText, /Internal chain goes here/);
+});
+
+test('chat completions can report separate reasoning without leaking it into the visible reply', async () => {
+  const reported = [];
+  const api = makeTransportApi({
+    postJsonSse: async () => {
+      throw new Error('postJsonSse should not be called in this test');
+    },
+    postJsonLongRunning: async () => ({
+      statusCode: 200,
+      bodyText: JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: 'Visible reply only.',
+              reasoning_content: 'Hidden scratchpad that should stay out of the transcript.',
+            },
+          },
+        ],
+      }),
+    }),
+    reportLmStudioReasoning: (payload) => reported.push(payload),
+  });
+
+  const result = await api.runLmStudioChatCompletionsApi({
+    userText: 'test',
+    messages: [],
+    memories: {},
+  });
+
+  assert.equal(result, 'Visible reply only.');
+  assert.equal(reported.length, 1);
+  assert.equal(reported[0].transport, 'chat-completions');
+  assert.match(reported[0].reasoningText, /Hidden scratchpad/);
 });

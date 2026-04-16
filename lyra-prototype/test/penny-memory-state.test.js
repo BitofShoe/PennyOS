@@ -64,6 +64,27 @@ test('consolidateMemory extracts user name and explicit remembered facts from us
   assert.ok(patch.memories.some((item) => /chili mango/i.test(item.text)));
 });
 
+test('consolidateMemory extracts a correction-style memory from a corrective turn', () => {
+  const { consolidateMemory, buildCorrectionProvenance } = buildApi();
+  const messages = [
+    { role: 'user', content: 'Actually, my favorite tea is lapsang souchong now.' },
+    { role: 'assistant', content: 'Got it.' },
+  ];
+  const existingMemory = {
+    memories: [
+      { text: 'Favorite tea is oolong', kind: 'preference', ts: 1 },
+    ],
+  };
+  const patch = consolidateMemory(messages, existingMemory);
+  const provenance = buildCorrectionProvenance(existingMemory.memories, messages[0].content);
+
+  assert.ok(patch.memories.some((item) => /lapsang souchong/i.test(item.text)));
+  assert.equal(patch.memories.some((item) => /oolong/i.test(item.text)), false);
+  assert.equal(patch.memories.some((item) => /actually/i.test(item.text)), false);
+  assert.equal(provenance.length, 1);
+  assert.equal(provenance[0].conflictKey, 'favorite tea');
+});
+
 test('buildChatMemoryStateFromDiskMemory layers client settings and consolidation without wiping old memories', () => {
   const { buildChatMemoryStateFromDiskMemory } = buildApi();
   const prepared = buildChatMemoryStateFromDiskMemory(
@@ -81,6 +102,39 @@ test('buildChatMemoryStateFromDiskMemory layers client settings and consolidatio
   assert.equal(prepared.memory.voiceOn, true);
   assert.equal(prepared.memory.brainMode, 'shadow');
   assert.ok(prepared.memory.memories.some((item) => /juniper/i.test(item.text)));
-  assert.ok(prepared.memory.memories.some((item) => /rainy cyberpunk vibes/i.test(item.text)));
-  assert.ok(prepared.patch.memories.some((item) => /rainy cyberpunk vibes/i.test(item.text)));
+  assert.equal(prepared.memory.memories.some((item) => /rainy cyberpunk vibes/i.test(item.text)), false);
+  assert.equal(prepared.patch.memories.some((item) => /rainy cyberpunk vibes/i.test(item.text)), false);
+  assert.ok(prepared.patch.reviewCandidates.some((item) => /rainy cyberpunk vibes/i.test(item.text)));
+  assert.equal(prepared.patch.reviewCandidates[0].source, 'review-candidate');
+  assert.deepEqual(prepared.patch.provenance, []);
+});
+
+test('consolidateMemory routes non-explicit conversational facts into review candidates', () => {
+  const { consolidateMemory } = buildApi();
+  const patch = consolidateMemory([
+    { role: 'user', content: "I'm into rainy cyberpunk vibes." },
+  ], { memories: [] });
+
+  assert.equal(patch.memories.length, 0);
+  assert.ok(patch.reviewCandidates.some((item) => /rainy cyberpunk vibes/i.test(item.text)));
+  assert.equal(patch.reviewCandidates[0].source, 'review-candidate');
+});
+
+test('buildChatMemoryStateFromDiskMemory includes correction provenance with a stable conflict key', () => {
+  const { buildChatMemoryStateFromDiskMemory } = buildApi();
+  const prepared = buildChatMemoryStateFromDiskMemory(
+    {
+      sessionId: 'demo',
+      userName: '',
+      voiceOn: false,
+      brainMode: 'local',
+      memories: [{ text: 'Favorite tea is oolong', kind: 'preference', ts: 1 }],
+    },
+    {},
+    [{ role: 'user', content: 'Actually, my favorite tea is lapsang souchong now.' }],
+  );
+
+  assert.equal(prepared.patch.provenance.length, 1);
+  assert.equal(prepared.patch.provenance[0].conflictKey, 'favorite tea');
+  assert.match(prepared.patch.provenance[0].newText, /lapsang souchong/i);
 });

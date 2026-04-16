@@ -190,6 +190,25 @@
                   <span>Read Penny's replies out loud when possible</span>
                 </label>
 
+                <label class="field">
+                  <span>Expression lock</span>
+                  <select id="expressionOverrideSelect" class="input-lite">
+                    <option value="">Auto</option>
+                    <option value="calm">Calm</option>
+                    <option value="happy">Happy</option>
+                    <option value="excited">Excited</option>
+                    <option value="thinking">Thinking</option>
+                    <option value="surprised">Surprised</option>
+                    <option value="flirty">Flirty</option>
+                    <option value="smug">Smug</option>
+                    <option value="annoyed">Annoyed</option>
+                  </select>
+                </label>
+
+                <div class="card-note" id="expressionDecisionNote">
+                  Expressions auto-resolve from Penny's reply state unless you pin one here.
+                </div>
+
                 <div class="mode-block">
                   <div class="mode-title">Brain mode</div>
 
@@ -258,6 +277,6 @@
       </div>
     </div>
 
-  <script type="module" src="/app.js?v=20260413a"></script>
+  <script type="module" src="/app.js?v=20260415a"></script>
 </body>
 </html>

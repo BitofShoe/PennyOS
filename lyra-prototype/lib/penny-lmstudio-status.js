@@ -250,12 +250,70 @@ function createLmStudioStatusApi({
     return sortLmStudioModelCandidates(models, { preferredModel, runtimeModel }).map(item => item.id);
   }
 
+  function trimIso(value = '') {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const parsed = new Date(text);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toISOString();
+  }
+
+  function buildProbeState({
+    startedAt = '',
+    finishedAt = '',
+    durationMs = 0,
+    cacheHit = false,
+    expiresAt = 0,
+    note = '',
+  } = {}) {
+    const safeStartedAt = trimIso(startedAt);
+    const safeFinishedAt = trimIso(finishedAt || startedAt);
+    const checkedAt = safeFinishedAt || safeStartedAt;
+    const checkedAtMs = checkedAt ? Date.parse(checkedAt) : 0;
+    return {
+      startedAt: safeStartedAt,
+      finishedAt: safeFinishedAt,
+      checkedAt,
+      durationMs: Math.max(0, Math.round(Number(durationMs) || 0)),
+      cacheHit: cacheHit === true,
+      cacheAgeMs: checkedAtMs ? Math.max(0, Date.now() - checkedAtMs) : 0,
+      cacheExpiresAt: Number.isFinite(expiresAt) && expiresAt > 0 ? new Date(expiresAt).toISOString() : '',
+      note: String(note || '').trim(),
+    };
+  }
+
+  function decorateStatusWithProbe(value = {}, {
+    startedAt = '',
+    finishedAt = '',
+    durationMs = 0,
+    cacheHit = false,
+    expiresAt = 0,
+    note = '',
+  } = {}) {
+    return {
+      ...(value && typeof value === 'object' ? value : {}),
+      probe: buildProbeState({
+        startedAt,
+        finishedAt,
+        durationMs,
+        cacheHit,
+        expiresAt,
+        note: note || value?.error || value?.hint || '',
+      }),
+    };
+  }
+
   async function getLmStudioConnectionStatus({ force = false } = {}) {
     const now = Date.now();
     if (!force && lmStudioStatusCache.value && now < lmStudioStatusCache.expiresAt) {
-      return lmStudioStatusCache.value;
+      return decorateStatusWithProbe(lmStudioStatusCache.value, {
+        ...(lmStudioStatusCache.value?.probe || {}),
+        cacheHit: true,
+        expiresAt: lmStudioStatusCache.expiresAt,
+      });
     }
 
+    const probeStartedAt = new Date(now).toISOString();
     const settings = readLmStudioDesktopSettings();
     const controller = new AbortController();
     const timeoutMs = Math.min(Math.max(LMSTUDIO_MODELS_PROBE_MS, 2000), 120000);
@@ -389,12 +447,20 @@ function createLmStudioStatusApi({
     const cacheMs = value.reachable && (value.resolvedChatModel || value.resolvedToolModel)
       ? LMSTUDIO_STATUS_CACHE_MS
       : LMSTUDIO_STATUS_ERROR_CACHE_MS;
+    const probeFinishedAt = new Date().toISOString();
+    const cachedValue = decorateStatusWithProbe(value, {
+      startedAt: probeStartedAt,
+      finishedAt: probeFinishedAt,
+      durationMs: Date.parse(probeFinishedAt) - now,
+      cacheHit: false,
+      expiresAt: now + cacheMs,
+    });
 
     lmStudioStatusCache = {
       expiresAt: now + cacheMs,
-      value,
+      value: cachedValue,
     };
-    return value;
+    return cachedValue;
   }
 
   function isMissingLmStudioModelError(error) {
@@ -414,8 +480,24 @@ function createLmStudioStatusApi({
   }
 
   async function withLmStudioLaneModel(lane = 'chat', runForModel, runtime = null) {
+    let resolutionStartedAt = Date.now();
     let status = await getLmStudioConnectionStatus();
     let refreshedAfterMissingModel = false;
+
+    if (runtime && typeof runtime === 'object') {
+      runtime.performance = runtime.performance && typeof runtime.performance === 'object'
+        ? runtime.performance
+        : {};
+      runtime.performance.modelResolution = {
+        startedAt: new Date(resolutionStartedAt).toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: Math.max(0, Date.now() - resolutionStartedAt),
+        available: true,
+        cacheHit: status?.probe?.cacheHit === true,
+        source: 'lmstudio-status',
+        note: String(status?.error || status?.hint || '').trim(),
+      };
+    }
 
     while (true) {
       if (!status.reachable) {
@@ -453,8 +535,23 @@ function createLmStudioStatusApi({
       }
 
       if (lastMissingModelError && !refreshedAfterMissingModel) {
+        resolutionStartedAt = Date.now();
         status = await getLmStudioConnectionStatus({ force: true });
         refreshedAfterMissingModel = true;
+        if (runtime && typeof runtime === 'object') {
+          runtime.performance = runtime.performance && typeof runtime.performance === 'object'
+            ? runtime.performance
+            : {};
+          runtime.performance.modelResolution = {
+            startedAt: new Date(resolutionStartedAt).toISOString(),
+            finishedAt: new Date().toISOString(),
+            durationMs: Math.max(0, Date.now() - resolutionStartedAt),
+            available: true,
+            cacheHit: status?.probe?.cacheHit === true,
+            source: 'lmstudio-status',
+            note: String(status?.error || status?.hint || '').trim(),
+          };
+        }
         continue;
       }
 

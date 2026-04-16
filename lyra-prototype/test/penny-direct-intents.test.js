@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   createDirectIntentApi,
+  DIRECT_INTENT_REASON_CODES,
 } = require('../lib/penny-direct-intents');
 
 function buildApi() {
@@ -61,6 +62,7 @@ test('resolveDirectToolIntent fixes the quoted-search plus unquoted-path regress
   assert.equal(intent.name, 'read_project_file_around_match');
   assert.equal(intent.args.path, 'public/app.js');
   assert.equal(intent.args.query, 'Shadow failed');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
 });
 
 test('resolveDirectToolIntent leaves open-ended creative file edits for the full tool loop', () => {
@@ -83,6 +85,7 @@ test('resolveDirectToolIntent still keeps explicit read requests on the direct p
   assert.ok(intent);
   assert.match(intent.name, /^read_project_file/);
   assert.equal(intent.args.path, "Penny's Playground/Penny's Very Own Paper (bot languege version).md");
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
 });
 
 test('resolveDirectToolIntent upgrades focused file questions into targeted reads', () => {
@@ -91,6 +94,7 @@ test('resolveDirectToolIntent upgrades focused file questions into targeted read
   assert.equal(intent.name, 'read_project_file_around_match');
   assert.equal(intent.args.path, 'public/js/penny-app.js');
   assert.equal(intent.args.query, 'attachments');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
 });
 
 test('resolveDirectToolIntent upgrades natural line-definition questions into targeted reads', () => {
@@ -100,6 +104,35 @@ test('resolveDirectToolIntent upgrades natural line-definition questions into ta
   assert.equal(intent.args.path, 'server.js');
   assert.equal(intent.args.query, 'MEMORY_PROMPT_LIMIT');
   assert.equal(intent.args.questionType, 'definition');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
+});
+
+test('resolveDirectToolIntent routes command phrasing and natural package.json questions to the same deterministic read', () => {
+  const command = resolveDirectToolIntent('Open package.json and tell me what npm test runs.');
+  const natural = resolveDirectToolIntent('What is the current npm test command in package.json?');
+  const scriptQuestion = resolveDirectToolIntent('Which npm script runs tests?');
+
+  for (const intent of [command, natural, scriptQuestion]) {
+    assert.ok(intent);
+    assert.equal(intent.name, 'read_project_file_around_match');
+    assert.equal(intent.args.path, 'package.json');
+    assert.equal(intent.args.query, 'test');
+    assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
+  }
+});
+
+test('resolveDirectToolIntent routes natural port questions to deterministic inspection', () => {
+  const intent = resolveDirectToolIntent('What port does this use?');
+  assert.ok(intent);
+  assert.equal(intent.name, 'read_project_file_around_match');
+  assert.equal(intent.args.path, 'server.js');
+  assert.equal(intent.args.query, 'port');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
+});
+
+test('resolveDirectToolIntent keeps ambiguous freeform technical chatter on the chat lane', () => {
+  const intent = resolveDirectToolIntent('what do you think about package.json?');
+  assert.equal(intent, null);
 });
 
 test('composeDirectReadReply stays honest when a file only mentions a symbol instead of defining it', () => {
@@ -119,6 +152,7 @@ test('resolveDirectToolIntent upgrades richer web requests into inspect_web_resu
   assert.ok(intent);
   assert.equal(intent.name, 'inspect_web_result');
   assert.equal(intent.args.query, 'the official OpenClaw browser tool docs and tell me the page title, the URL, and one short sentence about what it is');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.WEB_INSPECT);
 });
 
 test('resolveDirectToolIntent keeps plain web lookups as search_web', () => {
@@ -126,6 +160,7 @@ test('resolveDirectToolIntent keeps plain web lookups as search_web', () => {
   assert.ok(intent);
   assert.equal(intent.name, 'search_web');
   assert.equal(intent.args.query, 'bitcoin news');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.WEB_SEARCH);
 });
 
 test('composeToolRecordFallback summarizes inserted text concretely', () => {

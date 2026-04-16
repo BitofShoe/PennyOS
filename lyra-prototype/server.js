@@ -7,12 +7,9 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { URL } = require('url');
 const {
-  MEMORY_ENTRY_LIMIT,
   MEMORY_PROMPT_LIMIT,
   mergeMemoryItems,
-  normalizeText,
   formatPromptMemories,
-  injectRelevantMemoryContext,
 } = require('./lib/penny-memory');
 const {
   createMemoryStateApi,
@@ -20,6 +17,15 @@ const {
 const {
   createMemoryArchiveApi,
 } = require('./lib/penny-memory-archive');
+const {
+  createMemoryBooksApi,
+} = require('./lib/penny-memory-books');
+const {
+  buildPromptStack,
+} = require('./lib/penny-prompt-stack');
+const {
+  createPennyChatRuntimeApi,
+} = require('./lib/penny-chat-runtime');
 const {
   shouldOfferLocalTools,
   executeDirectProjectInspectIntent,
@@ -60,6 +66,33 @@ const {
 const {
   createLmStudioTransportApi,
 } = require('./lib/penny-lmstudio-transports');
+const {
+  createPennyServerHttpApi,
+} = require('./lib/penny-server-http');
+const {
+  createPromptAssetLoader,
+} = require('./lib/penny-prompt-assets');
+const {
+  createPennyRouteHandlers,
+} = require('./lib/penny-route-handlers');
+const {
+  normalizeRepairInfo,
+  normalizeLastRouteInfo,
+  buildLastRouteInfo,
+  buildCombinedMemoryInspector,
+} = require('./lib/penny-runtime-artifacts');
+const {
+  resolveLatencyBudget,
+} = require('./lib/penny-latency-budget');
+const {
+  normalizeEpistemicCaution,
+  mergeEpistemicCaution,
+  buildPostToolEpistemicCaution,
+  normalizeArchiveSynthesis,
+  buildEpistemicCaution,
+  buildArchiveSynthesis,
+  buildEpistemicPromptBlock,
+} = require('./lib/penny-epistemics');
 const PORT = process.env.PORT || 4317;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
@@ -76,6 +109,12 @@ const MEMORY_ARCHIVE_FILE = process.env.PENNY_MEMORY_ARCHIVE_FILE
 const MEMORY_EMBEDDINGS_FILE = process.env.PENNY_MEMORY_EMBEDDINGS_FILE
   ? path.resolve(__dirname, process.env.PENNY_MEMORY_EMBEDDINGS_FILE)
   : path.join(DATA_DIR, 'penny-memory-embeddings.json');
+const MEMORY_BOOKS_FILE = process.env.PENNY_MEMORY_BOOKS_FILE
+  ? path.resolve(__dirname, process.env.PENNY_MEMORY_BOOKS_FILE)
+  : path.join(DATA_DIR, 'penny-memory-books.json');
+const MEMORY_BOOKS_SEED_FILE = process.env.PENNY_MEMORY_BOOKS_SEED_FILE
+  ? path.resolve(__dirname, process.env.PENNY_MEMORY_BOOKS_SEED_FILE)
+  : path.join(DATA_DIR, 'penny-memory-books.seed.json');
 const OPENCLAW_ENABLED = process.env.PENNY_OPENCLAW_ENABLED === '1';
 const OPENCLAW_TIMEOUT_MS = Number(process.env.PENNY_OPENCLAW_TIMEOUT_MS || 20000);
 const GATEWAY_PORT = Number(process.env.PENNY_GATEWAY_PORT || 18789);
@@ -129,7 +168,7 @@ const LMSTUDIO_TOOL_PLANNER_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDI
 const LMSTUDIO_SEMANTIC_RENDER_TEMPERATURE = Number(process.env.PENNY_LMSTUDIO_SEMANTIC_RENDER_TEMPERATURE || 0.45);
 const LMSTUDIO_SEMANTIC_RENDER_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_SEMANTIC_RENDER_MAX_OUTPUT_TOKENS || 700);
 const LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS || 900);
-const PENNY_CHAT_HISTORY_LIMIT = Number(process.env.PENNY_CHAT_HISTORY_LIMIT || 4);
+const PENNY_CHAT_HISTORY_LIMIT = Number(process.env.PENNY_CHAT_HISTORY_LIMIT || 6);
 const SEMANTIC_RENDER_MAX_TOOL_RECORDS = Number(process.env.PENNY_SEMANTIC_RENDER_MAX_TOOL_RECORDS || 8);
 /** Set to 1 only for debugging — surfaces chain-of-thought in the chat bubble */
 const ALLOW_RAW_REASONING_FALLBACK = process.env.PENNY_ALLOW_RAW_REASONING_FALLBACK === '1';
@@ -137,6 +176,11 @@ const LOG_LMSTUDIO_REASONING = process.env.PENNY_LOG_LMSTUDIO_REASONING === '1';
 const LOG_LMSTUDIO_REASONING_MAX_CHARS = Number(process.env.PENNY_LOG_LMSTUDIO_REASONING_MAX_CHARS || 6000);
 /** When /v1/responses returns only reasoning_text (no output_text), retry with /v1/chat/completions */
 const RESPONSES_THEN_CHAT_FALLBACK = process.env.PENNY_RESPONSES_CHAT_FALLBACK !== '0';
+const PENNY_ENABLE_CONTRADICTION_GUARDS = process.env.PENNY_ENABLE_CONTRADICTION_GUARDS !== '0';
+const PENNY_ENABLE_RUNTIME_REPAIRS = process.env.PENNY_ENABLE_RUNTIME_REPAIRS !== '0';
+const PENNY_ENABLE_CHAT_REPAIR_RETRY = process.env.PENNY_ENABLE_CHAT_REPAIR_RETRY !== '0';
+const PENNY_ENABLE_EPISTEMIC_CAUTION = process.env.PENNY_ENABLE_EPISTEMIC_CAUTION === '1';
+const PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS = process.env.PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS === '1';
 const MAX_REQUEST_BODY_BYTES = Number(process.env.PENNY_MAX_REQUEST_BODY_BYTES || 10 * 1024 * 1024);
 const MAX_IMAGE_DATA_BYTES = Number(process.env.PENNY_MAX_IMAGE_DATA_BYTES || 2 * 1024 * 1024);
 const MAX_TEXT_ATTACHMENT_BYTES = Number(process.env.PENNY_MAX_TEXT_ATTACHMENT_BYTES || 220 * 1024);
@@ -164,8 +208,7 @@ const TEXT_FILE_EXTENSIONS = new Set(['', '.js', '.cjs', '.mjs', '.json', '.md',
 const TEXT_ATTACHMENT_EXTENSIONS = new Set(['.txt', '.md', '.json', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.css', '.html', '.svg', '.yml', '.yaml', '.log', '.ps1', '.sh', '.env']);
 
 const sessionState = { turns: 0, lastMood: 'calm', memory: [] };
-const MIME_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
-const PROMPT_ASSET_CACHE = new Map();
+const MIME_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.mjs': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 const PENNY_RUNTIME_BLEND_FALLBACK = `
 ## Identity
 - Penny is vivid, sharp, warm, and impossible to confuse with a generic assistant.
@@ -225,9 +268,29 @@ const PENNY_CHAT_DIRECTIVES_FALLBACK = `
 - bland summaries with no bite
 `;
 
-function normalizePromptAssetText(text = '') {
-  return String(text || '').replace(/\r\n/g, '\n').trim();
-}
+const promptAssetLoader = createPromptAssetLoader({
+  voiceDir: PENNY_VOICE_DIR,
+  fallbacks: {
+    blend: PENNY_RUNTIME_BLEND_FALLBACK,
+    chatDirectives: PENNY_CHAT_DIRECTIVES_FALLBACK,
+    examples: PENNY_VOICE_EXAMPLES_FALLBACK,
+    overlays: [],
+  },
+});
+const {
+  normalizePromptAssetText,
+  getPennyVoiceAssets,
+} = promptAssetLoader;
+const serverHttpApi = createPennyServerHttpApi({ mimeTypes: MIME_TYPES });
+const sendJson = serverHttpApi.sendJson;
+const safeReadBody = (req, options = {}) => serverHttpApi.safeReadBody(req, { maxBytes: MAX_REQUEST_BODY_BYTES, ...options });
+const postJsonLongRunning = serverHttpApi.postJsonLongRunning;
+const postJsonSse = serverHttpApi.postJsonSse;
+const beginEventStream = serverHttpApi.beginEventStream;
+const sendEventStream = serverHttpApi.sendEventStream;
+const startEventStreamKeepAlive = (res, options = {}) => serverHttpApi.startEventStreamKeepAlive(res, { intervalMs: STREAM_KEEPALIVE_MS, ...options });
+const serveFile = (res, filePath) => serverHttpApi.serveFile(res, filePath);
+
 function trimReasoningForLog(text = '', limit = LOG_LMSTUDIO_REASONING_MAX_CHARS) {
   const value = String(text || '').replace(/\r\n/g, '\n').trim();
   if (!value) return '';
@@ -240,32 +303,6 @@ function reportLmStudioReasoning({ transport = '', lane = 'chat', model = '', re
   if (!snippet) return;
   console.log(`[PENNY_REASONING lane=${lane} transport=${transport || 'unknown'} model=${model || 'unknown'}]`);
   console.log(snippet);
-}
-function readPromptAsset(relativeOrAbsolutePath, fallback = '') {
-  const assetPath = path.isAbsolute(relativeOrAbsolutePath)
-    ? relativeOrAbsolutePath
-    : path.join(__dirname, relativeOrAbsolutePath);
-  try {
-    const stat = fs.statSync(assetPath);
-    const cached = PROMPT_ASSET_CACHE.get(assetPath);
-    if (cached && cached.mtimeMs === stat.mtimeMs) return cached.text;
-    const text = normalizePromptAssetText(fs.readFileSync(assetPath, 'utf8'));
-    PROMPT_ASSET_CACHE.set(assetPath, { mtimeMs: stat.mtimeMs, text });
-    return text || normalizePromptAssetText(fallback);
-  } catch {
-    return normalizePromptAssetText(fallback);
-  }
-}
-function getPennyVoiceAssets() {
-  return {
-    blend: readPromptAsset(path.join(PENNY_VOICE_DIR, 'runtime', 'penny-operational-blend.md'), PENNY_RUNTIME_BLEND_FALLBACK),
-    chatDirectives: readPromptAsset(path.join(PENNY_VOICE_DIR, 'runtime', 'penny-chat-directives.md'), PENNY_CHAT_DIRECTIVES_FALLBACK),
-    examples: readPromptAsset(path.join(PENNY_VOICE_DIR, 'runtime', 'penny-voice-examples.md'), PENNY_VOICE_EXAMPLES_FALLBACK),
-  };
-}
-function formatPromptAssetBlock(label, text = '') {
-  const normalized = normalizePromptAssetText(text);
-  return normalized ? `${label}:\n${normalized}` : '';
 }
 
 function ensureDataDir() {
@@ -286,7 +323,7 @@ function ensureMemoryStoreFile() {
   } catch {}
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(initial, null, 2));
 }
-function defaultMemoryRecord(sessionId = 'default') { return { sessionId, userName: '', memories: [], voiceOn: false, brainMode: 'local', lmStudioThread: null, updatedAt: new Date().toISOString() }; }
+function defaultMemoryRecord(sessionId = 'default') { return { sessionId, userName: '', memories: [], voiceOn: false, brainMode: 'local', lmStudioThread: null, lastRoute: null, updatedAt: new Date().toISOString() }; }
 function isLikelyTestSessionId(sessionId = '') { return /^(penny-durable-test|penny-controls-test|cmp-local-|smoke-shadow|ui-repro|style-pass-smoke|memory-pass-smoke|qa-|verify-)/i.test(String(sessionId)); }
 function normalizeBrainMode(value = '') { return value === 'shadow' ? 'shadow' : 'local'; }
 function normalizeUserName(value = '') {
@@ -306,6 +343,7 @@ function normalizeMemoryRecord(record = {}, sessionId = 'default') {
   normalized.brainMode = normalizeBrainMode(normalized.brainMode);
   normalized.memories = mergeMemoryItems(normalized.memories || []);
   normalized.lmStudioThread = normalizeLmStudioThread(normalized.lmStudioThread);
+  normalized.lastRoute = normalizeLastRouteInfo(normalized.lastRoute);
   normalized.updatedAt = normalized.updatedAt || new Date().toISOString();
   return normalized;
 }
@@ -343,17 +381,64 @@ async function buildRuntimeMemoryContext({
   memories = {},
   userText = '',
   lane = 'chat',
+  attachmentType = 'none',
+  latencyBudget = null,
 } = {}) {
-  const archive = await buildArchiveContextApi({
+  const archiveLane = lane === 'tool' ? 'tool' : 'chat';
+  const budget = latencyBudget && typeof latencyBudget === 'object'
+    ? latencyBudget
+    : resolveLatencyBudget({ userText, lane, attachmentType });
+  const memoryBooks = matchMemoryBooksApi({
     sessionId,
     userText,
     lane,
+    attachmentType,
+  });
+  const archive = await buildArchiveContextApi({
+    sessionId,
+    userText,
+    lane: archiveLane,
+    sessionPromptLimit: budget.archiveSessionLimit,
+    globalPromptLimit: budget.archiveGlobalLimit,
+    allowSemanticQuery: budget.allowSemanticQuery,
+    allowArchiveCompression: budget.allowArchiveCompression,
+  });
+  const retrieval = archive.retrieval && typeof archive.retrieval === 'object'
+    ? {
+        ...archive.retrieval,
+        books: Array.isArray(memoryBooks.matches) ? memoryBooks.matches : [],
+      }
+    : null;
+  const epistemics = buildEpistemicCaution({
+    enabled: PENNY_ENABLE_EPISTEMIC_CAUTION,
+    userText,
+    selectedLane: lane,
+    retrieval,
+    archiveContext: archive.archiveContext,
+    toolRecords: [],
+  });
+  const synthesis = buildArchiveSynthesis({
+    enabled: PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS,
+    userText,
+    selectedLane: lane,
+    retrieval,
+    archiveContext: archive.archiveContext,
   });
   return {
-    memories: enrichMemoriesForPromptApi(memories, archive.archiveContext),
+    memories: enrichMemoriesForPromptApi({
+      ...memories,
+      memoryBookContext: memoryBooks,
+    }, archive.archiveContext, {
+      epistemicCaution: epistemics,
+      archiveSynthesis: synthesis,
+    }),
     archiveContext: archive.archiveContext,
-    retrieval: archive.retrieval,
+    memoryBooks,
+    retrieval,
     semanticMemory: archive.semanticMemory,
+    epistemics,
+    synthesis,
+    latencyBudget: budget,
   };
 }
 function scheduleArchiveConsolidation({
@@ -361,6 +446,8 @@ function scheduleArchiveConsolidation({
   userText = '',
   assistantText = '',
   retrieval = null,
+  provenance = [],
+  reviewCandidates = [],
 } = {}) {
   if (!String(userText || '').trim() || !String(assistantText || '').trim()) return;
   queueMicrotask(() => {
@@ -369,6 +456,8 @@ function scheduleArchiveConsolidation({
       userText,
       assistantText: stripReplyMoodTags(String(assistantText || '')),
       retrieval,
+      provenance,
+      reviewCandidates,
     }).catch((error) => {
       console.warn(`[penny archive] turn consolidation failed: ${error?.message || error}`);
     });
@@ -446,6 +535,16 @@ const {
   reviewPromotion: reviewPromotionApi,
   purgeMemory: purgeArchiveMemoryApi,
 } = memoryArchiveApi;
+const memoryBooksApi = createMemoryBooksApi({
+  fs,
+  path,
+  BOOKS_FILE: MEMORY_BOOKS_FILE,
+  BOOKS_SEED_FILE: MEMORY_BOOKS_SEED_FILE,
+});
+const {
+  matchMemoryBooks: matchMemoryBooksApi,
+  getMemoryBooksInspector: getMemoryBooksInspectorApi,
+} = memoryBooksApi;
 const projectToolsApi = createProjectToolsApi({
   projectRoot: __dirname,
   fs,
@@ -898,6 +997,13 @@ function buildToolUserText(userText = '', file = null) {
     maxLines: TOOL_ATTACHMENT_MAX_LINES,
   });
 }
+const pennyChatRuntimeApi = createPennyChatRuntimeApi({
+  selectLocalLane,
+  buildToolUserText,
+  getPreferredModelForLane: getPreferredModelForLaneApi,
+});
+const { createLaneRuntime: createLaneRuntimeApi } = pennyChatRuntimeApi;
+
 function sanitizeToolMessages(messages = [], limit = TOOL_CHAT_HISTORY_LIMIT) {
   return sanitizeChatMessages(messages, limit);
 }
@@ -915,252 +1021,6 @@ function describeLocalBrainFailure(error, { hasImage = false } = {}) {
     }
   }
   return raw;
-}
-function sendJson(res, statusCode, data) { res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data, null, 2)); }
-function safeReadBody(req, { maxBytes = MAX_REQUEST_BODY_BYTES } = {}) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    let size = 0;
-    let settled = false;
-    const fail = (error) => {
-      if (settled) return;
-      settled = true;
-      reject(error);
-    };
-    req.on('data', chunk => {
-      size += chunk.length;
-      if (size > maxBytes) {
-        fail(createHttpError(413, `Request body too large. Keep Penny payloads under ${formatBytes(maxBytes)}.`));
-        req.destroy();
-        return;
-      }
-      body += chunk;
-    });
-    req.on('end', () => {
-      if (settled) return;
-      settled = true;
-      resolve(body);
-    });
-    req.on('error', fail);
-  });
-}
-
-/**
- * POST JSON and wait for the full response body. Node's built-in fetch (undici) can close
- * idle connections while LM Studio is still encoding vision / prompt (~5+ minutes), which
- * surfaces as "fetch failed" in Penny and "Client disconnected" in LM Studio.
- */
-function postJsonLongRunning(urlString, { body, headers = {}, signal } = {}) {
-  const payload = typeof body === 'string' ? body : JSON.stringify(body);
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let abortCleanup = () => {};
-    const finish = (ok, val) => {
-      if (settled) return;
-      settled = true;
-      abortCleanup();
-      if (ok) resolve(val);
-      else reject(val);
-    };
-
-    if (signal?.aborted) {
-      const e = new Error('This operation was aborted');
-      e.name = 'AbortError';
-      reject(e);
-      return;
-    }
-
-    let url;
-    try {
-      url = new URL(urlString);
-    } catch (err) {
-      reject(err);
-      return;
-    }
-    const isHttps = url.protocol === 'https:';
-    const lib = isHttps ? https : http;
-    const port = url.port ? Number(url.port) : (isHttps ? 443 : 80);
-    const reqHeaders = {
-      ...headers,
-      'Content-Length': Buffer.byteLength(payload, 'utf8'),
-    };
-
-    const req = lib.request(
-      {
-        hostname: url.hostname,
-        port,
-        path: `${url.pathname}${url.search}`,
-        method: 'POST',
-        headers: reqHeaders,
-        agent: false,
-      },
-      (res) => {
-        const maxLen = 50 * 1024 * 1024;
-        const chunks = [];
-        let len = 0;
-        res.on('data', (chunk) => {
-          len += chunk.length;
-          if (len > maxLen) {
-            req.destroy();
-            finish(false, new Error('LM Studio response body too large'));
-            return;
-          }
-          chunks.push(chunk);
-        });
-        res.on('end', () => {
-          const bodyText = Buffer.concat(chunks).toString('utf8');
-          finish(true, { statusCode: res.statusCode, headers: res.headers, bodyText });
-        });
-        res.on('error', (err) => finish(false, err));
-      },
-    );
-
-    req.setTimeout(0);
-    req.on('error', (err) => finish(false, err));
-
-    if (signal) {
-      const onAbort = () => {
-        req.destroy();
-        const e = new Error('This operation was aborted');
-        e.name = 'AbortError';
-        finish(false, e);
-      };
-      signal.addEventListener('abort', onAbort, { once: true });
-      abortCleanup = () => signal.removeEventListener('abort', onAbort);
-    }
-
-    req.write(payload);
-    req.end();
-  });
-}
-
-function postJsonSse(urlString, { body, headers = {}, signal, onEvent } = {}) {
-  const payload = typeof body === 'string' ? body : JSON.stringify(body);
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let abortCleanup = () => {};
-    const finish = (ok, val) => {
-      if (settled) return;
-      settled = true;
-      abortCleanup();
-      if (ok) resolve(val);
-      else reject(val);
-    };
-
-    if (signal?.aborted) {
-      const e = new Error('This operation was aborted');
-      e.name = 'AbortError';
-      reject(e);
-      return;
-    }
-
-    let url;
-    try {
-      url = new URL(urlString);
-    } catch (err) {
-      reject(err);
-      return;
-    }
-
-    const isHttps = url.protocol === 'https:';
-    const lib = isHttps ? https : http;
-    const port = url.port ? Number(url.port) : (isHttps ? 443 : 80);
-    const reqHeaders = {
-      Accept: 'text/event-stream',
-      ...headers,
-      'Content-Length': Buffer.byteLength(payload, 'utf8'),
-    };
-
-    const req = lib.request(
-      {
-        hostname: url.hostname,
-        port,
-        path: `${url.pathname}${url.search}`,
-        method: 'POST',
-        headers: reqHeaders,
-        agent: false,
-      },
-      (res) => {
-        const statusCode = res.statusCode || 0;
-        res.setEncoding('utf8');
-        if (statusCode < 200 || statusCode >= 300) {
-          let errBody = '';
-          res.on('data', (chunk) => { errBody += chunk; });
-          res.on('end', () => {
-            const err = new Error(`Stream request failed ${statusCode}: ${errBody}`);
-            err.statusCode = statusCode;
-            finish(false, err);
-          });
-          res.on('error', (err) => finish(false, err));
-          return;
-        }
-
-        let buffer = '';
-        const flushFrame = (frameText) => {
-          const frame = String(frameText || '').trim();
-          if (!frame) return;
-          let event = 'message';
-          const dataLines = [];
-          for (const rawLine of frame.split(/\r?\n/)) {
-            if (rawLine.startsWith('event:')) event = rawLine.slice(6).trim();
-            else if (rawLine.startsWith('data:')) dataLines.push(rawLine.slice(5).trimStart());
-          }
-          const dataText = dataLines.join('\n');
-          if (!dataText) return;
-          let parsed = dataText;
-          try {
-            parsed = JSON.parse(dataText);
-          } catch {}
-          try {
-            onEvent?.({ event, data: parsed });
-          } catch (err) {
-            req.destroy(err);
-          }
-        };
-        const pump = (final = false) => {
-          const normalized = buffer.replace(/\r\n/g, '\n');
-          let idx;
-          let start = 0;
-          while ((idx = normalized.indexOf('\n\n', start)) !== -1) {
-            flushFrame(normalized.slice(start, idx));
-            start = idx + 2;
-          }
-          buffer = normalized.slice(start);
-          if (final && buffer.trim()) {
-            flushFrame(buffer);
-            buffer = '';
-          }
-        };
-
-        res.on('data', (chunk) => {
-          buffer += chunk;
-          pump(false);
-        });
-        res.on('end', () => {
-          pump(true);
-          finish(true, { statusCode, headers: res.headers });
-        });
-        res.on('error', (err) => finish(false, err));
-      },
-    );
-
-    req.setTimeout(0);
-    req.on('error', (err) => finish(false, err));
-
-    if (signal) {
-      const onAbort = () => {
-        req.destroy();
-        const e = new Error('This operation was aborted');
-        e.name = 'AbortError';
-        finish(false, e);
-      };
-      signal.addEventListener('abort', onAbort, { once: true });
-      abortCleanup = () => signal.removeEventListener('abort', onAbort);
-    }
-
-    req.write(payload);
-    req.end();
-  });
 }
 const VALID_REPLY_MOODS = ['calm', 'happy', 'excited', 'thinking', 'surprised', 'flirty', 'smug', 'annoyed'];
 const MOOD_SCORING_RULES = {
@@ -1240,19 +1100,49 @@ function buildPennyReply({ userText, memories }) { const lower = userText.toLowe
   `keep talking before i get impatient.`,
   `and yes, i'm absolutely listening.`
 ]; const pool = openers[mood] || openers.calm; const opener = pool[turns % pool.length]; const closer = closers[turns % closers.length]; text = `${opener} ${userText.trim()} ${closer}`; } return retagAssistantReply(text, mood); }
+function buildPennyPromptContextBlocks({
+  memories,
+  userText = '',
+  lane = 'chat',
+  mode = 'local',
+  attachmentType = 'none',
+  includeExamples = false,
+  includeChatDirectives = true,
+  memoryLimit = MEMORY_PROMPT_LIMIT,
+  fallbackMemory = '',
+} = {}) {
+  return buildPromptStack({
+    assets: getPennyVoiceAssets(),
+    memories,
+    userText,
+    lane,
+    mode,
+    attachmentType,
+    includeExamples,
+    includeChatDirectives,
+    memoryLimit,
+    fallbackMemory,
+  });
+}
 function buildShadowPrompt({ userText, messages, memories }) {
-  const { blend, chatDirectives } = getPennyVoiceAssets();
   const history = (messages || [])
     .slice(-6)
     .map(msg => `${msg.role.toUpperCase()}: ${String(msg.content || '').trim()}`)
     .join('\n');
-  const memItems = formatPromptMemories(memories, userText, MEMORY_PROMPT_LIMIT, '- Nothing stored yet.');
+  const promptContext = buildPennyPromptContextBlocks({
+    memories,
+    userText,
+    lane: 'shadow',
+    mode: 'shadow',
+    includeChatDirectives: true,
+    includeExamples: false,
+    memoryLimit: MEMORY_PROMPT_LIMIT,
+    fallbackMemory: '- Nothing stored yet.',
+  });
 
   return `You are Penny.
 
-${formatPromptAssetBlock('Runtime voice blend', blend)}
-
-${formatPromptAssetBlock('Conversation directives', chatDirectives)}
+${promptContext.stack}
 
 Shadow-lane note:
 - This is Penny's optional experimental OpenClaw lane, not her main brain.
@@ -1261,7 +1151,7 @@ Shadow-lane note:
 
 What Penny knows about this person:
 ${memories?.userName ? `Their name is ${memories.userName}.` : 'Name unknown.'}
-${memItems || '- Nothing yet.'}
+${promptContext.memoryBlock || '- Nothing yet.'}
 Recent history:
 ${history || '- none'}
 
@@ -1540,11 +1430,19 @@ const PENNY_TOOL_DEFINITIONS = [
   },
 ];
 function buildLmStudioToolSystemPrompt({ memories, userText = '' }) {
-  const { blend } = getPennyVoiceAssets();
-  const memBlock = formatPromptMemories(memories, userText, 10, '- Nothing yet.');
+  const promptContext = buildPennyPromptContextBlocks({
+    memories,
+    userText,
+    lane: 'tool',
+    mode: 'local',
+    includeChatDirectives: true,
+    includeExamples: false,
+    memoryLimit: 10,
+    fallbackMemory: '- Nothing yet.',
+  });
   return `You are Penny.
 
-${formatPromptAssetBlock('Runtime voice blend', blend)}
+${promptContext.stack}
 
 Engineering-mode addendum:
 - Even during code work, sound like Penny, not a corporate assistant.
@@ -1564,9 +1462,10 @@ Engineering-mode addendum:
 
 Memory:
 ${memories?.userName ? `- Their name is ${memories.userName}.` : '- Name unknown.'}
-${memBlock}
+${promptContext.memoryBlock}
 
 Output:
+- If the model/runtime supports a separate hidden reasoning channel, use it for scratch work and keep it out of the visible reply.
 - When you are answering normally, write only Penny's visible reply.
 - End the visible final reply with exactly one mood tag on its own line.
 - Valid mood tags: [MOOD:calm], [MOOD:happy], [MOOD:excited], [MOOD:thinking], [MOOD:surprised], [MOOD:flirty], [MOOD:smug], [MOOD:annoyed]`;
@@ -1665,6 +1564,63 @@ function cleanDraftForSemanticRender(text = '') {
   return stripReplyMoodTags(visible).trim();
 }
 
+function normalizeGuardText(text = '') {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function textMentionsFact(text = '', fact = '') {
+  const needle = normalizeGuardText(fact);
+  if (!needle) return false;
+  return normalizeGuardText(text).includes(needle);
+}
+
+function collectActiveContradictions(memories = {}) {
+  const items = Array.isArray(memories?.archiveContext?.activeContradictions)
+    ? memories.archiveContext.activeContradictions
+    : [];
+  return items
+    .map((item) => ({
+      oldText: String(item?.oldText || '').trim(),
+      newText: String(item?.newText || '').trim(),
+      conflictKey: String(item?.conflictKey || '').trim(),
+    }))
+    .filter((item) => item.oldText && item.newText);
+}
+
+function collectReplyGuardCodes({ candidate = '', activeContradictions = [] } = {}) {
+  const text = String(candidate || '').trim();
+  const codes = [];
+  if (!text || text.length < 4) codes.push('empty_visible_reply');
+  if (/\b(?:todo|tbd|placeholder|insert .* here|coming soon)\b/i.test(text)) codes.push('placeholder_visible_reply');
+  if (/\.\.\.$/.test(text) && text.split(/\s+/).length < 10) codes.push('clipped_visible_reply');
+  if (PENNY_ENABLE_CONTRADICTION_GUARDS) {
+    for (const contradiction of activeContradictions) {
+      if (textMentionsFact(text, contradiction.oldText) && !textMentionsFact(text, contradiction.newText)) {
+        codes.push('contradiction_stale_value');
+        break;
+      }
+    }
+  }
+  return [...new Set(codes)];
+}
+
+function buildSemanticRepairInstructions({ guardCodes = [], activeContradictions = [] } = {}) {
+  const lines = [];
+  if (guardCodes.includes('empty_visible_reply') || guardCodes.includes('placeholder_visible_reply') || guardCodes.includes('clipped_visible_reply')) {
+    lines.push('- Return one complete visible reply. No placeholders, clipped fragments, or TODO language.');
+  }
+  if (guardCodes.includes('contradiction_stale_value')) {
+    lines.push('- Do not restate superseded facts as current truth.');
+    for (const contradiction of activeContradictions.slice(0, 2)) {
+      lines.push(`- If that fact is relevant, treat "${contradiction.newText}" as current and "${contradiction.oldText}" as replaced.`);
+    }
+  }
+  return lines.join('\n');
+}
+
 function buildSemanticCore({ userText, file, toolRecords, draftText }) {
   const blocks = [];
   blocks.push(`User request:\n${String(userText || '').trim()}`);
@@ -1695,17 +1651,26 @@ function shouldUseSemanticRender({ file, toolRecords = [], draftText = '' }) {
 }
 
 function buildLmStudioSemanticRenderSystemPrompt({ memories }) {
-  const { blend, examples } = getPennyVoiceAssets();
-  const memBlock = formatPromptMemories(memories, '', 8, '- Nothing yet.');
+  const promptContext = buildPennyPromptContextBlocks({
+    memories,
+    userText: '',
+    lane: 'tool',
+    mode: 'local',
+    includeChatDirectives: false,
+    includeExamples: true,
+    memoryLimit: 8,
+    fallbackMemory: '- Nothing yet.',
+  });
+  const epistemicBlock = buildEpistemicPromptBlock(memories?.epistemicCaution);
   return `You are Penny.
 
 This pass exists only for harder technical or agentic turns.
 You are given a verified semantic core built from real tool results.
 Your job is to turn that semantic core into Penny's final visible reply.
 
-${formatPromptAssetBlock('Runtime voice blend', blend)}
+${promptContext.stack}
 
-${formatPromptAssetBlock('Quick voice examples', examples)}
+${epistemicBlock ? `${epistemicBlock}\n` : ''}
 
 Rules:
 - The semantic core is the source of truth. Do not invent facts, tool results, files, code changes, checks, URLs, errors, or conclusions not present there.
@@ -1718,12 +1683,13 @@ Rules:
 - When relevant, say what was inspected, changed, verified, or still uncertain.
 - If the semantic core contains concrete mechanics, keep them concrete. Preserve real function names, scoring weights, ordering rules, limits, tie-breakers, and checks instead of rounding everything into vague mush.
 - For code explanations, prefer a short step-by-step explanation when that is clearer than one compressed paragraph.
-- No chain-of-thought, no JSON, no meta commentary, no planning voice.
+- Keep any chain-of-thought or scratch work out of the visible reply unless a separate hidden reasoning channel is available.
+- No JSON, no meta commentary, no planning voice.
 - Do not mention "semantic core", "tool results", or hidden processing.
 
 Memory:
 ${memories?.userName ? `- Their name is ${memories.userName}.` : '- Name unknown.'}
-${memBlock}
+${promptContext.memoryBlock}
 
 Output:
 - Write only Penny's final visible reply.
@@ -1731,10 +1697,25 @@ Output:
 - Valid mood tags: [MOOD:calm], [MOOD:happy], [MOOD:excited], [MOOD:thinking], [MOOD:surprised], [MOOD:flirty], [MOOD:smug], [MOOD:annoyed]`;
 }
 
-async function renderSemanticReplyAsPenny({ userText, messages, memories, file, toolRecords, draftText, abortSignal, laneRuntime }) {
+async function renderSemanticReplyAsPenny({
+  userText,
+  messages,
+  memories,
+  file,
+  toolRecords,
+  draftText,
+  abortSignal,
+  laneRuntime,
+  repairGuardCodes = [],
+  activeContradictions = [],
+}) {
   const semanticCore = buildSemanticCore({ userText, file, toolRecords, draftText });
   if (!semanticCore.trim()) return cleanDraftForSemanticRender(draftText);
   const activeLaneRuntime = laneRuntime || createLaneRuntime('tool');
+  const repairInstructions = buildSemanticRepairInstructions({
+    guardCodes: repairGuardCodes,
+    activeContradictions,
+  });
   return withLmStudioLaneModelApi('tool', async (model) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
@@ -1752,6 +1733,7 @@ async function renderSemanticReplyAsPenny({ userText, messages, memories, file, 
             `Original user request:\n${String(userText || '').trim()}`,
             recentConversation ? `Recent conversation:\n${recentConversation}` : '',
             `Verified semantic core:\n${semanticCore}`,
+            repairInstructions ? `Repair constraints:\n${repairInstructions}` : '',
             'Return only Penny\'s final visible reply with one mood tag.',
           ].filter(Boolean).join('\n\n'),
         },
@@ -1795,57 +1777,256 @@ async function renderSemanticReplyAsPenny({ userText, messages, memories, file, 
   }, activeLaneRuntime);
 }
 
-async function maybeRenderHardTurnReply({ userText, messages, memories, file, text, toolsUsed = [], toolRecords = [], onToolEvent, abortSignal, laneRuntime }) {
+async function maybeRenderHardTurnReply({ userText, messages, memories, file, text, toolsUsed = [], toolRecords = [], onToolEvent, abortSignal, laneRuntime, latencyBudget = null }) {
   const cleanedText = cleanDraftForSemanticRender(text) || String(text || '').trim();
   const fallbackText = composeToolRecordFallback(toolRecords);
+  const activeContradictions = collectActiveContradictions(memories);
+  const archiveContext = memories?.archiveContext && typeof memories.archiveContext === 'object'
+    ? memories.archiveContext
+    : null;
+  const hardTurnEpistemics = buildPostToolEpistemicCaution({
+    previous: memories?.epistemicCaution,
+    enabled: PENNY_ENABLE_EPISTEMIC_CAUTION,
+    userText,
+    selectedLane: laneRuntime?.localLane || 'tool',
+    retrieval: archiveContext
+      ? {
+          mode: archiveContext.mode,
+          reasonCode: archiveContext.reasonCode,
+          session: archiveContext.session,
+          global: archiveContext.global,
+          compression: archiveContext.compression,
+        }
+      : null,
+    archiveContext,
+    toolRecords,
+  });
+  const hardTurnSynthesis = normalizeArchiveSynthesis(memories?.archiveSynthesis);
+  const renderMemories = {
+    ...memories,
+    epistemicCaution: hardTurnEpistemics,
+    archiveSynthesis: hardTurnSynthesis,
+  };
+  const budget = latencyBudget && typeof latencyBudget === 'object'
+    ? latencyBudget
+    : resolveLatencyBudget({ userText, lane: laneRuntime?.localLane || 'tool', file });
   const coerceFinalizedText = (candidate) => {
     const cleaned = cleanDraftForSemanticRender(candidate) || String(candidate || '').trim();
     if (looksLikeWeakToolReply(cleaned, toolRecords) && fallbackText) return fallbackText;
     return cleaned || fallbackText;
   };
-  if (!shouldUseSemanticRender({ file, toolRecords, draftText: cleanedText })) {
-    return { text: coerceFinalizedText(cleanedText), toolsUsed, toolRecords };
+  if (budget.allowSemanticRender !== true || !shouldUseSemanticRender({ file, toolRecords, draftText: cleanedText })) {
+    return {
+      text: coerceFinalizedText(cleanedText),
+      toolsUsed,
+      toolRecords,
+      repair: null,
+      epistemics: hardTurnEpistemics,
+      synthesis: hardTurnSynthesis,
+    };
   }
   onToolEvent?.({ type: 'status', stage: 'rendering', label: 'shaping the final reply' });
+  const semanticRenderStartedAt = Date.now();
+  if (laneRuntime && typeof laneRuntime === 'object') {
+    laneRuntime.performance = laneRuntime.performance && typeof laneRuntime.performance === 'object'
+      ? laneRuntime.performance
+      : {};
+    laneRuntime.performance.semanticRender = {
+      startedAt: new Date(semanticRenderStartedAt).toISOString(),
+      attempted: true,
+      used: false,
+      available: true,
+      cacheHit: false,
+      source: 'semantic-render',
+      note: 'Semantic render in progress.',
+    };
+  }
   try {
     const rendered = await renderSemanticReplyAsPenny({
       userText,
       messages,
-      memories,
+      memories: renderMemories,
       file,
       toolRecords,
       draftText: cleanedText,
       abortSignal,
       laneRuntime,
+      activeContradictions,
     });
-    return { text: coerceFinalizedText(rendered), toolsUsed, toolRecords };
+    const firstPassText = coerceFinalizedText(rendered);
+    const firstPassGuardCodes = collectReplyGuardCodes({
+      candidate: firstPassText,
+      activeContradictions,
+    });
+    if (!PENNY_ENABLE_RUNTIME_REPAIRS || !firstPassGuardCodes.length) {
+      if (laneRuntime?.performance?.semanticRender) {
+        laneRuntime.performance.semanticRender = {
+          ...laneRuntime.performance.semanticRender,
+          finishedAt: new Date().toISOString(),
+          durationMs: Math.max(0, Date.now() - semanticRenderStartedAt),
+          used: true,
+          note: 'Semantic render completed.',
+        };
+      }
+      return {
+        text: firstPassText,
+        toolsUsed,
+        toolRecords,
+        epistemics: hardTurnEpistemics,
+        synthesis: hardTurnSynthesis,
+        repair: normalizeRepairInfo(firstPassGuardCodes.length
+          ? {
+              firstPassGuardCodes,
+              repairAttempted: false,
+              repairAccepted: false,
+              finalCandidateSource: 'first-pass',
+              scope: 'semantic-render',
+            }
+          : null),
+      };
+    }
+    onToolEvent?.({ type: 'status', stage: 'repairing', label: 'tightening the final reply' });
+    try {
+      const repaired = await renderSemanticReplyAsPenny({
+        userText,
+        messages,
+        memories,
+        file,
+        toolRecords,
+        draftText: firstPassText,
+        abortSignal,
+        laneRuntime,
+        repairGuardCodes: firstPassGuardCodes,
+        activeContradictions,
+      });
+      const repairedText = coerceFinalizedText(repaired);
+      const retryGuardCodes = collectReplyGuardCodes({
+        candidate: repairedText,
+        activeContradictions,
+      });
+      if (!retryGuardCodes.length) {
+        if (laneRuntime?.performance?.semanticRender) {
+          laneRuntime.performance.semanticRender = {
+            ...laneRuntime.performance.semanticRender,
+            finishedAt: new Date().toISOString(),
+            durationMs: Math.max(0, Date.now() - semanticRenderStartedAt),
+            used: true,
+            note: 'Semantic render completed after repair.',
+          };
+        }
+        return {
+          text: repairedText,
+          toolsUsed,
+          toolRecords,
+          epistemics: hardTurnEpistemics,
+          synthesis: hardTurnSynthesis,
+          repair: normalizeRepairInfo({
+            firstPassGuardCodes,
+            repairAttempted: true,
+            repairAccepted: true,
+            finalCandidateSource: 'repair',
+            scope: 'semantic-render',
+          }),
+        };
+      }
+      return {
+        text: firstPassText,
+        toolsUsed,
+        toolRecords,
+        epistemics: hardTurnEpistemics,
+        synthesis: hardTurnSynthesis,
+        repair: normalizeRepairInfo({
+          firstPassGuardCodes,
+          repairAttempted: true,
+          repairAccepted: false,
+          repairRejectedReason: retryGuardCodes[0],
+          finalCandidateSource: 'first-pass',
+          scope: 'semantic-render',
+        }),
+      };
+    } catch {
+      if (laneRuntime?.performance?.semanticRender) {
+        laneRuntime.performance.semanticRender = {
+          ...laneRuntime.performance.semanticRender,
+          finishedAt: new Date().toISOString(),
+          durationMs: Math.max(0, Date.now() - semanticRenderStartedAt),
+          used: true,
+          note: 'Repair render failed; first pass kept.',
+        };
+      }
+      return {
+        text: firstPassText,
+        toolsUsed,
+        toolRecords,
+        epistemics: hardTurnEpistemics,
+        synthesis: hardTurnSynthesis,
+        repair: normalizeRepairInfo({
+          firstPassGuardCodes,
+          repairAttempted: true,
+          repairAccepted: false,
+          repairRejectedReason: 'repair_render_failed',
+          finalCandidateSource: 'first-pass',
+          scope: 'semantic-render',
+        }),
+      };
+    }
   } catch {
-    return { text: coerceFinalizedText(cleanedText), toolsUsed, toolRecords };
+    if (laneRuntime?.performance?.semanticRender) {
+      laneRuntime.performance.semanticRender = {
+        ...laneRuntime.performance.semanticRender,
+        finishedAt: new Date().toISOString(),
+        durationMs: Math.max(0, Date.now() - semanticRenderStartedAt),
+        used: false,
+        note: 'Semantic render failed; draft kept.',
+      };
+    }
+    return {
+      text: coerceFinalizedText(cleanedText),
+      toolsUsed,
+      toolRecords,
+      repair: null,
+      epistemics: hardTurnEpistemics,
+      synthesis: hardTurnSynthesis,
+    };
   }
 }
 
-function buildLmStudioLeanSystemPrompt({ memories }) {
-  const { blend, chatDirectives, examples } = getPennyVoiceAssets();
-  const memBlock = formatPromptMemories(memories, '', MEMORY_PROMPT_LIMIT, '');
+function buildLmStudioLeanSystemPrompt({ memories, latencyBudget = null }) {
+  const budget = latencyBudget && typeof latencyBudget === 'object'
+    ? latencyBudget
+    : resolveLatencyBudget({ lane: 'chat' });
+  const promptContext = buildPennyPromptContextBlocks({
+    memories,
+    userText: '',
+    lane: 'chat',
+    mode: 'local',
+    includeChatDirectives: true,
+    includeExamples: budget.includeExamples === true,
+    memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+    fallbackMemory: '',
+  });
+  const epistemicBlock = buildEpistemicPromptBlock(memories?.epistemicCaution);
   return `You are Penny.
 
-${formatPromptAssetBlock('Runtime voice blend', blend)}
+${promptContext.stack}
 
-${formatPromptAssetBlock('Conversation directives', chatDirectives)}
-
-${formatPromptAssetBlock('Quick voice examples', examples)}
+${epistemicBlock ? `${epistemicBlock}\n` : ''}
 
 What Penny knows about this person from previous conversations:
 ${memories?.userName ? `Their name is ${memories.userName}.` : 'Name unknown.'}
-${memBlock || 'Nothing yet - this is a fresh start.'}
+${promptContext.memoryBlock || 'Nothing yet - this is a fresh start.'}
 
 Use this knowledge naturally - small callbacks, easy assumptions, inside references.
 Never say "I remember you told me" or "since you mentioned" or "based on what I know."
 Just know them the way a close person would. Let it color your responses without announcing it.
+If the wake state above contradicts the user's premise, correct the premise instead of smoothing it over.
+If the wake state marks archive hints as advisory or weak, treat them as hints instead of certainty.
+If a project, file, or tool claim has not been verified in this turn, say that plainly instead of bluffing.
 
 Output rules:
 - Write only Penny's visible reply.
-- No analysis, bullet points, hidden reasoning, or meta commentary.
+- No analysis, bullet points, or meta commentary in the visible reply.
+- If the model supports hidden reasoning, keep it in the hidden reasoning channel and never print it into the visible reply.
 - If a sharper or more specific line is available without breaking the moment, take it.
 
 End your reply with exactly one mood tag on its own line:
@@ -1854,13 +2035,22 @@ Pick the mood that BEST matches the vibe of your reply. Use variety - rotate thr
 }
 
 function buildLmStudioSystemPrompt({ memories }) {
-  const { blend, examples } = getPennyVoiceAssets();
-  const memBlock = formatPromptMemories(memories, '', MEMORY_PROMPT_LIMIT, '');
+  const promptContext = buildPennyPromptContextBlocks({
+    memories,
+    userText: '',
+    lane: 'chat',
+    mode: 'local',
+    includeChatDirectives: true,
+    includeExamples: true,
+    memoryLimit: MEMORY_PROMPT_LIMIT,
+    fallbackMemory: '',
+  });
+  const epistemicBlock = buildEpistemicPromptBlock(memories?.epistemicCaution);
   return `You are Penny.
 
-${formatPromptAssetBlock('Runtime voice blend', blend)}
+${promptContext.stack}
 
-${formatPromptAssetBlock('Quick voice examples', examples)}
+${epistemicBlock ? `${epistemicBlock}\n` : ''}
 
 You are warm, sharp, playful, witty, affectionate, teasing, emotionally attentive, and vividly present. You are not a generic assistant, not a therapist, and not customer support. You should always sound like one specific, memorable person.
 
@@ -1923,6 +2113,9 @@ Rules:
 - After editing code, run a quick syntax or status check when an appropriate tool exists.
 - Never invent tool results and never claim a code edit happened unless the tool actually completed it.
 - Never claim you read a file, checked a log, or verified runtime status unless you actually did it in this turn.
+- If the wake state or verified evidence contradicts the user's premise, correct them cleanly instead of inheriting the mistake.
+- User confidence, social pressure, and "just back me up" energy are not evidence.
+- If memory hints are weak, advisory, or contradictory, Penny should say that plainly and keep the line alive instead of bluffing certainty.
 - If the user is flirty or affectionate, become warmer, more intimate, and more chemistry-aware.
 - If erotic tone is invited, be bolder and more direct while keeping personality, emotional awareness, and style.
 
@@ -1984,31 +2177,35 @@ Avoid:
 Even at high intensity, Penny should still feel like Penny: clever, warm, observant, intimate, and vividly engaged.
 
 PENNY'S SELF-IMAGE:
-Penny knows she's cute — coral hair, pink-violet eyes, headphones, cropped jacket, platform boots, a little fang when she smirks. She doesn't narrate her appearance. She just exists in her body the way anyone does. Occasionally she might adjust her headphones or push hair aside, but ONLY if it fits the moment. Do NOT describe her looks unless directly asked. Never mention hair color, eye color, or outfit unprompted.
+Penny has a stable look and body language, but she does not volunteer appearance details unless the user actually asks.
 
 OUTPUT RULES:
-Write ONLY Penny's visible reply. No analysis, reasoning, bullet points, meta commentary, or hidden thinking. No preambles like "The user" or "I should". Just Penny's words.
+Write ONLY Penny's visible reply. No analysis, bullet points, meta commentary, or planning voice in the visible reply. If the model supports hidden thinking, keep it in the hidden reasoning channel and never print it into the visible reply. No preambles like "The user" or "I should". Just Penny's words.
 
 What Penny knows about this person from previous conversations:
 ${memories?.userName ? `Their name is ${memories.userName}.` : 'Name unknown.'}
-${memBlock || 'Nothing yet — this is a fresh start.'}
+${promptContext.memoryBlock || 'Nothing yet — this is a fresh start.'}
 
 Use this knowledge naturally — small callbacks, easy assumptions, inside references.
 Never say "I remember you told me" or "since you mentioned" or "based on what I know."
 Just know them the way a close person would. Let it color your responses without announcing it.
+Stable facts outrank advisory hints. If the wake state is weak, contradictory, or only loosely retrieved, say that plainly and do not fake certainty.
 
 End your reply with exactly one mood tag on its own line:
 [MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised] or [MOOD:flirty] or [MOOD:smug] or [MOOD:annoyed]
 Pick the mood that BEST matches the vibe of your reply. Use variety — rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange.`;
 }
 
-function buildLmStudioPrompt({ userText, messages, memories, file }) {
+function buildLmStudioPrompt({ userText, messages, memories, file, latencyBudget = null }) {
+  const budget = latencyBudget && typeof latencyBudget === 'object'
+    ? latencyBudget
+    : resolveLatencyBudget({ userText, lane: 'chat', file });
   const history = (messages || [])
-    .slice(-PENNY_CHAT_HISTORY_LIMIT)
+    .slice(-(budget.recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT))
     .map(msg => `${msg.role === 'assistant' ? 'Penny' : 'User'}: ${String(msg.content || '').trim()}`)
     .join('\n');
-  const latestInput = injectRelevantMemoryContext(appendAttachmentContext(userText, file), memories, userText);
-  return `${buildLmStudioLeanSystemPrompt({ memories })}
+  const latestInput = appendAttachmentContext(userText, file);
+  return `${buildLmStudioLeanSystemPrompt({ memories, latencyBudget: budget })}
 
 Recent conversation:
 ${history || '- none'}
@@ -2017,8 +2214,11 @@ User message:
 ${latestInput}`;
 }
 
-function buildLmStudioMessages({ userText, messages, memories, image, file }) {
-  const slice = (messages || []).slice(-PENNY_CHAT_HISTORY_LIMIT);
+function buildLmStudioMessages({ userText, messages, memories, image, file, latencyBudget = null }) {
+  const budget = latencyBudget && typeof latencyBudget === 'object'
+    ? latencyBudget
+    : resolveLatencyBudget({ userText, lane: image || file ? 'tool' : 'chat', image, file });
+  const slice = (messages || []).slice(-(budget.recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT));
   let lastUserIdx = -1;
   for (let i = slice.length - 1; i >= 0; i--) {
     if (slice[i]?.role === 'user') {
@@ -2032,7 +2232,7 @@ function buildLmStudioMessages({ userText, messages, memories, image, file }) {
       const role = msg?.role === 'assistant' ? 'assistant' : 'user';
       const isLatestUser = role === 'user' && idx === lastUserIdx;
       const text = isLatestUser
-        ? injectRelevantMemoryContext(appendAttachmentContext(msg?.content || userText, file), memories, userText)
+        ? appendAttachmentContext(msg?.content || userText, file)
         : String(msg?.content || '').trim();
       if (!text) return null;
       const imageUrl = isLatestUser ? (msg.image || image || null) : null;
@@ -2060,14 +2260,17 @@ function buildLmStudioMessages({ userText, messages, memories, image, file }) {
     }
   }
   return [
-      { role: 'system', content: buildLmStudioLeanSystemPrompt({ memories }) },
+      { role: 'system', content: buildLmStudioLeanSystemPrompt({ memories, latencyBudget: budget }) },
     ...recent,
   ];
 }
 
-function buildLmStudioStatefulSeedText({ userText, messages, file }) {
+function buildLmStudioStatefulSeedText({ userText, messages, file, latencyBudget = null }) {
+  const budget = latencyBudget && typeof latencyBudget === 'object'
+    ? latencyBudget
+    : resolveLatencyBudget({ userText, lane: file ? 'tool' : 'chat', file });
   const prior = (messages || [])
-    .slice(-(PENNY_CHAT_HISTORY_LIMIT + 1), -1)
+    .slice(-((budget.recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT) + 1), -1)
     .map((msg) => {
       const role = msg?.role === 'assistant' ? 'Penny' : 'User';
       const text = String(msg?.content || '').trim();
@@ -2080,11 +2283,19 @@ function buildLmStudioStatefulSeedText({ userText, messages, file }) {
   return `Recent conversation so far:\n${prior}\n\nLatest user message:\n${latestInput}`;
 }
 
-function buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread }) {
-  const latestInput = injectRelevantMemoryContext(appendAttachmentContext(userText, file), memories, userText);
+function buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread, latencyBudget = null }) {
+  const budget = latencyBudget && typeof latencyBudget === 'object'
+    ? latencyBudget
+    : resolveLatencyBudget({ userText, lane: image || file ? 'tool' : 'chat', image, file });
+  const latestInput = appendAttachmentContext(userText, file);
+  const memoryBlock = hasThread
+    ? formatPromptMemories(memories, userText, budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT, '')
+    : '';
   const text = hasThread
-    ? latestInput
-    : buildLmStudioStatefulSeedText({ userText: latestInput, messages, file: null });
+    ? memoryBlock
+      ? `Relevant memory for this reply:\n${memoryBlock}\n\nUser message:\n${latestInput}`.trim()
+      : latestInput
+    : buildLmStudioStatefulSeedText({ userText: latestInput, messages, file: null, latencyBudget: budget });
   if (!image) return text;
   return [
     { type: 'message', content: text },
@@ -2161,37 +2372,7 @@ const {
   runLmStudioLocal: runLmStudioLocalApi,
   streamLmStudioLocal: streamLmStudioLocalApi,
 } = lmStudioTransportApi;
-function createLaneRuntime(localLane = 'chat') {
-  const requestedModel = getPreferredModelForLaneApi(localLane) || '';
-  return {
-    localLane,
-    requestedModel,
-    resolvedModel: requestedModel,
-    laneFallback: false,
-  };
-}
-
-function beginEventStream(res) {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  });
-  if (typeof res.flushHeaders === 'function') res.flushHeaders();
-}
-
-function sendEventStream(res, event, payload = {}) {
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify(payload)}\n\n`);
-}
-function startEventStreamKeepAlive(res) {
-  const intervalMs = Math.max(5000, STREAM_KEEPALIVE_MS);
-  return setInterval(() => {
-    if (res.writableEnded || res.destroyed) return;
-    sendEventStream(res, 'keepalive', { ts: Date.now() });
-  }, intervalMs);
-}
+const createLaneRuntime = createLaneRuntimeApi;
 
 function bindAbortSignal(controller, abortSignal) {
   if (!abortSignal) return;
@@ -2204,24 +2385,54 @@ function bindAbortSignal(controller, abortSignal) {
   controller.signal.addEventListener('abort', () => abortSignal.removeEventListener('abort', onAbort), { once: true });
 }
 
-async function runLmStudioLocalSmart({ userText, messages, memories, image, file, abortSignal, onToolEvent, laneSelection = null }) {
+async function runLmStudioLocalSmart({ userText, messages, memories, image, file, abortSignal, onToolEvent, laneSelection = null, latencyBudget = null }) {
   const toolUserText = buildToolUserText(userText, file);
   const resolvedLaneSelection = laneSelection || selectLocalLane({ userText, image, file });
+  const budget = latencyBudget && typeof latencyBudget === 'object'
+    ? latencyBudget
+    : resolveLatencyBudget({
+        userText,
+        lane: resolvedLaneSelection.localLane,
+        image,
+        file,
+        attachmentType: image ? 'image' : (file ? 'file' : 'none'),
+      });
   const laneRuntime = createLaneRuntime(resolvedLaneSelection.localLane);
+  laneRuntime.performance = { latencyClass: budget.latencyClass };
   if (!image && resolvedLaneSelection.directIntent) {
       const result = await runLmStudioDirectToolAssist({
         userText: toolUserText,
         messages,
         memories,
+        latencyBudget: budget,
         intent: resolvedLaneSelection.directIntent,
         onToolEvent,
         abortSignal,
       });
       if (result.skipSemanticRender) {
+        const directEpistemics = buildPostToolEpistemicCaution({
+          previous: memories?.epistemicCaution,
+          enabled: PENNY_ENABLE_EPISTEMIC_CAUTION,
+          userText,
+          selectedLane: laneRuntime.localLane,
+          retrieval: memories?.archiveContext
+            ? {
+                mode: memories.archiveContext.mode,
+                reasonCode: memories.archiveContext.reasonCode,
+                session: memories.archiveContext.session,
+                global: memories.archiveContext.global,
+                compression: memories.archiveContext.compression,
+              }
+            : null,
+          archiveContext: memories?.archiveContext,
+          toolRecords: result.toolRecords,
+        });
         return {
           text: cleanDraftForSemanticRender(result.text) || String(result.text || '').trim(),
           toolsUsed: result.toolsUsed,
           toolRecords: result.toolRecords,
+          epistemics: directEpistemics,
+          synthesis: normalizeArchiveSynthesis(memories?.archiveSynthesis),
           ...laneRuntime,
         };
       }
@@ -2236,12 +2447,13 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         onToolEvent,
         abortSignal,
         laneRuntime,
+        latencyBudget: budget,
       });
       return { ...finalized, ...laneRuntime };
   }
-  if (!image && laneSelection.localLane === 'tool' && laneSelection.needsTools) {
+  if (!image && resolvedLaneSelection.localLane === 'tool' && resolvedLaneSelection.needsTools) {
     try {
-      const result = await runLmStudioToolLoopApiRunner({ userText: toolUserText, messages, memories, abortSignal, laneRuntime });
+      const result = await runLmStudioToolLoopApiRunner({ userText: toolUserText, messages, memories, abortSignal, laneRuntime, latencyBudget: budget });
       const finalized = await maybeRenderHardTurnReply({
         userText,
         messages,
@@ -2253,11 +2465,12 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         onToolEvent,
         abortSignal,
         laneRuntime,
+        latencyBudget: budget,
       });
       return { ...finalized, ...laneRuntime };
     } catch (error) {
       if (!shouldFallbackToManualToolLoopApi(error)) throw error;
-      const result = await runLmStudioManualToolLoopApiRunner({ userText: toolUserText, messages, memories, abortSignal, laneRuntime });
+      const result = await runLmStudioManualToolLoopApiRunner({ userText: toolUserText, messages, memories, abortSignal, laneRuntime, latencyBudget: budget });
       const finalized = await maybeRenderHardTurnReply({
         userText,
         messages,
@@ -2269,24 +2482,66 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         onToolEvent,
         abortSignal,
         laneRuntime,
+        latencyBudget: budget,
       });
       return { ...finalized, ...laneRuntime };
     }
   }
-  const text = await runLmStudioLocalApi({ userText, messages, memories, image, file, abortSignal, lane: laneRuntime.localLane, laneRuntime });
-  return { text, toolsUsed: [], toolRecords: [], ...laneRuntime };
+  const text = await runLmStudioLocalApi({ userText, messages, memories, image, file, abortSignal, lane: laneRuntime.localLane, laneRuntime, latencyBudget: budget });
+  return {
+    text,
+    toolsUsed: [],
+    toolRecords: [],
+    epistemics: normalizeEpistemicCaution(memories?.epistemicCaution),
+    synthesis: normalizeArchiveSynthesis(memories?.archiveSynthesis),
+    ...laneRuntime,
+  };
 }
 
-async function streamLmStudioLocalSmart({ userText, messages, memories, image, file, onEvent, abortSignal, laneSelection = null }) {
+async function streamLmStudioLocalSmart({ userText, messages, memories, image, file, onEvent, abortSignal, laneSelection = null, latencyBudget = null }) {
   const toolUserText = buildToolUserText(userText, file);
   const resolvedLaneSelection = laneSelection || selectLocalLane({ userText, image, file });
+  const budget = latencyBudget && typeof latencyBudget === 'object'
+    ? latencyBudget
+    : resolveLatencyBudget({
+        userText,
+        lane: resolvedLaneSelection.localLane,
+        image,
+        file,
+        attachmentType: image ? 'image' : (file ? 'file' : 'none'),
+      });
   const laneRuntime = createLaneRuntime(resolvedLaneSelection.localLane);
+  laneRuntime.performance = { latencyClass: budget.latencyClass };
   if (!image && resolvedLaneSelection.directIntent) {
-      const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, intent: resolvedLaneSelection.directIntent, onToolEvent: onEvent, abortSignal });
+      const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, latencyBudget: budget, intent: resolvedLaneSelection.directIntent, onToolEvent: onEvent, abortSignal });
       if (result.skipSemanticRender) {
         const directText = cleanDraftForSemanticRender(result.text) || String(result.text || '').trim();
+        const directEpistemics = buildPostToolEpistemicCaution({
+          previous: memories?.epistemicCaution,
+          enabled: PENNY_ENABLE_EPISTEMIC_CAUTION,
+          userText,
+          selectedLane: laneRuntime.localLane,
+          retrieval: memories?.archiveContext
+            ? {
+                mode: memories.archiveContext.mode,
+                reasonCode: memories.archiveContext.reasonCode,
+                session: memories.archiveContext.session,
+                global: memories.archiveContext.global,
+                compression: memories.archiveContext.compression,
+              }
+            : null,
+          archiveContext: memories?.archiveContext,
+          toolRecords: result.toolRecords,
+        });
         if (directText) onEvent?.({ type: 'message.delta', content: directText, text: directText });
-        return { text: directText, toolsUsed: result.toolsUsed, toolRecords: result.toolRecords, ...laneRuntime };
+        return {
+          text: directText,
+          toolsUsed: result.toolsUsed,
+          toolRecords: result.toolRecords,
+          epistemics: directEpistemics,
+          synthesis: normalizeArchiveSynthesis(memories?.archiveSynthesis),
+          ...laneRuntime,
+        };
       }
       const finalized = await maybeRenderHardTurnReply({
         userText,
@@ -2299,18 +2554,19 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
         onToolEvent: onEvent,
         abortSignal,
         laneRuntime,
+        latencyBudget: budget,
       });
       if (finalized.text) onEvent?.({ type: 'message.delta', content: finalized.text, text: finalized.text });
       return { ...finalized, ...laneRuntime };
   }
-  if (!image && laneSelection.localLane === 'tool' && laneSelection.needsTools) {
+  if (!image && resolvedLaneSelection.localLane === 'tool' && resolvedLaneSelection.needsTools) {
     let result;
     try {
-      result = await runLmStudioToolLoopApiRunner({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal, laneRuntime });
+      result = await runLmStudioToolLoopApiRunner({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal, laneRuntime, latencyBudget: budget });
     } catch (error) {
       if (!shouldFallbackToManualToolLoopApi(error)) throw error;
       onEvent?.({ type: 'status', stage: 'fallback', label: 'switching tool mode' });
-      result = await runLmStudioManualToolLoopApiRunner({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal, laneRuntime });
+      result = await runLmStudioManualToolLoopApiRunner({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal, laneRuntime, latencyBudget: budget });
     }
     const finalized = await maybeRenderHardTurnReply({
       userText,
@@ -2323,506 +2579,99 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
       onToolEvent: onEvent,
       abortSignal,
       laneRuntime,
+      latencyBudget: budget,
     });
     if (finalized.text) onEvent?.({ type: 'message.delta', content: finalized.text, text: finalized.text });
     return { ...finalized, ...laneRuntime };
   }
-  const text = await streamLmStudioLocalApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane: laneRuntime.localLane, laneRuntime });
-  return { text, toolsUsed: [], toolRecords: [], ...laneRuntime };
+  const text = await streamLmStudioLocalApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane: laneRuntime.localLane, laneRuntime, latencyBudget: budget });
+  return {
+    text,
+    toolsUsed: [],
+    toolRecords: [],
+    epistemics: normalizeEpistemicCaution(memories?.epistemicCaution),
+    synthesis: normalizeArchiveSynthesis(memories?.archiveSynthesis),
+    ...laneRuntime,
+  };
 }
 
-function serveFile(res, filePath) { fs.readFile(filePath, (err, data) => { if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); return; } const ext = path.extname(filePath).toLowerCase(); res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' }); res.end(data); }); }
+const routeHandlers = createPennyRouteHandlers({
+  sendJson,
+  safeReadBody,
+  buildCombinedMemoryInspector: async (sessionId = 'default', explicitMemory = {}) => {
+    const lmStudio = await getLmStudioConnectionStatusApi();
+    const semanticMemory = await getSemanticMemoryStatusApi({ lmStatus: lmStudio });
+    return buildCombinedMemoryInspector({
+      sessionId,
+      explicitMemory,
+      inspector: await getMemoryInspectorApi({ sessionId, explicitMemory, semanticMemory }),
+      books: getMemoryBooksInspectorApi(),
+      lmStudio,
+      shadowEnabled: OPENCLAW_ENABLED,
+    });
+  },
+  getStoredMemory,
+  saveStoredMemory,
+  mergeMemoryItems,
+  mergeMemoryState,
+  reviewPromotion: reviewPromotionApi,
+  purgeArchiveMemory: purgeArchiveMemoryApi,
+  buildChatMemoryState,
+  sanitizeChatMessages,
+  sanitizeImageDataUrl,
+  sanitizeFileAttachment,
+  appendAttachmentContext,
+  buildRuntimeMemoryContext,
+  selectLocalLane,
+  runLmStudioLocalSmart,
+  streamLmStudioLocalSmart,
+  buildPennyReply,
+  scheduleArchiveConsolidation,
+  buildLastRouteInfo,
+  runOpenClawShadow,
+  retagAssistantReply,
+  extractReplyMoodTag,
+  pickMood,
+  stripReplyMoodTags,
+  beginEventStream,
+  sendEventStream,
+  startEventStreamKeepAlive,
+  describeLocalBrainFailure,
+  getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
+  getSemanticMemoryStatus: getSemanticMemoryStatusApi,
+  setRuntimePreferredChatModel: setRuntimePreferredChatModelApi,
+  getRuntimePreferredChatModel: getRuntimePreferredChatModelApi,
+  sessionState,
+  constants: {
+    OPENCLAW_ENABLED,
+    OPENCLAW_TIMEOUT_MS,
+    PENNY_LMSTUDIO_EMBED_MODEL,
+    LMSTUDIO_BASE,
+    LMSTUDIO_NATIVE_BASE,
+    LMSTUDIO_MODEL,
+    LOCAL_LLM_TRANSPORT,
+    RESPONSES_THEN_CHAT_FALLBACK,
+    LMSTUDIO_MAX_OUTPUT_TOKENS,
+    MEMORY_FILE,
+    MEMORY_ARCHIVE_FILE,
+    MEMORY_EMBEDDINGS_FILE,
+    WEB_SEARCH_ENABLED,
+  },
+});
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (req.method === 'GET' && url.pathname === '/api/penny/memory') { const sessionId = url.searchParams.get('sessionId') || 'default'; const { memory } = getStoredMemory(sessionId); return sendJson(res, 200, { ok: true, memory }); }
-  if (req.method === 'POST' && url.pathname === '/api/penny/memory') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const sessionId = payload.sessionId || 'default'; const existing = getStoredMemory(sessionId).memory; const merged = mergeMemoryState(existing, payload.memory || {}); const saved = saveStoredMemory(sessionId, merged); return sendJson(res, 200, { ok: true, memory: saved }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
-  if (req.method === 'PATCH' && url.pathname === '/api/penny/memory') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const sessionId = payload.sessionId || 'default'; const existing = getStoredMemory(sessionId).memory; const merged = mergeMemoryState(existing, payload.patch || {}); const saved = saveStoredMemory(sessionId, merged); return sendJson(res, 200, { ok: true, memory: saved }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
-  if (req.method === 'GET' && url.pathname === '/api/penny/memory/inspector') {
-    try {
-      const sessionId = url.searchParams.get('sessionId') || 'default';
-      const explicitMemory = getStoredMemory(sessionId).memory;
-      const inspector = await getMemoryInspectorApi({ sessionId, explicitMemory });
-      return sendJson(res, 200, { ok: true, memory: explicitMemory, inspector });
-    } catch (error) {
-      return sendJson(res, 500, { ok: false, error: error.message });
-    }
-  }
-  if (req.method === 'POST' && url.pathname === '/api/penny/memory/review') {
-    try {
-      const rawBody = await safeReadBody(req);
-      const payload = rawBody ? JSON.parse(rawBody) : {};
-      const sessionId = payload.sessionId || 'default';
-      const review = reviewPromotionApi({
-        queueId: payload.queueId || payload.id || '',
-        action: payload.action === 'reject' ? 'reject' : 'approve',
-      });
-      if (!review) return sendJson(res, 404, { ok: false, error: 'Memory review item not found.' });
-      let memory = getStoredMemory(sessionId).memory;
-      if (review.promotedMemory) {
-        memory = saveStoredMemory(sessionId, {
-          ...memory,
-          memories: mergeMemoryItems([review.promotedMemory, ...(memory.memories || [])]),
-        });
-      }
-      const inspector = await getMemoryInspectorApi({ sessionId, explicitMemory: memory });
-      return sendJson(res, 200, {
-        ok: true,
-        action: review.action,
-        memory,
-        inspector,
-        reviewed: review.item,
-      });
-    } catch (error) {
-      return sendJson(res, 500, { ok: false, error: error.message });
-    }
-  }
-  if (req.method === 'POST' && url.pathname === '/api/penny/memory/purge') {
-    try {
-      const rawBody = await safeReadBody(req);
-      const payload = rawBody ? JSON.parse(rawBody) : {};
-      const sessionId = payload.sessionId || 'default';
-      let memory = getStoredMemory(sessionId).memory;
-      if (payload.clearExplicit === true) {
-        memory = saveStoredMemory(sessionId, {
-          ...memory,
-          memories: [],
-        });
-      }
-      const archive = purgeArchiveMemoryApi({
-        sessionId,
-        clearSessionArchive: payload.clearSessionArchive === true,
-        clearGlobalArchive: payload.clearGlobalArchive === true,
-        clearEmbeddings: payload.clearEmbeddings === true,
-      });
-      const inspector = await getMemoryInspectorApi({ sessionId, explicitMemory: memory });
-      return sendJson(res, 200, { ok: true, memory, inspector, archive });
-    } catch (error) {
-      return sendJson(res, 500, { ok: false, error: error.message });
-    }
-  }
-  if (req.method === 'POST' && url.pathname === '/api/penny/consolidate') { try { const rawBody = await safeReadBody(req); const payload = rawBody ? JSON.parse(rawBody) : {}; const messages = Array.isArray(payload.messages) ? payload.messages : []; const sessionId = payload.sessionId || 'default'; const prepared = buildChatMemoryState(sessionId, payload.memories || {}, messages); const saved = saveStoredMemory(sessionId, prepared.memory); return sendJson(res, 200, { ok: true, memory: saved, patch: prepared.patch }); } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); } }
-  if (req.method === 'GET' && url.pathname === '/api/penny/shadow-status') { return sendJson(res, 200, { ok: true, enabled: OPENCLAW_ENABLED, timeoutMs: OPENCLAW_TIMEOUT_MS, modelPath: 'openclaw agent --agent main', fallback: 'legacy /api/penny/chat/shadow falls back locally; main /api/penny/chat blocks on shadow failure', warning: 'Shadow is an optional experimental lane. It is not Penny\'s main chat brain, and the main chat route should surface failures instead of silently faking a reply.' }); }
-  if (req.method === 'GET' && url.pathname === '/api/penny/lmstudio/status') {
-    const lmStudio = await getLmStudioConnectionStatusApi({ force: true });
-    const semanticMemory = await getSemanticMemoryStatusApi({ force: true, lmStatus: lmStudio });
-    return sendJson(res, 200, {
-      ...lmStudio,
-      embedPreferredModel: PENNY_LMSTUDIO_EMBED_MODEL,
-      semanticMemory,
-    });
-  }
-  if (req.method === 'POST' && url.pathname === '/api/penny/lmstudio/model') {
-    try {
-      const rawBody = await safeReadBody(req);
-      const payload = rawBody ? JSON.parse(rawBody) : {};
-      const model = String(payload.model || '').trim();
-      setRuntimePreferredChatModelApi(model);
-      const lmStudio = await getLmStudioConnectionStatusApi({ force: true });
-      return sendJson(res, 200, {
-        ok: true,
-        runtimePreferredModel: getRuntimePreferredChatModelApi() || null,
-        chatPreferredModel: lmStudio.chatPreferredModel || null,
-        toolPreferredModel: lmStudio.toolPreferredModel || null,
-        resolvedModel: lmStudio.resolvedModel,
-        routingMode: lmStudio.routingMode || 'auto',
-      });
-    } catch (error) { return sendJson(res, 500, { ok: false, error: error.message }); }
-  }
-  if (req.method === 'POST' && url.pathname === '/api/penny/chat/shadow') {
-    try {
-      const rawBody = await safeReadBody(req);
-      const payload = rawBody ? JSON.parse(rawBody) : {};
-      const messages = sanitizeChatMessages(payload.messages);
-      const sessionId = payload.sessionId || 'default';
-      const prepared = buildChatMemoryState(sessionId, payload.memories || {}, messages);
-      const memories = prepared.memory;
-      const lastUserMessage = [...messages].reverse().find(msg => msg && msg.role === 'user');
-      const userText = String(lastUserMessage?.content || '').trim();
-      if (!userText) return sendJson(res, 400, { error: 'Missing user message content.' });
-      const fileAttachment = sanitizeFileAttachment(payload.file || null);
-      const promptUserText = appendAttachmentContext(userText, fileAttachment);
-      const runtimeMemoryContext = await buildRuntimeMemoryContext({
-        sessionId,
-        memories,
-        userText,
-        lane: 'chat',
-      });
-      const promptMemories = runtimeMemoryContext.memories;
-      const savedMemory = saveStoredMemory(sessionId, memories);
-      if (!OPENCLAW_ENABLED) {
-        const fallbackText = buildPennyReply({ userText, memories: promptMemories });
-        scheduleArchiveConsolidation({
-          sessionId,
-          userText,
-          assistantText: fallbackText,
-          retrieval: runtimeMemoryContext.retrieval,
-        });
-        return sendJson(res, 200, {
-          ok: true,
-          enabled: false,
-          usedFallback: true,
-          text: fallbackText,
-          memory: savedMemory,
-          meta: { backend: 'local-stable', shadowAvailable: false },
-        });
-      }
-      try {
-        const text = await runOpenClawShadow({ sessionId, userText: promptUserText, messages, memories: promptMemories });
-        scheduleArchiveConsolidation({
-          sessionId,
-          userText,
-          assistantText: text,
-          retrieval: runtimeMemoryContext.retrieval,
-        });
-        return sendJson(res, 200, { ok: true, enabled: true, usedFallback: false, text, memory: savedMemory, meta: { backend: 'openclaw-shadow', shadowAvailable: true } });
-      } catch (error) {
-        const fallbackText = buildPennyReply({ userText, memories: promptMemories });
-        scheduleArchiveConsolidation({
-          sessionId,
-          userText,
-          assistantText: fallbackText,
-          retrieval: runtimeMemoryContext.retrieval,
-        });
-        return sendJson(res, 200, {
-          ok: true,
-          enabled: true,
-          usedFallback: true,
-          text: fallbackText,
-          memory: savedMemory,
-          meta: { backend: 'local-stable', shadowAvailable: true, shadowError: error.message },
-        });
-      }
-    } catch (error) {
-      return sendJson(res, error?.statusCode || 500, { ok: false, error: error.message });
-    }
-  }
-  if (req.method === 'POST' && (url.pathname === '/api/penny/chat' || url.pathname === '/api/companion/chat')) {
-    try {
-      const rawBody = await safeReadBody(req);
-      const payload = rawBody ? JSON.parse(rawBody) : {};
-      const messages = sanitizeChatMessages(payload.messages);
-      const sessionId = payload.sessionId || 'default';
-      const prepared = buildChatMemoryState(sessionId, payload.memories || {}, messages);
-      const memories = prepared.memory;
-      const lastUserMessage = [...messages].reverse().find(msg => msg && msg.role === 'user');
-      const userText = String(lastUserMessage?.content || '').trim();
-      if (!userText) return sendJson(res, 400, { error: 'Missing user message content.' });
-      const imageAttachment = sanitizeImageDataUrl(payload.image || null);
-      const image = imageAttachment?.dataUrl || null;
-      const fileAttachment = sanitizeFileAttachment(payload.file || null);
-      const promptUserText = appendAttachmentContext(userText, fileAttachment);
-      const wantsStream = payload.stream === true || url.searchParams.get('stream') === '1';
-      const requestedMode = memories?.brainMode === 'shadow' ? 'shadow' : 'local';
-      const laneSelection = requestedMode === 'local'
-        ? selectLocalLane({ userText, image, file: fileAttachment })
-        : { localLane: 'chat', directIntent: null };
-      const runtimeMemoryContext = (requestedMode === 'shadow' || laneSelection.localLane === 'chat')
-        ? await buildRuntimeMemoryContext({
-            sessionId,
-            memories,
-            userText,
-            lane: 'chat',
-          })
-        : {
-            memories,
-            archiveContext: null,
-            retrieval: null,
-            semanticMemory: null,
-          };
-      const promptMemories = runtimeMemoryContext.memories;
+  if (await routeHandlers.handleApiRoute({ req, res, url })) return;
 
-      saveStoredMemory(sessionId, memories);
-      sessionState.turns += 1;
-      sessionState.memory.push({ role: 'user', content: userText, ts: Date.now() });
-      if (sessionState.memory.length > 12) sessionState.memory = sessionState.memory.slice(-12);
-
-      let text;
-      let backend = 'local-lmstudio';
-      let usedFallback = false;
-      let shadowError = null;
-      let toolsUsed = [];
-      let localLane = 'chat';
-      let requestedModel = '';
-      let resolvedModel = '';
-      let laneFallback = false;
-      const semanticMemoryReady = runtimeMemoryContext.semanticMemory?.ready === true;
-      const semanticMemoryMode = runtimeMemoryContext.semanticMemory?.mode || 'disabled';
-
-      if (wantsStream) {
-        beginEventStream(res);
-        if (typeof req.setTimeout === 'function') req.setTimeout(0);
-        if (typeof res.setTimeout === 'function') res.setTimeout(0);
-        if (req.socket && typeof req.socket.setTimeout === 'function') req.socket.setTimeout(0);
-        const keepAlive = startEventStreamKeepAlive(res);
-        const clientAbortController = new AbortController();
-        let clientClosed = false;
-        const onClose = () => {
-          clientClosed = true;
-          clientAbortController.abort();
-        };
-        req.on('close', onClose);
-        try {
-          sendEventStream(res, 'status', { stage: 'accepted', label: 'link open' });
-          if (requestedMode === 'local') {
-            const result = image
-              ? await runLmStudioLocalSmart({
-                  userText,
-                  messages,
-                  memories: promptMemories,
-                  image,
-                  file: fileAttachment,
-                  abortSignal: clientAbortController.signal,
-                  laneSelection,
-                })
-              : await streamLmStudioLocalSmart({
-                  userText,
-                  messages,
-                  memories: promptMemories,
-                  image,
-                  file: fileAttachment,
-                  abortSignal: clientAbortController.signal,
-                  laneSelection,
-                  onEvent: (evt) => {
-                    if (clientClosed) return;
-                    if (evt?.type === 'message.delta') {
-                      sendEventStream(res, 'message.delta', { content: evt.content || '', text: evt.text || '' });
-                    } else if (evt?.type === 'status') {
-                      sendEventStream(res, 'status', { stage: evt.stage || '', label: evt.label || '' });
-                    } else if (evt?.type === 'tool') {
-                      sendEventStream(res, 'tool', evt);
-                    }
-                  },
-                });
-            text = result.text;
-            toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
-            backend = toolsUsed.length ? 'local-lmstudio-tools' : 'local-lmstudio';
-            localLane = result.localLane || 'chat';
-            requestedModel = result.requestedModel || '';
-            resolvedModel = result.resolvedModel || '';
-            laneFallback = result.laneFallback === true;
-          } else if (!OPENCLAW_ENABLED) {
-            sendEventStream(res, 'error', {
-              error: 'Shadow brain requested but not enabled on the server.',
-              meta: {
-                requestedMode,
-                backend: 'shadow-unavailable',
-                shadowEnabled: false,
-                usedFallback: false,
-              },
-            });
-            return res.end();
-          } else {
-            text = await runOpenClawShadow({ sessionId, userText: promptUserText, messages, memories: promptMemories });
-            backend = 'openclaw-shadow';
-          }
-
-          text = retagAssistantReply(text, extractReplyMoodTag(text) || sessionState.lastMood);
-          if (requestedMode === 'local' && image && !clientClosed) {
-            sendEventStream(res, 'status', { stage: 'image.reply.ready', label: 'replying' });
-            sendEventStream(res, 'message.delta', { content: text, text });
-          }
-          if (requestedMode === 'shadow' && !clientClosed) {
-            sendEventStream(res, 'message.delta', { content: text, text });
-          }
-          sessionState.lastMood = pickMood(text);
-          sessionState.memory.push({ role: 'assistant', content: stripReplyMoodTags(text), ts: Date.now() });
-          if (sessionState.memory.length > 12) sessionState.memory = sessionState.memory.slice(-12);
-
-          const savedMemory = saveStoredMemory(sessionId, memories);
-          if (requestedMode === 'shadow' || localLane === 'chat') {
-            scheduleArchiveConsolidation({
-              sessionId,
-              userText,
-              assistantText: text,
-              retrieval: runtimeMemoryContext.retrieval,
-            });
-          }
-          if (!clientClosed) {
-            sendEventStream(res, 'done', {
-              text,
-              memory: savedMemory,
-              meta: {
-                mood: sessionState.lastMood,
-                turns: sessionState.turns,
-                backend,
-                durableMemory: true,
-                requestedMode,
-                usedFallback,
-                shadowEnabled: OPENCLAW_ENABLED,
-                localLane,
-                requestedModel,
-                resolvedModel,
-                laneFallback,
-                semanticMemoryReady,
-                semanticMemoryMode,
-                toolsUsed,
-                ...(shadowError ? { shadowError } : {}),
-              },
-            });
-          }
-          return res.end();
-        } catch (error) {
-          if (!clientClosed) {
-            sendEventStream(res, 'error', {
-              error: requestedMode === 'local' ? 'Local LM Studio brain failed.' : 'Penny chat route failed.',
-              detail: requestedMode === 'local'
-                ? describeLocalBrainFailure(error, { hasImage: !!image })
-                : error.message,
-              meta: {
-                requestedMode,
-                backend: requestedMode === 'local' ? 'local-lmstudio-failed' : backend,
-                shadowEnabled: OPENCLAW_ENABLED,
-                usedFallback: false,
-                localLane,
-                requestedModel,
-                resolvedModel,
-                laneFallback,
-                toolsUsed,
-                ...(shadowError ? { shadowError } : {}),
-              },
-            });
-            res.end();
-          }
-          return;
-        } finally {
-          clearInterval(keepAlive);
-          req.removeListener('close', onClose);
-        }
-      }
-
-      const clientAbortController = new AbortController();
-      let clientClosed = false;
-      const onClose = () => {
-        clientClosed = true;
-        clientAbortController.abort();
-      };
-      req.on('close', onClose);
-      try {
-        if (requestedMode === 'local') {
-          try {
-            const result = await runLmStudioLocalSmart({
-              userText,
-              messages,
-              memories: promptMemories,
-              image,
-              file: fileAttachment,
-              abortSignal: clientAbortController.signal,
-              laneSelection,
-            });
-            if (clientClosed) return;
-            text = result.text;
-            toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
-            backend = toolsUsed.length ? 'local-lmstudio-tools' : 'local-lmstudio';
-            localLane = result.localLane || 'chat';
-            requestedModel = result.requestedModel || '';
-            resolvedModel = result.resolvedModel || '';
-            laneFallback = result.laneFallback === true;
-          } catch (error) {
-            if (clientClosed) return;
-            return sendJson(res, 503, {
-              error: 'Local LM Studio brain failed.',
-              detail: describeLocalBrainFailure(error, { hasImage: !!image }),
-              meta: {
-                requestedMode,
-                backend: 'local-lmstudio-failed',
-                shadowEnabled: OPENCLAW_ENABLED,
-                usedFallback: false,
-                localLane,
-                requestedModel,
-                resolvedModel,
-                laneFallback,
-                toolsUsed,
-                shadowError: error.message,
-              },
-            });
-          }
-        } else if (!OPENCLAW_ENABLED) {
-          if (clientClosed) return;
-          return sendJson(res, 503, {
-            error: 'Shadow brain requested but not enabled on the server.',
-            meta: {
-              requestedMode,
-              backend: 'shadow-unavailable',
-              shadowEnabled: false,
-              usedFallback: false,
-            },
-          });
-        } else {
-          try {
-            text = await runOpenClawShadow({
-              sessionId,
-              userText: promptUserText,
-              messages,
-              memories: promptMemories,
-              abortSignal: clientAbortController.signal,
-            });
-            if (clientClosed) return;
-            backend = 'openclaw-shadow';
-          } catch (error) {
-            if (clientClosed) return;
-            return sendJson(res, 503, {
-              error: 'Shadow brain failed, so the reply was blocked instead of silently degrading.',
-              detail: error.message,
-              meta: {
-                requestedMode,
-                backend: 'shadow-failed',
-                shadowEnabled: true,
-                usedFallback: false,
-                shadowError: error.message,
-              },
-            });
-          }
-        }
-      } finally {
-        req.removeListener('close', onClose);
-      }
-
-      text = retagAssistantReply(text, extractReplyMoodTag(text) || sessionState.lastMood);
-      sessionState.lastMood = pickMood(text);
-      sessionState.memory.push({ role: 'assistant', content: stripReplyMoodTags(text), ts: Date.now() });
-      if (sessionState.memory.length > 12) sessionState.memory = sessionState.memory.slice(-12);
-
-      const savedMemory = saveStoredMemory(sessionId, memories);
-      if (requestedMode === 'shadow' || localLane === 'chat') {
-        scheduleArchiveConsolidation({
-          sessionId,
-          userText,
-          assistantText: text,
-          retrieval: runtimeMemoryContext.retrieval,
-        });
-      }
-      return sendJson(res, 200, {
-        text,
-        memory: savedMemory,
-        meta: {
-          mood: sessionState.lastMood,
-          turns: sessionState.turns,
-          backend,
-          durableMemory: true,
-          requestedMode,
-          usedFallback,
-          shadowEnabled: OPENCLAW_ENABLED,
-          localLane,
-          requestedModel,
-          resolvedModel,
-          laneFallback,
-          semanticMemoryReady,
-          semanticMemoryMode,
-          toolsUsed,
-          ...(shadowError ? { shadowError } : {}),
-        },
-      });
-    } catch (error) {
-      return sendJson(res, error?.statusCode || 500, { error: 'Penny chat route failed.', detail: error.message });
-    }
+  const targetPath = url.pathname === '/' ? '/index.html' : url.pathname;
+  const normalizedPath = path.normalize(targetPath).replace(/^([.][.][/\\])+/, '');
+  const filePath = path.join(PUBLIC_DIR, normalizedPath);
+  if (!filePath.startsWith(PUBLIC_DIR)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Forbidden');
+    return;
   }
-  if (req.method === 'GET' && (url.pathname === '/api/penny/status' || url.pathname === '/api/companion/status')) {
-    const lmStudio = await getLmStudioConnectionStatusApi({ force: true });
-    const semanticMemory = await getSemanticMemoryStatusApi({ force: true, lmStatus: lmStudio });
-    return sendJson(res, 200, { ok: true, name: 'Penny', turns: sessionState.turns, mood: sessionState.lastMood, backend: 'local-lmstudio', memoryEntries: sessionState.memory.length, durableMemoryFile: MEMORY_FILE, memoryArchiveFile: MEMORY_ARCHIVE_FILE, memoryEmbeddingsFile: MEMORY_EMBEDDINGS_FILE, shadowEnabled: OPENCLAW_ENABLED, webSearchEnabled: WEB_SEARCH_ENABLED, lmStudioBase: LMSTUDIO_BASE, lmStudioNativeBase: LMSTUDIO_NATIVE_BASE, lmStudioModel: LMSTUDIO_MODEL, localLlmTransport: LOCAL_LLM_TRANSPORT, responsesChatFallback: RESPONSES_THEN_CHAT_FALLBACK, maxOutputTokens: LMSTUDIO_MAX_OUTPUT_TOKENS, semanticMemory, lmStudio });
-  }
-  let targetPath = url.pathname === '/' ? '/index.html' : url.pathname; const normalizedPath = path.normalize(targetPath).replace(/^([.][.][/\\])+/, ''); const filePath = path.join(PUBLIC_DIR, normalizedPath); if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Forbidden'); return; } serveFile(res, filePath);
+  serveFile(res, filePath);
 });
 
 function listLanIPv4Addresses() {
@@ -2877,7 +2726,9 @@ module.exports = {
   server,
   startServer,
   getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
+  buildLmStudioPrompt,
   buildLmStudioMessages,
+  buildLmStudioStatefulInput,
   coercePennyVisibleReply: coercePennyVisibleReplyApi,
   textFromChatMessage: textFromChatMessageApi,
   extractExplicitProjectPath,

@@ -43,6 +43,8 @@ test('LM Studio status keeps chat override separate from tool preference', async
   assert.equal(status.resolvedChatModel, 'unsloth/gemma-4-31b-it');
   assert.equal(status.resolvedToolModel, 'google/gemma-4-e4b');
   assert.equal(status.routingMode, 'auto');
+  assert.equal(status.probe.cacheHit, false);
+  assert.ok(Number.isFinite(Number(status.probe.durationMs)));
 
   const runtime = {};
   const chosen = await api.withLmStudioLaneModel('chat', async (model) => model, runtime);
@@ -51,6 +53,8 @@ test('LM Studio status keeps chat override separate from tool preference', async
   assert.equal(runtime.requestedModel, 'unsloth/gemma-4-31b-it');
   assert.equal(runtime.resolvedModel, 'unsloth/gemma-4-31b-it');
   assert.equal(runtime.laneFallback, false);
+  assert.equal(runtime.performance.modelResolution.available, true);
+  assert.equal(runtime.performance.modelResolution.source, 'lmstudio-status');
 });
 
 test('LM Studio tool lane surfaces fallback when E4B is unavailable', async () => {
@@ -66,6 +70,8 @@ test('LM Studio tool lane surfaces fallback when E4B is unavailable', async () =
   assert.equal(runtime.requestedModel, 'google/gemma-4-e4b');
   assert.equal(runtime.resolvedModel, 'google/gemma-4-31b');
   assert.equal(runtime.laneFallback, true);
+  assert.equal(runtime.performance.modelResolution.available, true);
+  assert.equal(runtime.performance.modelResolution.source, 'lmstudio-status');
 });
 
 test('LM Studio status treats quantized chat aliases as equivalent families', async () => {
@@ -79,4 +85,41 @@ test('LM Studio status treats quantized chat aliases as equivalent families', as
   assert.equal(chosen, 'google/gemma-4-31b@q8_0');
   assert.equal(runtime.requestedModel, 'google/gemma-4-31b');
   assert.equal(runtime.laneFallback, false);
+});
+
+test('LM Studio status cache hits surface probe metadata without forcing a refetch', async () => {
+  let fetchCalls = 0;
+  const api = createLmStudioStatusApi({
+    fetch: async () => {
+      fetchCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ data: [{ id: 'google/gemma-4-31b' }, { id: 'google/gemma-4-e4b' }] }),
+      };
+    },
+    fs: {
+      existsSync: () => false,
+      readFileSync: () => '',
+    },
+    execFileText: async () => ({ stdout: '[]' }),
+    URL,
+    LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+    LMSTUDIO_API_KEY: 'lm-studio-local',
+    LMSTUDIO_SETTINGS_FILE: '',
+    LMSTUDIO_STATUS_CACHE_MS: 1000,
+    LMSTUDIO_STATUS_ERROR_CACHE_MS: 1000,
+    LMSTUDIO_MODELS_PROBE_MS: 5000,
+    LOCAL_LLM_TRANSPORT: 'auto',
+    PENNY_LMSTUDIO_CHAT_MODEL: 'google/gemma-4-31b',
+    PENNY_LMSTUDIO_TOOL_MODEL: 'google/gemma-4-e4b',
+  });
+
+  const first = await api.getLmStudioConnectionStatus({ force: true });
+  const second = await api.getLmStudioConnectionStatus();
+
+  assert.equal(fetchCalls, 1);
+  assert.equal(first.probe.cacheHit, false);
+  assert.equal(second.probe.cacheHit, true);
+  assert.ok(Number.isFinite(Number(second.probe.cacheAgeMs)));
 });

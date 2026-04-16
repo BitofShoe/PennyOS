@@ -100,6 +100,13 @@ export function formatLastLane(meta = null) {
   return `${lane}${suffix}`;
 }
 
+function formatCacheAge(cacheAgeMs = 0) {
+  const seconds = Math.max(0, Math.round(Number(cacheAgeMs || 0) / 1000));
+  if (seconds < 60) return `${seconds}s old`;
+  const minutes = Math.round(seconds / 60);
+  return `${minutes}m old`;
+}
+
 export function updateBackendStatusUi({ els, state, status = null } = {}) {
   if (state) state.backendStatus = status;
   if (!els?.backendReachability || !els?.backendModel) return;
@@ -113,8 +120,13 @@ export function updateBackendStatusUi({ els, state, status = null } = {}) {
   }
 
   if (lmStudio.reachable) {
-    els.backendReachability.textContent = status?.localLlmTransport
-      ? `ready / ${status.localLlmTransport}`
+    const readiness = status?.readiness || lmStudio.readiness || null;
+    const warmBits = [];
+    if (status?.localLlmTransport) warmBits.push(status.localLlmTransport);
+    if (readiness?.warmState) warmBits.push(readiness.warmState);
+    if (Number.isFinite(Number(readiness?.cacheAgeMs))) warmBits.push(formatCacheAge(readiness.cacheAgeMs));
+    els.backendReachability.textContent = warmBits.length
+      ? `ready / ${warmBits.join(' / ')}`
       : 'ready';
     const chatPick = lmStudio.resolvedChatModel || lmStudio.resolvedModel || lmStudio.chatPreferredModel || lmStudio.configuredModel || 'available';
     const toolPick = lmStudio.resolvedToolModel || lmStudio.toolPreferredModel || lmStudio.configuredToolModel || 'available';
@@ -125,7 +137,8 @@ export function updateBackendStatusUi({ els, state, status = null } = {}) {
     return;
   }
 
-  els.backendReachability.textContent = 'offline';
+  const readiness = status?.readiness || lmStudio.readiness || null;
+  els.backendReachability.textContent = readiness?.warmState === 'cold' ? 'offline / cold' : 'offline';
   els.backendModel.textContent = lmStudio.error || lmStudio.hint || 'not detected';
   if (els.backendToolModel) els.backendToolModel.textContent = lmStudio.toolPreferredModel || 'pending';
 }

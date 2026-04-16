@@ -19,22 +19,48 @@ import {
   loadStateSnapshot,
   saveStateSnapshot,
 } from './penny-storage.js';
-
-const MOODS = {
-  calm: { primary: '#7dd3fc', secondary: '#0ea5e9', glow: 'rgba(125,211,252,0.24)', ring: 'rgba(125,211,252,0.14)', label: 'calm' },
-  happy: { primary: '#86efac', secondary: '#22c55e', glow: 'rgba(134,239,172,0.24)', ring: 'rgba(134,239,172,0.14)', label: 'happy' },
-  excited: { primary: '#fcd34d', secondary: '#f59e0b', glow: 'rgba(252,211,77,0.26)', ring: 'rgba(252,211,77,0.16)', label: 'excited' },
-  thinking: { primary: '#d8b4fe', secondary: '#8b5cf6', glow: 'rgba(216,180,254,0.25)', ring: 'rgba(216,180,254,0.14)', label: 'thinking' },
-  surprised: { primary: '#f9a8d4', secondary: '#ec4899', glow: 'rgba(249,168,212,0.25)', ring: 'rgba(249,168,212,0.14)', label: 'surprised' },
-  flirty: { primary: '#fb7185', secondary: '#e11d48', glow: 'rgba(251,113,133,0.28)', ring: 'rgba(251,113,133,0.16)', label: 'flirty' },
-  smug: { primary: '#fdba74', secondary: '#ea580c', glow: 'rgba(253,186,116,0.26)', ring: 'rgba(253,186,116,0.14)', label: 'smug' },
-  annoyed: { primary: '#94a3b8', secondary: '#475569', glow: 'rgba(148,163,184,0.22)', ring: 'rgba(148,163,184,0.12)', label: 'annoyed' },
-};
+import {
+  MOOD_THEMES as MOODS,
+  CHAT_DECOR_CHIBI as CHAT_DECOR_CHIBI_RUNTIME,
+  CHAT_DECOR_TECH as CHAT_DECOR_TECH_RUNTIME,
+  DEFAULT_EXPRESSION_PACK_URL as DEFAULT_EXPRESSION_PACK_URL_RUNTIME,
+  createDefaultExpressionPack as createDefaultExpressionPackRuntime,
+  createExpressionPackRuntime,
+  createIdleDecorRuntime,
+  parseMood as parseMoodRuntime,
+  normalizeMoodTag as normalizeMoodTagRuntime,
+  buildExpressionDecisionRecord,
+  stripDraftMood as stripDraftMoodRuntime,
+  escapeHtml as escapeHtmlRuntime,
+  getMoodAvatarSrc as getMoodAvatarSrcRuntime,
+  getMoodSpriteVariant as getMoodSpriteVariantRuntime,
+  getMoodPresentationProfile as getMoodPresentationProfileRuntime,
+  chatDecorSrcs as chatDecorSrcsRuntime,
+  buildCompanionFaceHtml as buildCompanionFaceHtmlRuntime,
+  applyMoodCssVariables,
+} from './penny-expression-runtime.mjs';
+import {
+  renderTranscriptMessages as renderTranscriptMessagesUi,
+  updateStreamingAssistantBubble as updateStreamingAssistantBubbleUi,
+  readPennyEventStream as readPennyEventStreamUi,
+} from './penny-transcript-ui.mjs';
+import {
+  createAmbientChromeRuntime,
+} from './penny-ambient-chrome.mjs';
+import {
+  ensureMemoryInspectorUi as ensureMemoryInspectorUiModule,
+  renderMemoryList as renderMemoryListModule,
+  renderMemoryInspector as renderMemoryInspectorUi,
+  buildBrainModeNote,
+} from './penny-memory-panel.mjs';
 
 const state = {
   panel: 'chat',
   messages: [],
   mood: 'calm',
+  lastAutoMood: 'calm',
+  expressionOverrideMood: '',
+  expressionDecision: null,
   presence: 'idle',
   loading: false,
   consolidating: false,
@@ -64,6 +90,8 @@ const els = {
   memoryList: document.getElementById('memoryList'),
   nameInput: document.getElementById('nameInput'),
   voiceToggle: document.getElementById('voiceToggle'),
+  expressionOverrideSelect: document.getElementById('expressionOverrideSelect'),
+  expressionDecisionNote: document.getElementById('expressionDecisionNote'),
   brainModeShadow: document.getElementById('brainModeShadow'),
   brainModeLocal: document.getElementById('brainModeLocal'),
   brainModeNote: document.getElementById('brainModeNote'),
@@ -91,33 +119,7 @@ const els = {
 };
 
 function ensureMemoryInspectorUi() {
-  if (els.memoryInspectorPanel) return;
-  const host = els.memoryList?.parentElement;
-  if (!host) return;
-
-  const toolbar = document.createElement('div');
-  toolbar.className = 'memory-toolbar';
-  toolbar.innerHTML = `
-    <div>
-      <div class="section-label">Hybrid memory inspector</div>
-      <div class="memory-toolbar-note">
-        Explicit facts stay canonical. Archive recall, summaries, patterns, and review items live here.
-      </div>
-    </div>
-    <div class="memory-toolbar-actions">
-      <button id="refreshMemoryInspector" class="secondary-btn tiny" type="button">Refresh inspector</button>
-      <button id="purgeSessionArchive" class="secondary-btn tiny danger" type="button">Clear session archive</button>
-      <button id="purgeGlobalArchive" class="secondary-btn tiny danger" type="button">Clear archive</button>
-      <button id="purgeEmbeddings" class="secondary-btn tiny danger" type="button">Clear embeddings</button>
-    </div>
-  `;
-  const panel = document.createElement('div');
-  panel.id = 'memoryInspectorPanel';
-  panel.className = 'list-block empty';
-  panel.textContent = 'Inspector data will appear here once Penny has a chat to archive.';
-  host.append(toolbar, panel);
-  els.memoryInspectorToolbar = toolbar;
-  els.memoryInspectorPanel = panel;
+  return ensureMemoryInspectorUiModule(els);
 }
 function setComposerNotice(text = '', tone = 'muted') {
   if (!els.composerNotice) return;
@@ -128,115 +130,104 @@ function setComposerNotice(text = '', tone = 'muted') {
 const attachmentUi = createAttachmentUi({ els, setComposerNotice });
 
 function parseMood(text, fallbackMood = '') {
-  const str = String(text || '');
-  const all = [...str.matchAll(/\[MOOD:(\w+)\]/g)];
-  const lastTag = all.length ? all[all.length - 1][1] : null;
-  const mood = lastTag && MOODS[lastTag]
-    ? lastTag
-    : (fallbackMood && MOODS[fallbackMood] ? fallbackMood : 'calm');
-  return { mood, text: str.replace(/\s*\[MOOD:\w+\]\s*/g, '').trim() };
+  return parseMoodRuntime(text, fallbackMood);
+}
+
+function normalizeMoodTag(value = '') {
+  return normalizeMoodTagRuntime(value, MOODS);
 }
 
 function stripDraftMood(text) {
-  return String(text || '')
-    .replace(/\s*\[MOOD:\w+\]\s*$/g, '')
-    .replace(/\s*\[MOOD:[^\]]*$/g, '')
-    .trimEnd();
+  return stripDraftMoodRuntime(text);
 }
 
 function escapeHtml(text) {
-  return String(text || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+  return escapeHtmlRuntime(text);
 }
 
-const MOOD_SPRITES = {
-  calm: [
-    { src: '/sprites/decor/chibi-avatar-calm.png', label: 'RIGHT HERE', pill: 'KNOWING', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-think.png', label: 'SETTLE IN', pill: 'SETTLED', pos: '50% 44%' },
-  ],
-  happy: [
-    { src: '/sprites/decor/chibi-avatar-happy.png', label: 'CHARM MODE', pill: 'CHARMED', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-heart.png', label: 'SOFT SPOT', pill: 'SOFT', pos: '50% 43%' },
-  ],
-  excited: [
-    { src: '/sprites/decor/chibi-avatar-excited.png', label: 'SPARKED UP', pill: 'SPARKED', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-peace.png', label: 'OH, HELL YES', pill: 'FIRED UP', pos: '50% 48%' },
-  ],
-  thinking: [
-    { src: '/sprites/decor/chibi-avatar-thinking.png', label: 'LOCKED IN', pill: 'LOCKED IN', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-think.png', label: 'DOING THE MATH', pill: 'FOCUSED', pos: '50% 44%' },
-  ],
-  surprised: [
-    { src: '/sprites/decor/chibi-avatar-surprised.png', label: 'WAIT, WHAT?', pill: 'STARTLED', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-peace.png', label: 'DID NOT SEE THAT COMING', pill: 'WHOA', pos: '50% 48%' },
-  ],
-  flirty: [
-    { src: '/sprites/decor/chibi-avatar-flirty.png', label: 'COME HERE', pill: 'TEASING', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-heart.png', label: 'YOU ASKED FOR THIS', pill: 'DANGEROUS', pos: '50% 43%' },
-  ],
-  smug: [
-    { src: '/sprites/decor/chibi-avatar-smug.png', label: 'TOLD YOU', pill: 'SMUG', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-wink.png', label: 'TOO EASY', pill: 'TOO EASY', pos: '50% 48%' },
-  ],
-  annoyed: [
-    { src: '/sprites/decor/chibi-avatar-annoyed.png', label: 'REALLY NOW?', pill: 'ANNOYED', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-think.png', label: 'TRY ME', pill: 'TRY ME', pos: '50% 44%' },
-  ],
-};
+function inferExpressionSource(rawText = '', metaMood = '') {
+  if (normalizeMoodTag(metaMood)) return 'artifact-meta';
+  return /\[MOOD:(\w+)\]/i.test(String(rawText || '')) ? 'reply-tag' : 'state-fallback';
+}
 
-/** Chibi mood sprites — shared by sidebar main display and chat bubble avatars. */
-const CHIBI_AVATARS = {
-  calm: '/sprites/decor/chibi-avatar-calm.png',
-  happy: '/sprites/decor/chibi-avatar-happy.png',
-  excited: '/sprites/decor/chibi-avatar-excited.png',
-  thinking: '/sprites/decor/chibi-avatar-thinking.png',
-  surprised: '/sprites/decor/chibi-avatar-surprised.png',
-  flirty: '/sprites/decor/chibi-avatar-flirty.png',
-  smug: '/sprites/decor/chibi-avatar-smug.png',
-  annoyed: '/sprites/decor/chibi-avatar-annoyed.png',
-};
+function renderExpressionDecisionUi() {
+  if (els.expressionOverrideSelect) {
+    els.expressionOverrideSelect.value = normalizeMoodTag(state.expressionOverrideMood) || '';
+  }
+  if (!els.expressionDecisionNote) return;
+  const decision = state.expressionDecision && typeof state.expressionDecision === 'object'
+    ? state.expressionDecision
+    : buildExpressionDecisionRecord({
+        mood: state.mood,
+        decisionSource: 'state-fallback',
+        decisionReason: 'No expression decision has been recorded yet.',
+        manualOverride: normalizeMoodTag(state.expressionOverrideMood),
+        persistedMood: state.mood,
+      });
+  const sourceLabelMap = {
+    'artifact-meta': 'artifact meta',
+    'reply-tag': 'reply mood tag',
+    'state-fallback': 'state fallback',
+    'manual-override': 'manual lock',
+    'manual-clear': 'manual clear',
+    'error-fallback': 'error fallback',
+    'session-reset': 'session reset',
+    'restored-state': 'restored state',
+  };
+  const sourceLabel = sourceLabelMap[decision.decisionSource] || decision.decisionSource || 'state fallback';
+  const autoMood = normalizeMoodTag(state.lastAutoMood) || 'calm';
+  const overrideText = decision.manualOverride
+    ? ` Locked to ${decision.manualOverride}; auto mood was ${autoMood}.`
+    : '';
+  els.expressionDecisionNote.textContent = `Current expression: ${decision.mood} via ${sourceLabel}. ${decision.decisionReason}${overrideText}`.trim();
+}
 
-/** Small stamps beside each chat row — scroll with the thread (unlike fixed .cyber-decor). */
-const CHAT_DECOR_CHIBI = [
-  '/sprites/decor/chibi-penny-wink.png',
-  '/sprites/decor/chibi-penny-peace.png',
-  '/sprites/decor/chibi-penny-think.png',
-  '/sprites/decor/chibi-penny-heart.png',
-];
-const CHAT_DECOR_TECH = [
-  '/sprites/decor/pixel-headphones.png',
-  '/sprites/decor/pixel-monitor.png',
-  '/sprites/decor/pixel-chip.png',
-  '/sprites/decor/pixel-crystal.png',
-  '/sprites/decor/pixel-blossoms.png',
-];
-const IDLE_DECOR_TEXT = [
-  'PENNY.EXE',
-  'OPEN_CHANNEL',
-  'THREAD_OPEN',
-  'LINK_OK',
-  'BUFFER',
-  '>>STREAM',
-  'SIGNAL',
-  'NODE_SYNC',
-  'SYS://PENNY.CORE',
-  'VECTOR',
-];
-const IDLE_DECOR_CHIBI_POOL = [...new Set([...Object.values(CHIBI_AVATARS), ...CHAT_DECOR_CHIBI])];
-const IDLE_DECOR_TECH_POOL = [...new Set(CHAT_DECOR_TECH)];
+function applyExpressionDecision({
+  autoMood = '',
+  decisionSource = 'state-fallback',
+  decisionReason = '',
+} = {}) {
+  const normalizedAutoMood = normalizeMoodTag(autoMood) || 'calm';
+  const manualOverride = normalizeMoodTag(state.expressionOverrideMood);
+  const finalMood = manualOverride || normalizedAutoMood;
+  const finalSource = manualOverride ? 'manual-override' : decisionSource;
+  const finalReason = manualOverride
+    ? `Manual override pinned Penny to ${manualOverride}.`
+    : (decisionReason || `Auto mood resolved to ${normalizedAutoMood}.`);
+  state.lastAutoMood = normalizedAutoMood;
+  state.mood = finalMood;
+  state.expressionDecision = buildExpressionDecisionRecord({
+    mood: finalMood,
+    decisionSource: finalSource,
+    decisionReason: finalReason,
+    manualOverride,
+    persistedMood: finalMood,
+  });
+  renderExpressionDecisionUi();
+}
 
-function chatDecorSrcs(index, role) {
-  const seed = index * 17 + (role === 'user' ? 11 : 3);
-  const tech = CHAT_DECOR_TECH[seed % CHAT_DECOR_TECH.length];
-  if (role === 'user') return [tech];
-  const chibi = CHAT_DECOR_CHIBI[(seed + 2) % CHAT_DECOR_CHIBI.length];
-  return [chibi, tech];
+let activeExpressionPack = createDefaultExpressionPackRuntime();
+const expressionPackRuntime = createExpressionPackRuntime({
+  fetchImpl: (...args) => fetch(...args),
+  manifestUrl: DEFAULT_EXPRESSION_PACK_URL_RUNTIME,
+  defaultPack: activeExpressionPack,
+});
+const idleDecorRuntime = createIdleDecorRuntime({
+  windowRef: window,
+  container: els.cyberDecor,
+  chatWrap: els.chatWrap,
+});
+
+async function loadExpressionPackManifest() {
+  activeExpressionPack = await expressionPackRuntime.load();
+  return activeExpressionPack;
 }
 
 function appendMessageDecor(item, index, role) {
   const wrap = document.createElement('div');
   wrap.className = 'msg-decor';
   wrap.setAttribute('aria-hidden', 'true');
-  for (const src of chatDecorSrcs(index, role)) {
+  for (const src of chatDecorSrcsRuntime(index, role, CHAT_DECOR_CHIBI_RUNTIME, CHAT_DECOR_TECH_RUNTIME)) {
     const img = document.createElement('img');
     img.src = src;
     img.alt = '';
@@ -247,246 +238,47 @@ function appendMessageDecor(item, index, role) {
   item.appendChild(wrap);
 }
 
-const idleDecorState = {
-  rafId: 0,
-  lastTs: 0,
-  width: 0,
-  height: 0,
-  items: [],
-  resizeTimer: 0,
-};
-
-function randomBetween(min, max) {
-  return min + Math.random() * (max - min);
-}
-
-function classifyIdleDecorClass(src = '') {
-  if (/pixel-(crystal|blossoms)\.png$/i.test(src)) return 'decor-cyber';
-  if (/pixel-/i.test(src)) return 'decor-tech';
-  return 'decor-chibi';
-}
-
-function createIdleDecorImage(src = '') {
-  const img = document.createElement('img');
-  img.src = src;
-  img.alt = '';
-  img.draggable = false;
-  img.className = `decor-float decor-screensaver ${classifyIdleDecorClass(src)}`;
-  return img;
-}
-
-function createIdleDecorText(text = '') {
-  const span = document.createElement('span');
-  span.className = 'decor-float decor-text decor-screensaver';
-  span.textContent = text;
-  return span;
-}
-
-function ensureIdleDecorPopulation() {
-  const container = els.cyberDecor;
-  if (!container || container.dataset.screensaverSeeded === '1') return;
-  container.dataset.screensaverSeeded = '1';
-
-  for (const node of container.querySelectorAll('.decor-float')) {
-    node.classList.add('decor-screensaver');
-  }
-
-  const extraNodes = [];
-  for (let i = 0; i < 5; i += 1) {
-    extraNodes.push(createIdleDecorImage(IDLE_DECOR_CHIBI_POOL[i % IDLE_DECOR_CHIBI_POOL.length]));
-  }
-  for (let i = 0; i < 4; i += 1) {
-    extraNodes.push(createIdleDecorImage(IDLE_DECOR_TECH_POOL[i % IDLE_DECOR_TECH_POOL.length]));
-  }
-  for (let i = 0; i < 3; i += 1) {
-    extraNodes.push(createIdleDecorText(IDLE_DECOR_TEXT[i % IDLE_DECOR_TEXT.length]));
-  }
-
-  for (const node of extraNodes) {
-    container.appendChild(node);
-  }
-}
-
-function measureIdleDecorNode(node) {
-  const rect = node.getBoundingClientRect();
-  const fallbackWidth = node.classList.contains('decor-chibi')
-    ? 192
-    : node.classList.contains('decor-text')
-      ? 180
-      : node.classList.contains('decor-cyber')
-        ? 100
-        : 112;
-  const width = rect.width || fallbackWidth;
-  const height = rect.height || (node.classList.contains('decor-text') ? 28 : fallbackWidth * 0.72);
-  return { width, height };
-}
-
-function applyIdleDecorFrame(item, timestamp = 0) {
-  const sway = Math.sin((timestamp * 0.001 * item.wobbleSpeed) + item.phase) * item.wobble;
-  const opacity = Math.max(0.08, Math.min(0.34, item.baseOpacity + Math.cos((timestamp * 0.00075) + item.phase) * 0.028));
-  item.node.style.transform = `translate3d(${item.x.toFixed(1)}px, ${item.y.toFixed(1)}px, 0) scale(${item.scale.toFixed(3)}) rotate(${(item.rotation + sway).toFixed(2)}deg)`;
-  item.node.style.opacity = opacity.toFixed(3);
-}
-
-function seedIdleDecorMotion() {
-  const container = els.cyberDecor;
-  if (!container) return;
-  const bounds = container.getBoundingClientRect();
-  if (!bounds.width || !bounds.height) return;
-
-  idleDecorState.width = bounds.width;
-  idleDecorState.height = bounds.height;
-  idleDecorState.items = [];
-
-  const nodes = Array.from(container.querySelectorAll('.decor-float'));
-  const now = performance.now();
-  for (const node of nodes) {
-    const { width, height } = measureIdleDecorNode(node);
-    const maxX = Math.max(0, bounds.width - width);
-    const maxY = Math.max(0, bounds.height - height);
-    const speedX = node.classList.contains('decor-chibi') ? randomBetween(10, 15) : node.classList.contains('decor-text') ? randomBetween(7, 12) : randomBetween(11, 17);
-    const speedY = node.classList.contains('decor-chibi') ? randomBetween(8, 13) : node.classList.contains('decor-text') ? randomBetween(6, 10) : randomBetween(9, 14);
-    const item = {
-      node,
-      x: randomBetween(0, maxX),
-      y: randomBetween(0, maxY),
-      vx: speedX * (Math.random() > 0.5 ? 1 : -1),
-      vy: speedY * (Math.random() > 0.5 ? 1 : -1),
-      width,
-      height,
-      scale: node.classList.contains('decor-chibi')
-        ? randomBetween(0.7, 1.02)
-        : node.classList.contains('decor-text')
-          ? randomBetween(0.84, 1.06)
-          : randomBetween(0.78, 1.03),
-      rotation: randomBetween(-6, 6),
-      spin: randomBetween(-2.6, 2.6),
-      baseOpacity: node.classList.contains('decor-chibi')
-        ? randomBetween(0.16, 0.29)
-        : node.classList.contains('decor-text')
-          ? randomBetween(0.12, 0.2)
-          : randomBetween(0.1, 0.18),
-      phase: randomBetween(0, Math.PI * 2),
-      wobble: node.classList.contains('decor-text') ? randomBetween(0.45, 1.2) : randomBetween(0.7, 1.8),
-      wobbleSpeed: randomBetween(0.45, 1.2),
-    };
-    node.style.left = '0px';
-    node.style.top = '0px';
-    node.style.right = 'auto';
-    node.style.bottom = 'auto';
-    idleDecorState.items.push(item);
-    applyIdleDecorFrame(item, now);
-  }
-}
-
 function syncIdleDecorBounds() {
-  const container = els.cyberDecor;
-  const scrollHost = els.chatWrap || els.chat?.parentElement;
-  if (!container || !scrollHost) return false;
-  const targetHeight = Math.max(scrollHost.scrollHeight, scrollHost.clientHeight);
-  const targetWidth = scrollHost.clientWidth;
-  if (!targetHeight || !targetWidth) return false;
-  const nextHeight = `${Math.ceil(targetHeight)}px`;
-  const nextWidth = `${Math.ceil(targetWidth)}px`;
-  const changed = container.style.height !== nextHeight || container.style.width !== nextWidth;
-  container.style.height = nextHeight;
-  container.style.width = nextWidth;
-  return changed;
-}
-
-function tickIdleDecor(timestamp) {
-  if (!idleDecorState.items.length) {
-    idleDecorState.rafId = 0;
-    return;
-  }
-
-  if (!idleDecorState.lastTs) idleDecorState.lastTs = timestamp;
-  const dt = Math.min(0.05, Math.max(0.001, (timestamp - idleDecorState.lastTs) / 1000));
-  idleDecorState.lastTs = timestamp;
-
-  const container = els.cyberDecor;
-  if (!container) {
-    idleDecorState.rafId = 0;
-    return;
-  }
-
-  const boundsChanged = syncIdleDecorBounds();
-  const bounds = container.getBoundingClientRect();
-  if (bounds.width && bounds.height && (boundsChanged || Math.abs(bounds.width - idleDecorState.width) > 1 || Math.abs(bounds.height - idleDecorState.height) > 1)) {
-    seedIdleDecorMotion();
-  }
-
-  for (const item of idleDecorState.items) {
-    const maxX = Math.max(0, idleDecorState.width - item.width);
-    const maxY = Math.max(0, idleDecorState.height - item.height);
-    item.x += item.vx * dt;
-    item.y += item.vy * dt;
-    item.rotation += item.spin * dt;
-
-    if (item.x <= 0 || item.x >= maxX) {
-      item.x = Math.min(maxX, Math.max(0, item.x));
-      item.vx *= -1;
-      item.spin *= -1;
-    }
-    if (item.y <= 0 || item.y >= maxY) {
-      item.y = Math.min(maxY, Math.max(0, item.y));
-      item.vy *= -1;
-    }
-
-    applyIdleDecorFrame(item, timestamp);
-  }
-
-  idleDecorState.rafId = window.requestAnimationFrame(tickIdleDecor);
+  return idleDecorRuntime.syncBounds();
 }
 
 function startIdleDecorScreensaver() {
-  if (!els.cyberDecor) return;
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-  ensureIdleDecorPopulation();
-  syncIdleDecorBounds();
-  seedIdleDecorMotion();
-  if (!idleDecorState.rafId) {
-    idleDecorState.lastTs = 0;
-    idleDecorState.rafId = window.requestAnimationFrame(tickIdleDecor);
-  }
+  idleDecorRuntime.start();
 }
 
 window.addEventListener('resize', () => {
-  if (!els.cyberDecor) return;
-  window.clearTimeout(idleDecorState.resizeTimer);
-  idleDecorState.resizeTimer = window.setTimeout(() => {
-    seedIdleDecorMotion();
-  }, 120);
+  idleDecorRuntime.handleResize();
 });
 
-function pickChibiHudLabel(mood) {
-  const variants = MOOD_SPRITES[mood] || MOOD_SPRITES.calm;
-  return variants[Math.floor(Math.random() * variants.length)].label;
-}
-
-function getMoodSpriteVariant(mood) {
-  const variants = MOOD_SPRITES[mood] || MOOD_SPRITES.calm;
-  const index = 0;
-  return { ...(variants[index] || variants[0]), index };
-}
-
 function companionFaceHtml(mood) {
-  const variant = getMoodSpriteVariant(mood);
-  const src = variant?.src || CHIBI_AVATARS[mood] || CHIBI_AVATARS.calm;
-  const label = variant?.label || pickChibiHudLabel(mood);
-  const pos = variant?.pos || '50% 46%';
-  return `
-    <div class="penny-display penny-chibi penny-${mood}" data-variant="${variant?.index ?? 0}">
-      <img src="${src}" class="penny-art penny-art-chibi" style="object-position:${pos}" alt="Penny" draggable="false" />
-      <div class="penny-hud">
-        <span class="penny-hud-left">PENNY.EXE</span>
-        <span class="penny-hud-right">${label}</span>
-      </div>
-      <div class="penny-hud-bottom">${mood.toUpperCase()}</div>
-    </div>
-  `;
+  const profile = getMoodPresentationProfileRuntime({
+    mood,
+    intensity: getIntensity(),
+    previousMood: _lastRenderedMood,
+  });
+  return buildCompanionFaceHtmlRuntime({
+    pack: activeExpressionPack,
+    mood,
+    variantIndex: profile.variantIndex,
+    presentationProfile: profile,
+    escapeHtmlFn: escapeHtml,
+  });
 }
 
+const ambientChrome = createAmbientChromeRuntime({
+  windowRef: window,
+  documentRef: document,
+  composerEl: els.composer,
+  emojiBtnEl: document.getElementById('emojiBtn'),
+  emojiPickerEl: document.getElementById('emojiPicker'),
+  emojiGridEl: document.getElementById('emojiGrid'),
+  bootOverlayEl: document.getElementById('bootOverlay'),
+  coreEl: document.querySelector('.core'),
+  particleCanvasEl: document.getElementById('particleCanvas'),
+  randomFn: () => Math.random(),
+  scaleFn: () => (INTENSITY_SCALES[getIntensity()] || 1) * (_lastPresentationProfile?.scaleBoost || 1),
+  moodPaletteFn: () => MOODS[state.mood] || MOODS.calm,
+});
 
 function updateBrainModeUi(meta = null) {
   const mode = state.memory.brainMode === 'local' ? 'local' : 'shadow';
@@ -494,35 +286,12 @@ function updateBrainModeUi(meta = null) {
   if (els.brainModeLocal) els.brainModeLocal.checked = mode === 'local';
   if (els.backendLastLane) els.backendLastLane.textContent = formatLastLane(meta);
   if (!els.brainModeNote) return;
-  if (!meta) {
-    els.brainModeNote.textContent = mode === 'shadow'
-      ? 'Shadow uses the optional OpenClaw lane. It is still experimental and not Penny\'s main chat brain.'
-      : 'LM Studio is Penny\'s main brain right now. Chat and tool lanes route automatically.';
-    return;
-  }
-  if (meta.requestedMode === 'shadow' && meta.usedFallback) {
-    const reason = meta.shadowError ? ` ${meta.shadowError}` : '';
-    els.brainModeNote.textContent = `Shadow failed, so this reply used the local placeholder fallback.${reason}`;
-    return;
-  }
-  if (meta.backend === 'openclaw-shadow') {
-    els.brainModeNote.textContent = 'Shadow brain handled the last reply.';
-    return;
-  }
-  if (meta.requestedMode === 'local' && meta.localLane) {
-    const lane = meta.localLane === 'tool' ? 'tool lane' : 'chat lane';
-    const modelText = meta.resolvedModel ? ` on ${meta.resolvedModel}` : '';
-    const fallbackText = meta.laneFallback ? ' It had to fall back to the best loaded local model.' : '';
-    els.brainModeNote.textContent = `LM Studio handled the last reply on the ${lane}${modelText}.${fallbackText}`.trim();
-    return;
-  }
-  els.brainModeNote.textContent = mode === 'local'
-    ? 'LM Studio handled the last reply.'
-    : 'Shadow is selected. This lane is experimental, and Penny will block the reply if OpenClaw fails.';
+  els.brainModeNote.textContent = buildBrainModeNote({ mode, meta });
 }
-
 let _lastSpriteKey = '';
 let _spriteTimer = null;
+let _lastRenderedMood = '';
+let _lastPresentationProfile = null;
 
 const INTENSITY_SCALES = [1, 1.3, 1.6];
 
@@ -538,19 +307,24 @@ function applyIntensityClass() {
   core.classList.add(`intensity-${level}`);
 }
 
-function triggerGlitch() {
+function triggerGlitch(profile = null) {
   const core = document.querySelector('.core');
   if (!core) return;
   core.classList.add('mood-glitch');
-  if (window._particleBurst) window._particleBurst();
-  setTimeout(() => core.classList.remove('mood-glitch'), 320);
+  if (ambientChrome.particleBurst) ambientChrome.particleBurst(profile?.burstCount || 20);
+  setTimeout(() => core.classList.remove('mood-glitch'), Number(profile?.glitchMs || 320));
 }
 
 function renderSprite(mood, palette) {
   const container = els.coreFace;
   const intensity = getIntensity();
-  const variant = getMoodSpriteVariant(mood);
-  const spriteKey = `${mood}:${intensity}:${variant?.src || 'default'}`;
+  const profile = getMoodPresentationProfileRuntime({
+    mood,
+    intensity,
+    previousMood: _lastRenderedMood,
+  });
+  const variant = getMoodSpriteVariantRuntime(activeExpressionPack, mood, profile.variantIndex);
+  const spriteKey = `${mood}:${intensity}:${profile.variantIndex}:${profile.closeUp ? 'close' : 'wide'}:${variant?.src || 'default'}`;
   if (spriteKey === _lastSpriteKey) return;
 
   const html = companionFaceHtml(mood);
@@ -559,36 +333,36 @@ function renderSprite(mood, palette) {
   if (isFirstRender) {
     container.innerHTML = html;
     _lastSpriteKey = spriteKey;
+    _lastRenderedMood = mood;
+    _lastPresentationProfile = profile;
     applyIntensityClass();
     return;
   }
 
-  triggerGlitch();
+  triggerGlitch(profile);
 
   if (_spriteTimer) { clearTimeout(_spriteTimer); _spriteTimer = null; }
 
-  container.style.transition = 'opacity 100ms ease-out';
+  container.style.transition = `opacity ${Number(profile.fadeOutMs || 100)}ms ease-out`;
   container.style.opacity = '0.04';
 
   _spriteTimer = setTimeout(() => {
     container.innerHTML = html;
     applyIntensityClass();
-    container.style.transition = 'opacity 180ms ease-in';
+    container.style.transition = `opacity ${Number(profile.fadeInMs || 180)}ms ease-in`;
     container.style.opacity = '1';
+    _lastPresentationProfile = profile;
     _spriteTimer = setTimeout(() => {
       container.style.transition = '';
       _spriteTimer = null;
-    }, 200);
+    }, Number(profile.settleMs || 200));
     _lastSpriteKey = spriteKey;
-  }, 110);
+    _lastRenderedMood = mood;
+  }, Number(profile.swapDelayMs || 110));
 }
 
 function updateTheme() {
-  const palette = MOODS[state.mood] || MOODS.calm;
-  document.documentElement.style.setProperty('--primary', palette.primary);
-  document.documentElement.style.setProperty('--secondary', palette.secondary);
-  document.documentElement.style.setProperty('--glow', palette.glow);
-  document.documentElement.style.setProperty('--ring', palette.ring);
+  const palette = applyMoodCssVariables(document.documentElement, state.mood, MOODS);
   els.moodPill.textContent = state.loading ? 'thinking' : palette.label;
   els.presenceValue.textContent = state.presence;
   els.turnsValue.textContent = String(state.turns);
@@ -597,6 +371,8 @@ function updateTheme() {
   els.statusValueTop.textContent = statusText;
   renderSprite(state.mood, palette);
   els.shell.dataset.mood = state.mood;
+  els.shell.dataset.expressionPack = activeExpressionPack.id || 'default';
+  renderExpressionDecisionUi();
 }
 
 function updateBackendStatusUi(status = null) {
@@ -604,210 +380,50 @@ function updateBackendStatusUi(status = null) {
 }
 
 function pennyAvatarSrc(mood = state.mood) {
-  return CHIBI_AVATARS[mood] || CHIBI_AVATARS.calm;
+  return getMoodAvatarSrcRuntime(activeExpressionPack, mood);
 }
 
 function renderMessages() {
-  els.chat.innerHTML = '';
-  if (els.intro) els.intro.hidden = true;
-  if (els.cyberDecor) {
-    els.cyberDecor.dataset.scene = state.messages.length === 0 && !state.loading ? 'empty' : 'thread';
-  }
-  const hasStreamingDraft = state.messages[state.messages.length - 1]?.role === 'assistant' && state.messages[state.messages.length - 1]?.streaming;
-  for (let i = 0; i < state.messages.length; i++) {
-    const msg = state.messages[i];
-    const msgMood = msg.role === 'assistant' && msg.mood && MOODS[msg.mood] ? msg.mood : state.mood;
-    const item = document.createElement('div');
-    item.className = `msg-row ${msg.role}${msg.streaming ? ' streaming' : ''}`;
-    if (msg.role === 'assistant') {
-      const header = document.createElement('div');
-      header.className = 'msg-header';
-      header.innerHTML = `<img class="msg-avatar" src="${pennyAvatarSrc(msgMood)}" alt="" /><span class="msg-label">PENNY</span>`;
-      item.appendChild(header);
-    }
-    if (msg.image && msg.role === 'user') {
-      const imgWrap = document.createElement('div');
-      imgWrap.className = 'msg-image';
-      imgWrap.innerHTML = `<img src="${msg.image}" alt="Attached" />`;
-      item.appendChild(imgWrap);
-    }
-    if ((msg.file || msg.fileMeta) && msg.role === 'user') {
-      const file = msg.file || msg.fileMeta;
-      const fileWrap = document.createElement('div');
-      fileWrap.className = 'msg-file';
-      fileWrap.innerHTML = `
-        <span class="msg-file-icon" aria-hidden="true">&#128206;</span>
-        <div class="msg-file-copy">
-          <strong>${escapeHtml(file.name || 'Attached file')}</strong>
-          <small>${escapeHtml(file.lineCount ? `${file.lineCount} lines` : formatBytes(file.size || 0))}</small>
-        </div>
-      `;
-      item.appendChild(fileWrap);
-    }
-    const bubble = document.createElement('div');
-    bubble.className = `bubble ${msg.role}${msg.streaming ? ' streaming' : ''}`;
-    const content = msg.streaming ? stripDraftMood(msg.content) : msg.content;
-    bubble.innerHTML = content
-      ? escapeHtml(content).replace(/\n/g, '<br>')
-      : (msg.streaming ? '<span class="stream-caret" aria-hidden="true"></span>' : '');
-    item.appendChild(bubble);
-    const toolLabels = Array.isArray(msg.toolsUsed) ? msg.toolsUsed.map(tool => tool?.label || tool?.name).filter(Boolean) : [];
-    if (msg.toolStatus || toolLabels.length) {
-      const meta = document.createElement('div');
-      meta.className = `msg-meta${msg.toolStatus ? ' live' : ''}`;
-      meta.textContent = msg.toolStatus || `checked ${toolLabels.join(' • ')}`;
-      item.appendChild(meta);
-    }
-    appendMessageDecor(item, i, msg.role);
-    els.chat.appendChild(item);
-  }
-  if (state.loading && !hasStreamingDraft) {
-    const loading = document.createElement('div');
-    loading.className = 'msg-row assistant';
-    loading.innerHTML = `<div class="msg-header"><img class="msg-avatar" src="${pennyAvatarSrc('thinking')}" alt="" /><span class="msg-label">PENNY</span></div><div class="bubble assistant loading-bubble"><span></span><span></span><span></span></div>`;
-    appendMessageDecor(loading, state.messages.length, 'assistant');
-    els.chat.appendChild(loading);
-  }
+  renderTranscriptMessagesUi({
+    chatEl: els.chat,
+    introEl: els.intro,
+    cyberDecorEl: els.cyberDecor,
+    chatWrapEl: els.chatWrap || els.chat?.parentElement,
+    messages: state.messages,
+    loading: state.loading,
+    stateMood: state.mood,
+    avatarSrcForMood: pennyAvatarSrc,
+    appendMessageDecor,
+    formatBytesFn: formatBytes,
+    escapeHtmlFn: escapeHtml,
+  });
   syncIdleDecorBounds();
-  els.chat.parentElement.scrollTop = els.chat.parentElement.scrollHeight;
 }
 
 function updateStreamingAssistantBubble(text = '') {
-  const rows = els.chat.querySelectorAll('.msg-row.assistant');
-  const row = rows[rows.length - 1];
-  if (!row) return;
-  const bubble = row.querySelector('.bubble.assistant');
-  if (!bubble) return;
-  const visible = stripDraftMood(text);
-  bubble.classList.add('streaming');
-  row.classList.add('streaming');
-  bubble.innerHTML = visible
-    ? escapeHtml(visible).replace(/\n/g, '<br>')
-    : '<span class="stream-caret" aria-hidden="true"></span>';
+  updateStreamingAssistantBubbleUi({
+    chatEl: els.chat,
+    text,
+    chatWrapEl: els.chatWrap || els.chat?.parentElement,
+    stripDraftMoodFn: stripDraftMood,
+    escapeHtmlFn: escapeHtml,
+  });
   syncIdleDecorBounds();
-  els.chat.parentElement.scrollTop = els.chat.parentElement.scrollHeight;
 }
 
 async function readPennyEventStream(response, handlers = {}) {
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('Streaming is not supported by this browser response.');
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  const flushFrame = (frameText) => {
-    const frame = String(frameText || '').trim();
-    if (!frame) return;
-    let event = 'message';
-    const dataLines = [];
-    for (const rawLine of frame.split(/\r?\n/)) {
-      if (rawLine.startsWith('event:')) event = rawLine.slice(6).trim();
-      else if (rawLine.startsWith('data:')) dataLines.push(rawLine.slice(5).trimStart());
-    }
-    if (!dataLines.length) return;
-    const dataText = dataLines.join('\n');
-    let data = dataText;
-    try {
-      data = JSON.parse(dataText);
-    } catch {}
-    handlers.onEvent?.(event, data);
-  };
-
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-    buffer = buffer.replace(/\r\n/g, '\n');
-    let idx;
-    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-      flushFrame(buffer.slice(0, idx));
-      buffer = buffer.slice(idx + 2);
-    }
-    if (done) break;
-  }
-  if (buffer.trim()) flushFrame(buffer);
+  return readPennyEventStreamUi(response, handlers);
 }
 
 function renderMemory() {
   ensureMemoryInspectorUi();
-  const memories = state.memory.memories || [];
-  if (els.memoryList) {
-    els.memoryList.className = `list-block${memories.length ? '' : ' empty'}`;
-    els.memoryList.innerHTML = memories.length
-      ? memories.map((item, index) => `<div class="list-item memory-item"><div class="memory-copy">${escapeHtml(item.text)}<small>${escapeHtml(item.kind || 'memory')}</small></div><button class="memory-remove" data-kind="memory" data-index="${index}" type="button">x</button></div>`).join('')
-      : 'Nothing stored yet. Penny will start picking things up as you talk.';
-  }
-  if (els.clearAllMemories) els.clearAllMemories.textContent = 'Clear explicit facts';
-  if (els.nameInput) els.nameInput.value = state.memory.userName || '';
-  if (els.voiceToggle) els.voiceToggle.checked = !!state.memory.voiceOn;
+  renderMemoryListModule({ els, memory: state.memory, escapeHtmlFn: escapeHtml });
   renderMemoryInspector();
   updateBrainModeUi();
 }
 
 function renderMemoryInspector() {
-  ensureMemoryInspectorUi();
-  if (!els.memoryInspectorPanel) return;
-  const inspector = state.memoryInspector;
-  if (!inspector) {
-    els.memoryInspectorPanel.className = 'list-block empty';
-    els.memoryInspectorPanel.textContent = 'Inspector data will appear here once Penny has a chat to archive.';
-    return;
-  }
-  const explicit = inspector.explicit || {};
-  const session = inspector.archive?.session || {};
-  const global = inspector.archive?.global || {};
-  const semantic = inspector.embeddings?.semanticMemory || {};
-  const retrieval = session.lastRetrieval || { session: [], global: [] };
-  const queue = Array.isArray(global.promotionQueue) ? global.promotionQueue : [];
-
-  const renderItems = (items = [], emptyText = 'None right now.') => {
-    if (!items.length) return `<div class="list-item"><div class="memory-copy">${escapeHtml(emptyText)}</div></div>`;
-    return items.map((item) => `
-      <div class="list-item memory-item">
-        <div class="memory-copy">
-          ${escapeHtml(item.text || item.excerpt || '')}
-          <small>${escapeHtml(item.sourceType || item.type || 'memory')} · ${escapeHtml(item.sensitivity || 'normal')}</small>
-        </div>
-      </div>
-    `).join('');
-  };
-
-  const renderQueue = () => {
-    if (!queue.length) return `<div class="list-item"><div class="memory-copy">Promotion queue is empty.</div></div>`;
-    return queue.map((item) => `
-      <div class="list-item memory-item">
-        <div class="memory-copy">
-          ${escapeHtml(item.text || '')}
-          <small>evidence ${escapeHtml(String(item.evidenceCount || 0))} · confidence ${escapeHtml(String(Math.round((item.confidence || 0) * 100)))}%</small>
-        </div>
-        <div class="memory-toolbar-actions">
-          <button class="secondary-btn tiny" type="button" data-review-action="approve" data-review-id="${escapeHtml(item.id || '')}">Approve</button>
-          <button class="secondary-btn tiny danger" type="button" data-review-action="reject" data-review-id="${escapeHtml(item.id || '')}">Reject</button>
-        </div>
-      </div>
-    `).join('');
-  };
-
-  els.memoryInspectorPanel.className = 'list-block';
-  els.memoryInspectorPanel.innerHTML = `
-    <div class="list-item">
-      <div class="memory-copy">
-        Semantic memory is <strong>${escapeHtml(semantic.ready ? 'active' : 'fallback')}</strong>.
-        <small>${escapeHtml(semantic.configuredModel || 'no embedding model configured')}</small>
-      </div>
-    </div>
-    <div class="list-item">
-      <div class="memory-copy">
-        Explicit facts: ${escapeHtml(String(explicit.count || 0))} · Session archive: ${escapeHtml(String(session.episodeCount || 0))} episodes · Global patterns: ${escapeHtml(String(global.patternCount || 0))}
-      </div>
-    </div>
-    <div class="section-label" style="margin-top:12px;">Last retrieval for Penny's reply</div>
-    ${renderItems([...(retrieval.session || []), ...(retrieval.global || [])], 'No archive memories were used on the last reply.')}
-    <div class="section-label" style="margin-top:12px;">Session archive</div>
-    ${renderItems(session.recentEpisodes || [], 'No archived session episodes yet.')}
-    <div class="section-label" style="margin-top:12px;">Longer-term summaries and patterns</div>
-    ${renderItems([...(global.summaries || []), ...(global.patterns || [])], 'No global summaries or patterns yet.')}
-    <div class="section-label" style="margin-top:12px;">Promotion queue</div>
-    ${renderQueue()}
-  `;
+  renderMemoryInspectorUi({ els, inspector: state.memoryInspector, escapeHtmlFn: escapeHtml });
 }
 
 function saveState() {
@@ -819,7 +435,20 @@ function loadState() {
   if (!snapshot) return;
   state.memory = snapshot.memory;
   state.messages = snapshot.messages;
-  state.mood = snapshot.mood && MOODS[snapshot.mood] ? snapshot.mood : 'calm';
+  state.lastAutoMood = normalizeMoodTag(snapshot.lastAutoMood) || normalizeMoodTag(snapshot.mood) || 'calm';
+  state.expressionOverrideMood = normalizeMoodTag(snapshot.expressionOverrideMood) || '';
+  state.mood = state.expressionOverrideMood || normalizeMoodTag(snapshot.mood) || 'calm';
+  state.expressionDecision = snapshot.expressionDecision && typeof snapshot.expressionDecision === 'object'
+    ? buildExpressionDecisionRecord(snapshot.expressionDecision)
+    : buildExpressionDecisionRecord({
+        mood: state.mood,
+        decisionSource: state.expressionOverrideMood ? 'manual-override' : 'restored-state',
+        decisionReason: state.expressionOverrideMood
+          ? `Restored manual override ${state.expressionOverrideMood} from local state.`
+          : `Restored ${state.mood} from local state.`,
+        manualOverride: state.expressionOverrideMood,
+        persistedMood: state.mood,
+      });
   state.turns = Number(snapshot.turns || state.messages.filter(m => m.role === 'assistant').length || 0);
   state.presence = state.messages.length ? 'present' : 'idle';
 }
@@ -847,7 +476,6 @@ function switchPanel(panel) {
   }
   if (panel === 'settings') {
     loadBackendStatus();
-    loadAvailableModels();
   }
 }
 
@@ -965,6 +593,7 @@ async function loadBackendStatus() {
     if (!res.ok) throw new Error(`Status failed: ${res.status}`);
     const data = await res.json();
     updateBackendStatusUi(data);
+    await loadAvailableModels(data.lmStudio || null);
     if (!data.shadowEnabled && state.memory.brainMode === 'shadow') {
       state.memory.brainMode = 'local';
       renderMemory();
@@ -978,12 +607,15 @@ async function loadBackendStatus() {
   }
 }
 
-async function loadAvailableModels() {
+async function loadAvailableModels(preloadedStatus = null) {
   if (!els.modelSelect) return;
   try {
-    const res = await fetch('/api/penny/lmstudio/status');
-    if (!res.ok) return;
-    const data = await res.json();
+    const data = preloadedStatus || await (async () => {
+      const res = await fetch('/api/penny/lmstudio/status');
+      if (!res.ok) return null;
+      return res.json();
+    })();
+    if (!data) return;
     const isEmbed = (id) => /\b(embed|embedding|rerank)\b/i.test(id);
     const available = (data.availableModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
     const installed = (data.installedModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
@@ -1124,7 +756,12 @@ async function sendMessage() {
     } else {
       state.messages.push({ role: 'assistant', content: parsed.text, mood: parsed.mood, toolsUsed: Array.isArray(finalData.meta?.toolsUsed) ? finalData.meta.toolsUsed : [] });
     }
-    state.mood = parsed.mood; state.presence = 'present'; state.turns = finalData.meta?.turns || state.turns + 1; applyMemory(finalData.memory); maybeSpeak(parsed.text); updateBrainModeUi(finalData.meta || null);
+    applyExpressionDecision({
+      autoMood: parsed.mood,
+      decisionSource: inferExpressionSource(finalData.text || streamedText || '', finalData.meta?.mood || ''),
+      decisionReason: `Reply mood resolved to ${parsed.mood} from Penny's latest response.`,
+    });
+    state.presence = 'present'; state.turns = finalData.meta?.turns || state.turns + 1; applyMemory(finalData.memory); maybeSpeak(parsed.text); updateBrainModeUi(finalData.meta || null);
     window.setTimeout(() => { loadMemoryInspector({ quiet: true }); }, 150);
   } catch (error) {
     const prefix = state.memory.brainMode === 'shadow'
@@ -1138,7 +775,12 @@ async function sendMessage() {
     } else {
       state.messages.push({ role: 'assistant', content: `${prefix} ${error?.message || 'Try again in a moment.'}` });
     }
-    state.mood = 'thinking'; state.presence = 'error';
+    applyExpressionDecision({
+      autoMood: 'thinking',
+      decisionSource: 'error-fallback',
+      decisionReason: 'The last request failed, so the shell fell back to the thinking state.',
+    });
+    state.presence = 'error';
   } finally {
     state.loading = false; renderMessages(); renderMemory(); updateTheme(); saveState(); els.composer.focus();
     loadBackendStatus();
@@ -1175,67 +817,22 @@ if (els.fileInput) els.fileInput.addEventListener('change', async () => {
   }
 });
 if (els.filePreviewRemove) els.filePreviewRemove.addEventListener('click', () => attachmentUi.clearPendingFile());
-
-function isFlagEmoji(s) {
-  const cps = [...s].map((c) => c.codePointAt(0));
-  return cps.length >= 2 && cps.every((p) => p >= 0x1f1e6 && p <= 0x1f1ff);
-}
-
-function buildEmojiSet() {
-  const picto = /\p{Extended_Pictographic}/u;
-  const out = [];
-  const seen = new Set();
-  const add = (ch) => {
-    if (!ch || seen.has(ch) || isFlagEmoji(ch)) return;
-    seen.add(ch);
-    out.push(ch);
-  };
-  const scan = (from, to) => {
-    for (let cp = from; cp <= to && out.length < 400; cp++) {
-      if (cp >= 0xd800 && cp <= 0xdfff) continue;
-      if (cp >= 0x1f1e6 && cp <= 0x1f1ff) continue;
-      const ch = String.fromCodePoint(cp);
-      if (!picto.test(ch)) continue;
-      add(ch);
-    }
-  };
-  scan(0x1f600, 0x1f64f);
-  scan(0x1f300, 0x1f5ff);
-  scan(0x1f680, 0x1f6ff);
-  scan(0x1f900, 0x1f9ff);
-  scan(0x1fa70, 0x1faff);
-  scan(0x2600, 0x26ff);
-  scan(0x2700, 0x27bf);
-  ['\u2764\uFE0F', '\u2728', '\u2B50', '\u26A1', '\u231A', '\u231B'].forEach(add);
-  return out;
-}
-
-const EMOJI_SET = buildEmojiSet();
-const emojiBtn = document.getElementById('emojiBtn');
-const emojiPicker = document.getElementById('emojiPicker');
-const emojiGrid = document.getElementById('emojiGrid');
-if (emojiGrid) {
-  emojiGrid.innerHTML = EMOJI_SET.map(e => `<button type="button" class="emoji-item">${e}</button>`).join('');
-  emojiGrid.addEventListener('click', (event) => {
-    const item = event.target.closest('.emoji-item');
-    if (!item) return;
-    const pos = els.composer.selectionStart ?? els.composer.value.length;
-    const val = els.composer.value;
-    els.composer.value = val.slice(0, pos) + item.textContent + val.slice(pos);
-    els.composer.focus();
-    els.composer.selectionStart = els.composer.selectionEnd = pos + item.textContent.length;
-    emojiPicker.hidden = true;
-  });
-}
-emojiBtn?.addEventListener('click', (event) => {
-  event.stopPropagation();
-  emojiPicker.hidden = !emojiPicker.hidden;
-});
-document.addEventListener('click', () => { if (emojiPicker) emojiPicker.hidden = true; });
-emojiPicker?.addEventListener('click', (event) => event.stopPropagation());
 els.composer.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); } });
 els.nameInput.addEventListener('change', async () => { state.memory.userName = els.nameInput.value.trim(); saveState(); renderMemory(); await syncMemoryToDisk(); });
 els.voiceToggle.addEventListener('change', async () => { state.memory.voiceOn = els.voiceToggle.checked; saveState(); await syncMemoryToDisk(); });
+els.expressionOverrideSelect?.addEventListener('change', () => {
+  state.expressionOverrideMood = normalizeMoodTag(els.expressionOverrideSelect.value) || '';
+  const autoMood = normalizeMoodTag(state.lastAutoMood) || 'calm';
+  applyExpressionDecision({
+    autoMood,
+    decisionSource: state.expressionOverrideMood ? 'manual-override' : 'manual-clear',
+    decisionReason: state.expressionOverrideMood
+      ? `Manual override changed to ${state.expressionOverrideMood}.`
+      : 'Manual override cleared; Penny returned to the last auto mood.',
+  });
+  updateTheme();
+  saveState();
+});
 els.brainModeShadow?.addEventListener('change', async () => {
   if (!els.brainModeShadow.checked) return;
   state.memory.brainMode = 'shadow';
@@ -1293,7 +890,11 @@ els.newChat?.addEventListener('click', async () => {
   state.memory = { ...state.memory, sessionId: freshSessionId };
   state.messages = [];
   state.turns = 0;
-  state.mood = 'calm';
+  applyExpressionDecision({
+    autoMood: 'calm',
+    decisionSource: 'session-reset',
+    decisionReason: 'New chat reset the auto mood to calm.',
+  });
   state.presence = 'idle';
   renderMessages();
   renderMemory();
@@ -1305,7 +906,15 @@ els.clearMemory?.addEventListener('click', async () => {
   localStorage.removeItem(STORAGE_KEY);
   const freshSessionId = createSessionId();
   state.memory = { ...structuredClone(DEFAULT_MEMORY), sessionId: freshSessionId };
-  state.messages = []; state.turns = 0; state.mood = 'calm'; state.presence = 'idle';
+  state.messages = [];
+  state.turns = 0;
+  state.expressionOverrideMood = '';
+  applyExpressionDecision({
+    autoMood: 'calm',
+    decisionSource: 'session-reset',
+    decisionReason: 'Clearing local state reset the expression shell to calm.',
+  });
+  state.presence = 'idle';
   renderMessages(); renderMemory(); updateTheme(); saveState(); await syncMemoryToDisk();
 });
 
@@ -1318,37 +927,13 @@ updateTheme();
 updateBrainModeUi();
 loadDurableMemory();
 loadBackendStatus();
-loadAvailableModels();
-
-(function bootSequence() {
-  const overlay = document.getElementById('bootOverlay');
-  if (!overlay) return;
-  setTimeout(() => {
-    overlay.classList.add('done');
-    setTimeout(() => overlay.remove(), 600);
-  }, 1800);
-})();
-
-(function idleEvents() {
-  const core = document.querySelector('.core');
-  if (!core) return;
-
-  function randomFlicker() {
-    core.classList.add('idle-flicker');
-    setTimeout(() => core.classList.remove('idle-flicker'), 80);
-  }
-
-  function randomInterference() {
-    core.classList.add('idle-interference');
-    setTimeout(() => core.classList.remove('idle-interference'), 200);
-  }
-
-  setInterval(() => {
-    const roll = Math.random();
-    if (roll < 0.3) randomFlicker();
-    else if (roll < 0.5) randomInterference();
-  }, 4000);
-})();
+  loadExpressionPackManifest().then(() => {
+    _lastSpriteKey = '';
+    _lastRenderedMood = '';
+    _lastPresentationProfile = null;
+    if (!state.loading) renderMessages();
+    updateTheme();
+  }).catch(() => {});
 
 const _debugMode = new URLSearchParams(window.location.search).get('debug') === '1';
 if (!_debugMode) {
@@ -1357,128 +942,11 @@ if (!_debugMode) {
 }
 
 window.__pennyDebug = (mood, turns) => {
-  if (mood && MOODS[mood]) state.mood = mood;
-  if (turns !== undefined) state.turns = Number(turns) || 0;
-  _lastSpriteKey = '';
-  updateTheme();
-};
-
-(function initParallax() {
-  const core = document.querySelector('.core');
-  if (!core) return;
-  const MAX_SHIFT = 12;
-
-  document.addEventListener('mousemove', (e) => {
-    const display = core.querySelector('.penny-display');
-    if (!display) return;
-    const rect = core.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const dx = (e.clientX - cx) / (window.innerWidth / 2);
-    const dy = (e.clientY - cy) / (window.innerHeight / 2);
-    const x = Math.max(-1, Math.min(1, dx)) * MAX_SHIFT;
-    const y = Math.max(-1, Math.min(1, dy)) * MAX_SHIFT;
-    const s = INTENSITY_SCALES[getIntensity()] || 1;
-    display.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
-  });
-})();
-
-(function initParticles() {
-  const canvas = document.getElementById('particleCanvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const particles = [];
-  const COUNT = 35;
-
-  function resize() {
-    const rect = canvas.parentElement.getBoundingClientRect();
-    canvas.width = rect.width * devicePixelRatio;
-    canvas.height = rect.height * devicePixelRatio;
-    ctx.scale(devicePixelRatio, devicePixelRatio);
-  }
-
-  function spawn(burst) {
-    const rect = canvas.parentElement.getBoundingClientRect();
-    if (burst) {
-      const cx = rect.width / 2;
-      const cy = rect.height * 0.4;
-      const angle = Math.random() * Math.PI * 2;
-      const speed = Math.random() * 1.5 + 0.5;
-      return {
-        x: cx + (Math.random() - 0.5) * 40,
-        y: cy + (Math.random() - 0.5) * 40,
-        r: Math.random() * 2.5 + 1,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 0.3,
-        alpha: Math.random() * 0.6 + 0.3,
-        life: Math.random() * 60 + 30,
-        age: 0,
-        burst: true,
-      };
-    }
-    return {
-      x: Math.random() * rect.width,
-      y: Math.random() * rect.height,
-      r: Math.random() * 1.5 + 0.5,
-      vx: (Math.random() - 0.5) * 0.15,
-      vy: -(Math.random() * 0.2 + 0.05),
-      alpha: Math.random() * 0.4 + 0.1,
-      life: Math.random() * 400 + 200,
-      age: 0,
-    };
-  }
-
-  for (let i = 0; i < COUNT; i++) particles.push(spawn());
-
-  window._particleBurst = function () {
-    for (let i = 0; i < 20; i++) particles.push(spawn(true));
+    if (mood && MOODS[mood]) state.mood = mood;
+    if (turns !== undefined) state.turns = Number(turns) || 0;
+    _lastSpriteKey = '';
+    _lastRenderedMood = '';
+    _lastPresentationProfile = null;
+    updateTheme();
   };
 
-  function frame() {
-    const rect = canvas.parentElement.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
-    ctx.clearRect(0, 0, w, h);
-
-    const palette = MOODS[state.mood] || MOODS.calm;
-    const color = palette.primary;
-
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      if (p.burst) p.vy += 0.02;
-      p.age++;
-
-      const progress = p.age / p.life;
-      const fadeAlpha = progress < 0.1
-        ? progress / 0.1
-        : progress > 0.7
-          ? (1 - progress) / 0.3
-          : 1;
-      const a = p.alpha * fadeAlpha;
-
-      if (p.age >= p.life || p.y < -10 || p.x < -10 || p.x > w + 10 || p.y > h + 10) {
-        if (p.burst) {
-          particles.splice(i, 1);
-        } else {
-          particles[i] = spawn();
-          particles[i].y = h + 5;
-        }
-        continue;
-      }
-
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.globalAlpha = a;
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    requestAnimationFrame(frame);
-  }
-
-  resize();
-  window.addEventListener('resize', resize);
-  requestAnimationFrame(frame);
-})();

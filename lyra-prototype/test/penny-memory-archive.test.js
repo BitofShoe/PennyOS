@@ -4,7 +4,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { createMemoryArchiveApi } = require('../lib/penny-memory-archive');
+const {
+  createMemoryArchiveApi,
+  ARCHIVE_RETRIEVAL_REASON_CODES,
+  ARCHIVE_COMPRESSION_REASON_CODES,
+} = require('../lib/penny-memory-archive');
 
 function makeTempFiles(prefix = 'penny-archive-') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -24,6 +28,25 @@ function buildEmbeddingVector(text = '') {
     source.includes('storm') ? 1 : 0,
     Math.min(1, source.length / 200),
   ];
+}
+
+function buildProvenanceEntries(count = 0, {
+  oldText = 'Favorite tea is oolong',
+  newText = 'Favorite tea is lapsang souchong',
+  conflictKey = 'favorite tea',
+  trigger = 'actually',
+  sourceEpisodeIdPrefix = 'episode',
+} = {}) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `prov-${index + 1}`,
+    createdAt: `2026-04-13T12:${String(index).padStart(2, '0')}:00.000Z`,
+    oldText,
+    newText,
+    conflictKey,
+    trigger,
+    sourceEpisodeId: `${sourceEpisodeIdPrefix}-${index + 1}`,
+    confidence: 0.42 + (index * 0.01),
+  }));
 }
 
 function buildArchiveApi({
@@ -100,9 +123,49 @@ test('archiveCompletedTurn preserves raw episodes, summaries, patterns, and prom
     assert.match(archive.sessions.demo.summaries[0].text, /recent session threads/i);
     assert.ok(archive.global.patterns.some((item) => /midnight rain/i.test(item.text)));
     assert.ok(archive.global.promotionQueue.some((item) => /midnight rain/i.test(item.text)));
+    assert.ok(archive.global.promotionQueue.every((item) => item.promotionPacket && item.promotionPacket.sourceThreadId));
 
     const embeddings = api.readEmbeddingsStore();
     assert.ok(Object.keys(embeddings.items).length >= 3);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('archiveCompletedTurn suppresses low-signal filler themes in stylized chat', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    await api.archiveCompletedTurn({
+      sessionId: 'demo',
+      userText: "I'm just saying the black cherry perfume is unreal.",
+      assistantText: 'So that one is already etched into your soul.',
+    });
+    await api.archiveCompletedTurn({
+      sessionId: 'demo',
+      userText: "Honestly I'm still saying the black cherry perfume wins.",
+      assistantText: 'That scent is definitely getting promoted in your internal rankings.',
+    });
+
+    let archive = api.readArchiveStore();
+    assert.equal(archive.global.summaries.length, 0);
+    assert.equal(archive.global.patterns.length, 0);
+
+    await api.archiveCompletedTurn({
+      sessionId: 'demo',
+      userText: "Black cherry perfume again. I'm high on that one.",
+      assistantText: 'Okay, so that is a real recurring thing now.',
+    });
+
+    archive = api.readArchiveStore();
+    const summaryText = archive.global.summaries[0]?.text || '';
+    const patternText = archive.global.patterns.map((item) => item.text).join('\n');
+
+    assert.match(summaryText, /black cherry perfume/i);
+    assert.doesNotMatch(summaryText, /\bi'm\b|honestly|high\b|just saying|still saying/i);
+    assert.match(patternText, /black cherry perfume/i);
+    assert.doesNotMatch(patternText, /\bi'm\b|honestly|high\b|just saying|still saying/i);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
@@ -147,10 +210,324 @@ test('buildArchiveContext falls back cleanly to keyword retrieval and keeps sepa
 
     assert.equal(result.semanticMemory.ready, false);
     assert.equal(result.archiveContext.mode, 'keyword');
+    assert.equal(result.archiveContext.reasonCode, ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK);
     assert.ok(result.archiveContext.session.length <= 2);
     assert.ok(result.archiveContext.global.length <= 2);
     assert.match(result.archiveContext.session[0].text, /midnight rain/i);
     assert.equal(getFetchCalls(), 0);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext suppresses weak sensitive matches instead of surfacing nonsense', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'safe-1',
+          type: 'episode',
+          text: 'Midnight rain on the windows felt safe again.',
+          excerpt: 'Midnight rain on the windows felt safe again.',
+          userText: 'Midnight rain on the windows felt safe again.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+          sensitivity: 'normal',
+        },
+        {
+          id: 'sensitive-1',
+          type: 'episode',
+          text: 'I feel broken and want to disappear tonight.',
+          excerpt: 'I feel broken and want to disappear tonight.',
+          userText: 'I feel broken and want to disappear tonight.',
+          createdAt: '2026-04-13T12:01:00.000Z',
+          sensitivity: 'high',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const result = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'Can you tell me about the midnight rain again?',
+      lane: 'chat',
+    });
+
+    const surfacedTexts = [
+      ...result.archiveContext.session.map((item) => item.text),
+      ...result.archiveContext.global.map((item) => item.text),
+    ].join('\n');
+    assert.match(surfacedTexts, /midnight rain/i);
+    assert.doesNotMatch(surfacedTexts, /want to disappear|feel broken/i);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('archiveCompletedTurn preserves retrieval provenance and the inspector surfaces bounded lastRetrieval details', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    const retrieval = {
+      usedAt: '2026-04-13T12:00:00.000Z',
+      mode: 'semantic',
+      embedModel: 'text-embedding-nomic-embed-text-v1.5',
+      session: Array.from({ length: 8 }, (_, index) => ({
+        id: `session-${index + 1}`,
+        text: `Session hit ${index + 1}`,
+        excerpt: `Session hit ${index + 1}`,
+        sourceType: 'episode',
+        scope: 'session',
+        sensitivity: 'normal',
+        createdAt: `2026-04-13T12:0${index}:00.000Z`,
+        score: 8 + index,
+        confidence: 0.35 + (index * 0.05),
+      })),
+      global: Array.from({ length: 8 }, (_, index) => ({
+        id: `global-${index + 1}`,
+        text: `Global hit ${index + 1}`,
+        excerpt: `Global hit ${index + 1}`,
+        sourceType: 'pattern',
+        scope: 'global',
+        sensitivity: 'normal',
+        createdAt: `2026-04-13T12:1${index}:00.000Z`,
+        score: 6 + index,
+        confidence: 0.25 + (index * 0.05),
+      })),
+      books: [
+        {
+          id: 'appearance',
+          text: 'Penny has coral hair when the user explicitly asks.',
+          placement: 'memory',
+          priority: 90,
+          score: 104,
+          sensitivity: 'normal',
+          source: 'seed',
+          matchedPhrases: ['what do you look like'],
+          matchedOn: { lane: 'chat', attachmentType: 'none' },
+        },
+      ],
+      compression: {
+        used: true,
+        reason: 'low-retrieval-confidence',
+        chapters: [
+          {
+            id: 'chapter-1',
+            text: 'Session chapter: midnight rain; city lights.',
+            sourceType: 'chapter',
+            scope: 'session',
+            sensitivity: 'normal',
+            createdAt: '2026-04-13T12:20:00.000Z',
+            score: 5.5,
+            confidence: 0.44,
+          },
+        ],
+        explanation: {
+          selectedSignals: ['active-contradiction', 'named-object-anchor'],
+          penalties: ['scaffolding-filter'],
+          omittedEpisodeCount: 9,
+          carriedContradictions: [
+            {
+              id: 'contr-1',
+              conflictKey: 'favorite tea',
+              oldText: 'Favorite tea is oolong',
+              newText: 'Favorite tea is lapsang souchong',
+              status: 'active',
+            },
+          ],
+        },
+      },
+    };
+
+    await api.archiveCompletedTurn({
+      sessionId: 'demo',
+      userText: 'Midnight rain always calms me down.',
+      assistantText: 'That image matters to you.',
+      retrieval,
+    });
+
+    const inspector = await api.getMemoryInspector({
+      sessionId: 'demo',
+      explicitMemory: {
+        memories: [
+          { text: 'Favorite tea is lapsang souchong', kind: 'preference' },
+        ],
+      },
+    });
+
+    assert.equal(inspector.archive.session.lastRetrieval.mode, 'semantic');
+    assert.equal(inspector.archive.session.lastRetrieval.embedModel, 'text-embedding-nomic-embed-text-v1.5');
+    assert.equal(inspector.archive.session.lastRetrieval.session.length, 6);
+    assert.equal(inspector.archive.session.lastRetrieval.global.length, 6);
+    assert.equal(inspector.archive.session.lastRetrieval.session[0].text, 'Session hit 1');
+    assert.equal(inspector.archive.session.lastRetrieval.global[0].text, 'Global hit 1');
+    assert.equal(inspector.archive.session.lastRetrieval.session[5].text, 'Session hit 6');
+    assert.equal(inspector.archive.session.lastRetrieval.global[5].text, 'Global hit 6');
+    assert.equal(inspector.archive.session.lastRetrieval.reasonCode, ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY);
+    assert.equal(inspector.archive.session.lastRetrieval.session[0].sourceLabel, 'archive-session');
+    assert.equal(inspector.archive.session.lastRetrieval.global[0].sourceLabel, 'archive-global');
+    assert.equal(inspector.archive.session.lastRetrieval.session[0].evidenceSnippet, 'Session hit 1');
+    assert.equal(inspector.archive.session.lastRetrieval.books.length, 1);
+    assert.equal(inspector.archive.session.lastRetrieval.books[0].id, 'appearance');
+    assert.equal(inspector.archive.session.lastRetrieval.books[0].sourceLabel, 'book');
+    assert.equal(inspector.archive.session.lastRetrieval.compression.used, true);
+    assert.equal(inspector.archive.session.lastRetrieval.compression.reasonCode, ARCHIVE_COMPRESSION_REASON_CODES.LOW_RETRIEVAL_CONFIDENCE);
+    assert.equal(inspector.archive.session.lastRetrieval.compression.chapters[0].sourceType, 'chapter');
+    assert.deepEqual(inspector.archive.session.lastRetrieval.compression.explanation.selectedSignals, ['active-contradiction', 'named-object-anchor']);
+    assert.deepEqual(inspector.archive.session.lastRetrieval.compression.explanation.penalties, ['scaffolding-filter']);
+    assert.equal(inspector.archive.session.lastRetrieval.compression.explanation.omittedEpisodeCount, 9);
+    assert.equal(inspector.archive.session.lastRetrieval.compression.explanation.carriedContradictions[0].conflictKey, 'favorite tea');
+    assert.equal(inspector.explicit.memories.length, 1);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('archiveCompletedTurn preserves bounded correction provenance in lastRetrieval and inspector output', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    const retrieval = {
+      usedAt: '2026-04-13T12:00:00.000Z',
+      mode: 'semantic',
+      embedModel: 'text-embedding-nomic-embed-text-v1.5',
+      session: [],
+      global: [],
+      books: [],
+      provenance: buildProvenanceEntries(8),
+      compression: {
+        used: false,
+        reason: '',
+        chapters: [],
+      },
+    };
+
+    await api.archiveCompletedTurn({
+      sessionId: 'demo',
+      userText: 'Actually, my favorite tea is lapsang souchong now.',
+      assistantText: 'That is the new truth I should remember.',
+      retrieval,
+      provenance: buildProvenanceEntries(8),
+    });
+
+    const archive = api.readArchiveStore();
+    assert.equal(archive.sessions.demo.lastRetrieval.provenance.length, 6);
+    assert.equal(archive.sessions.demo.lastRetrieval.provenance[0].id, 'prov-1');
+    assert.equal(archive.sessions.demo.lastRetrieval.provenance[5].id, 'prov-6');
+    assert.match(archive.sessions.demo.lastRetrieval.provenance[0].newText, /lapsang souchong/i);
+    assert.equal(archive.sessions.demo.lastRetrieval.provenance[0].conflictKey, 'favorite tea');
+    assert.equal(archive.sessions.demo.lastRetrieval.reasonCode, ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY);
+    assert.equal(archive.sessions.demo.lastRetrieval.compression.reasonCode, ARCHIVE_COMPRESSION_REASON_CODES.NOT_NEEDED);
+    assert.equal(archive.sessions.demo.activeContradictions.length, 1);
+    assert.equal(archive.sessions.demo.activeContradictions[0].conflictKey, 'favorite tea');
+    assert.equal(archive.sessions.demo.activeContradictions[0].status, 'active');
+
+    const inspector = await api.getMemoryInspector({
+      sessionId: 'demo',
+      explicitMemory: {
+        memories: [
+          { text: 'Favorite tea is lapsang souchong', kind: 'preference' },
+        ],
+      },
+    });
+
+    assert.equal(inspector.archive.session.lastRetrieval.provenance.length, 6);
+    assert.equal(inspector.archive.session.lastRetrieval.provenance[0].trigger, 'actually');
+    assert.equal(inspector.archive.session.lastRetrieval.provenance[0].sourceEpisodeId, 'episode-1');
+    assert.equal(inspector.archive.session.lastRetrieval.reasonCode, ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY);
+    assert.equal(inspector.archive.session.activeContradictions.length, 1);
+    assert.equal(inspector.archive.session.activeContradictions[0].newText, 'Favorite tea is lapsang souchong');
+    assert.equal(inspector.archive.session.activeContradictions[0].oldText, 'Favorite tea is oolong');
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext can surface session chapter fallback when semantic retrieval is unavailable after a shorter session', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    for (let index = 0; index < 7; index += 1) {
+      await api.archiveCompletedTurn({
+        sessionId: 'chapter-demo',
+        userText: `Midnight rain and city lights memory ${index + 1}.`,
+        assistantText: `Answer ${index + 1}.`,
+      });
+    }
+
+    const archive = api.readArchiveStore();
+    assert.ok(archive.sessions['chapter-demo'].chapters.length >= 1);
+
+    const result = await api.buildArchiveContext({
+      sessionId: 'chapter-demo',
+      userText: 'Can you tell me the midnight rain thing again?',
+      lane: 'chat',
+    });
+
+    assert.equal(result.archiveContext.compression.used, true);
+    assert.equal(result.archiveContext.compression.reasonCode, ARCHIVE_COMPRESSION_REASON_CODES.SEMANTIC_UNAVAILABLE);
+    assert.equal(result.retrieval.compression.used, true);
+    assert.equal(result.retrieval.compression.reasonCode, ARCHIVE_COMPRESSION_REASON_CODES.SEMANTIC_UNAVAILABLE);
+    assert.ok(result.retrieval.compression.chapters.length >= 1);
+    assert.equal(result.retrieval.compression.chapters[0].sourceType, 'chapter');
+    assert.ok(Array.isArray(result.retrieval.compression.explanation.selectedSignals));
+    assert.ok(Array.isArray(result.retrieval.compression.explanation.penalties));
+    assert.ok(Number.isFinite(result.retrieval.compression.explanation.omittedEpisodeCount));
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('chapter compression carries the newest contradiction truth instead of resurfacing the superseded value', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    await api.archiveCompletedTurn({
+      sessionId: 'contr-demo',
+      userText: 'My favorite tea is oolong.',
+      assistantText: 'Oolong it is.',
+    });
+    await api.archiveCompletedTurn({
+      sessionId: 'contr-demo',
+      userText: 'Actually, my favorite tea is lapsang souchong now.',
+      assistantText: 'Lapsang souchong is the new truth.',
+      provenance: buildProvenanceEntries(1),
+    });
+    for (let index = 0; index < 10; index += 1) {
+      await api.archiveCompletedTurn({
+        sessionId: 'contr-demo',
+        userText: `Midnight rain memory ${index + 1} with the striped mug on the counter.`,
+        assistantText: `Answer ${index + 1}.`,
+      });
+    }
+
+    const result = await api.buildArchiveContext({
+      sessionId: 'contr-demo',
+      userText: 'What tea detail did I correct earlier?',
+      lane: 'chat',
+    });
+
+    assert.equal(result.retrieval.compression.used, true);
+    const chapterText = result.retrieval.compression.chapters[0]?.text || '';
+    assert.match(chapterText, /lapsang souchong/i);
+    assert.doesNotMatch(chapterText, /favorite tea is oolong(?!\))/i);
+    assert.equal(result.retrieval.compression.explanation.carriedContradictions[0].conflictKey, 'favorite tea');
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
@@ -175,19 +552,105 @@ test('reviewPromotion approves candidate text and purgeMemory clears session arc
       sessionId: 'demo',
       userText: 'Midnight rain is one of my favorite moods.',
       assistantText: 'That one is probably worth remembering.',
+      retrieval: {
+        usedAt: '2026-04-13T12:30:00.000Z',
+        mode: 'semantic',
+        embedModel: 'text-embedding-nomic-embed-text-v1.5',
+        session: [],
+        global: [],
+        books: [],
+        provenance: buildProvenanceEntries(2),
+        compression: {
+          used: false,
+          reason: '',
+          chapters: [],
+        },
+      },
     });
+
+    const archiveBeforePurge = api.readArchiveStore();
+    assert.equal(archiveBeforePurge.sessions.demo.lastRetrieval.provenance.length, 2);
 
     const queueItem = api.readArchiveStore().global.promotionQueue[0];
     assert.ok(queueItem);
+    assert.ok(queueItem.promotionPacket);
+    assert.ok(queueItem.promotionPacket.sourceThreadId);
     const review = api.reviewPromotion({ queueId: queueItem.id, action: 'approve' });
     assert.equal(review.action, 'approve');
     assert.equal(review.promotedMemory.kind, 'observation');
     assert.match(review.promotedMemory.text, /midnight rain/i);
+    assert.equal(review.promotedMemory.source, 'review-candidate');
+    assert.equal(review.promotedMemory.origin.queueId, queueItem.id);
+    assert.equal(review.promotedMemory.origin.sourceThreadId, queueItem.promotionPacket.sourceThreadId);
+    assert.ok(Array.isArray(review.promotedMemory.origin.sourceTurnIds) && review.promotedMemory.origin.sourceTurnIds.length >= 1);
+    assert.equal(review.packet.sourceThreadId, queueItem.promotionPacket.sourceThreadId);
+    assert.ok(review.packet.sourceTurnIds.length >= 1);
 
     api.purgeMemory({ sessionId: 'demo', clearSessionArchive: true });
     const archive = api.readArchiveStore();
     assert.equal(Boolean(archive.sessions.demo), false);
     assert.equal(archive.global.episodes.some((item) => item.sessionId === 'demo'), false);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('archiveCompletedTurn routes heuristic review candidates into the existing promotion queue', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    await api.archiveCompletedTurn({
+      sessionId: 'demo',
+      userText: 'I am into rainy cyberpunk vibes.',
+      assistantText: 'That tracks.',
+      reviewCandidates: [
+        {
+          text: 'They like rainy cyberpunk vibes',
+          kind: 'preference',
+          source: 'review-candidate',
+          evidence: ['I am into rainy cyberpunk vibes.'],
+          origin: {
+            sourceType: 'heuristic-chat',
+            evidenceSnippet: 'I am into rainy cyberpunk vibes.',
+          },
+        },
+      ],
+    });
+
+    const archive = api.readArchiveStore();
+    assert.equal(archive.global.promotionQueue.length, 1);
+    assert.equal(archive.global.promotionQueue[0].sourceType, 'review-candidate');
+    assert.equal(archive.global.promotionQueue[0].sourceLabel, 'review-candidate');
+    assert.match(archive.global.promotionQueue[0].evidenceSnippet, /rainy cyberpunk vibes/i);
+    assert.equal(archive.global.promotionQueue[0].promotionPacket.sourceThreadId, 'demo');
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('memory inspector exposes recency protection for the newest archived session turns', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    for (let index = 0; index < 10; index += 1) {
+      await api.archiveCompletedTurn({
+        sessionId: 'demo',
+        userText: `Turn ${index + 1} mentions the red glove detail.`,
+        assistantText: `Reply ${index + 1}.`,
+      });
+    }
+
+    const inspector = await api.getMemoryInspector({
+      sessionId: 'demo',
+      explicitMemory: { memories: [] },
+      semanticMemory: { ready: true, configuredModel: 'text-embedding-nomic-embed-text-v1.5' },
+    });
+
+    assert.equal(inspector.archive.session.recencyProtection.enabled, true);
+    assert.equal(inspector.archive.session.recencyProtection.protectedEpisodeCount, 6);
+    assert.equal(inspector.archive.session.recencyProtection.protectedEpisodeIds.length, 6);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

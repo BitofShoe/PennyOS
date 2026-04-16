@@ -1,0 +1,314 @@
+{
+  "id": "default",
+  "name": "Penny Default Expression Pack",
+  "version": 1,
+  "fallbackMood": "calm",
+  "contract": [
+    "calm",
+    "happy",
+    "excited",
+    "thinking",
+    "surprised",
+    "flirty",
+    "smug",
+    "annoyed"
+  ],
+  "moods": {
+    "calm": {
+      "label": "calm",
+      "avatar": {
+        "src": "/sprites/decor/chibi-avatar-calm.png",
+        "alt": "Penny calm expression"
+      },
+      "variants": [
+        {
+          "src": "/sprites/decor/chibi-avatar-calm.png",
+          "label": "RIGHT HERE",
+          "pill": "KNOWING",
+          "pos": "50% 48%"
+        },
+        {
+          "src": "/sprites/decor/chibi-penny-think.png",
+          "label": "SETTLE IN",
+          "pill": "SETTLED",
+          "pos": "50% 44%"
+        }
+      ],
+      "secondaryVariants": [
+        {
+          "src": "/sprites/penny-mood-calm.png",
+          "label": "QUIET",
+          "pill": "QUIET",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/penny-mood-calm-2.png",
+          "label": "SOFT CALM",
+          "pill": "SOFT",
+          "pos": "50% 50%"
+        }
+      ],
+      "sceneHint": "settled",
+      "backgroundHint": "/sprites/penny-mood-calm.png"
+    },
+    "happy": {
+      "label": "happy",
+      "avatar": {
+        "src": "/sprites/decor/chibi-avatar-happy.png",
+        "alt": "Penny happy expression"
+      },
+      "variants": [
+        {
+          "src": "/sprites/decor/chibi-avatar-happy.png",
+          "label": "CHARM MODE",
+          "pill": "CHARMED",
+          "pos": "50% 48%"
+        },
+        {
+          "src": "/sprites/decor/chibi-penny-heart.png",
+          "label": "SOFT SPOT",
+          "pill": "SOFT",
+          "pos": "50% 43%"
+        }
+      ],
+      "secondaryVariants": [
+        {
+          "src": "/sprites/penny-mood-happy.png",
+          "label": "BRIGHT",
+          "pill": "BRIGHT",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/penny-mood-happy-2.png",
+          "label": "WARM",
+          "pill": "WARM",
+          "pos": "50% 50%"
+        }
+      ],
+      "sceneHint": "warm",
+      "backgroundHint": "/sprites/penny-mood-happy.png"
+    },
+    "excited": {
+      "label": "excited",
+      "avatar": {
+        "src": "/sprites/decor/chibi-avatar-excited.png",
+        "alt": "Penny excited expression"
+      },
+      "variants": [
+        {
+          "src": "/sprites/decor/chibi-avatar-excited.png",
+          "label": "SPARKED UP",
+          "pill": "SPARKED",
+          "pos": "50% 48%"
+        },
+        {
+          "src": "/sprites/decor/chibi-penny-peace.png",
+          "label": "OH, HELL YES",
+          "pill": "FIRED UP",
+          "pos": "50% 48%"
+        }
+      ],
+      "secondaryVariants": [
+        {
+          "src": "/sprites/penny-mood-excited.png",
+          "label": "LIT UP",
+          "pill": "LIT",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/penny-mood-excited-2.png",
+          "label": "ON IT",
+          "pill": "ON IT",
+          "pos": "50% 50%"
+        }
+      ],
+      "sceneHint": "sparked",
+      "backgroundHint": "/sprites/penny-mood-excited.png"
+    },
+    "thinking": {
+      "label": "thinking",
+      "avatar": {
+        "src": "/sprites/decor/chibi-avatar-thinking.png",
+        "alt": "Penny thinking expression"
+      },
+      "variants": [
+        {
+          "src": "/sprites/decor/chibi-avatar-thinking.png",
+          "label": "LOCKED IN",
+          "pill": "LOCKED IN",
+          "pos": "50% 48%"
+        },
+        {
+          "src": "/sprites/decor/chibi-penny-think.png",
+          "label": "DOING THE MATH",
+          "pill": "FOCUSED",
+          "pos": "50% 44%"
+        }
+      ],
+      "secondaryVariants": [
+        {
+          "src": "/sprites/penny-mood-thinking.png",
+          "label": "WORKING IT OUT",
+          "pill": "WORKING",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/penny-mood-thinking-2.png",
+          "label": "HOLD ON",
+          "pill": "HOLD ON",
+          "pos": "50% 50%"
+        }
+      ],
+      "sceneHint": "focused",
+      "backgroundHint": "/sprites/penny-mood-thinking.png"
+    },
+    "surprised": {
+      "label": "surprised",
+      "avatar": {
+        "src": "/sprites/decor/chibi-avatar-surprised.png",
+        "alt": "Penny surprised expression"
+      },
+      "variants": [
+        {
+          "src": "/sprites/decor/chibi-avatar-surprised.png",
+          "label": "WAIT, WHAT?",
+          "pill": "STARTLED",
+          "pos": "50% 48%"
+        },
+        {
+          "src": "/sprites/decor/chibi-penny-peace.png",
+          "label": "DID NOT SEE THAT COMING",
+          "pill": "WHOA",
+          "pos": "50% 48%"
+        }
+      ],
+      "secondaryVariants": [
+        {
+          "src": "/sprites/penny-mood-surprised.png",
+          "label": "WHOOPS",
+          "pill": "WHOOPS",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/penny-mood-surprised-2.png",
+          "label": "OH?",
+          "pill": "OH?",
+          "pos": "50% 50%"
+        }
+      ],
+      "sceneHint": "startled",
+      "backgroundHint": "/sprites/penny-mood-surprised.png"
+    },
+    "flirty": {
+      "label": "flirty",
+      "avatar": {
+        "src": "/sprites/decor/chibi-avatar-flirty.png",
+        "alt": "Penny flirty expression"
+      },
+      "variants": [
+        {
+          "src": "/sprites/decor/chibi-avatar-flirty.png",
+          "label": "COME HERE",
+          "pill": "TEASING",
+          "pos": "50% 48%"
+        },
+        {
+          "src": "/sprites/decor/chibi-penny-heart.png",
+          "label": "YOU ASKED FOR THIS",
+          "pill": "DANGEROUS",
+          "pos": "50% 43%"
+        }
+      ],
+      "secondaryVariants": [
+        {
+          "src": "/sprites/penny-mood-flirty.png",
+          "label": "CLOSE",
+          "pill": "CLOSE",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/penny-mood-flirty-2.png",
+          "label": "PLAYING",
+          "pill": "PLAYING",
+          "pos": "50% 50%"
+        }
+      ],
+      "sceneHint": "teasing",
+      "backgroundHint": "/sprites/penny-mood-flirty.png"
+    },
+    "smug": {
+      "label": "smug",
+      "avatar": {
+        "src": "/sprites/decor/chibi-avatar-smug.png",
+        "alt": "Penny smug expression"
+      },
+      "variants": [
+        {
+          "src": "/sprites/decor/chibi-avatar-smug.png",
+          "label": "TOLD YOU",
+          "pill": "SMUG",
+          "pos": "50% 48%"
+        },
+        {
+          "src": "/sprites/decor/chibi-penny-wink.png",
+          "label": "TOO EASY",
+          "pill": "TOO EASY",
+          "pos": "50% 48%"
+        }
+      ],
+      "secondaryVariants": [
+        {
+          "src": "/sprites/penny-mood-smug.png",
+          "label": "NICE TRY",
+          "pill": "NICE TRY",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/penny-mood-smug-2.png",
+          "label": "CALLED IT",
+          "pill": "CALLED IT",
+          "pos": "50% 50%"
+        }
+      ],
+      "sceneHint": "self-satisfied",
+      "backgroundHint": "/sprites/penny-mood-smug.png"
+    },
+    "annoyed": {
+      "label": "annoyed",
+      "avatar": {
+        "src": "/sprites/decor/chibi-avatar-annoyed.png",
+        "alt": "Penny annoyed expression"
+      },
+      "variants": [
+        {
+          "src": "/sprites/decor/chibi-avatar-annoyed.png",
+          "label": "REALLY NOW?",
+          "pill": "ANNOYED",
+          "pos": "50% 48%"
+        },
+        {
+          "src": "/sprites/decor/chibi-penny-think.png",
+          "label": "TRY ME",
+          "pill": "TRY ME",
+          "pos": "50% 44%"
+        }
+      ],
+      "secondaryVariants": [
+        {
+          "src": "/sprites/penny-mood-annoyed.png",
+          "label": "NOT IMPRESSED",
+          "pill": "NOT IMPRESSED",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/penny-mood-annoyed-2.png",
+          "label": "CUT IT OUT",
+          "pill": "CUT IT OUT",
+          "pos": "50% 50%"
+        }
+      ],
+      "sceneHint": "irritated",
+      "backgroundHint": "/sprites/penny-mood-annoyed.png"
+    }
+  }
+}

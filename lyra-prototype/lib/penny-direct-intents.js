@@ -1,3 +1,36 @@
+/**
+ * @typedef {'direct_write_instruction' | 'direct_replace_instruction' | 'direct_append_instruction' | 'syntax_check_request' | 'git_diff_request' | 'web_page_request' | 'web_result_inspection_request' | 'web_search_request' | 'project_file_focus_read' | 'project_file_read_request' | 'project_path_discovery' | 'project_symbol_inspect' | 'project_text_search' | 'runtime_status_request' | 'git_status_request' | 'recent_logs_request'} DirectIntentReasonCode
+ *
+ * @typedef {Object} DirectIntentResolution
+ * @property {string} name
+ * @property {Object} args
+ * @property {string} [kind]
+ * @property {string} [mode]
+ * @property {string} [path]
+ * @property {Array<Object>} [steps]
+ * @property {DirectIntentReasonCode} reasonCode
+ */
+const DIRECT_INTENT_REASON_CODES = Object.freeze({
+  DIRECT_WRITE: 'direct_write_instruction',
+  DIRECT_REPLACE: 'direct_replace_instruction',
+  DIRECT_APPEND: 'direct_append_instruction',
+  SYNTAX_CHECK: 'syntax_check_request',
+  GIT_DIFF: 'git_diff_request',
+  WEB_PAGE: 'web_page_request',
+  WEB_INSPECT: 'web_result_inspection_request',
+  WEB_SEARCH: 'web_search_request',
+  PROJECT_FILE_FOCUS_READ: 'project_file_focus_read',
+  PROJECT_FILE_READ: 'project_file_read_request',
+  PROJECT_PATH_DISCOVERY: 'project_path_discovery',
+  PROJECT_SYMBOL_INSPECT: 'project_symbol_inspect',
+  PROJECT_TEXT_SEARCH: 'project_text_search',
+  RUNTIME_STATUS: 'runtime_status_request',
+  GIT_STATUS: 'git_status_request',
+  RECENT_LOGS: 'recent_logs_request',
+});
+
+const { createDirectIntentReplyApi } = require('./penny-direct-intent-replies');
+
 function createDirectIntentApi({
   stripCodeFences,
   collapseWhitespace,
@@ -25,6 +58,12 @@ function createDirectIntentApi({
   if (typeof stripReplyMoodTags !== 'function') {
     throw new TypeError('createDirectIntentApi requires stripReplyMoodTags');
   }
+
+  const directIntentReplyApi = createDirectIntentReplyApi({
+    truncateText,
+    stripReplyMoodTags,
+    LOCAL_LLM_TRANSPORT,
+  });
 
   const PROJECT_PATH_EXTENSIONS = 'js|cjs|mjs|json|md|txt|html|css|svg|ps1|log';
   const QUOTED_PROJECT_PATH_PATTERNS = [
@@ -109,13 +148,18 @@ function createDirectIntentApi({
     return null;
   }
 
-  function buildDirectEditSequence(path, primaryStep, mode) {
+  function buildDirectEditSequence(path, primaryStep, mode, reasonCode) {
     const steps = [primaryStep];
     if (/\.(?:js|cjs|mjs)$/i.test(path)) {
       steps.push({ name: 'run_node_check', args: { path } });
     }
     steps.push({ name: 'get_git_status', args: {} });
-    return { kind: 'sequence', mode, path, steps };
+    return { kind: 'sequence', mode, path, steps, reasonCode };
+  }
+
+  function withReasonCode(result, reasonCode) {
+    if (!result || typeof result !== 'object') return result;
+    return { ...result, reasonCode };
   }
 
   function extractDirectWebQuery(text = '') {
@@ -191,6 +235,30 @@ function createDirectIntentApi({
     return '';
   }
 
+  function inferNaturalProjectReadTarget(text = '', explicitPath = '') {
+    const lower = String(text || '').toLowerCase();
+    const explicit = String(explicitPath || '').trim();
+    const explicitLower = explicit.toLowerCase();
+    const explicitIsPackageJson = /(?:^|[\\/])package\.json$/i.test(explicitLower);
+    const explicitIsServerFile = /(?:^|[\\/])server\.(?:js|cjs|mjs)$/i.test(explicitLower);
+    const packageJsonQuestion = /\b(npm\s+test|npm\s+run\s+test|test command|test script|which npm script runs tests|which npm script runs the tests|current npm test command|npm scripts?)\b/i.test(lower);
+    if (packageJsonQuestion) {
+      return {
+        path: explicitIsPackageJson ? explicit : (explicit || 'package.json'),
+        query: 'test',
+      };
+    }
+    const portQuestion = /\bwhat port does this use\b|\bwhich port does this use\b|\bwhat port is this on\b|\bwhich port is this on\b|\bwhat port is it on\b|\bwhat port\b/i.test(lower)
+      && /\b(this|it|app|server|repo|project|code)\b/i.test(lower);
+    if (portQuestion) {
+      return {
+        path: explicitIsServerFile ? explicit : (explicit || 'server.js'),
+        query: 'port',
+      };
+    }
+    return null;
+  }
+
   function looksLikeProjectPathDiscoveryIntent(text = '', query = '') {
     if (!query) return false;
     const lower = String(text || '').toLowerCase();
@@ -246,6 +314,7 @@ function createDirectIntentApi({
         directWrite.path,
         { name: 'write_project_file', args: { path: directWrite.path, content: directWrite.content } },
         'direct_write',
+        DIRECT_INTENT_REASON_CODES.DIRECT_WRITE,
       );
     }
     const directReplace = parseDirectReplaceInstruction(text);
@@ -261,6 +330,7 @@ function createDirectIntentApi({
           },
         },
         'direct_replace',
+        DIRECT_INTENT_REASON_CODES.DIRECT_REPLACE,
       );
     }
     const directAppend = parseDirectAppendInstruction(text);
@@ -277,31 +347,44 @@ function createDirectIntentApi({
           },
         },
         'direct_append',
+        DIRECT_INTENT_REASON_CODES.DIRECT_APPEND,
       );
     }
     if (explicitPath && /\b(syntax|parse|node --check|compile)\b/i.test(lower)) {
-      return { name: 'run_node_check', args: { path: explicitPath } };
+      return withReasonCode({ name: 'run_node_check', args: { path: explicitPath } }, DIRECT_INTENT_REASON_CODES.SYNTAX_CHECK);
     }
     if (/\bgit diff\b/i.test(lower) || (/\b(diff|show(?: me)?(?: the)? changes|what changed|what did you change)\b/i.test(lower) && (/\bgit\b/i.test(lower) || !!explicitPath))) {
-      return { name: 'read_git_diff', args: explicitPath ? { path: explicitPath, contextLines: 3 } : { summaryOnly: true } };
+      return withReasonCode({ name: 'read_git_diff', args: explicitPath ? { path: explicitPath, contextLines: 3 } : { summaryOnly: true } }, DIRECT_INTENT_REASON_CODES.GIT_DIFF);
     }
     if (explicitUrl && /\b(read|open|summarize|check|inspect|what(?:'s| is) on|what does|tell me about)\b/i.test(lower)) {
-      return { name: 'read_web_page', args: { url: explicitUrl } };
+      return withReasonCode({ name: 'read_web_page', args: { url: explicitUrl } }, DIRECT_INTENT_REASON_CODES.WEB_PAGE);
     }
     const webQuery = extractDirectWebQuery(text);
     if (webQuery) {
       if (shouldInspectTopWebResult(text)) {
-        return { name: 'inspect_web_result', args: { query: webQuery, limit: 5 } };
+        return withReasonCode({ name: 'inspect_web_result', args: { query: webQuery, limit: 5 } }, DIRECT_INTENT_REASON_CODES.WEB_INSPECT);
       }
-      return { name: 'search_web', args: { query: webQuery, limit: 5 } };
+      return withReasonCode({ name: 'search_web', args: { query: webQuery, limit: 5 } }, DIRECT_INTENT_REASON_CODES.WEB_SEARCH);
     }
     if (explicitPath && looksLikeOpenEndedProjectEdit(text)) {
       return null;
     }
+    const naturalProjectRead = inferNaturalProjectReadTarget(text, explicitPath);
+    if (naturalProjectRead) {
+      return withReasonCode({
+        name: 'read_project_file_around_match',
+        args: {
+          path: naturalProjectRead.path,
+          query: naturalProjectRead.query,
+          beforeLines: 8,
+          afterLines: 24,
+        },
+      }, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
+    }
     const searchQuery = extractDirectSearchQuery(text);
     const lineQuestionType = explicitPath ? classifyLineLevelFileQuestion(text) : '';
     if (explicitPath && searchQuery && lineQuestionType) {
-      return {
+      return withReasonCode({
         name: 'read_project_file_around_match',
         args: {
           path: explicitPath,
@@ -310,12 +393,12 @@ function createDirectIntentApi({
           afterLines: 24,
           questionType: lineQuestionType,
         },
-      };
+      }, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
     }
     if (explicitPath && /\b(read|open|show|inspect|explain|summarize|check|look at|walk through|search|find|grep|look for)\b/i.test(lower)) {
       const symbolQuery = extractDirectSearchQuery(text) || extractDirectReadFocusQuery(text, explicitPath);
       if (symbolQuery && !/^(git diff|git status)$/i.test(symbolQuery) && !extractExplicitProjectPath(symbolQuery)) {
-        return {
+        return withReasonCode({
           name: 'read_project_file_around_match',
           args: {
             path: explicitPath,
@@ -323,86 +406,37 @@ function createDirectIntentApi({
             beforeLines: 12,
             afterLines: 48,
           },
-        };
+        }, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
       }
-      return { name: 'read_project_file', args: { path: explicitPath, startLine: 1, endLine: 160 } };
+      return withReasonCode({ name: 'read_project_file', args: { path: explicitPath, startLine: 1, endLine: 160 } }, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_READ);
     }
     if (!explicitPath && searchQuery && looksLikeProjectPathDiscoveryIntent(text, searchQuery)) {
-      return { name: 'list_project_files', args: { path: '.', recursive: true, pattern: searchQuery, limit: 24 } };
+      return withReasonCode({ name: 'list_project_files', args: { path: '.', recursive: true, pattern: searchQuery, limit: 24 } }, DIRECT_INTENT_REASON_CODES.PROJECT_PATH_DISCOVERY);
     }
     if (!explicitPath && looksLikeDirectProjectInspectIntent(text, searchQuery)) {
-      return {
+      return withReasonCode({
         name: 'inspect_project_symbol',
         args: {
           query: searchQuery,
           beforeLines: 12,
           afterLines: 56,
         },
-      };
+      }, DIRECT_INTENT_REASON_CODES.PROJECT_SYMBOL_INSPECT);
     }
     if (searchQuery && /\b(search|find|grep|where is|which file|what handles|wired up|hooked up|hooked into|used for|used in)\b/i.test(lower)) {
-      return { name: 'search_project_text', args: { query: searchQuery, limit: 8 } };
+      return withReasonCode({ name: 'search_project_text', args: { query: searchQuery, limit: 8 } }, DIRECT_INTENT_REASON_CODES.PROJECT_TEXT_SEARCH);
     }
     if (/\b(what model|which model|runtime status|local status|lm studio status|what are you using|which local model|resolved model)\b/i.test(lower)) {
-      return { name: 'get_runtime_status', args: {} };
+      return withReasonCode({ name: 'get_runtime_status', args: {} }, DIRECT_INTENT_REASON_CODES.RUNTIME_STATUS);
     }
     if (/\bgit status\b/i.test(lower) || (/\bwhat changed\b/i.test(lower) && /\bgit\b/i.test(lower))) {
-      return { name: 'get_git_status', args: {} };
+      return withReasonCode({ name: 'get_git_status', args: {} }, DIRECT_INTENT_REASON_CODES.GIT_STATUS);
     }
     if (/\b(log|logs|stderr|stdout|stack trace|traceback)\b/i.test(lower) && /\b(read|show|summarize|inspect|check|look at|why)\b/i.test(lower)) {
       const target = /\bstderr\b/i.test(lower) ? 'stderr' : /\bstdout\b/i.test(lower) ? 'stdout' : 'latest';
-      return { name: 'read_recent_logs', args: { target, lines: 60 } };
+      return withReasonCode({ name: 'read_recent_logs', args: { target, lines: 60 } }, DIRECT_INTENT_REASON_CODES.RECENT_LOGS);
     }
     return null;
-  }
-
-  function composeDirectRuntimeReply(status = {}) {
-    const model = String(status.resolvedModel || '').trim();
-    const reachability = status.reachable
-      ? 'local link is up.'
-      : 'local link is down right now.';
-    const modelLine = model
-      ? `Right now I'm riding on ${model}.`
-      : 'LM Studio is reachable, but there is not a resolved chat model loaded yet.';
-    const transportLine = `Transport is ${status.localTransport || LOCAL_LLM_TRANSPORT}.`;
-    const installCount = Array.isArray(status.installedModels) ? status.installedModels.length : 0;
-    const inventoryLine = installCount
-      ? `I can also see ${installCount} installed local model${installCount === 1 ? '' : 's'} on disk.`
-      : '';
-    return `${reachability} ${modelLine} ${transportLine}${inventoryLine ? ` ${inventoryLine}` : ''}\n[MOOD:thinking]`;
-  }
-
-  function composeDirectSyntaxReply(result = {}) {
-    const pathLabel = result.path || 'that file';
-    if (result.ok === false) {
-      const detail = String(result.stderr || result.stdout || 'Node reported a syntax failure.').trim();
-      return `${pathLabel} did not pass \`node --check\`. ${detail}\n[MOOD:annoyed]`;
-    }
-    return `${pathLabel} passes \`node --check\`. no syntax panic, no exploding brackets, we're fine.\n[MOOD:smug]`;
-  }
-
-  function composeDirectGitStatusReply(result = {}) {
-    if (result.ok === false) {
-      return `git status did not cooperate. ${String(result.stderr || 'Something blocked it.').trim()}\n[MOOD:annoyed]`;
-    }
-    const status = String(result.status || '').trim();
-    if (!status || status === '(clean)') {
-      return `git is clean right now. no local changes waiting to bite us.\n[MOOD:calm]`;
-    }
-    return `here's the current git status:\n${status}\n[MOOD:thinking]`;
-  }
-
-  function composeDirectSearchReply(result = {}) {
-    const query = String(result.query || '').trim() || 'that search';
-    const hits = Array.isArray(result.hits) ? result.hits : [];
-    if (!hits.length) {
-      return `i searched for "${query}" and came up empty. if you want, i can try a broader phrase next.\n[MOOD:thinking]`;
-    }
-    const preview = hits
-      .slice(0, 5)
-      .map((hit) => `- ${hit.path}:${hit.line} ${hit.text}`)
-      .join('\n');
-    return `i searched for "${query}" and found the strongest hits here:\n${preview}\n[MOOD:thinking]`;
   }
 
   function shouldUseDirectReadReply(userText = '') {
@@ -410,233 +444,8 @@ function createDirectIntentApi({
     if (!lower) return false;
     return /\b(do not edit|don't edit|did you change|did you verify|whether you changed|whether you verified|current note string|what does it say|just tell me|just show me|say about|says about|mention about|mentions about)\b/.test(lower);
   }
-
-  function parseExcerptLines(excerpt = '') {
-    return String(excerpt || '')
-      .split('\n')
-      .map((line) => {
-        const match = line.match(/^(\d+):(.*)$/);
-        if (match) {
-          return {
-            lineNumber: Number(match[1]),
-            text: String(match[2] || '').trim(),
-          };
-        }
-        return {
-          lineNumber: null,
-          text: String(line || '').trim(),
-        };
-      })
-      .filter((line) => line.text);
-  }
-
-  function escapeRegExp(text = '') {
-    return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  function looksLikeDefinitionLine(lineText = '', query = '') {
-    const line = String(lineText || '').trim();
-    const symbol = String(query || '').trim();
-    if (!line || !symbol) return false;
-    const escaped = escapeRegExp(symbol);
-    return new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\b`).test(line)
-      || new RegExp(`\\bfunction\\s+${escaped}\\b`).test(line)
-      || new RegExp(`\\bclass\\s+${escaped}\\b`).test(line)
-      || new RegExp(`\\b${escaped}\\s*=`).test(line)
-      || new RegExp(`\\b${escaped}\\s*:`).test(line)
-      || new RegExp(`\\bmodule\\.exports\\.${escaped}\\b`).test(line)
-      || new RegExp(`\\bexports\\.${escaped}\\b`).test(line);
-  }
-
-  function composeDirectReadReply(result = {}) {
-    const pathLabel = String(result.path || 'that file').trim();
-    const query = String(result.query || '').trim();
-    const questionType = String(result.questionType || '').trim().toLowerCase();
-    const excerpt = String(result.excerpt || '').trim();
-    if (query) {
-      const excerptLines = parseExcerptLines(excerpt);
-      const matchingLines = excerptLines.filter((line) => line.text.toLowerCase().includes(query.toLowerCase()));
-      const focusLine = (questionType === 'definition'
-        ? matchingLines.find((line) => looksLikeDefinitionLine(line.text, query))
-        : null)
-        || matchingLines[0]
-        || excerptLines.find((line) => line.text);
-      const focusLineNumber = focusLine?.lineNumber || result.matchLine || result.startLine || 1;
-      const supportText = focusLine?.text ? truncateText(focusLine.text, 220) : '';
-      const answer = questionType === 'definition'
-        ? (supportText && looksLikeDefinitionLine(supportText, query)
-          ? `i checked ${pathLabel} for "${query}". short version: ${query} looks defined around line ${focusLineNumber}.`
-          : `i checked ${pathLabel} for "${query}". short version: ${pathLabel} does not appear to define ${query} there; the strongest live mention is around line ${focusLineNumber}.`)
-        : (supportText
-          ? `i checked ${pathLabel} for "${query}". short version: it does mention ${query} around line ${focusLineNumber}.`
-          : `i checked ${pathLabel} for "${query}". short version: there is relevant context around line ${focusLineNumber}.`);
-      const support = supportText
-        ? `\n\nsupporting line ${focusLineNumber}: ${supportText}`
-        : '';
-      return `${answer}${support}\n\ni did not edit anything, and i did not run a verification step.\n[MOOD:thinking]`;
-    }
-    const scope = query
-      ? `around "${query}" in ${pathLabel}`
-      : `${pathLabel} lines ${result.startLine || result.matchLine || 1}-${result.endLine || result.startLine || result.matchLine || 1}`;
-    const intro = `i inspected ${scope}. i did not edit anything, and i did not run a verification step.`;
-    return excerpt
-      ? `${intro}\n\n${excerpt}\n[MOOD:thinking]`
-      : `${intro}\n[MOOD:thinking]`;
-  }
-
-  function composeDirectFileListReply(result = {}) {
-    const query = String(result.pattern || '').trim() || 'that';
-    const items = Array.isArray(result.items) ? result.items : [];
-    if (!items.length) {
-      return `i looked through the repo for "${query}" as a folder/file name and came up empty. if you want, i can try a broader term or inspect a specific path next.\n[MOOD:thinking]`;
-    }
-    const preview = items
-      .slice(0, 8)
-      .map((item) => `- ${item}`)
-      .join('\n');
-    return `i found "${query}" in the repo here:\n${preview}\n[MOOD:smug]`;
-  }
-
-  function composeDirectWebSearchReply(result = {}) {
-    const query = String(result.query || '').trim() || 'that';
-    const results = Array.isArray(result.results) ? result.results : [];
-    if (!results.length) {
-      return `i searched the web for "${query}" and it came back weirdly empty. the internet is being a little bitch about it.\n[MOOD:annoyed]`;
-    }
-    const preview = results
-      .slice(0, 4)
-      .map((item, idx) => {
-        const snippet = item.snippet ? ` - ${item.snippet}` : '';
-        return `${idx + 1}. ${item.title}\n   ${item.url}${snippet}`;
-      })
-      .join('\n');
-    return `i searched the live web for "${query}". strongest hits:\n${preview}\n[MOOD:thinking]`;
-  }
-
-  function composeDirectWebPageReply(result = {}) {
-    const title = String(result.title || '').trim();
-    const url = String(result.url || result.requestedUrl || '').trim();
-    const excerpt = truncateText(String(result.text || '').trim(), 900);
-    const heading = title ? `${title}` : (url || 'that page');
-    if (!excerpt) {
-      return `i pulled ${heading}, but the page did not cough up usable text. rude.\n[MOOD:annoyed]`;
-    }
-    return `i pulled ${heading}${url ? `\n${url}` : ''}\n\nhere's the useful bit:\n${excerpt}\n[MOOD:thinking]`;
-  }
-
-  function takeFirstUsefulSentence(text = '', limit = 280) {
-    const cleaned = collapseWhitespace(String(text || '').replace(/\s+/g, ' ').trim());
-    if (!cleaned) return '';
-    const sentenceMatch = cleaned.match(/^(.{1,280}?[.!?])(?:\s|$)/);
-    if (sentenceMatch?.[1]) return sentenceMatch[1].trim();
-    return truncateText(cleaned, limit);
-  }
-
-  function composeToolRecordFallback(toolRecords = []) {
-    const records = Array.isArray(toolRecords) ? toolRecords : [];
-    const insert = records.find((record) => record?.name === 'insert_in_project_file' && record?.result?.ok && record?.result?.data);
-    if (insert) {
-      const pathLabel = insert.result.data.path || 'that file';
-      const snippet = truncateText(cleanDirectInstructionContent(String(insert.args?.text || insert.result.data?.textPreview || '').trim()), 1200);
-      if (snippet) {
-        return `i added this to ${pathLabel}:\n${snippet}\n[MOOD:smug]`;
-      }
-      return `i added the new text to ${pathLabel}. the change landed.\n[MOOD:smug]`;
-    }
-    const replace = records.find((record) => record?.name === 'replace_in_project_file' && record?.result?.ok && record?.result?.data);
-    if (replace) {
-      const pathLabel = replace.result.data.path || 'that file';
-      const find = truncateText(String(replace.args?.find || '').trim(), 120);
-      const next = truncateText(String(replace.args?.replace || '').trim(), 160);
-      const replaced = Number(replace.result.data?.replaced || 0);
-      if (find && next) {
-        return `i updated ${pathLabel} by replacing ${replaced || 1} match${replaced === 1 ? '' : 'es'} of "${find}" with "${next}".\n[MOOD:smug]`;
-      }
-      return `i updated ${pathLabel} and the replacement landed.\n[MOOD:smug]`;
-    }
-    const write = records.find((record) => record?.name === 'write_project_file' && record?.result?.ok && record?.result?.data);
-    if (write) {
-      const pathLabel = write.result.data.path || 'that file';
-      const action = write.result.data.action === 'created' ? 'created' : 'updated';
-      return `i ${action} ${pathLabel}. the file is in place.\n[MOOD:smug]`;
-    }
-    const page = records.find((record) => record?.name === 'read_web_page' && record?.result?.ok && record?.result?.data);
-    if (page) {
-      const data = page.result.data;
-      const heading = String(data.title || data.url || data.requestedUrl || 'that page').trim();
-      const url = String(data.url || data.requestedUrl || '').trim();
-      const sentence = takeFirstUsefulSentence(data.text, 260);
-      if (sentence) {
-        return `i checked ${heading}${url ? `\n${url}` : ''}\n\nshort version: ${sentence}\n[MOOD:thinking]`;
-      }
-      return `i checked ${heading}${url ? `\n${url}` : ''}, but the page text came back annoyingly thin.\n[MOOD:annoyed]`;
-    }
-    const web = records.find((record) => record?.name === 'search_web' && record?.result?.ok && Array.isArray(record?.result?.data?.results));
-    if (web) {
-      const results = web.result.data.results;
-      if (!results.length) {
-        return `i searched the web for "${web.result.data.query || 'that topic'}" and came up empty.\n[MOOD:annoyed]`;
-      }
-      const top = results[0];
-      const snippet = truncateText(String(top?.snippet || '').trim(), 220);
-      if (snippet) {
-        return `i found the strongest live-web hit for "${web.result.data.query || 'that topic'}":\n${top.title}\n${top.url}\n\nshort version: ${snippet}\n[MOOD:thinking]`;
-      }
-      return `i found the strongest live-web hit for "${web.result.data.query || 'that topic'}":\n${top.title}\n${top.url}\n[MOOD:thinking]`;
-    }
-    const read = records.find((record) => record?.name === 'read_project_file' || record?.name === 'read_project_file_around_match');
-    if (read?.result?.ok && read.result.data) {
-      const data = read.result.data;
-      const pathLabel = data.path || 'that file';
-      const startLine = data.startLine || data.matchLine || '?';
-      const endLine = data.endLine || startLine;
-      return `i pulled the relevant code in ${pathLabel} around lines ${startLine}-${endLine}. the verified context is there, i just don't want to bluff the explanation.\n[MOOD:thinking]`;
-    }
-    const search = records.find((record) => record?.name === 'search_project_text');
-    if (search?.result?.ok && Array.isArray(search.result.data?.hits)) {
-      const hits = search.result.data.hits;
-      if (!hits.length) {
-        return `i searched for "${search.result.data.query || 'that symbol'}" and came up empty.\n[MOOD:annoyed]`;
-      }
-      const top = hits[0];
-      return `i found the strongest hit for "${search.result.data.query || 'that symbol'}" in ${top.path}:${top.line}. if you want the exact excerpt, i can pull more around it.\n[MOOD:thinking]`;
-    }
-    return '';
-  }
-
-  function hasToolRecordName(toolRecords = [], names = []) {
-    const wanted = new Set(names);
-    return Array.isArray(toolRecords) && toolRecords.some((record) => wanted.has(String(record?.name || '').trim()));
-  }
-
-  function looksLikeWeakToolReply(text = '', toolRecords = []) {
-    const stripped = stripReplyMoodTags(String(text || '')).trim();
-    if (!stripped) return true;
-    const hasEdit = hasToolRecordName(toolRecords, ['insert_in_project_file', 'replace_in_project_file', 'write_project_file']);
-    if (!hasEdit) return false;
-    const insert = Array.isArray(toolRecords)
-      ? toolRecords.find((record) => record?.name === 'insert_in_project_file' && record?.result?.ok)
-      : null;
-    if (insert) {
-      const snippet = collapseWhitespace(
-        String(insert?.result?.data?.textPreview || insert?.args?.text || '')
-          .replace(/^\n+/, '')
-          .replace(/\n+$/, '')
-          .trim(),
-      );
-      const normalizedReply = collapseWhitespace(stripped).toLowerCase();
-      const normalizedSnippet = snippet.toLowerCase();
-      if (normalizedSnippet && /\b(exactly what i added|here is exactly what i added|here's exactly what i added|micro-story i added|paragraph i added|i added this)\b/i.test(normalizedReply)) {
-        if (!normalizedReply.includes(normalizedSnippet)) return true;
-      }
-    }
-    if (((stripped.match(/`/g) || []).length % 2) === 1) return true;
-    if (stripped.length < 70) return true;
-    if (!/[.!?][)"'`]*$/.test(stripped) && stripped.length < 180) return true;
-    return false;
-  }
-
   return {
+    DIRECT_INTENT_REASON_CODES,
     extractExplicitProjectPath,
     cleanDirectInstructionContent,
     parseDirectWriteInstruction,
@@ -650,20 +459,12 @@ function createDirectIntentApi({
     looksLikeOpenEndedProjectEdit,
     shouldForceLocalToolLoop,
     resolveDirectToolIntent,
-    composeDirectRuntimeReply,
-    composeDirectSyntaxReply,
-    composeDirectGitStatusReply,
-    composeDirectSearchReply,
-    composeDirectReadReply,
-    composeDirectFileListReply,
-    composeDirectWebSearchReply,
-    composeDirectWebPageReply,
-    composeToolRecordFallback,
-    looksLikeWeakToolReply,
     shouldUseDirectReadReply,
+    ...directIntentReplyApi,
   };
 }
 
 module.exports = {
   createDirectIntentApi,
+  DIRECT_INTENT_REASON_CODES,
 };

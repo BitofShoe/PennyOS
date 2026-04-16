@@ -19,12 +19,13 @@ const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `model-eval-${STAMP}.json`);
 const SERVER_STDOUT_PATH = path.join(OUTPUT_DIR, `model-eval-${STAMP}.server.out.log`);
 const SERVER_STDERR_PATH = path.join(OUTPUT_DIR, `model-eval-${STAMP}.server.err.log`);
+const DEFAULT_CHAT_MODELS = 'unsloth/gemma-4-31b-it@q6_k,gemma-4-31b-it@q4_k_s';
 
-const MODELS = [
-  { key: 'unsloth/gemma-4-31b-it@q6_k', slug: 'unsloth-gemma-4-31b-it-q6_k' },
-  { key: 'google/gemma-4-31b', slug: 'google-gemma-4-31b' },
-  { key: 'gemma-4-31b-it@q4_k_s', slug: 'gemma-4-31b-it-q4_k_s' },
-];
+const MODELS = String(process.env.PENNY_EVAL_MODELS || DEFAULT_CHAT_MODELS)
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean)
+  .map((key) => ({ key, slug: key.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') }));
 
 const RUBRIC = {
   personalityPriorities: [
@@ -468,6 +469,11 @@ async function main() {
       blockers: preparation.blockers,
     },
     rubric: RUBRIC,
+    qaModelPolicy: {
+      tool: TOOL_MODEL,
+      comparedChatModels: MODELS.map((item) => item.key),
+      q8RequiresExplicitRequest: true,
+    },
     models: [],
   };
 

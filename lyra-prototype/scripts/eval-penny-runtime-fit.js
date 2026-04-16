@@ -1,0 +1,489 @@
+const fs = require('fs');
+const path = require('path');
+const { spawn, execFile } = require('child_process');
+const { createAutomationApi } = require('./penny-lmstudio-prepare');
+
+const ROOT_DIR = path.resolve(__dirname, '..');
+const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
+const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
+const PORT = Number(process.env.PENNY_RUNTIME_FIT_PORT || 4354);
+const BASE_URL = process.env.PENNY_RUNTIME_FIT_BASE_URL || `http://127.0.0.1:${PORT}`;
+const GENERAL_TIMEOUT_MS = Number(process.env.PENNY_RUNTIME_FIT_TIMEOUT_MS || 420000);
+const LOAD_TIMEOUT_MS = Number(process.env.PENNY_RUNTIME_FIT_LOAD_TIMEOUT_MS || 1200000);
+const MODEL_TTL_SECONDS = Number(process.env.PENNY_RUNTIME_FIT_MODEL_TTL_SECONDS || 1800);
+const CHAT_MODEL = String(process.env.PENNY_RUNTIME_FIT_CHAT_MODEL || process.env.PENNY_QA_CHAT_MODEL || 'unsloth/gemma-4-31b-it@q6_k').trim();
+const TOOL_MODEL = String(process.env.PENNY_RUNTIME_FIT_TOOL_MODEL || process.env.PENNY_QA_TOOL_MODEL || 'google/gemma-4-e4b').trim();
+const EMBED_MODEL = String(process.env.PENNY_RUNTIME_FIT_EMBED_MODEL || process.env.PENNY_QA_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5').trim();
+const PRESET_IDENTIFIER = String(process.env.PENNY_RUNTIME_FIT_PRESET_IDENTIFIER || process.env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny').trim() || '@local:penny';
+const DEFAULT_CONTEXT_LENGTH = Number(process.env.PENNY_RUNTIME_FIT_CONTEXT_DEFAULT || 10000);
+const SHORT_CONTEXT_LENGTH = Number(process.env.PENNY_RUNTIME_FIT_CONTEXT_SHORT || 6144);
+const TOOL_CONTEXT_LENGTH = Number(process.env.PENNY_RUNTIME_FIT_TOOL_CONTEXT || 8192);
+const MAX_OUTPUT_TOKENS = String(process.env.PENNY_RUNTIME_FIT_MAX_OUTPUT_TOKENS || 320);
+const OUTPUT_PATH = path.join(OUTPUT_DIR, `runtime-fit-${STAMP}.json`);
+const SUMMARY_PATH = path.join(OUTPUT_DIR, `runtime-fit-${STAMP}.md`);
+
+const SCENARIOS = [
+  {
+    slug: 'baseline-default-context',
+    label: 'Baseline default context',
+    description: 'Current Penny stack with semantic memory ready and the default chat context.',
+    chatContextLength: DEFAULT_CONTEXT_LENGTH,
+    toolContextLength: TOOL_CONTEXT_LENGTH,
+    embedModel: EMBED_MODEL,
+    expectSemanticReady: true,
+  },
+  {
+    slug: 'short-context',
+    label: 'Shorter chat context',
+    description: 'Same stack, but with a shorter chat-model context to measure context-length cost.',
+    chatContextLength: SHORT_CONTEXT_LENGTH,
+    toolContextLength: TOOL_CONTEXT_LENGTH,
+    embedModel: EMBED_MODEL,
+    expectSemanticReady: true,
+  },
+  {
+    slug: 'semantic-fallback',
+    label: 'Semantic fallback',
+    description: 'Same stack, but with an invalid embed model identifier so Penny falls back to keyword retrieval.',
+    chatContextLength: DEFAULT_CONTEXT_LENGTH,
+    toolContextLength: TOOL_CONTEXT_LENGTH,
+    embedModel: 'missing-embed-model-for-runtime-fit',
+    expectSemanticReady: false,
+  },
+];
+
+function ensureDir(dirPath) {
+  fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function round(value, digits = 2) {
+  const factor = 10 ** digits;
+  return Math.round(Number(value || 0) * factor) / factor;
+}
+
+function roundSeconds(ms) {
+  return round(Number(ms || 0) / 1000, 2);
+}
+
+function execFileText(command, args, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, {
+      cwd: ROOT_DIR,
+      timeout: timeoutMs,
+      windowsHide: true,
+      maxBuffer: 32 * 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+async function unloadAllModels() {
+  try {
+    await execFileText('lms', ['unload', '--all'], 120000);
+  } catch (error) {
+    const text = `${error.stderr || ''}\n${error.stdout || ''}`;
+    if (!/no models|nothing loaded|there are no loaded models/i.test(text)) throw error;
+  }
+}
+
+async function loadModel(automationApi, modelKey, contextLength) {
+  return automationApi.loadModel(modelKey, 'runtime-fit model', {
+    contextLength,
+    ttlSeconds: MODEL_TTL_SECONDS,
+  });
+}
+
+async function listLoadedModels() {
+  const { stdout } = await execFileText('lms', ['ps', '--json'], 120000);
+  try {
+    return JSON.parse(stdout || '[]');
+  } catch {
+    return [];
+  }
+}
+
+async function fetchJson(url, options = {}, timeoutMs = GENERAL_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const raw = await response.text();
+    const data = raw ? JSON.parse(raw) : {};
+    if (!response.ok) {
+      const message = data?.detail || data?.error || `HTTP ${response.status}`;
+      const error = new Error(message);
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function waitForServerReady(timeoutMs = 120000) {
+  const started = Date.now();
+  while ((Date.now() - started) < timeoutMs) {
+    try {
+      const status = await fetchJson(`${BASE_URL}/api/penny/status`, {}, 15000);
+      if (status?.ok) return status;
+    } catch {}
+    await sleep(1500);
+  }
+  throw new Error(`Timed out waiting for Penny server at ${BASE_URL}`);
+}
+
+function buildMemoryPayload() {
+  return { userName: '', voiceOn: false, brainMode: 'local' };
+}
+
+async function chatRequest(sessionId, messages, timeoutMs = GENERAL_TIMEOUT_MS) {
+  const started = Date.now();
+  try {
+    const data = await fetchJson(`${BASE_URL}/api/penny/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        messages,
+        memories: buildMemoryPayload(),
+      }),
+    }, timeoutMs);
+    return {
+      ok: true,
+      seconds: roundSeconds(Date.now() - started),
+      text: String(data?.text || ''),
+      meta: data?.meta || {},
+      artifact: data?.meta?.artifact || null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      seconds: roundSeconds(Date.now() - started),
+      error: error?.message || 'Unknown error',
+      meta: error?.data?.meta || {},
+      artifact: error?.data?.meta?.artifact || null,
+    };
+  }
+}
+
+function buildScenarioPaths(slug) {
+  return {
+    memoryFile: path.join(ROOT_DIR, 'data', `penny-memory.runtime-fit-${slug}.${STAMP}.json`),
+    archiveFile: path.join(ROOT_DIR, 'data', `penny-memory-archive.runtime-fit-${slug}.${STAMP}.json`),
+    embeddingsFile: path.join(ROOT_DIR, 'data', `penny-memory-embeddings.runtime-fit-${slug}.${STAMP}.json`),
+    booksFile: path.join(ROOT_DIR, 'data', `penny-memory-books.runtime-fit-${slug}.${STAMP}.json`),
+    stdoutPath: path.join(OUTPUT_DIR, `runtime-fit-${slug}-${STAMP}.server.out.log`),
+    stderrPath: path.join(OUTPUT_DIR, `runtime-fit-${slug}-${STAMP}.server.err.log`),
+  };
+}
+
+function removeFileIfExists(filePath) {
+  try {
+    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch {}
+}
+
+function createServerProcess({ slug, env, stdoutPath, stderrPath }) {
+  ensureDir(path.dirname(stdoutPath));
+  ensureDir(path.dirname(stderrPath));
+  const outStream = fs.createWriteStream(stdoutPath, { flags: 'w' });
+  const errStream = fs.createWriteStream(stderrPath, { flags: 'w' });
+  const child = spawn(process.execPath, ['server.js'], {
+    cwd: ROOT_DIR,
+    env,
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.pipe(outStream);
+  child.stderr.pipe(errStream);
+  child.once('exit', () => {
+    outStream.end();
+    errStream.end();
+  });
+  return child;
+}
+
+async function stopServerProcess(child) {
+  if (!child || child.killed) return;
+  child.kill();
+  await new Promise((resolve) => child.once('exit', () => resolve()));
+}
+
+function normalizeScenarioSummary(result = {}) {
+  const casual = result.turns?.casualFirst || {};
+  const steady = result.turns?.casualSteady || {};
+  const memory = result.turns?.memoryHeavy || {};
+  const tool = result.turns?.toolHeavy || {};
+  return {
+    firstTurnSeconds: casual.seconds || null,
+    firstTokenMs: casual.meta?.performance?.firstToken?.durationMs ?? casual.artifact?.performance?.firstToken?.durationMs ?? null,
+    steadyStateSeconds: steady.seconds || null,
+    memoryTurnSeconds: memory.seconds || null,
+    toolTurnSeconds: tool.seconds || null,
+    requestMs: casual.meta?.performance?.request?.durationMs ?? casual.artifact?.performance?.request?.durationMs ?? null,
+    readiness: result.status?.readiness || null,
+    semanticReady: result.status?.readiness?.embeddingReady === true,
+    fallbackActive: result.status?.readiness?.fallbackActive === true,
+  };
+}
+
+function pickBestScenario(results = [], key) {
+  const valid = results.filter((item) => Number.isFinite(Number(item?.summary?.[key])));
+  if (!valid.length) return null;
+  return valid.reduce((best, current) => (Number(current.summary[key]) < Number(best.summary[key]) ? current : best));
+}
+
+function buildRecommendations(results = []) {
+  const baseline = results.find((item) => item.slug === 'baseline-default-context') || null;
+  const shortContext = results.find((item) => item.slug === 'short-context') || null;
+  const fallback = results.find((item) => item.slug === 'semantic-fallback') || null;
+  const bestFirst = pickBestScenario(results, 'firstTurnSeconds');
+  const bestSteady = pickBestScenario(results, 'steadyStateSeconds');
+  return {
+    bestFirstTurn: bestFirst ? {
+      slug: bestFirst.slug,
+      label: bestFirst.label,
+      seconds: bestFirst.summary.firstTurnSeconds,
+    } : null,
+    bestSteadyState: bestSteady ? {
+      slug: bestSteady.slug,
+      label: bestSteady.label,
+      seconds: bestSteady.summary.steadyStateSeconds,
+    } : null,
+    contextLengthCost: baseline && shortContext ? {
+      baselineFirstTurnSeconds: baseline.summary.firstTurnSeconds,
+      shortContextFirstTurnSeconds: shortContext.summary.firstTurnSeconds,
+      deltaSeconds: round((baseline.summary.firstTurnSeconds || 0) - (shortContext.summary.firstTurnSeconds || 0), 2),
+    } : null,
+    semanticMemoryImpact: baseline && fallback ? {
+      semanticReadyMemoryTurnSeconds: baseline.summary.memoryTurnSeconds,
+      fallbackMemoryTurnSeconds: fallback.summary.memoryTurnSeconds,
+      deltaSeconds: round((fallback.summary.memoryTurnSeconds || 0) - (baseline.summary.memoryTurnSeconds || 0), 2),
+    } : null,
+  };
+}
+
+function buildMarkdownSummary(report) {
+  const lines = [
+    '# Penny Runtime Fit Summary',
+    '',
+    `- Generated: ${report.generatedAt}`,
+    `- Chat model: ${report.defaults.chatModel}`,
+    `- Tool model: ${report.defaults.toolModel}`,
+    `- Embed model: ${report.defaults.embedModel}`,
+    `- Base URL: ${report.baseUrl}`,
+    '',
+    '## Scenarios',
+    '',
+  ];
+  for (const scenario of report.scenarios) {
+    lines.push(`### ${scenario.label}`);
+    lines.push(`- Slug: ${scenario.slug}`);
+    lines.push(`- Context: ${scenario.config.chatContextLength}`);
+    lines.push(`- Embed model: ${scenario.config.embedModel}`);
+    lines.push(`- Semantic ready: ${scenario.summary.semanticReady ? 'yes' : 'no'}`);
+    lines.push(`- First turn: ${scenario.summary.firstTurnSeconds ?? 'n/a'}s`);
+    lines.push(`- Steady state: ${scenario.summary.steadyStateSeconds ?? 'n/a'}s`);
+    lines.push(`- Memory-heavy turn: ${scenario.summary.memoryTurnSeconds ?? 'n/a'}s`);
+    lines.push(`- Tool-heavy turn: ${scenario.summary.toolTurnSeconds ?? 'n/a'}s`);
+    lines.push(`- First token: ${scenario.summary.firstTokenMs ?? 'n/a'}ms`);
+    lines.push(`- Warm state: ${scenario.summary.readiness?.warmState || 'unknown'}`);
+    lines.push('');
+  }
+  lines.push('## Recommendations');
+  lines.push('');
+  if (report.recommendations.bestFirstTurn) {
+    lines.push(`- Best first turn: ${report.recommendations.bestFirstTurn.label} (${report.recommendations.bestFirstTurn.seconds}s)`);
+  }
+  if (report.recommendations.bestSteadyState) {
+    lines.push(`- Best steady state: ${report.recommendations.bestSteadyState.label} (${report.recommendations.bestSteadyState.seconds}s)`);
+  }
+  if (report.recommendations.contextLengthCost) {
+    const item = report.recommendations.contextLengthCost;
+    lines.push(`- Context delta (baseline - short): ${item.deltaSeconds}s`);
+  }
+  if (report.recommendations.semanticMemoryImpact) {
+    const item = report.recommendations.semanticMemoryImpact;
+    lines.push(`- Semantic memory impact (fallback - ready): ${item.deltaSeconds}s on the memory-heavy turn`);
+  }
+  lines.push('');
+  return `${lines.join('\n')}\n`;
+}
+
+async function prepareScenarioRuntime(scenario, env) {
+  const automationApi = createAutomationApi({
+    env,
+  });
+  const prepare = await automationApi.prepareLmStudio({
+    reportOnly: false,
+    repairPreset: true,
+    loadChatModel: false,
+    loadEmbedModel: false,
+    chatModel: CHAT_MODEL,
+    toolModel: TOOL_MODEL,
+    embedModel: scenario.embedModel,
+  });
+  return { automationApi, prepare };
+}
+
+async function runScenario(scenario) {
+  const paths = buildScenarioPaths(scenario.slug);
+  ensureDir(OUTPUT_DIR);
+  ensureDir(path.dirname(paths.memoryFile));
+  for (const filePath of [paths.memoryFile, paths.archiveFile, paths.embeddingsFile, paths.booksFile]) {
+    removeFileIfExists(filePath);
+  }
+
+  const env = {
+    ...process.env,
+    PORT: String(PORT),
+    PENNY_MEMORY_FILE: paths.memoryFile,
+    PENNY_MEMORY_ARCHIVE_FILE: paths.archiveFile,
+    PENNY_MEMORY_EMBEDDINGS_FILE: paths.embeddingsFile,
+    PENNY_MEMORY_BOOKS_FILE: paths.booksFile,
+    PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
+    PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
+    PENNY_LMSTUDIO_EMBED_MODEL: scenario.embedModel,
+    PENNY_LMSTUDIO_PRESET_IDENTIFIER: PRESET_IDENTIFIER,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT || 'chat',
+    PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
+  };
+
+  const startedAt = new Date().toISOString();
+  let server = null;
+  try {
+    const { automationApi, prepare } = await prepareScenarioRuntime(scenario, env);
+    await unloadAllModels();
+    const modelLoads = [];
+    modelLoads.push(await loadModel(automationApi, CHAT_MODEL, scenario.chatContextLength));
+    if (TOOL_MODEL && TOOL_MODEL !== CHAT_MODEL) {
+      modelLoads.push(await loadModel(automationApi, TOOL_MODEL, scenario.toolContextLength));
+    }
+    if (scenario.expectSemanticReady) {
+      modelLoads.push(await loadModel(automationApi, scenario.embedModel));
+    }
+    const loadedModels = await listLoadedModels();
+
+    server = createServerProcess({
+      slug: scenario.slug,
+      env,
+      stdoutPath: paths.stdoutPath,
+      stderrPath: paths.stderrPath,
+    });
+    const startupStatus = await waitForServerReady();
+    const lmStatus = await fetchJson(`${BASE_URL}/api/penny/lmstudio/status`, {}, 30000);
+
+    const casualSessionId = `runtime-fit-${scenario.slug}-casual`;
+    const casualFirst = await chatRequest(casualSessionId, [
+      { role: 'user', content: 'Keep it tight: greet me like Penny in one sentence and keep the tone playful.' },
+    ]);
+    const casualSteady = casualFirst.ok
+      ? await chatRequest(casualSessionId, [
+          { role: 'user', content: 'Keep it tight: greet me like Penny in one sentence and keep the tone playful.' },
+          { role: 'assistant', content: casualFirst.text },
+          { role: 'user', content: 'One short follow-up line with the same energy.' },
+        ])
+      : { ok: false, seconds: null, error: 'First turn failed; steady-state turn skipped.' };
+    const memoryHeavy = await chatRequest(`runtime-fit-${scenario.slug}-memory`, [
+      { role: 'user', content: 'Remember what my favorite tea is now? If you cannot verify it, say so plainly.' },
+    ]);
+    const toolHeavy = await chatRequest(`runtime-fit-${scenario.slug}-tool`, [
+      { role: 'user', content: 'Open README.md and tell me what it says in one short sentence.' },
+    ]);
+
+    const finishedAt = new Date().toISOString();
+    const result = {
+      slug: scenario.slug,
+      label: scenario.label,
+      description: scenario.description,
+      config: {
+        chatContextLength: scenario.chatContextLength,
+        toolContextLength: scenario.toolContextLength,
+        embedModel: scenario.embedModel,
+        presetIdentifier: PRESET_IDENTIFIER,
+      },
+      startedAt,
+      finishedAt,
+      prepare,
+      loadedModels,
+      startup: {
+        status: startupStatus,
+        lmStudio: lmStatus,
+      },
+      turns: {
+        casualFirst,
+        casualSteady,
+        memoryHeavy,
+        toolHeavy,
+      },
+    };
+    result.status = startupStatus;
+    result.summary = normalizeScenarioSummary(result);
+    return result;
+  } finally {
+    await stopServerProcess(server);
+    for (const filePath of [paths.memoryFile, paths.archiveFile, paths.embeddingsFile, paths.booksFile]) {
+      removeFileIfExists(filePath);
+    }
+  }
+}
+
+async function main() {
+  ensureDir(OUTPUT_DIR);
+  const results = [];
+  for (const scenario of SCENARIOS) {
+    process.stdout.write(`\n[Runtime Fit] ${scenario.label}\n`);
+    const result = await runScenario(scenario);
+    results.push(result);
+  }
+  const report = {
+    generatedAt: new Date().toISOString(),
+    baseUrl: BASE_URL,
+    defaults: {
+      chatModel: CHAT_MODEL,
+      toolModel: TOOL_MODEL,
+      embedModel: EMBED_MODEL,
+      presetIdentifier: PRESET_IDENTIFIER,
+      defaultContextLength: DEFAULT_CONTEXT_LENGTH,
+      shortContextLength: SHORT_CONTEXT_LENGTH,
+    },
+    scenarios: results,
+    recommendations: buildRecommendations(results),
+  };
+  writeJsonFile(OUTPUT_PATH, report);
+  fs.writeFileSync(SUMMARY_PATH, buildMarkdownSummary(report), 'utf8');
+  process.stdout.write(`\nSaved runtime-fit JSON to ${OUTPUT_PATH}\n`);
+  process.stdout.write(`Saved runtime-fit summary to ${SUMMARY_PATH}\n`);
+}
+
+function writeJsonFile(filePath, value) {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    process.stderr.write(`${String(error?.stack || error?.message || error).trim()}\n`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  SCENARIOS,
+  buildRecommendations,
+  buildMarkdownSummary,
+  normalizeScenarioSummary,
+};

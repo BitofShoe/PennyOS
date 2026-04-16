@@ -108,7 +108,7 @@ function createLmStudioTransportApi({
       : finalizedCandidate;
   }
 
-  async function runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal, lane = 'chat', laneRuntime }) {
+  async function runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal, lane = 'chat', laneRuntime, latencyBudget = null }) {
     return withLmStudioLaneModel(lane, async (model) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
@@ -116,9 +116,13 @@ function createLmStudioTransportApi({
       try {
         const payload = {
           model,
-          input: buildLmStudioPrompt({ userText, messages, memories, file }),
+          input: buildLmStudioPrompt({ userText, messages, memories, file, latencyBudget }),
           temperature: 0.9,
-          max_output_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          max_output_tokens: Math.min(
+            LMSTUDIO_MAX_OUTPUT_TOKENS,
+            LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
+            Number(latencyBudget?.maxOutputTokens || LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          ),
           stream: false,
         };
         const response = await postJsonLongRunning(`${LMSTUDIO_BASE}/responses`, {
@@ -162,13 +166,13 @@ function createLmStudioTransportApi({
     }, laneRuntime);
   }
 
-  async function runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal, lane = 'chat', laneRuntime }) {
+  async function runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal, lane = 'chat', laneRuntime, latencyBudget = null }) {
     return withLmStudioLaneModel(lane, async (model, status) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
       bindAbortSignal(controller, abortSignal);
       const nativeModel = pickLmStudioNativeModelId(model, status);
-      const systemPrompt = buildLmStudioLeanSystemPrompt({ memories });
+      const systemPrompt = buildLmStudioLeanSystemPrompt({ memories, latencyBudget });
       const systemPromptHash = hashText(systemPrompt);
       const existingThread = normalizeLmStudioThread(memories?.lmStudioThread);
       const canContinue = !!(
@@ -180,9 +184,13 @@ function createLmStudioTransportApi({
       try {
         const payload = {
           model: nativeModel,
-          input: buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread: canContinue }),
+          input: buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread: canContinue, latencyBudget }),
           temperature: 0.9,
-          max_output_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          max_output_tokens: Math.min(
+            LMSTUDIO_MAX_OUTPUT_TOKENS,
+            LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
+            Number(latencyBudget?.maxOutputTokens || LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          ),
           stream: false,
         };
         if (canContinue) payload.previous_response_id = existingThread.responseId;
@@ -241,12 +249,12 @@ function createLmStudioTransportApi({
     }, laneRuntime);
   }
 
-  async function streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane = 'chat', laneRuntime }) {
+  async function streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane = 'chat', laneRuntime, latencyBudget = null }) {
     return withLmStudioLaneModel(lane, async (model, status) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
       const nativeModel = pickLmStudioNativeModelId(model, status);
-      const systemPrompt = buildLmStudioLeanSystemPrompt({ memories });
+      const systemPrompt = buildLmStudioLeanSystemPrompt({ memories, latencyBudget });
       const systemPromptHash = hashText(systemPrompt);
       const existingThread = normalizeLmStudioThread(memories?.lmStudioThread);
       const canContinue = !!(
@@ -261,9 +269,13 @@ function createLmStudioTransportApi({
       try {
         const payload = {
           model: nativeModel,
-          input: buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread: canContinue }),
+          input: buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread: canContinue, latencyBudget }),
           temperature: 0.9,
-          max_output_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          max_output_tokens: Math.min(
+            LMSTUDIO_MAX_OUTPUT_TOKENS,
+            LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
+            Number(latencyBudget?.maxOutputTokens || LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          ),
           stream: true,
         };
         if (canContinue) payload.previous_response_id = existingThread.responseId;
@@ -351,7 +363,7 @@ function createLmStudioTransportApi({
     }, laneRuntime);
   }
 
-  async function streamLmStudioResponsesApi({ userText, messages, memories, file, onEvent, abortSignal, lane = 'chat', laneRuntime }) {
+  async function streamLmStudioResponsesApi({ userText, messages, memories, file, onEvent, abortSignal, lane = 'chat', laneRuntime, latencyBudget = null }) {
     return withLmStudioLaneModel(lane, async (model) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
@@ -360,9 +372,13 @@ function createLmStudioTransportApi({
       try {
         const payload = {
           model,
-          input: buildLmStudioPrompt({ userText, messages, memories, file }),
+          input: buildLmStudioPrompt({ userText, messages, memories, file, latencyBudget }),
           temperature: 0.9,
-          max_output_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          max_output_tokens: Math.min(
+            LMSTUDIO_MAX_OUTPUT_TOKENS,
+            LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
+            Number(latencyBudget?.maxOutputTokens || LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          ),
           stream: true,
         };
 
@@ -473,7 +489,7 @@ function createLmStudioTransportApi({
     }, laneRuntime);
   }
 
-  async function streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane = 'chat', laneRuntime }) {
+  async function streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane = 'chat', laneRuntime, latencyBudget = null }) {
     return withLmStudioLaneModel(lane, async (model) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
@@ -482,9 +498,13 @@ function createLmStudioTransportApi({
       try {
         const payload = {
           model,
-          messages: buildLmStudioMessages({ userText, messages, memories, image, file }),
+          messages: buildLmStudioMessages({ userText, messages, memories, image, file, latencyBudget }),
           temperature: 0.9,
-          max_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          max_tokens: Math.min(
+            LMSTUDIO_MAX_OUTPUT_TOKENS,
+            LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
+            Number(latencyBudget?.maxOutputTokens || LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          ),
           stream: true,
         };
 
@@ -558,7 +578,7 @@ function createLmStudioTransportApi({
     }, laneRuntime);
   }
 
-  async function runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal, lane = 'chat', laneRuntime }) {
+  async function runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal, lane = 'chat', laneRuntime, latencyBudget = null }) {
     return withLmStudioLaneModel(lane, async (model) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
@@ -566,9 +586,13 @@ function createLmStudioTransportApi({
       try {
         const payload = {
           model,
-          messages: buildLmStudioMessages({ userText, messages, memories, image, file }),
+          messages: buildLmStudioMessages({ userText, messages, memories, image, file, latencyBudget }),
           temperature: 0.9,
-          max_tokens: Math.min(LMSTUDIO_MAX_OUTPUT_TOKENS, LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          max_tokens: Math.min(
+            LMSTUDIO_MAX_OUTPUT_TOKENS,
+            LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
+            Number(latencyBudget?.maxOutputTokens || LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS),
+          ),
           stream: false,
         };
         const response = await postJsonLongRunning(`${LMSTUDIO_BASE}/chat/completions`, {
@@ -616,17 +640,17 @@ function createLmStudioTransportApi({
     }, laneRuntime);
   }
 
-  async function runLmStudioLocal({ userText, messages, memories, image, file, abortSignal, lane = 'chat', laneRuntime }) {
+  async function runLmStudioLocal({ userText, messages, memories, image, file, abortSignal, lane = 'chat', laneRuntime, latencyBudget = null }) {
     const transport = LOCAL_LLM_TRANSPORT;
     if (transport === 'stateful' || transport === 'native' || transport === 'native-chat' || transport === 'stateful-chat') {
-      return runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime });
+      return runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime, latencyBudget });
     }
     if (transport === 'chat') {
-      return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime });
+      return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime, latencyBudget });
     }
     if (transport === 'responses') {
-      if (image) return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime });
-      return runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal, lane, laneRuntime });
+      if (image) return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime, latencyBudget });
+      return runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal, lane, laneRuntime, latencyBudget });
     }
     if (transport === 'auto') {
       const status = await getLmStudioConnectionStatus();
@@ -634,11 +658,11 @@ function createLmStudioTransportApi({
         ? String(status?.resolvedToolModel || status?.toolCandidateModels?.[0] || '').trim()
         : String(status?.resolvedChatModel || status?.candidateModels?.[0] || '').trim();
       if (preferredModel && shouldPreferLmStudioChatCompletions(preferredModel, status)) {
-        return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime });
+        return runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime, latencyBudget });
       }
     }
     try {
-      return await runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime });
+      return await runLmStudioStatefulChatApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime, latencyBudget });
     } catch (error) {
       const code = error?.statusCode;
       const msg = String(error?.message || '');
@@ -646,7 +670,7 @@ function createLmStudioTransportApi({
       if (code === 404 || /404/.test(msg) || /not found/i.test(msg) || /No assistant text from LM Studio stateful chat/i.test(msg) || /LM Studio stateful chat error/i.test(msg)) {
         clearLmStudioThread(memories);
         try {
-          return await runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime });
+          return await runLmStudioChatCompletionsApi({ userText, messages, memories, image, file, abortSignal, lane, laneRuntime, latencyBudget });
         } catch (chatError) {
           const chatCode = chatError?.statusCode;
           const chatMsg = String(chatError?.message || '');
@@ -654,7 +678,7 @@ function createLmStudioTransportApi({
             if (image) {
               throw new Error('LM Studio /responses fallback cannot carry vision attachments. Use native chat or chat/completions with a vision-capable model.');
             }
-            return runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal, lane, laneRuntime });
+            return runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal, lane, laneRuntime, latencyBudget });
           }
           throw chatError;
         }
@@ -663,17 +687,17 @@ function createLmStudioTransportApi({
     }
   }
 
-  async function streamLmStudioLocal({ userText, messages, memories, image, file, onEvent, abortSignal, lane = 'chat', laneRuntime }) {
+  async function streamLmStudioLocal({ userText, messages, memories, image, file, onEvent, abortSignal, lane = 'chat', laneRuntime, latencyBudget = null }) {
     const transport = LOCAL_LLM_TRANSPORT;
     if (transport === 'stateful' || transport === 'native' || transport === 'native-chat' || transport === 'stateful-chat') {
-      return streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime });
+      return streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime, latencyBudget });
     }
     if (transport === 'chat') {
-      return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime });
+      return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime, latencyBudget });
     }
     if (transport === 'responses') {
-      if (image) return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime });
-      return streamLmStudioResponsesApi({ userText, messages, memories, file, onEvent, abortSignal, lane, laneRuntime });
+      if (image) return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime, latencyBudget });
+      return streamLmStudioResponsesApi({ userText, messages, memories, file, onEvent, abortSignal, lane, laneRuntime, latencyBudget });
     }
     if (transport === 'auto') {
       const status = await getLmStudioConnectionStatus();
@@ -681,11 +705,11 @@ function createLmStudioTransportApi({
         ? String(status?.resolvedToolModel || status?.toolCandidateModels?.[0] || '').trim()
         : String(status?.resolvedChatModel || status?.candidateModels?.[0] || '').trim();
       if (preferredModel && shouldPreferLmStudioChatCompletions(preferredModel, status)) {
-        return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime });
+        return streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime, latencyBudget });
       }
     }
     try {
-      return await streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime });
+      return await streamLmStudioStatefulChatApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime, latencyBudget });
     } catch (error) {
       const code = error?.statusCode;
       const msg = String(error?.message || '');
@@ -693,7 +717,7 @@ function createLmStudioTransportApi({
       if (code === 404 || /404/.test(msg) || /not found/i.test(msg) || /No assistant text from LM Studio stateful chat stream/i.test(msg) || /LM Studio stateful chat stream error/i.test(msg)) {
         clearLmStudioThread(memories);
         try {
-          return await streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime });
+          return await streamLmStudioChatCompletionsApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane, laneRuntime, latencyBudget });
         } catch (chatError) {
           const chatCode = chatError?.statusCode;
           const chatMsg = String(chatError?.message || '');
@@ -701,7 +725,7 @@ function createLmStudioTransportApi({
             if (image) {
               throw new Error('LM Studio /responses fallback cannot carry vision attachments. Use native chat or chat/completions with a vision-capable model.');
             }
-            return streamLmStudioResponsesApi({ userText, messages, memories, file, onEvent, abortSignal, lane, laneRuntime });
+            return streamLmStudioResponsesApi({ userText, messages, memories, file, onEvent, abortSignal, lane, laneRuntime, latencyBudget });
           }
           throw chatError;
         }

@@ -34,6 +34,9 @@ export function saveStateSnapshot(state) {
     memory: state.memory,
     messages: msgs,
     mood: state.mood,
+    lastAutoMood: state.lastAutoMood,
+    expressionOverrideMood: state.expressionOverrideMood || '',
+    expressionDecision: state.expressionDecision || null,
     turns: state.turns,
   }));
 }
@@ -49,6 +52,9 @@ export function loadStateSnapshot() {
       memory,
       messages: Array.isArray(parsed.messages) ? parsed.messages : [],
       mood: parsed.mood,
+      lastAutoMood: parsed.lastAutoMood,
+      expressionOverrideMood: parsed.expressionOverrideMood,
+      expressionDecision: parsed.expressionDecision,
       turns: Number(parsed.turns || 0),
     };
   } catch {

@@ -9,6 +9,7 @@ const {
 } = require('../lib/penny-direct-intents');
 const {
   createLocalLaneApi,
+  LOCAL_LANE_REASON_CODES,
 } = require('../lib/penny-local-lanes');
 
 function buildDirectIntentApi() {
@@ -75,11 +76,28 @@ test('selectLocalLane keeps image turns on the chat lane', () => {
   const selection = selectLocalLane({ userText: 'what do you see in this image?', image: 'data:image/png;base64,abc' });
   assert.equal(selection.localLane, 'chat');
   assert.equal(selection.reason, 'image-chat');
+  assert.equal(selection.reasonCode, LOCAL_LANE_REASON_CODES.IMAGE_CHAT);
 });
 
 test('selectLocalLane pushes direct inspect and file turns onto the tool lane', () => {
   const { selectLocalLane } = buildApi();
-  assert.equal(selectLocalLane({ userText: 'Search for "Shadow failed" in public/app.js.' }).localLane, 'tool');
+  const direct = selectLocalLane({ userText: 'Search for "Shadow failed" in public/app.js.' });
+  assert.equal(direct.localLane, 'tool');
+  assert.equal(direct.reasonCode, LOCAL_LANE_REASON_CODES.DIRECT_INTENT);
+  assert.equal(direct.directIntent.reasonCode, 'project_file_focus_read');
+
+  const packageJsonCommand = selectLocalLane({ userText: 'Open package.json and tell me what npm test runs.' });
+  const packageJsonNatural = selectLocalLane({ userText: 'What is the current npm test command in package.json?' });
+  assert.equal(packageJsonCommand.localLane, 'tool');
+  assert.equal(packageJsonNatural.localLane, 'tool');
+  assert.equal(packageJsonCommand.directIntent.reasonCode, 'project_file_focus_read');
+  assert.equal(packageJsonNatural.directIntent.reasonCode, 'project_file_focus_read');
+
+  const attached = selectLocalLane({
+    userText: 'tell me what this file says',
+    file: { name: 'notes.md', text: 'hi', lineCount: 1 },
+  });
+  assert.equal(attached.reasonCode, LOCAL_LANE_REASON_CODES.ATTACHED_FILE);
   assert.equal(selectLocalLane({
     userText: 'tell me what this file says',
     file: { name: 'notes.md', text: 'hi', lineCount: 1 },
@@ -99,4 +117,11 @@ test('selectLocalLane forces open-ended explicit file edits onto the tool lane',
   });
   assert.equal(selection.localLane, 'tool');
   assert.equal(selection.forceToolLoop, true);
+});
+
+test('selectLocalLane keeps ambiguous repo chatter on the chat lane', () => {
+  const { selectLocalLane } = buildApi();
+  const selection = selectLocalLane({ userText: 'what do you think about the repo setup?' });
+  assert.equal(selection.localLane, 'chat');
+  assert.equal(selection.reasonCode, LOCAL_LANE_REASON_CODES.COMPANION_CHAT);
 });

@@ -62,6 +62,7 @@ function createFixture({
     ],
     loaded: [...(loadedModels || ['google/gemma-4-e4b'])],
     embedReady: false,
+    loadCommands: [],
   };
 
   const execFileText = async (command, args) => {
@@ -76,6 +77,7 @@ function createFixture({
     }
     if (args[0] === 'load') {
       const modelKey = args[1];
+      state.loadCommands.push([...args]);
       if (String(modelKey).includes('text-embedding-nomic-embed-text-v1.5')) {
         state.embedReady = true;
       } else if (!state.loaded.includes(modelKey)) {
@@ -163,9 +165,9 @@ test('ensurePresetWiring repairs settings, conversation, and requested concrete 
 
   assert.ok(report.repairedPaths.includes(fixture.settingsPath));
   assert.ok(report.repairedPaths.includes(fixture.conversationPath));
-  assert.ok(report.chatConfigs.some(item => /google\\gemma-4-31b\.json$/i.test(item.path) && item.presetOk));
+  assert.ok(report.chatConfigs.some(item => /google[\\/]+gemma-4-31b\.json$/i.test(item.path) && item.presetOk));
   assert.ok(report.chatConfigs.some(item => /Q8_0\.gguf\.json$/i.test(item.path) && item.presetOk));
-  assert.ok(report.toolConfigs.some(item => /google\\gemma-4-e4b\.json$/i.test(item.path) && item.presetOk));
+  assert.ok(report.toolConfigs.some(item => /google[\\/]+gemma-4-e4b\.json$/i.test(item.path) && item.presetOk));
 
   const settings = JSON.parse(fs.readFileSync(fixture.settingsPath, 'utf8'));
   const conversation = JSON.parse(fs.readFileSync(fixture.conversationPath, 'utf8'));
@@ -189,8 +191,75 @@ test('prepareLmStudio loads the requested chat model when it is installed but no
   assert.equal(report.ok, true);
   assert.equal(report.chatLoadAttempted, true);
   assert.equal(report.chatLoadSucceeded, true);
-  assert.ok(report.loadedModels.includes('google/gemma-4-31b'));
+  assert.ok(report.loadedModels.some((model) => /google\/gemma-4-31b/i.test(model)));
   assert.equal(report.laneFallback.chat, false);
+});
+
+test('loadModel resolves installed aliases before calling the LM Studio CLI', async () => {
+  const fixture = createFixture({
+    installedDetailed: [
+      {
+        type: 'llm',
+        modelKey: 'unsloth/gemma-4-31b-it',
+        path: 'unsloth/gemma-4-31B-it-GGUF/gemma-4-31B-it-Q6_K.gguf',
+      },
+    ],
+    loadedModels: [],
+  });
+
+  await fixture.automationApi.loadModel('unsloth/gemma-4-31b-it@q6_k', 'chat model', {
+    contextLength: 6144,
+    ttlSeconds: 1800,
+  });
+
+  assert.equal(fixture.state.loadCommands.length, 1);
+  assert.deepEqual(
+    fixture.state.loadCommands[0],
+    ['load', 'unsloth/gemma-4-31b-it', '-y', '-c', '6144', '--ttl', '1800'],
+  );
+});
+
+test('loadModel prefers the family model key before variant aliases when loading', async () => {
+  const fixture = createFixture({
+    installedDetailed: [
+      {
+        type: 'llm',
+        modelKey: 'google/gemma-4-e4b',
+        selectedVariant: 'google/gemma-4-e4b@q8_0',
+        variants: ['google/gemma-4-e4b@q8_0'],
+      },
+    ],
+    loadedModels: [],
+  });
+
+  await fixture.automationApi.loadModel('google/gemma-4-e4b@q8_0', 'tool model');
+
+  assert.equal(fixture.state.loadCommands.length, 1);
+  assert.equal(fixture.state.loadCommands[0][1], 'google/gemma-4-e4b');
+});
+
+test('loadModel refuses to mix conflicting 31B chat models', async () => {
+  const fixture = createFixture({
+    installedDetailed: [
+      {
+        type: 'llm',
+        modelKey: 'google/gemma-4-31b',
+        selectedVariant: 'google/gemma-4-31b@q8_0',
+      },
+      {
+        type: 'llm',
+        modelKey: 'unsloth/gemma-4-31b-it',
+        path: 'unsloth/gemma-4-31B-it-GGUF/gemma-4-31B-it-Q6_K.gguf',
+      },
+    ],
+    loadedModels: ['google/gemma-4-31b@q8_0'],
+  });
+
+  await assert.rejects(
+    fixture.automationApi.loadModel('unsloth/gemma-4-31b-it@q6_k', 'chat model'),
+    /Refusing to load .*conflicting 31B chat model/i,
+  );
+  assert.equal(fixture.state.loadCommands.length, 0);
 });
 
 test('prepareLmStudio normalizes and readies the embedding model through the live embeddings probe', async () => {

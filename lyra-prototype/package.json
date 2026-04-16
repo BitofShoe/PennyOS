@@ -15,8 +15,21 @@
     "preflight": "node scripts/penny-preflight.js",
     "test": "node --test test/*.test.js",
     "qa:voice-redo": "node scripts/qa-penny-voice-redo.js",
+    "qa:memory:smoke": "node scripts/qa-penny-memory.js --smoke",
+    "qa:memory": "node scripts/qa-penny-memory.js --combined",
+    "qa:memory:combined": "node scripts/qa-penny-memory.js --combined",
+    "qa:memory:semantic": "node scripts/qa-penny-memory.js --segment semantic-archive",
+    "qa:memory:chapter": "node scripts/qa-penny-memory.js --segment chapter-fallback",
+    "qa:memory:contradictions": "node scripts/qa-penny-memory.js --segment contradiction-premise",
+    "qa:memory:mixed": "node scripts/qa-penny-memory.js --segment mixed-drift",
+    "qa:browser:smoke": "node scripts/qa-penny-browser-smoke.js",
+    "qa:next-cycle": "node scripts/qa-penny-next-cycle.js",
     "eval:probes": "node scripts/eval-penny-probes.js",
+    "eval:epistemic-compare": "node scripts/eval-penny-epistemic-compare.js",
+    "eval:runtime-fit": "node scripts/eval-penny-runtime-fit.js",
     "eval:models": "node scripts/eval-penny-models.js",
-    "preset:lmstudio": "node scripts/ensure-lmstudio-penny-preset.js"
+    "ingest:conversations": "node scripts/import-penny-conversations.js",
+    "preset:lmstudio": "node scripts/ensure-lmstudio-penny-preset.js",
+    "bundle:review": "node scripts/build-review-bundle.js"
   }
 }

@@ -531,6 +531,10 @@ button {
   background: linear-gradient(165deg, rgba(6, 10, 18, 0.95) 0%, rgba(12, 8, 14, 0.98) 48%, rgba(4, 6, 12, 1) 100%);
 }
 
+.penny-display.penny-chibi[data-expression-closeup="1"] {
+  box-shadow: inset 0 -28px 40px rgba(0, 0, 0, 0.28);
+}
+
 /* Soft fills + grid behind the sprite (img is z-index 1). */
 .penny-display.penny-chibi::before {
   content: "";
@@ -544,6 +548,35 @@ button {
     radial-gradient(circle at 18% 88%, rgba(177, 79, 64, 0.22) 0%, transparent 42%),
     radial-gradient(circle at 88% 18%, rgba(125, 211, 252, 0.1) 0%, transparent 38%),
     radial-gradient(circle at 50% 100%, rgba(255, 132, 70, 0.06) 0%, transparent 45%);
+}
+
+.penny-display.penny-chibi[data-expression-impact="charged"]::before,
+.penny-display.penny-chibi[data-expression-impact="snap"]::before {
+  background:
+    radial-gradient(ellipse 100% 76% at 50% 40%, color-mix(in srgb, var(--secondary) 22%, transparent) 0%, transparent 54%),
+    radial-gradient(circle at 16% 90%, rgba(255, 140, 72, 0.24) 0%, transparent 38%),
+    radial-gradient(circle at 86% 16%, color-mix(in srgb, var(--primary) 26%, transparent) 0%, transparent 34%),
+    linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, 0.03) 100%);
+}
+
+.penny-display.penny-chibi[data-expression-impact="focused"]::after {
+  opacity: 0.7;
+}
+
+.penny-display.penny-chibi[data-expression-impact="close"]::before,
+.penny-display.penny-chibi[data-expression-impact="showboat"]::before {
+  background:
+    radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--secondary) 16%, transparent) 0%, transparent 40%),
+    radial-gradient(circle at 24% 84%, rgba(255, 125, 125, 0.16) 0%, transparent 38%),
+    radial-gradient(circle at 80% 22%, rgba(255, 255, 255, 0.08) 0%, transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 72%);
+}
+
+.penny-display.penny-chibi[data-expression-impact="hard"]::before {
+  background:
+    radial-gradient(ellipse 90% 66% at 50% 42%, rgba(148, 163, 184, 0.16) 0%, transparent 50%),
+    radial-gradient(circle at 14% 86%, rgba(71, 85, 105, 0.26) 0%, transparent 40%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.08));
 }
 
 .penny-display.penny-chibi::after {
@@ -591,6 +624,19 @@ button {
   animation: pennyIdleChibi 7s ease-in-out infinite;
 }
 
+.penny-display.penny-chibi[data-expression-closeup="1"] .penny-art.penny-art-chibi {
+  animation-name: pennyIdleChibiClose;
+}
+
+.penny-display.penny-chibi[data-expression-impact="charged"] .penny-art.penny-art-chibi,
+.penny-display.penny-chibi[data-expression-impact="snap"] .penny-art.penny-art-chibi {
+  animation-duration: 5.8s;
+}
+
+.penny-display.penny-chibi[data-expression-impact="focused"] .penny-art.penny-art-chibi {
+  animation-duration: 6.6s;
+}
+
 @keyframes pennyIdleChibi {
   0%,
   100% {
@@ -601,6 +647,19 @@ button {
   }
   70% {
     transform: scale(1.306) translateY(0.5px) translateX(-1px) rotate(-0.25deg);
+  }
+}
+
+@keyframes pennyIdleChibiClose {
+  0%,
+  100% {
+    transform: scale(1.36) translateY(0) translateX(0) rotate(0deg);
+  }
+  38% {
+    transform: scale(1.374) translateY(-0.8px) translateX(1.2px) rotate(0.4deg);
+  }
+  72% {
+    transform: scale(1.366) translateY(0.6px) translateX(-1px) rotate(-0.3deg);
   }
 }
 
@@ -633,6 +692,16 @@ button {
   color: rgba(255, 255, 255, 0.32);
   pointer-events: none;
   z-index: 2;
+}
+
+.penny-display.penny-chibi[data-expression-impact="snap"] .penny-hud-right,
+.penny-display.penny-chibi[data-expression-impact="charged"] .penny-hud-right {
+  color: rgba(255, 255, 255, 0.72);
+  letter-spacing: 0.17em;
+}
+
+.penny-display.penny-chibi[data-expression-impact="hard"] .penny-hud-bottom {
+  color: rgba(255, 255, 255, 0.42);
 }
 
 @keyframes pennyIdle {

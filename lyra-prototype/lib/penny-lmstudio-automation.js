@@ -209,6 +209,50 @@ function createLmStudioAutomationApi({
     return aliases.some(alias => modelsLookEquivalent(alias, requestedModel));
   }
 
+  function buildInstalledLoadTargets(entry = {}) {
+    return uniqueStrings([
+      entry.modelKey,
+      entry.selectedVariant,
+      ...(Array.isArray(entry.variants) ? entry.variants : []),
+      entry.path,
+      entry.indexedModelIdentifier,
+    ]);
+  }
+
+  async function resolveLoadableModelIds(requestedModel = '') {
+    const clean = String(requestedModel || '').trim();
+    if (!clean) return [];
+    const installedEntries = await listInstalledModelsDetailed();
+    const match = installedEntries.find(entry => entryMatchesRequestedModel(entry, clean));
+    const candidates = match ? buildInstalledLoadTargets(match) : [];
+    return uniqueStrings([...candidates, clean]);
+  }
+
+  function looksLikeConflictingHeavyChatModel(candidate = '', target = '') {
+    const candidateKey = normalizeModelKey(candidate);
+    const targetKey = normalizeModelKey(target);
+    if (!candidateKey || !targetKey) return false;
+    if (modelsLookEquivalent(candidate, target)) return false;
+    const candidateLooks31B = candidateKey.includes('31b') || candidateKey.includes('431b');
+    const targetLooks31B = targetKey.includes('31b') || targetKey.includes('431b');
+    if (!candidateLooks31B || !targetLooks31B) return false;
+    if (candidateKey.includes('e4b') || candidateKey.includes('embed')) return false;
+    return true;
+  }
+
+  async function assertNoConflictingLoadedChatModels(targetModel = '') {
+    const clean = String(targetModel || '').trim();
+    if (!clean) return [];
+    const loaded = await listLoadedModels();
+    const conflicts = loaded.filter(model => looksLikeConflictingHeavyChatModel(model, clean));
+    if (conflicts.length) {
+      throw new Error(
+        `Refusing to load ${clean} while conflicting 31B chat model(s) are already loaded: ${conflicts.join(', ')}. Unload them first.`,
+      );
+    }
+    return loaded;
+  }
+
   function buildExactConfigPath(modelId = '') {
     const clean = String(modelId || '').trim();
     if (!clean) return '';
@@ -414,10 +458,33 @@ function createLmStudioAutomationApi({
     return inspection;
   }
 
-  async function loadModel(modelId = '', label = 'model') {
+  async function loadModel(modelId = '', label = 'model', options = {}) {
     const clean = String(modelId || '').trim();
     if (!clean) throw new Error(`No ${label} id was provided for lmstudio:prepare.`);
-    return execFileText('lms', ['load', clean, '-y'], { timeout: 20 * 60 * 1000 });
+    const contextLength = Number(options?.contextLength || 0);
+    const ttlSeconds = Number(options?.ttlSeconds || 0);
+    const candidates = await resolveLoadableModelIds(clean);
+    let lastError = null;
+
+    for (const candidate of candidates) {
+      await assertNoConflictingLoadedChatModels(candidate);
+      const args = ['load', candidate, '-y'];
+      if (Number.isFinite(contextLength) && contextLength > 0) {
+        args.push('-c', String(contextLength));
+      }
+      if (Number.isFinite(ttlSeconds) && ttlSeconds > 0) {
+        args.push('--ttl', String(ttlSeconds));
+      }
+      try {
+        return await execFileText('lms', args, { timeout: 20 * 60 * 1000 });
+      } catch (error) {
+        lastError = error;
+        const text = `${error?.stderr || ''}\n${error?.stdout || ''}`;
+        if (!/model not found/i.test(text)) throw error;
+      }
+    }
+
+    throw lastError || new Error(`Failed to load ${label} ${clean}.`);
   }
 
   async function probeEmbeddingModel(modelId = '') {
@@ -672,6 +739,9 @@ function createLmStudioAutomationApi({
     listInstalledModels,
     listInstalledModelsDetailed,
     listLoadedModels,
+    resolveLoadableModelIds,
+    assertNoConflictingLoadedChatModels,
+    loadModel,
     inspectPresetWiring,
     ensurePresetWiring,
     prepareLmStudio,
