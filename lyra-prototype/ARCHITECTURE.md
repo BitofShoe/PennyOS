@@ -160,9 +160,18 @@ Hybrid archive overlay:
   - session buckets with episodic history, summaries, open loops, and last retrieval provenance
 - `data/penny-memory-embeddings.json`
   - embedding cache used for semantic archive retrieval when a local embed model is available
+  - bounded background-vectorization status for optional post-turn shadow prewarm work
 - `data/penny-memory-ledger.json`
   - bounded research continuity topics with evidence refs, contradictions, open follow-ups, and source session/turn identity
   - advisory only; this does not mutate canonical explicit memory by itself
+
+Current archive-policy behavior:
+
+- explicit memory is still canonical
+- archive utility scoring lives in `lib/penny-memory-archive-policy.js`
+- that utility score is currently used for eval/shadow selection only, not live auto-forgetting
+- optional background chat vectorization runs only after `archiveCompletedTurn`, never in prompt assembly, and stays bounded behind env flags
+- inspector payloads expose background-vectorization telemetry so the behavior stays inspectable
 
 Important trust boundary:
 
@@ -225,6 +234,12 @@ The planner/manual tool loops now live in `lib/penny-tool-loop.js`, while the co
 - `lib/penny-runtime-tools.js`
 - `lib/penny-tool-registry.js`
 
+The tool registry now also exposes an internal `ToolCapabilityDescriptor` contract:
+
+- current tools are all marked `surface: native`
+- the contract is shaped for future `mcp` and `openapi` surfaces
+- this is a planning seam only; Penny is not running live connector adapters in production
+
 ### 6. Research continuity and provenance
 
 Penny now has an explicit research continuity layer in `lib/penny-research-ledger.js`:
@@ -262,6 +277,10 @@ The QA/eval harnesses now share three small helper layers:
   - environment/readiness validation so harnesses can mark runs invalid or degraded for machine reasons instead of blaming Penny
 - `lib/penny-qa-trust.js`
   - normalized trust/verdict summaries such as `pass`, `invalid`, `ambiguous`, `fallback`, and `degraded`
+- `scripts/qa-penny-memory.js`
+  - combined segmented memory QA plus a judged `write / retrieve / forget` mode
+- `scripts/eval-penny-ledger-compare.js`
+  - comparative ledger-prompt harness for bounded research/memory prompt strategies
 
 This does not make Penny “judge herself” in production. It makes the existing harnesses more honest about whether a run is trustworthy, polluted by environment drift, or behaviorally red.
 
@@ -372,10 +391,12 @@ Comparative chat-lane model harness with a fixed tool-lane model.
 Tool-lane leaning probe harness that prefers E4B by default.
 - `scripts/eval-penny-epistemic-compare.js`
 Epistemic compare harness; current favored primary pair is `off` vs `synthesis-only`.
+- `scripts/eval-penny-ledger-compare.js`
+Ledger compare harness for bounded research-ledger prompt strategies.
 - `scripts/eval-penny-runtime-fit.js`
 Runtime-fit harness for context-length and semantic-fallback tradeoff measurement.
 - `scripts/qa-penny-memory.js`
-Segmented memory QA harness with trace-first runtime artifact validation.
+Segmented memory QA harness with trace-first runtime artifact validation plus judged `write / retrieve / forget` suites.
 - `scripts/qa-penny-voice-redo.js`
 Chat-lane voice QA harness that records prompt-set, lane/model/fallback metadata, and normalized trust.
 - `scripts/qa-penny-browser-smoke.js`

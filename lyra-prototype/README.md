@@ -36,7 +36,8 @@ Read these in order if you need the current truth:
   - archive + semantic recall in `data/penny-memory-archive.json` and `data/penny-memory-embeddings.json`
   - a bounded research continuity ledger in `data/penny-memory-ledger.json`
   - the archive layer is additive and reviewable; it does not silently overwrite explicit facts
-- The memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, and recency protection so the last turn can be audited without digging through raw JSON.
+- The archive layer can do bounded post-turn shadow vector prewarm for recent chat history, but only when explicitly enabled and only off the hot path.
+- The memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, and bounded background-vectorization telemetry so the last turn can be audited without digging through raw JSON.
 
 ## Project layout
 
@@ -95,12 +96,14 @@ npm run lmstudio:prepare
 npm test
 npm run qa:memory:smoke
 npm run qa:memory
+npm run qa:memory:judged
 npm run qa:voice:tiebreak
 npm run qa:browser:smoke
 npm run qa:next-cycle
 npm run eval:probes
 npm run eval:epistemic-compare
 npm run eval:epistemic-compare:synthesis
+npm run eval:ledger-compare
 npm run eval:runtime-fit
 npm run qa:voice-redo
 npm run eval:models
@@ -129,13 +132,13 @@ Penny's runtime memory is now hybrid:
 - Canonical explicit memory in `data/penny-memory.json`
   This stays the source of truth for direct facts, preferences, user name, brain mode, and other explicit state.
 - Archive memory in `data/penny-memory-archive.json`
-  This stores raw episodic turns, rolling summaries, longer-term patterns, and the review queue for candidate promotions.
+  This stores raw episodic turns, rolling summaries, longer-term patterns, utility-scored archive candidates, and the review queue for candidate promotions.
 - Embedding cache in `data/penny-memory-embeddings.json`
-  This supports semantic recall when a local embedding model is available.
+  This supports semantic recall when a local embedding model is available, and can optionally record bounded post-turn background-vectorization telemetry.
 - Research continuity ledger in `data/penny-memory-ledger.json`
   This stores bounded advisory topics, evidence refs, open follow-ups, and source session/turn identity so Penny does not keep re-researching the same repo question.
 
-For memory QA, use `npm run qa:memory:smoke` for the fast regression slice and `npm run qa:memory` for the full release-style run. On the current Q6 setup the full run is expected to take roughly 80-90 minutes end to end.
+For memory QA, use `npm run qa:memory:smoke` for the fast regression slice, `npm run qa:memory` for the full combined release-style run, and `npm run qa:memory:judged` for the grouped `write / retrieve / forget` trust pass. On the current Q6 setup the full combined run is expected to take roughly 80-90 minutes end to end.
 For automated QA, the standard baseline is Q6 chat/memory plus `google/gemma-4-e4b` tooling. Do not treat a Q8-class chat model or a dual-lane stress setup as the default unless that is the specific thing under test.
 The QA/eval artifacts now also carry a normalized trust summary (`pass`, `invalid`, `ambiguous`, `fallback`, `degraded`) so outside review can distinguish Penny-behavior failures from environment drift.
 
@@ -152,6 +155,8 @@ The browser cache is not the source of truth for long-term memory.
 - Semantic memory uses a separate soft-dependency model:
 - `PENNY_LMSTUDIO_EMBED_MODEL` defaults to `text-embedding-nomic-embed-text-v1.5`
   - if that model is missing or unloaded, Penny falls back to keyword-style archive retrieval instead of failing chat
+- `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=1` enables bounded post-turn background vectorization of recent chat-history candidates.
+- `PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT` defaults to `2` and caps that background vector work per archived turn.
 - `npm run lmstudio:prepare` verifies local preset wiring, checks installed/loaded models, and tries to load the requested chat model for QA/startup flows.
 - The settings-panel model picker is now a chat-lane override only. Tool-lane selection is config-driven.
 - The local `@local:penny` preset is operator-owned LM Studio state. Penny can verify and reassert the wiring, but the repo does not own the preset body.

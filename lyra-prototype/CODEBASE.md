@@ -193,10 +193,12 @@ Comparative chat-lane evaluation harness.
 Bounded tool-lane probe harness.
 - [scripts/eval-penny-epistemic-compare.js](./scripts/eval-penny-epistemic-compare.js)
 Epistemic compare harness for `off`, `synthesis-only`, and diagnostic modes.
+- [scripts/eval-penny-ledger-compare.js](./scripts/eval-penny-ledger-compare.js)
+Comparative ledger-prompt harness for the current off vs synthesis-focused research/memory modes.
 - [scripts/eval-penny-runtime-fit.js](./scripts/eval-penny-runtime-fit.js)
 Latency/runtime-fit harness for context-length and semantic-readiness tradeoffs.
 - [scripts/qa-penny-memory.js](./scripts/qa-penny-memory.js)
-Segmented memory QA harness with trace-first runtime artifact validation.
+Segmented plus judged memory QA harness with trace-first runtime artifact validation.
 - [scripts/qa-penny-voice-redo.js](./scripts/qa-penny-voice-redo.js)
 Chat-lane voice QA harness.
 - [scripts/qa-penny-browser-smoke.js](./scripts/qa-penny-browser-smoke.js)
@@ -229,7 +231,7 @@ Untracked runtime memory store created on first run.
 - `penny-memory-archive.json`
 Hybrid archive runtime store for episodic recall, summaries, patterns, and the promotion queue.
 - `penny-memory-embeddings.json`
-Embedding cache for semantic archive retrieval when a local embedding model is available.
+Embedding cache for semantic archive retrieval when a local embedding model is available, plus bounded background-vectorization telemetry.
 - `penny-memory-ledger.json`
 Research continuity ledger for bounded advisory topics, evidence refs, and open follow-ups.
 - various QA/eval memory files
@@ -272,6 +274,7 @@ Current modules worth knowing:
 - [lib/penny-memory.js](./lib/penny-memory.js)
 - [lib/penny-memory-state.js](./lib/penny-memory-state.js)
 - [lib/penny-memory-archive.js](./lib/penny-memory-archive.js)
+- [lib/penny-memory-archive-policy.js](./lib/penny-memory-archive-policy.js)
 - [lib/penny-research-ledger.js](./lib/penny-research-ledger.js)
 - [lib/penny-tool-intents.js](./lib/penny-tool-intents.js)
 - [lib/penny-local-lanes.js](./lib/penny-local-lanes.js)
@@ -332,12 +335,14 @@ Likely sections you will touch:
 Likely modules you will touch:
 
 - durable memory handling in `lib/penny-memory*.js`
-- hybrid archive recall/promotion logic in `lib/penny-memory-archive.js`
+- hybrid archive recall/promotion/background-vectorization logic in `lib/penny-memory-archive.js`
+- archive utility scoring and pruning heuristics for eval/shadow selection in `lib/penny-memory-archive-policy.js`
 - research continuity topic tracking in `lib/penny-research-ledger.js`
 - lane selection in `lib/penny-local-lanes.js`
 - direct tool intent routing in `lib/penny-direct-intents.js`
 - direct deterministic tool execution in `lib/penny-direct-tool-assist.js`
 - concrete tool implementations in `lib/penny-*-tools.js`
+- internal tool capability descriptors in `lib/penny-tool-registry.js`
 - LM Studio status/model resolution in `lib/penny-lmstudio-status.js`
 - LM Studio transport selection in `lib/penny-lmstudio-transports.js`
 - route/runtime artifact assembly in `lib/penny-route-handlers.js` and `lib/penny-runtime-artifacts.js`
