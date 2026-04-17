@@ -197,6 +197,15 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   const modelAdvisory = artifact.modelAdvisory && typeof artifact.modelAdvisory === 'object' ? artifact.modelAdvisory : {};
   const performance = artifact.performance && typeof artifact.performance === 'object' ? artifact.performance : {};
   const readiness = artifact.readiness && typeof artifact.readiness === 'object' ? artifact.readiness : {};
+  const executionPath = String(artifact.executionPath || artifact.context?.executionPath || '').trim() || 'llm-chat';
+  const researchLedgerUpdate = artifact.researchLedgerUpdate && typeof artifact.researchLedgerUpdate === 'object'
+    ? artifact.researchLedgerUpdate
+    : { status: 'skipped', reason: '' };
+  const researchLedgerPromptInjected = artifact.researchLedgerPromptInjected === true;
+  const modelUsage = String(readiness.modelUsage || 'used').trim() === 'not-used' ? 'not-used' : 'used';
+  const modelTimingText = modelUsage === 'not-used'
+    ? 'not used'
+    : formatDurationMs(performance.modelRoundTrip?.durationMs || 0);
   const toolLabels = Array.isArray(modelAdvisory.toolsUsed)
     ? modelAdvisory.toolsUsed
         .map((item) => String(item?.label || item?.name || '').trim())
@@ -217,7 +226,7 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   return `
     <div class="list-item">
       <div class="memory-copy">
-        Artifact: <strong>${escapeHtmlFn(artifact.version || 'unknown')}</strong> &middot; Kind: <strong>${escapeHtmlFn(artifact.kind || 'unknown')}</strong> &middot; Scope: <strong>${escapeHtmlFn(scope.requestedMode || 'local')}</strong>/<strong>${escapeHtmlFn(scope.selectedLane || 'chat')}</strong>
+        Artifact: <strong>${escapeHtmlFn(artifact.version || 'unknown')}</strong> &middot; Kind: <strong>${escapeHtmlFn(artifact.kind || 'unknown')}</strong> &middot; Scope: <strong>${escapeHtmlFn(scope.requestedMode || 'local')}</strong>/<strong>${escapeHtmlFn(scope.selectedLane || 'chat')}</strong> &middot; Execution <strong>${escapeHtmlFn(executionPath)}</strong>
         <small>${escapeHtmlFn(summary.text || 'No artifact summary available.')}</small>
       </div>
     </div>
@@ -229,14 +238,20 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     </div>
     <div class="list-item">
       <div class="memory-copy">
-        Latency class: <strong>${escapeHtmlFn(performance.latencyClass || 'casual-companion')}</strong> &middot; Request ${escapeHtmlFn(formatDurationMs(performance.request?.durationMs || 0))} &middot; Model ${escapeHtmlFn(formatDurationMs(performance.modelRoundTrip?.durationMs || 0))}
+        Latency class: <strong>${escapeHtmlFn(performance.latencyClass || 'casual-companion')}</strong> &middot; Request ${escapeHtmlFn(formatDurationMs(performance.request?.durationMs || 0))} &middot; Model ${escapeHtmlFn(modelTimingText)}
         <small>${escapeHtmlFn(`Prompt ${formatDurationMs(performance.promptAssembly?.durationMs || 0)} · Archive ${formatDurationMs(performance.archiveRetrieval?.durationMs || 0)} · First token ${performance.firstToken?.available ? formatDurationMs(performance.firstToken?.durationMs || 0) : 'n/a'}`)}</small>
       </div>
     </div>
     <div class="list-item">
       <div class="memory-copy">
-        Readiness: <strong>${escapeHtmlFn(readiness.warmState || 'cold')}</strong> &middot; chat ${escapeHtmlFn(readiness.chatModelReady ? 'ready' : 'pending')} &middot; tool ${escapeHtmlFn(readiness.toolModelReady ? 'ready' : 'pending')} &middot; embeddings ${escapeHtmlFn(readiness.embeddingReady ? 'ready' : 'fallback')}
+        Readiness: <strong>${escapeHtmlFn(readiness.warmState || 'cold')}</strong> &middot; model ${escapeHtmlFn(modelUsage)} &middot; chat ${escapeHtmlFn(readiness.chatModelReady ? 'ready' : 'pending')} &middot; tool ${escapeHtmlFn(readiness.toolModelReady ? 'ready' : 'pending')} &middot; embeddings ${escapeHtmlFn(readiness.embeddingReady ? 'ready' : 'fallback')}
         <small>${escapeHtmlFn(Number.isFinite(Number(readiness.cacheAgeMs)) ? formatCacheAge(readiness.cacheAgeMs) : 'No cache age recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Research ledger prompt: <strong>${escapeHtmlFn(researchLedgerPromptInjected ? 'injected' : 'held back')}</strong> &middot; Ledger update <strong>${escapeHtmlFn(researchLedgerUpdate.status || 'skipped')}</strong>
+        <small>${escapeHtmlFn(researchLedgerUpdate.reason || 'No research-ledger update details were recorded.')}</small>
       </div>
     </div>
     <div class="list-item">

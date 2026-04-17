@@ -1,6 +1,6 @@
 # Architecture
 
-This file describes how Penny currently works in this repo as of 2026-04-13.
+This file describes how Penny currently works in this repo as of 2026-04-16.
 
 It is intentionally blunt about what is "real architecture" versus "current monolith that still needs to be split."
 
@@ -34,11 +34,13 @@ Today the app is a single-process local web application with one large Node serv
 - `server.js`
 Main backend orchestration, API surface, durable memory handling, LM Studio transport selection, tool loop, semantic render pass, shadow lane, and static file serving.
 - `lib/*`
-Extracted backend modules for memory helpers, direct-intent parsing/replies, direct tool assist, and concrete project/web/git/runtime tools.
+Extracted backend modules for memory helpers, research continuity, route/runtime artifact assembly, QA trace/trust helpers, direct-intent parsing/replies, direct tool assist, and concrete project/web/git/runtime tools.
 - `public/index.html`
 Single-page shell for the Penny UI.
 - `public/app.js`
 Frontend bootstrap only.
+- `public/js/*`
+Browser-side coordination plus extracted helpers for transcript rendering, expression runtime, ambient chrome/emoji behavior, memory-inspector rendering, attachments, and local persistence.
 - `public/styles.css`
 UI styling and animation.
 - `penny-voice/runtime/*`
@@ -100,12 +102,13 @@ Normal chat flow:
 3. Backend merges browser memory settings with durable disk memory
 4. Backend chooses `brainMode`
 5. For local mode, backend selects `chat` vs `tool` lane
-6. For chat-like turns, backend retrieves a bounded archive context from the hybrid memory layer
+6. For chat-like turns, backend retrieves bounded archive context plus bounded research-ledger context
 7. The selected lane resolves its preferred model and transport family
-8. Reply comes back with a visible text response plus a hidden mood tag
+8. Reply comes back with a visible text response plus a hidden mood tag, and Penny records a runtime artifact / trace summary for the turn
 9. Frontend parses the mood tag and updates Penny's visual state
 10. Canonical explicit memory is written back to `data/penny-memory.json`
 11. Archive consolidation runs after successful turns and writes episodic/derived memory to `data/penny-memory-archive.json`
+12. Research-ledger updates run after qualifying turns and write bounded advisory continuity to `data/penny-memory-ledger.json`
 
 ## Backend subsystems
 
@@ -157,12 +160,16 @@ Hybrid archive overlay:
   - session buckets with episodic history, summaries, open loops, and last retrieval provenance
 - `data/penny-memory-embeddings.json`
   - embedding cache used for semantic archive retrieval when a local embed model is available
+- `data/penny-memory-ledger.json`
+  - bounded research continuity topics with evidence refs, contradictions, open follow-ups, and source session/turn identity
+  - advisory only; this does not mutate canonical explicit memory by itself
 
 Important trust boundary:
 
 - explicit memory remains canonical
 - archive-derived summaries/patterns do not auto-overwrite `memories[]`
 - promotion into stronger explicit memory requires inspector review
+- research ledger context is advisory continuity, not canonical truth
 
 ### 3. LM Studio transport layer
 
@@ -184,7 +191,7 @@ Important architecture detail:
 
 For certain technical or inspect-style requests, Penny does not need a full open-ended planning pass.
 
-`server.js` now composes a deterministic direct-intent layer whose parser/reply helpers live in `lib/penny-direct-intents.js` and whose execution branch lives in `lib/penny-direct-tool-assist.js`.
+`server.js` now composes a deterministic direct-intent layer whose parser lives in `lib/penny-direct-intents.js`, whose reply-composition helpers live in `lib/penny-direct-intent-replies.js`, and whose execution branch lives in `lib/penny-direct-tool-assist.js`.
 
 That layer can route things like:
 
@@ -218,7 +225,24 @@ The planner/manual tool loops now live in `lib/penny-tool-loop.js`, while the co
 - `lib/penny-runtime-tools.js`
 - `lib/penny-tool-registry.js`
 
-### 6. Semantic render pass
+### 6. Research continuity and provenance
+
+Penny now has an explicit research continuity layer in `lib/penny-research-ledger.js`:
+
+- qualifying tool/research turns can update a bounded advisory ledger
+- prompt assembly can surface a small number of open/provisional topics as wake context
+- the memory inspector can render those topics with evidence refs and source identity
+
+The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
+
+- retrieval channels used or held back
+- contradiction/open-loop/ongoing-investigation context
+- accepted vs rejected evidence summaries
+- a provenance block that exposes source identity for archive and research-ledger inputs
+
+This is meant to improve auditability, not to create a new autonomous memory system.
+
+### 7. Semantic render pass
 
 Harder technical turns can go through a semantic render phase:
 
@@ -228,7 +252,20 @@ Harder technical turns can go through a semantic render phase:
 
 This is useful, but it is also a latency multiplier and should be used selectively.
 
-### 7. Mood / vessel presentation
+### 8. QA and eval trust surfaces
+
+The QA/eval harnesses now share three small helper layers:
+
+- `lib/penny-qa-trace.js`
+  - normalized replayable trace envelopes for QA/eval runs
+- `lib/penny-qa-validity.js`
+  - environment/readiness validation so harnesses can mark runs invalid or degraded for machine reasons instead of blaming Penny
+- `lib/penny-qa-trust.js`
+  - normalized trust/verdict summaries such as `pass`, `invalid`, `ambiguous`, `fallback`, and `degraded`
+
+This does not make Penny “judge herself” in production. It makes the existing harnesses more honest about whether a run is trustworthy, polluted by environment drift, or behaviorally red.
+
+### 9. Mood / vessel presentation
 
 The visible Penny vessel is driven by reply mood tags such as:
 
@@ -286,7 +323,15 @@ Current split:
 - `public/app.js`
 tiny module bootstrap
 - `public/js/penny-app.js`
-main SPA orchestration, memory inspector rendering, and review/purge controls
+main SPA orchestration and wiring shell
+- `public/js/penny-transcript-ui.mjs`
+transcript rendering and streaming presentation helpers
+- `public/js/penny-expression-runtime.mjs`
+expression/mood runtime helpers
+- `public/js/penny-ambient-chrome.mjs`
+boot overlay, emoji picker, particle, and idle/parallax chrome helpers
+- `public/js/penny-memory-panel.mjs`
+memory-inspector rendering for explicit memory, archive state, runtime artifacts, trace provenance, and research continuity
 - `public/js/penny-lmstudio-ui.js`
 LM Studio diagnostics/model UI helpers
 - `public/js/penny-attachments.js`
@@ -319,18 +364,26 @@ Reasserts the LM Studio preset/default state Penny expects.
 Shared LM Studio preparation flow used by startup, preflight, QA, and eval scripts.
 - `scripts/penny-preflight.js`
 Cheap local environment and LM Studio readiness checks.
-- `PENNY_LMSTUDIO_EMBED_MODEL`
-Soft-dependency embedding model for semantic memory. If it is missing or unloaded, Penny falls back to keyword retrieval instead of failing chat.
-- In-app local embedding backend
-Considered and intentionally deferred for a later cycle. This branch uses LM Studio embeddings only.
 - `scripts/penny-wait-ready.js`
 Readiness poller used by the durable launcher and tests.
 - `scripts/eval-penny-models.js`
 Comparative chat-lane model harness with a fixed tool-lane model.
 - `scripts/eval-penny-probes.js`
 Tool-lane leaning probe harness that prefers E4B by default.
+- `scripts/eval-penny-epistemic-compare.js`
+Epistemic compare harness; current favored primary pair is `off` vs `synthesis-only`.
+- `scripts/eval-penny-runtime-fit.js`
+Runtime-fit harness for context-length and semantic-fallback tradeoff measurement.
+- `scripts/qa-penny-memory.js`
+Segmented memory QA harness with trace-first runtime artifact validation.
 - `scripts/qa-penny-voice-redo.js`
-Chat-lane voice QA harness that records lane/model/fallback metadata.
+Chat-lane voice QA harness that records prompt-set, lane/model/fallback metadata, and normalized trust.
+- `scripts/qa-penny-browser-smoke.js`
+Disposable-server browser smoke harness for the real streamed `/api/penny/chat?stream=1` path.
+- `scripts/qa-penny-next-cycle.js`
+Fixed-order wrapper for the standard next-cycle rerun sequence.
+- `scripts/build-review-bundle.js`
+Builds a filtered repo copy for outside review without dragging along runtime debris and local logs.
 - Route/regression tests and similar local verification should use an isolated mock or a dedicated temporary LM Studio server, not the user's live loaded model.
 - That isolation pattern has already proven itself in-project; keep carrying it forward so verification stays repeatable and does not disturb the live brain.
 
@@ -346,7 +399,7 @@ The biggest runtime latency costs today are:
 Recent mitigations already in place:
 
 - live model resolution now prefers the actually loaded LM Studio runtime id
-- quick QA defaults to the existing main server instead of spawning a second Penny server
+- high-trust QA favors disposable or restart-gated servers instead of the stale long-lived main process
 - streamed stateful LM Studio chat now keeps the thread alive between turns
 - normal chat output budget is capped lower than the tool/coding paths
 - casual chat history is clipped more aggressively

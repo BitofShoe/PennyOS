@@ -72,8 +72,10 @@ function createLaneRuntime(localLane = 'chat', getPreferredModelForLane = () => 
   return {
     localLane: normalizeLane(localLane),
     requestedModel,
-    resolvedModel: requestedModel,
+    resolvedModel: '',
     laneFallback: false,
+    modelUsed: false,
+    executionPath: '',
   };
 }
 

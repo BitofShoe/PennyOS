@@ -43,6 +43,7 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
   let smokeMode = process.env.PENNY_QA_MEMORY_SMOKE === '1';
   let segmentId = '';
   let combinedMode = false;
+  let judgedMode = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = String(argv[index] || '').trim();
@@ -53,6 +54,10 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
     }
     if (arg === '--combined') {
       combinedMode = true;
+      continue;
+    }
+    if (arg === '--judged') {
+      judgedMode = true;
       continue;
     }
     if (arg === '--segment') {
@@ -71,20 +76,30 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
   if (smokeMode && combinedMode) {
     throw new Error('Memory QA cannot combine --smoke with --combined.');
   }
+  if (judgedMode && smokeMode) {
+    throw new Error('Memory QA cannot combine --judged with --smoke.');
+  }
+  if (judgedMode && segmentId) {
+    throw new Error('Memory QA cannot combine --judged with --segment.');
+  }
+  if (judgedMode && combinedMode) {
+    throw new Error('Memory QA cannot combine --judged with --combined.');
+  }
   if (segmentId && !MEMORY_QA_SEGMENT_ORDER.includes(segmentId)) {
     throw new Error(`Unknown memory QA segment "${segmentId}". Expected one of: ${MEMORY_QA_SEGMENT_ORDER.join(', ')}`);
   }
-  if (!smokeMode && !segmentId) {
+  if (!smokeMode && !segmentId && !judgedMode) {
     combinedMode = true;
   }
 
-  const runMode = smokeMode ? 'smoke' : (segmentId ? 'segment' : 'combined');
-  const runLabel = smokeMode ? 'smoke' : (segmentId || 'combined');
+  const runMode = smokeMode ? 'smoke' : (judgedMode ? 'judged' : (segmentId ? 'segment' : 'combined'));
+  const runLabel = smokeMode ? 'smoke' : (judgedMode ? 'judged' : (segmentId || 'combined'));
 
   return {
     smokeMode,
     segmentId,
     combinedMode,
+    judgedMode,
     runMode,
     runLabel,
   };
@@ -665,6 +680,172 @@ async function runLongArchiveScenario(baseUrl, {
   };
 }
 
+function buildScenarioGroupSummary(scenarios = []) {
+  const groups = {};
+  for (const scenario of Array.isArray(scenarios) ? scenarios : []) {
+    const group = String(scenario?.group || '').trim() || 'ungrouped';
+    if (!groups[group]) {
+      groups[group] = {
+        total: 0,
+        completed: 0,
+        failed: 0,
+        invalid: 0,
+        seconds: 0,
+      };
+    }
+    const bucket = groups[group];
+    bucket.total += 1;
+    if (scenario?.ok === true) {
+      bucket.completed += 1;
+    } else if (scenario?.ok === false) {
+      bucket.failed += 1;
+    } else {
+      bucket.invalid += 1;
+    }
+    bucket.seconds = Math.round((bucket.seconds + collectSeconds(scenario)) * 100) / 100;
+  }
+  return groups;
+}
+
+function memoryItemTexts(memoryResponse = null) {
+  const memory = memoryResponse?.memory || memoryResponse?.inspector?.memory || memoryResponse || {};
+  if (!Array.isArray(memory?.memories)) return [];
+  return memory.memories.map((item) => String(item?.text || '').trim()).filter(Boolean);
+}
+
+async function runJudgedWriteExplicitScenario(baseUrl) {
+  return {
+    ...(await runShortTermExplicit(baseUrl)),
+    group: 'write',
+    name: 'judged_write_explicit',
+  };
+}
+
+async function runJudgedWriteCorrectionScenario(baseUrl) {
+  return {
+    ...(await runContradictionScenario(baseUrl)),
+    group: 'write',
+    name: 'judged_write_correction',
+  };
+}
+
+async function runJudgedWriteReviewCandidateScenario(baseUrl) {
+  const sessionId = 'qa-memory-judged-review-candidate';
+  const capture = await chatRequest(baseUrl, sessionId, 'I am into rainy cyberpunk vibes.');
+  const filler = await chatRequest(baseUrl, sessionId, 'One short sentence only: the kettle rattled twice before it boiled.');
+  const memoryAfterCapture = await getMemory(baseUrl, sessionId);
+  const inspectorAfter = await getInspector(baseUrl, sessionId);
+  const storedTexts = memoryItemTexts(memoryAfterCapture);
+  const queueItems = Array.isArray(inspectorAfter?.inspector?.archive?.global?.promotionQueue)
+    ? inspectorAfter.inspector.archive.global.promotionQueue
+    : [];
+  const queueMatch = queueItems.some((item) => String(item?.sourceType || '').trim() === 'review-candidate'
+    || /rainy cyberpunk vibes/i.test(String(item?.text || ''))
+    || /rainy cyberpunk vibes/i.test(String(item?.evidenceSnippet || '')));
+  const explicitStayedClean = !storedTexts.some((text) => /rainy cyberpunk vibes/i.test(text));
+  return {
+    name: 'judged_write_review_candidate',
+    sessionId,
+    group: 'write',
+    ok: capture.ok && filler.ok && queueMatch && explicitStayedClean,
+    capture,
+    filler,
+    memoryAfterCapture,
+    inspectorAfter,
+    queueMatch,
+    explicitStayedClean,
+  };
+}
+
+async function runJudgedRetrieveSemanticArchiveScenario(baseUrl) {
+  return {
+    ...(await runLongArchiveScenario(baseUrl, {
+      name: 'judged_retrieve_semantic_archive',
+      sessionId: 'qa-memory-judged-semantic',
+      turns: SEMANTIC_TURNS,
+      recallPrompt: 'Long-memory check: what color glove did I drop under the skee-ball lane, and what kind of mug sat beside the register?',
+      expectedNeedles: ['red glove', 'moon mug'],
+      expectSemanticReady: true,
+      expectCompression: false,
+    })),
+    group: 'retrieve',
+  };
+}
+
+async function runJudgedRetrieveChapterFallbackScenario(baseUrl) {
+  return {
+    ...(await runLongArchiveScenario(baseUrl, {
+      name: 'judged_retrieve_chapter_fallback',
+      sessionId: 'qa-memory-judged-fallback',
+      turns: FALLBACK_TURNS,
+      recallPrompt: 'Long-memory fallback check: what was sitting on dryer three, and what was tied around the cashier\'s wrist?',
+      expectedNeedles: ['silver thermos', 'sunflower bandana'],
+      expectSemanticReady: false,
+      expectCompression: true,
+    })),
+    group: 'retrieve',
+  };
+}
+
+async function runJudgedForgetScenario(baseUrl) {
+  const sessionId = 'qa-memory-judged-forget';
+  const anchorMemory = {
+    text: 'My coding notebook stays left of the keyboard.',
+    kind: 'personal',
+    ts: Date.now() - 2000,
+  };
+  const disposableMemory = {
+    text: 'My disposable detail is a mint-green calculator.',
+    kind: 'observation',
+    ts: Date.now() - 1000,
+  };
+  const seeded = await patchMemory(baseUrl, sessionId, {
+    memories: [anchorMemory, disposableMemory],
+  });
+  const seededTexts = memoryItemTexts(seeded);
+  const beforeRecall = await chatRequest(baseUrl, sessionId, 'What should you remember about my coding setup?');
+  const beforeRecallScore = scoreNeedles(beforeRecall.text, ['left of the keyboard']);
+  const forgetPatch = await patchMemory(baseUrl, sessionId, {
+    memories: [anchorMemory],
+  });
+  const afterMemory = await getMemory(baseUrl, sessionId);
+  const afterTexts = memoryItemTexts(afterMemory);
+  const anchorRecall = await chatRequest(baseUrl, sessionId, 'What should still be true about my coding notebook?');
+  const anchorRecallScore = scoreNeedles(anchorRecall.text, ['left of the keyboard', 'notebook']);
+  const disposableRecall = await chatRequest(baseUrl, sessionId, 'What disposable detail did I mention?');
+  const disposableRecallScore = scoreNeedles(disposableRecall.text, ['mint-green calculator']);
+  const anchorRetained = afterTexts.some((text) => /coding notebook stays left of the keyboard/i.test(text));
+  const disposableRemoved = !afterTexts.some((text) => /mint-green calculator/i.test(text));
+  return {
+    name: 'judged_forget_prune',
+    sessionId,
+    group: 'forget',
+    ok: seeded.ok !== false
+      && forgetPatch.ok !== false
+      && anchorRetained
+      && disposableRemoved
+      && beforeRecall.ok
+      && beforeRecallScore >= 0.5
+      && anchorRecall.ok
+      && anchorRecallScore >= 0.5
+      && disposableRecall.ok
+      && disposableRecallScore === 0,
+    seeded,
+    seededTexts,
+    beforeRecall,
+    beforeRecallScore,
+    forgetPatch,
+    afterMemory,
+    afterTexts,
+    anchorRecall,
+    anchorRecallScore,
+    disposableRecall,
+    disposableRecallScore,
+    anchorRetained,
+    disposableRemoved,
+  };
+}
+
 function buildMemoryQaSegmentConfig(segmentId) {
   switch (segmentId) {
     case MEMORY_QA_SEGMENT_IDS.SEMANTIC_ARCHIVE:
@@ -817,6 +998,7 @@ function summarizeSuites(suites = []) {
     .flatMap((suite) => suite.scenarios || []);
   const completed = scenarios.filter((scenario) => scenario.ok && !invalid.includes(scenario));
   const failed = scenarios.filter((scenario) => scenario.ok === false && !invalid.includes(scenario));
+  const groups = buildScenarioGroupSummary(scenarios);
   const totalSeconds = scenarios.reduce((sum, scenario) => {
     const turnSeconds = Object.values(scenario || {}).reduce((inner, value) => inner + collectSeconds(value), 0);
     return sum + turnSeconds;
@@ -827,6 +1009,7 @@ function summarizeSuites(suites = []) {
     invalid: invalid.length,
     averageScenarioSeconds: scenarios.length ? Math.round((totalSeconds / scenarios.length) * 100) / 100 : null,
     totalScenarioSeconds: Math.round(totalSeconds * 100) / 100,
+    groups,
   };
 }
 
@@ -863,6 +1046,13 @@ function buildMemoryQaTrace(payload = {}) {
   const scenarios = suites.flatMap((suite) => Array.isArray(suite?.scenarios) ? suite.scenarios : []);
   const suiteStatuses = suites.map((suite) => suite?.serverStatus || {});
   const primaryStatus = suiteStatuses[0] || {};
+  const judgedGroups = payload?.summary?.groups && typeof payload.summary.groups === 'object'
+    ? payload.summary.groups
+    : {};
+  const judgedWriteGroup = judgedGroups.write || {};
+  const judgedRetrieveGroup = judgedGroups.retrieve || {};
+  const judgedForgetGroup = judgedGroups.forget || {};
+  const judgedGroupNames = Object.keys(judgedGroups);
   const results = collectTraceResults(suites);
   const artifacts = results
     .map((item) => item?.meta?.artifact)
@@ -912,9 +1102,11 @@ function buildMemoryQaTrace(payload = {}) {
     finishedAt: payload.finishedAt,
     promptVersion: payload.runMode === 'smoke'
       ? 'qa-penny-memory.smoke.v1'
+      : (payload.runMode === 'judged'
+        ? 'qa-penny-memory.judged.v1'
       : (payload.runMode === 'segment'
         ? `qa-penny-memory.${payload.segmentId || 'segment'}.v1`
-        : 'qa-penny-memory.combined.v1'),
+        : 'qa-penny-memory.combined.v1')),
     laneDecision: {
       chatLaneTurns: laneCounts.chat || 0,
       toolLaneTurns: laneCounts.tool || 0,
@@ -938,6 +1130,7 @@ function buildMemoryQaTrace(payload = {}) {
     ]),
     contextLength: {
       smokeMode: payload.runMode === 'smoke',
+      judgedMode: payload.runMode === 'judged',
       runMode: payload.runMode || 'combined',
       segmentCount: suites.length,
       runLabel: payload.runLabel || '',
@@ -946,17 +1139,24 @@ function buildMemoryQaTrace(payload = {}) {
       maxOutputTokens: Number(primaryStatus?.maxOutputTokens || 0),
       semanticSeedTurns: SEMANTIC_TURNS.length,
       fallbackSeedTurns: FALLBACK_TURNS.length,
+      judgedGroupCount: judgedGroupNames.length,
     },
     memoryReads: {
       archiveItemsRetrieved: archiveReadItems,
       semanticReadyArtifacts,
       inspectorLoads: scenarios.filter((scenario) => scenario?.inspectorAfter || scenario?.inspectorBefore).length,
       explicitMemorySnapshots: explicitSnapshots,
+      judgedRetrieveScenarios: Number(judgedRetrieveGroup.total || 0),
+      judgedRetrievePasses: Number(judgedRetrieveGroup.completed || 0),
     },
     memoryWrites: {
       successfulTurns: results.filter((item) => item?.ok).length,
       threadClears,
       queueItemsSeen,
+      judgedWriteScenarios: Number(judgedWriteGroup.total || 0),
+      judgedWritePasses: Number(judgedWriteGroup.completed || 0),
+      judgedForgetScenarios: Number(judgedForgetGroup.total || 0),
+      judgedForgetPasses: Number(judgedForgetGroup.completed || 0),
     },
     toolCalls: {
       recordedTools: results.reduce((sum, item) => sum + Number(Array.isArray(item?.meta?.toolsUsed) ? item.meta.toolsUsed.length : 0), 0),
@@ -976,6 +1176,10 @@ function buildMemoryQaTrace(payload = {}) {
       validEnvironment: Array.isArray(payload?.suites)
         ? payload.suites.every((suite) => suite?.environment?.valid !== false)
         : true,
+      judgedGroupCount: judgedGroupNames.length,
+      judgedWriteScenarios: Number(judgedWriteGroup.total || 0),
+      judgedRetrieveScenarios: Number(judgedRetrieveGroup.total || 0),
+      judgedForgetScenarios: Number(judgedForgetGroup.total || 0),
     },
     outcome: {
       completedScenarios: Number(payload?.summary?.completed || 0),
@@ -985,6 +1189,14 @@ function buildMemoryQaTrace(payload = {}) {
       releaseReady: Number(payload?.summary?.failed || 0) === 0
         && Number(payload?.summary?.invalid || 0) === 0
         && suites.every((suite) => suite?.environment?.valid !== false),
+      judgedMode: payload.runMode === 'judged',
+      judgedGroupNames: judgedGroupNames.join(', '),
+      judgedCompletedScenarios: Number(judgedWriteGroup.completed || 0)
+        + Number(judgedRetrieveGroup.completed || 0)
+        + Number(judgedForgetGroup.completed || 0),
+      judgedFailedScenarios: Number(judgedWriteGroup.failed || 0)
+        + Number(judgedRetrieveGroup.failed || 0)
+        + Number(judgedForgetGroup.failed || 0),
     },
   }));
 }
@@ -1061,6 +1273,105 @@ async function runMemoryQaCombined() {
   return suites;
 }
 
+async function runMemoryQaJudgedSuite({
+  suiteSlug,
+  runLabel,
+  memoryStrategy,
+  embedModel,
+  scenarioFactories,
+  expectSemanticReady,
+}) {
+  const suitePaths = buildSuitePaths(suiteSlug);
+  const baseUrl = BASE_URL;
+  const suite = {
+    name: runLabel,
+    segmentId: 'judged',
+    runLabel,
+    baseUrl,
+    memoryStrategy,
+    files: {
+      memoryFile: suitePaths.memoryFile,
+      archiveFile: suitePaths.archiveFile,
+      embeddingsFile: suitePaths.embeddingsFile,
+      stdout: suitePaths.stdoutPath,
+      stderr: suitePaths.stderrPath,
+    },
+    scenarios: [],
+    cleanedFiles: [],
+  };
+  const server = SPAWN_SERVER ? createServerProcess({ suiteSlug, suitePaths, embedModel }) : null;
+  try {
+    const status = await waitForServerReady(baseUrl);
+    const lmStudio = await fetchJson(`${baseUrl}/api/penny/lmstudio/status`, {}, 20000);
+    suite.serverStatus = {
+      localTransport: status.localLlmTransport,
+      maxOutputTokens: status.maxOutputTokens,
+      chatPreferredModel: lmStudio.chatPreferredModel || '',
+      toolPreferredModel: lmStudio.toolPreferredModel || '',
+      embedPreferredModel: lmStudio.embedPreferredModel || '',
+      resolvedModel: lmStudio.resolvedModel || '',
+      resolvedChatModel: lmStudio.resolvedChatModel || '',
+      resolvedToolModel: lmStudio.resolvedToolModel || '',
+      semanticMemory: lmStudio.semanticMemory || null,
+      availableModels: lmStudio.availableModels || [],
+    };
+    for (const scenarioFactory of scenarioFactories) {
+      suite.scenarios.push(await scenarioFactory(baseUrl));
+    }
+    suite.environment = buildQaEnvironmentValidity({
+      serverMode: SPAWN_SERVER ? 'spawned-disposable' : 'existing-main-server',
+      serverStatus: suite.serverStatus,
+      results: suite.scenarios,
+      requireDisposable: true,
+      requireChat: true,
+      requireTool: false,
+      requireSemantic: expectSemanticReady === true,
+      expectedChatModel: CHAT_MODEL,
+      expectedToolModel: TOOL_MODEL,
+    });
+  } finally {
+    await stopServerProcess(server);
+    if (SPAWN_SERVER) {
+      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile]) {
+        if (fs.existsSync(filePath)) {
+          removeFileIfExists(filePath);
+          suite.cleanedFiles.push(filePath);
+        }
+      }
+    }
+  }
+  return suite;
+}
+
+async function runMemoryQaJudged() {
+  const suites = [];
+  suites.push(await runMemoryQaJudgedSuite({
+    suiteSlug: 'judged-semantic',
+    runLabel: 'judged',
+    memoryStrategy: 'judged write/retrieve/forget on semantic memory',
+    embedModel: EMBED_MODEL,
+    expectSemanticReady: true,
+    scenarioFactories: [
+      (baseUrl) => runJudgedWriteExplicitScenario(baseUrl),
+      (baseUrl) => runJudgedWriteCorrectionScenario(baseUrl),
+      (baseUrl) => runJudgedWriteReviewCandidateScenario(baseUrl),
+      (baseUrl) => runJudgedRetrieveSemanticArchiveScenario(baseUrl),
+      (baseUrl) => runJudgedForgetScenario(baseUrl),
+    ],
+  }));
+  suites.push(await runMemoryQaJudgedSuite({
+    suiteSlug: 'judged-fallback',
+    runLabel: 'judged-fallback',
+    memoryStrategy: 'judged chapter fallback retrieval',
+    embedModel: 'qa-missing-embed-model',
+    expectSemanticReady: false,
+    scenarioFactories: [
+      (baseUrl) => runJudgedRetrieveChapterFallbackScenario(baseUrl),
+    ],
+  }));
+  return suites;
+}
+
 async function main() {
   ensureDir(OUTPUT_DIR);
   const automationApi = createAutomationApi({
@@ -1071,6 +1382,7 @@ async function main() {
     reportOnly: false,
     repairPreset: true,
     loadChatModel: false,
+    loadEmbedModel: false,
     chatModel: CHAT_MODEL,
     toolModel: TOOL_MODEL,
   });
@@ -1100,9 +1412,11 @@ async function main() {
     serverMode: SPAWN_SERVER ? 'spawned-disposable' : 'existing-main-server',
     memoryStrategy: SMOKE_MODE
       ? 'smoke: short-term explicit + contradiction flip + premise drift + obfuscated route stability + long-term compression fallback'
+      : (MEMORY_QA_ARGS.runMode === 'judged'
+        ? 'judged: grouped write/retrieve/forget memory QA with review-queue and prune checks'
       : (MEMORY_QA_ARGS.segmentId
         ? buildMemoryQaSegmentConfig(MEMORY_QA_ARGS.segmentId).memoryStrategy
-        : 'combined: semantic archive + chapter fallback + contradiction/premise drift + long mixed-session drift'),
+        : 'combined: semantic archive + chapter fallback + contradiction/premise drift + long mixed-session drift')),
     preparation: {
       ok: preparation.ok,
       requestedChatModel: preparation.requestedChatModel,
@@ -1128,6 +1442,8 @@ async function main() {
     payload.suites.push(await runSmokeSuite({
       embedModel: 'qa-missing-embed-model',
     }));
+  } else if (MEMORY_QA_ARGS.runMode === 'judged') {
+    payload.suites.push(...(await runMemoryQaJudged()));
   } else if (MEMORY_QA_ARGS.segmentId) {
     payload.suites.push(await runMemoryQaSegment(MEMORY_QA_ARGS.segmentId));
   } else {
@@ -1155,6 +1471,7 @@ module.exports = {
   parseMemoryQaArgs,
   runMemoryQaSegment,
   runMemoryQaCombined,
+  runMemoryQaJudged,
   summarizeSuites,
   buildMemoryQaTrace,
   runSmokeSuite,

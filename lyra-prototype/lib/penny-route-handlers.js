@@ -10,9 +10,12 @@
  * @property {string} [localLane]
  * @property {string} [requestedModel]
  * @property {string} [resolvedModel]
+ * @property {string} [executionPath]
  * @property {boolean} [laneFallback]
  * @property {boolean} [semanticMemoryReady]
  * @property {string} [semanticMemoryMode]
+ * @property {boolean} [researchLedgerPromptInjected]
+ * @property {Object|null} [researchLedgerUpdate]
  * @property {Array<Object>} [toolsUsed]
  * @property {Object|null} [repair]
  * @property {Object} [artifact]
@@ -107,7 +110,9 @@ function buildTurnReadiness({
   semanticMemoryReady = false,
   semanticMemoryMode = 'disabled',
   usedFallback = false,
+  modelUsed = true,
 } = {}) {
+  const normalizedModelUsage = modelUsed === false ? 'not-used' : 'used';
   const hasResolvedModel = !!String(resolvedModel || '').trim();
   if (requestedMode === 'shadow') {
     return normalizeReadiness({
@@ -115,6 +120,21 @@ function buildTurnReadiness({
       toolModelReady: true,
       embeddingReady: semanticMemoryReady === true,
       fallbackActive: usedFallback === true,
+      modelUsage: 'used',
+      warmState: usedFallback === true ? 'degraded' : 'warm',
+      checkedAt: isoNow(),
+      cacheAgeMs: 0,
+      cacheExpiresAt: '',
+      cacheHit: false,
+    });
+  }
+  if (modelUsed === false) {
+    return normalizeReadiness({
+      chatModelReady: true,
+      toolModelReady: true,
+      embeddingReady: semanticMemoryReady === true,
+      fallbackActive: usedFallback === true,
+      modelUsage: normalizedModelUsage,
       warmState: usedFallback === true ? 'degraded' : 'warm',
       checkedAt: isoNow(),
       cacheAgeMs: 0,
@@ -131,6 +151,7 @@ function buildTurnReadiness({
     toolModelReady,
     embeddingReady: semanticMemoryReady === true,
     fallbackActive,
+    modelUsage: normalizedModelUsage,
     warmState,
     checkedAt: isoNow(),
     cacheAgeMs: 0,
@@ -211,9 +232,12 @@ function createPennyRouteHandlers(deps = {}) {
     localLane = '',
     requestedModel = '',
     resolvedModel = '',
+    executionPath = '',
     laneFallback = false,
     semanticMemoryReady = false,
     semanticMemoryMode = 'disabled',
+    researchLedgerPromptInjected = false,
+    researchLedgerUpdate = null,
     toolsUsed = [],
     repair = null,
     artifact = null,
@@ -233,9 +257,12 @@ function createPennyRouteHandlers(deps = {}) {
       localLane,
       requestedModel,
       resolvedModel,
+      executionPath,
       laneFallback,
       semanticMemoryReady,
       semanticMemoryMode,
+      researchLedgerPromptInjected,
+      researchLedgerUpdate,
       toolsUsed,
     };
     if (repair && typeof repair === 'object') meta.repair = repair;
@@ -262,6 +289,7 @@ function createPennyRouteHandlers(deps = {}) {
     laneFallback = false,
     requestedModel = '',
     resolvedModel = '',
+    executionPath = '',
     semanticMemoryReady = false,
     semanticMemoryMode = 'disabled',
     toolsUsed = [],
@@ -279,6 +307,8 @@ function createPennyRouteHandlers(deps = {}) {
     synthesis = null,
     performance = null,
     readiness = null,
+    researchLedgerPromptInjected = false,
+    researchLedgerUpdate = null,
   }) {
     return saveStoredMemory(sessionId, {
       ...memories,
@@ -288,6 +318,7 @@ function createPennyRouteHandlers(deps = {}) {
         requestedMode,
         reason,
         backend,
+        executionPath,
         usedFallback,
         laneFallback,
         requestedModel,
@@ -309,6 +340,8 @@ function createPennyRouteHandlers(deps = {}) {
         synthesis,
         performance,
         readiness,
+        researchLedgerPromptInjected,
+        researchLedgerUpdate,
       }),
     });
   }
@@ -345,8 +378,15 @@ function createPennyRouteHandlers(deps = {}) {
     provenance,
     backend,
   }) {
-    if (requestedMode === 'shadow') return;
-    scheduleResearchLedgerUpdate?.({
+    if (requestedMode === 'shadow') {
+      return {
+        status: 'skipped',
+        reason: 'shadow-mode',
+        context: null,
+        topic: null,
+      };
+    }
+    return scheduleResearchLedgerUpdate?.({
       sessionId,
       userText,
       assistantText,
@@ -354,7 +394,41 @@ function createPennyRouteHandlers(deps = {}) {
       backend,
       toolRecords,
       provenance,
+    }) || {
+      status: 'skipped',
+      reason: 'ledger-update-unavailable',
+      context: null,
+      topic: null,
+    };
+  }
+
+  function finalizeLedgerState({
+    runtimeMemoryContext = null,
+    sessionId = 'default',
+    requestedMode = 'local',
+    localLane = 'chat',
+    userText = '',
+    assistantText = '',
+    toolRecords = [],
+    provenance = [],
+    backend = '',
+  } = {}) {
+    const researchLedgerUpdate = ledgerIfEligible({
+      sessionId,
+      requestedMode,
+      localLane,
+      userText,
+      assistantText,
+      toolRecords,
+      provenance,
+      backend,
     });
+    return {
+      researchLedgerUpdate,
+      researchLedgerContext: researchLedgerUpdate?.status === 'applied' && researchLedgerUpdate?.context
+        ? researchLedgerUpdate.context
+        : (runtimeMemoryContext?.researchLedger || null),
+    };
   }
 
   function recordAssistantTurn(text) {
@@ -860,6 +934,7 @@ function createPennyRouteHandlers(deps = {}) {
       }
       const promptMemories = runtimeMemoryContext.memories;
       const matchedBooks = Array.isArray(runtimeMemoryContext.retrieval?.books) ? runtimeMemoryContext.retrieval.books : [];
+      const researchLedgerPromptInjected = runtimeMemoryContext.researchLedgerPromptInjected === true;
       let epistemics = runtimeMemoryContext.epistemics || null;
       let synthesis = runtimeMemoryContext.synthesis || null;
       saveStoredMemory(sessionId, memories);
@@ -877,7 +952,9 @@ function createPennyRouteHandlers(deps = {}) {
       let localLane = 'chat';
       let requestedModel = '';
       let resolvedModel = '';
+      let executionPath = requestedMode === 'shadow' ? 'shadow' : 'llm-chat';
       let laneFallback = false;
+      let modelUsed = requestedMode === 'shadow';
       const semanticMemoryReady = runtimeMemoryContext.semanticMemory?.ready === true;
       const semanticMemoryMode = runtimeMemoryContext.semanticMemory?.mode || 'disabled';
 
@@ -940,11 +1017,6 @@ function createPennyRouteHandlers(deps = {}) {
                     }
                   },
                 });
-            recordMeasuredStage(performanceTracker, 'modelRoundTrip', modelRoundTripStartedAt, {
-              source: 'lmstudio-route',
-              transport: String(backend || 'local-lmstudio').trim(),
-              note: 'LM Studio completed the turn.',
-            });
             mergePerformanceTracker(performanceTracker, result?.performance);
             text = result.text;
             toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
@@ -956,7 +1028,23 @@ function createPennyRouteHandlers(deps = {}) {
             localLane = result.localLane || 'chat';
             requestedModel = result.requestedModel || '';
             resolvedModel = result.resolvedModel || '';
+            executionPath = result.executionPath || (localLane === 'tool' ? 'deterministic-tool' : 'llm-chat');
             laneFallback = result.laneFallback === true;
+            modelUsed = result.modelUsed !== false;
+            if (modelUsed) {
+              recordMeasuredStage(performanceTracker, 'modelRoundTrip', modelRoundTripStartedAt, {
+                source: 'lmstudio-route',
+                transport: String(backend || 'local-lmstudio').trim(),
+                note: 'LM Studio completed the turn.',
+              });
+            } else {
+              recordPerformanceStage(performanceTracker, 'modelRoundTrip', {
+                available: false,
+                source: executionPath,
+                note: 'Turn completed without invoking the model.',
+                transport: '',
+              });
+            }
           } else if (!OPENCLAW_ENABLED) {
             sendEventStream(res, 'error', {
               error: 'Shadow brain requested but not enabled on the server.',
@@ -984,6 +1072,8 @@ function createPennyRouteHandlers(deps = {}) {
               note: 'Shadow runtime completed the turn.',
             });
             backend = 'openclaw-shadow';
+            executionPath = 'shadow';
+            modelUsed = true;
           }
 
           text = retagAssistantReply(text, extractReplyMoodTag(text) || sessionState.lastMood);
@@ -997,6 +1087,17 @@ function createPennyRouteHandlers(deps = {}) {
 
           recordAssistantTurn(text);
           const archiveEligible = requestedMode === 'shadow' || localLane === 'chat';
+          const ledgerState = finalizeLedgerState({
+            runtimeMemoryContext,
+            sessionId,
+            requestedMode,
+            localLane,
+            userText,
+            assistantText: text,
+            toolRecords,
+            provenance: turnProvenance,
+            backend,
+          });
           const readiness = buildTurnReadiness({
             requestedMode,
             selectedLane: requestedMode === 'shadow' ? 'shadow' : localLane,
@@ -1004,6 +1105,7 @@ function createPennyRouteHandlers(deps = {}) {
             semanticMemoryReady,
             semanticMemoryMode,
             usedFallback,
+            modelUsed,
           });
           const performance = finalizePerformanceTracker(performanceTracker);
           const artifact = buildRouteArtifact({
@@ -1012,6 +1114,7 @@ function createPennyRouteHandlers(deps = {}) {
             requestedMode,
             reason: requestedMode === 'shadow' ? 'shadow-mode-requested' : String(laneSelection.reason || ''),
             backend,
+            executionPath,
             usedFallback,
             laneFallback,
             requestedModel,
@@ -1022,13 +1125,15 @@ function createPennyRouteHandlers(deps = {}) {
             toolRecords,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
-            researchLedgerContext: runtimeMemoryContext.researchLedger,
+            researchLedgerContext: ledgerState.researchLedgerContext,
             matchedBooks,
             repair,
             epistemics,
             synthesis,
             performance,
             readiness,
+            researchLedgerPromptInjected,
+            researchLedgerUpdate: ledgerState.researchLedgerUpdate,
             shadowEnabled: OPENCLAW_ENABLED === true,
             shadowError,
             mood: sessionState.lastMood,
@@ -1041,6 +1146,7 @@ function createPennyRouteHandlers(deps = {}) {
             requestedMode,
             reason: requestedMode === 'shadow' ? 'shadow-mode-requested' : String(laneSelection.reason || ''),
             backend,
+            executionPath,
             usedFallback,
             laneFallback,
             requestedModel,
@@ -1061,6 +1167,8 @@ function createPennyRouteHandlers(deps = {}) {
             synthesis,
             performance,
             readiness,
+            researchLedgerPromptInjected,
+            researchLedgerUpdate: ledgerState.researchLedgerUpdate,
           });
           archiveIfEligible({
             sessionId,
@@ -1072,17 +1180,6 @@ function createPennyRouteHandlers(deps = {}) {
             provenance: turnProvenance,
             reviewCandidates: turnReviewCandidates,
           });
-          ledgerIfEligible({
-            sessionId,
-            requestedMode,
-            localLane,
-            userText,
-            assistantText: text,
-            toolRecords,
-            provenance: turnProvenance,
-            backend,
-          });
-
           if (!clientClosed) {
             sendEventStream(res, 'done', {
               text,
@@ -1096,9 +1193,12 @@ function createPennyRouteHandlers(deps = {}) {
                 localLane,
                 requestedModel,
                 resolvedModel,
+                executionPath,
                 laneFallback,
                 semanticMemoryReady,
                 semanticMemoryMode,
+                researchLedgerPromptInjected,
+                researchLedgerUpdate: ledgerState.researchLedgerUpdate,
                 toolsUsed,
                 repair,
                 artifact,
@@ -1160,11 +1260,6 @@ function createPennyRouteHandlers(deps = {}) {
               laneSelection,
               latencyBudget: runtimeMemoryContext.latencyBudget,
             });
-            recordMeasuredStage(performanceTracker, 'modelRoundTrip', modelRoundTripStartedAt, {
-              source: 'lmstudio-route',
-              transport: 'local-lmstudio',
-              note: 'LM Studio completed the turn.',
-            });
             mergePerformanceTracker(performanceTracker, result?.performance);
             if (clientClosed) return true;
             text = result.text;
@@ -1177,7 +1272,23 @@ function createPennyRouteHandlers(deps = {}) {
             localLane = result.localLane || 'chat';
             requestedModel = result.requestedModel || '';
             resolvedModel = result.resolvedModel || '';
+            executionPath = result.executionPath || (localLane === 'tool' ? 'deterministic-tool' : 'llm-chat');
             laneFallback = result.laneFallback === true;
+            modelUsed = result.modelUsed !== false;
+            if (modelUsed) {
+              recordMeasuredStage(performanceTracker, 'modelRoundTrip', modelRoundTripStartedAt, {
+                source: 'lmstudio-route',
+                transport: 'local-lmstudio',
+                note: 'LM Studio completed the turn.',
+              });
+            } else {
+              recordPerformanceStage(performanceTracker, 'modelRoundTrip', {
+                available: false,
+                source: executionPath,
+                note: 'Turn completed without invoking the model.',
+                transport: '',
+              });
+            }
           } catch (error) {
             if (clientClosed) return true;
             sendJson(res, 503, {
@@ -1227,6 +1338,8 @@ function createPennyRouteHandlers(deps = {}) {
             });
             if (clientClosed) return true;
             backend = 'openclaw-shadow';
+            executionPath = 'shadow';
+            modelUsed = true;
           } catch (error) {
             if (clientClosed) return true;
             sendJson(res, 503, {
@@ -1250,6 +1363,17 @@ function createPennyRouteHandlers(deps = {}) {
       text = retagAssistantReply(text, extractReplyMoodTag(text) || sessionState.lastMood);
       recordAssistantTurn(text);
       const archiveEligible = requestedMode === 'shadow' || localLane === 'chat';
+      const ledgerState = finalizeLedgerState({
+        runtimeMemoryContext,
+        sessionId,
+        requestedMode,
+        localLane,
+        userText,
+        assistantText: text,
+        toolRecords,
+        provenance: turnProvenance,
+        backend,
+      });
       const readiness = buildTurnReadiness({
         requestedMode,
         selectedLane: requestedMode === 'shadow' ? 'shadow' : localLane,
@@ -1257,6 +1381,7 @@ function createPennyRouteHandlers(deps = {}) {
         semanticMemoryReady,
         semanticMemoryMode,
         usedFallback,
+        modelUsed,
       });
       const performance = finalizePerformanceTracker(performanceTracker);
       const artifact = buildRouteArtifact({
@@ -1265,6 +1390,7 @@ function createPennyRouteHandlers(deps = {}) {
         requestedMode,
         reason: requestedMode === 'shadow' ? 'shadow-mode-requested' : String(laneSelection.reason || ''),
         backend,
+        executionPath,
         usedFallback,
         laneFallback,
         requestedModel,
@@ -1275,13 +1401,15 @@ function createPennyRouteHandlers(deps = {}) {
         toolRecords,
         retrieval: runtimeMemoryContext.retrieval,
         archiveContext: runtimeMemoryContext.archiveContext,
-        researchLedgerContext: runtimeMemoryContext.researchLedger,
+        researchLedgerContext: ledgerState.researchLedgerContext,
         matchedBooks,
         repair,
         epistemics,
         synthesis,
         performance,
         readiness,
+        researchLedgerPromptInjected,
+        researchLedgerUpdate: ledgerState.researchLedgerUpdate,
         shadowEnabled: OPENCLAW_ENABLED === true,
         shadowError,
         mood: sessionState.lastMood,
@@ -1295,6 +1423,7 @@ function createPennyRouteHandlers(deps = {}) {
         requestedMode,
         reason: requestedMode === 'shadow' ? 'shadow-mode-requested' : String(laneSelection.reason || ''),
         backend,
+        executionPath,
         usedFallback,
         laneFallback,
         requestedModel,
@@ -1315,6 +1444,8 @@ function createPennyRouteHandlers(deps = {}) {
         synthesis,
         performance,
         readiness,
+        researchLedgerPromptInjected,
+        researchLedgerUpdate: ledgerState.researchLedgerUpdate,
       });
       archiveIfEligible({
         sessionId,
@@ -1325,16 +1456,6 @@ function createPennyRouteHandlers(deps = {}) {
         retrieval: runtimeMemoryContext.retrieval,
         provenance: turnProvenance,
         reviewCandidates: turnReviewCandidates,
-      });
-      ledgerIfEligible({
-        sessionId,
-        requestedMode,
-        localLane,
-        userText,
-        assistantText: text,
-        toolRecords,
-        provenance: turnProvenance,
-        backend,
       });
       sendJson(res, 200, {
         text,
@@ -1348,9 +1469,12 @@ function createPennyRouteHandlers(deps = {}) {
           localLane,
           requestedModel,
           resolvedModel,
+          executionPath,
           laneFallback,
           semanticMemoryReady,
           semanticMemoryMode,
+          researchLedgerPromptInjected,
+          researchLedgerUpdate: ledgerState.researchLedgerUpdate,
           toolsUsed,
           repair,
           artifact,

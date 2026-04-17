@@ -502,3 +502,177 @@ test('buildBrainModeNote keeps local, shadow, and fallback explanations stable',
     meta: { requestedMode: 'shadow', usedFallback: true, shadowError: 'boom' },
   }), /Shadow failed/i);
 });
+
+test('renderMemoryInspector surfaces execution path and ledger prompt/update truth fields', async () => {
+  const { renderMemoryInspector } = await helpersPromise;
+  const els = {
+    memoryInspectorPanel: {
+      className: '',
+      textContent: '',
+      innerHTML: '',
+    },
+  };
+
+  renderMemoryInspector({
+    els,
+    inspector: {
+      explicit: { count: 0 },
+      archive: {
+        session: {
+          episodeCount: 0,
+          chapterCount: 0,
+          recencyProtection: { enabled: false, protectedEpisodeCount: 0, protectedEpisodeIds: [] },
+          lastRetrieval: {
+            session: [],
+            global: [],
+            compression: { used: false, chapters: [] },
+          },
+          activeContradictions: [],
+        },
+        global: {
+          patternCount: 0,
+          promotionQueue: [],
+        },
+      },
+      memoryBooks: {
+        enabledCount: 0,
+        matchedBooks: [],
+      },
+      embeddings: {
+        semanticMemory: {
+          ready: true,
+          configuredModel: 'text-embedding-nomic-embed-text-v1.5',
+        },
+      },
+      ledger: {
+        topicCount: 1,
+        openCount: 1,
+        provisionalCount: 0,
+        settledCount: 0,
+        context: {
+          topics: [
+            {
+              topicId: 'path-package-json',
+              topicLabel: 'package.json',
+              status: 'open',
+              summary: 'open follow-up - verify whether the Vitest migration is still pending.',
+            },
+          ],
+        },
+      },
+      routing: {
+        selectedLane: 'tool',
+        requestedMode: 'local',
+        backend: 'local-lmstudio-tools',
+      },
+      runtime: {
+        readiness: {
+          chatModelReady: true,
+          toolModelReady: true,
+          embeddingReady: true,
+          fallbackActive: false,
+          modelUsage: 'not-used',
+          warmState: 'warm',
+          checkedAt: '2026-04-16T12:00:00.000Z',
+          cacheAgeMs: 0,
+          cacheExpiresAt: '',
+          cacheHit: false,
+        },
+        performance: {
+          latencyClass: 'tool-heavy',
+          request: { available: true, durationMs: 10 },
+          promptAssembly: { available: true, durationMs: 10 },
+          archiveRetrieval: { available: true, durationMs: 10, sessionItems: 0, globalItems: 0, semanticReady: true, reasonCode: '' },
+          semanticRender: { available: false, attempted: false, used: false },
+          modelResolution: { available: true },
+          semanticProbe: { available: true },
+          firstToken: { available: false },
+          modelRoundTrip: { available: false, durationMs: 0, transport: '' },
+        },
+      },
+      artifact: {
+        version: 'penny-runtime-artifact.v1',
+        kind: 'tool-turn',
+        executionPath: 'deterministic-tool',
+        researchLedgerPromptInjected: false,
+        researchLedgerUpdate: {
+          status: 'applied',
+          reason: 'updated',
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+        },
+        scope: { sessionId: 'demo', route: '/api/penny/chat', requestedMode: 'local', selectedLane: 'tool' },
+        authority: { reply: 'verified-tool-evidence', memory: 'explicit-canonical', archive: 'advisory', toolClaims: 'verified-required' },
+        summary: { label: 'tool-turn', text: 'Tool lane reply with verified evidence.', backend: 'local-lmstudio-tools' },
+        context: { backend: 'local-lmstudio-tools', requestedModel: 'google/gemma-4-e4b', resolvedModel: '', executionPath: 'deterministic-tool', semanticMemoryReady: true, semanticMemoryMode: 'semantic', usedFallback: false, laneFallback: false, shadowEnabled: false },
+        evidence: [{ type: 'tool', source: 'verified-tool', label: 'read_project_file', text: 'README.md', target: 'README.md' }],
+        artifacts: [],
+        trace: {
+          laneChoice: {
+            requestedMode: 'local',
+            selectedLane: 'tool',
+            backend: 'local-lmstudio-tools',
+            route: '/api/penny/chat',
+            requestedModel: 'google/gemma-4-e4b',
+            resolvedModel: '',
+            executionPath: 'deterministic-tool',
+            usedFallback: false,
+            laneFallback: false,
+            researchLedgerPromptInjected: false,
+            researchLedgerUpdateStatus: 'applied',
+          },
+          wakeHierarchy: [],
+          retrievalChannels: [],
+          contradictions: [],
+          openQuestions: [],
+          ongoingInvestigations: [],
+          evidenceAccepted: [],
+          evidenceRejected: [],
+          qaValidity: { active: false, verdict: 'n/a', reasons: [] },
+        },
+        provenance: {
+          retrieval: [],
+          contradictions: [],
+          openQuestions: [],
+          ongoingInvestigations: [],
+          acceptedEvidence: [],
+          rejectedEvidence: [],
+        },
+        sideEffects: [{ type: 'research-ledger-update', target: 'package.json', status: 'applied' }],
+        reasonCodes: ['direct-inspect'],
+        epistemics: { enabled: false, triggered: false, scope: 'tool', stance: 'answer', signals: [], note: '' },
+        synthesis: { enabled: false, generated: false, kind: '', scope: '', summary: '', evidenceSources: [] },
+        modelAdvisory: { mood: '', repair: null, shadowError: '', toolsUsed: [] },
+        performance: {
+          latencyClass: 'tool-heavy',
+          request: { available: true, durationMs: 10 },
+          promptAssembly: { available: true, durationMs: 10 },
+          archiveRetrieval: { available: true, durationMs: 10, sessionItems: 0, globalItems: 0, semanticReady: true, reasonCode: '' },
+          semanticRender: { available: false, attempted: false, used: false },
+          modelResolution: { available: true },
+          semanticProbe: { available: true },
+          firstToken: { available: false },
+          modelRoundTrip: { available: false, durationMs: 0, transport: '' },
+        },
+        readiness: {
+          chatModelReady: true,
+          toolModelReady: true,
+          embeddingReady: true,
+          fallbackActive: false,
+          modelUsage: 'not-used',
+          warmState: 'warm',
+          checkedAt: '2026-04-16T12:00:00.000Z',
+          cacheAgeMs: 0,
+          cacheExpiresAt: '',
+          cacheHit: false,
+        },
+        timestamps: { usedAt: '2026-04-16T12:00:00.000Z', archivedAt: '', persistedAt: '2026-04-16T12:00:00.000Z' },
+      },
+    },
+  });
+
+  assert.match(els.memoryInspectorPanel.innerHTML, /Execution <strong>deterministic-tool/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Model not used/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>held back/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Ledger update <strong>applied/i);
+});

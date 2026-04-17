@@ -97,3 +97,69 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.provenance.acceptedEvidence.length > 0, true);
   assert.equal(artifact.trace.evidenceAccepted.length > 0, true);
 });
+
+test('buildRuntimeArtifact preserves deterministic-tool truth without faking model receipts', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'demo',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'deterministic-tool',
+    requestedModel: 'google/gemma-4-e4b',
+    resolvedModel: '',
+    researchLedgerPromptInjected: false,
+    researchLedgerUpdate: {
+      status: 'applied',
+      reason: 'updated',
+      topicId: 'path-package-json',
+      topicLabel: 'package.json',
+    },
+    researchLedgerContext: {
+      topics: [
+        {
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+          status: 'open',
+          summary: 'open follow-up - verify whether the Vitest migration is still pending.',
+          evidenceRefs: [{ type: 'project-path', ref: 'package.json', label: 'read package.json' }],
+          sourceSessionIds: ['ledger-demo'],
+          sourceTurnIds: ['ledger-demo:1'],
+        },
+      ],
+    },
+    readiness: {
+      chatModelReady: true,
+      toolModelReady: true,
+      embeddingReady: true,
+      fallbackActive: false,
+      modelUsage: 'not-used',
+      warmState: 'warm',
+      checkedAt: '2026-04-16T12:00:00.000Z',
+      cacheAgeMs: 0,
+      cacheExpiresAt: '',
+      cacheHit: false,
+    },
+    performance: {
+      latencyClass: 'tool-heavy',
+      request: { available: true },
+      promptAssembly: { available: true },
+      archiveRetrieval: { available: true },
+      semanticRender: { available: false, attempted: false, used: false },
+      modelResolution: { available: true },
+      semanticProbe: { available: true },
+      firstToken: { available: false },
+      modelRoundTrip: { available: false, durationMs: 0, transport: '' },
+    },
+  });
+
+  assert.equal(artifact.executionPath, 'deterministic-tool');
+  assert.equal(artifact.readiness.modelUsage, 'not-used');
+  assert.equal(artifact.context.resolvedModel, '');
+  assert.equal(artifact.researchLedgerPromptInjected, false);
+  assert.equal(artifact.researchLedgerUpdate.status, 'applied');
+  assert.equal(artifact.trace.laneChoice.executionPath, 'deterministic-tool');
+  assert.equal(artifact.trace.laneChoice.researchLedgerPromptInjected, false);
+  assert.equal(artifact.trace.laneChoice.researchLedgerUpdateStatus, 'applied');
+  assert.equal(artifact.provenance.retrieval[0].injected, false);
+  assert.equal(artifact.provenance.retrieval[0].sourceLabel, 'package.json');
+});

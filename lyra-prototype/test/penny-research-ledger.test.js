@@ -84,6 +84,108 @@ test('research ledger stores verified repo investigations and exposes bounded pr
   }
 });
 
+test('research ledger prompt context narrows generic open-topic injection to the top topic', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    api.writeLedgerStore({
+      meta: { schemaVersion: 1, updatedAt: '2026-04-16T12:00:00.000Z' },
+      topics: {
+        'path-package-json': {
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+          question: 'What should we verify next in package.json?',
+          status: 'open',
+          conclusion: 'package.json still uses node --test test/*.test.js.',
+          evidenceRefs: [
+            { type: 'project-path', ref: 'package.json', label: 'read package.json', status: 'verified' },
+          ],
+          openFollowUps: ['verify whether the Vitest migration is still pending'],
+          contradictions: [],
+          lastTouchedAt: '2026-04-16T12:05:00.000Z',
+          sourceSessionIds: ['qa-ledger'],
+          sourceTurnIds: ['qa-ledger:1'],
+        },
+        'path-readme-md': {
+          topicId: 'path-readme-md',
+          topicLabel: 'README.md',
+          question: 'Does README.md actually prove Penny is cloud-hosted and multi-user?',
+          status: 'open',
+          conclusion: 'README.md does not prove the cloud-hosted claim yet.',
+          evidenceRefs: [
+            { type: 'project-path', ref: 'README.md', label: 'read README.md', status: 'verified' },
+          ],
+          openFollowUps: ['verify whether README.md actually proves the cloud-hosted claim'],
+          contradictions: [],
+          lastTouchedAt: '2026-04-16T12:04:00.000Z',
+          sourceSessionIds: ['qa-ledger'],
+          sourceTurnIds: ['qa-ledger:2'],
+        },
+      },
+    });
+
+    const promptContext = api.getPromptContext({
+      sessionId: 'qa-ledger',
+      userText: 'What should we verify next?',
+    });
+
+    assert.equal(promptContext.topics.length, 1);
+    assert.equal(promptContext.topics[0].topicLabel, 'package.json');
+  } finally {
+    cleanup();
+  }
+});
+
+test('research ledger prompt context prefers direct topic anchors over adjacent same-session topics', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    api.writeLedgerStore({
+      meta: { schemaVersion: 1, updatedAt: '2026-04-16T12:00:00.000Z' },
+      topics: {
+        'path-package-json': {
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+          question: 'What should we verify next in package.json?',
+          status: 'open',
+          conclusion: 'package.json still uses node --test test/*.test.js.',
+          evidenceRefs: [
+            { type: 'project-path', ref: 'package.json', label: 'read package.json', status: 'verified' },
+          ],
+          openFollowUps: ['verify whether the Vitest migration is still pending'],
+          contradictions: [],
+          lastTouchedAt: '2026-04-16T12:05:00.000Z',
+          sourceSessionIds: ['qa-ledger'],
+          sourceTurnIds: ['qa-ledger:1'],
+        },
+        'path-readme-md': {
+          topicId: 'path-readme-md',
+          topicLabel: 'README.md',
+          question: 'Does README.md actually prove Penny is cloud-hosted and multi-user?',
+          status: 'open',
+          conclusion: 'README.md does not prove the cloud-hosted claim yet.',
+          evidenceRefs: [
+            { type: 'project-path', ref: 'README.md', label: 'read README.md', status: 'verified' },
+          ],
+          openFollowUps: ['verify whether README.md actually proves the cloud-hosted claim'],
+          contradictions: [],
+          lastTouchedAt: '2026-04-16T12:04:00.000Z',
+          sourceSessionIds: ['qa-ledger'],
+          sourceTurnIds: ['qa-ledger:2'],
+        },
+      },
+    });
+
+    const promptContext = api.getPromptContext({
+      sessionId: 'qa-ledger',
+      userText: 'What does README still need to prove?',
+    });
+
+    assert.equal(promptContext.topics.length, 1);
+    assert.equal(promptContext.topics[0].topicLabel, 'README.md');
+  } finally {
+    cleanup();
+  }
+});
+
 test('research ledger tracks contradiction-driven updates and session purge clears session topics', () => {
   const { api, cleanup } = buildApi();
   try {
@@ -116,6 +218,32 @@ test('research ledger tracks contradiction-driven updates and session purge clea
     });
     assert.equal(purge.clearedSessionTopics, 1);
     assert.equal(api.getResearchLedgerInspector({ sessionId: 'memory-demo' }).topicCount, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test('research ledger ignores ordinary personal-fact turns that are not research continuity', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    const workResult = api.updateResearchLedgerFromTurn({
+      sessionId: 'demo',
+      userText: 'I work at KDOL.',
+      assistantText: 'Noted.',
+      selectedLane: 'chat',
+      backend: 'local-lmstudio',
+    });
+    const locationResult = api.updateResearchLedgerFromTurn({
+      sessionId: 'demo',
+      userText: 'I live in Oakland.',
+      assistantText: 'Noted.',
+      selectedLane: 'chat',
+      backend: 'local-lmstudio',
+    });
+
+    assert.equal(workResult.updated, false);
+    assert.equal(locationResult.updated, false);
+    assert.equal(Object.keys(api.readLedgerStore().topics).length, 0);
   } finally {
     cleanup();
   }

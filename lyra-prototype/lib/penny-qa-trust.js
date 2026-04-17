@@ -125,12 +125,39 @@ function validateRuntimeArtifact(
   if (!['warm', 'cold', 'degraded'].includes(String(artifact.readiness?.warmState || '').trim())) {
     throw new Error(`Artifact ${label} has invalid readiness warmState.`);
   }
+  if (!['used', 'not-used'].includes(String(artifact.readiness?.modelUsage || '').trim())) {
+    throw new Error(`Artifact ${label} has invalid readiness modelUsage.`);
+  }
   if (requirePerformanceStages) {
     for (const stage of RUNTIME_ARTIFACT_PERFORMANCE_STAGES) {
       if (!artifact.performance[stage] || typeof artifact.performance[stage] !== 'object') {
         throw new Error(`Artifact ${label} is missing performance stage ${stage}.`);
       }
     }
+  }
+  const executionPath = String(artifact.executionPath || artifact.trace?.laneChoice?.executionPath || '').trim();
+  const resolvedModel = String(artifact.context?.resolvedModel || artifact.trace?.laneChoice?.resolvedModel || '').trim();
+  const modelRoundTrip = artifact.performance?.modelRoundTrip && typeof artifact.performance.modelRoundTrip === 'object'
+    ? artifact.performance.modelRoundTrip
+    : {};
+  const claimsModelRoundTrip = modelRoundTrip.available === true
+    || !!String(modelRoundTrip.startedAt || '').trim()
+    || !!String(modelRoundTrip.finishedAt || '').trim()
+    || Number(modelRoundTrip.durationMs || 0) > 0
+    || !!String(modelRoundTrip.transport || '').trim();
+  if (executionPath === 'deterministic-tool') {
+    if (artifact.readiness?.modelUsage !== 'not-used') {
+      throw new Error(`Artifact ${label} claims model usage on a deterministic turn.`);
+    }
+    if (resolvedModel) {
+      throw new Error(`Artifact ${label} reports a resolvedModel on a deterministic turn.`);
+    }
+    if (claimsModelRoundTrip) {
+      throw new Error(`Artifact ${label} reports a modelRoundTrip on a deterministic turn.`);
+    }
+  }
+  if (['llm-chat', 'llm-tool-loop', 'shadow'].includes(executionPath) && artifact.readiness?.modelUsage !== 'used') {
+    throw new Error(`Artifact ${label} reports missing model usage on an LLM-backed turn.`);
   }
   return artifact;
 }

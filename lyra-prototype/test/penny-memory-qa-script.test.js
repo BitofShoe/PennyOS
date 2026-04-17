@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   buildMemoryQaTrace,
   parseMemoryQaArgs,
+  summarizeSuites,
   MEMORY_QA_SEGMENT_IDS,
   MEMORY_QA_SEGMENT_ORDER,
 } = require('../scripts/qa-penny-memory');
@@ -25,6 +26,17 @@ test('parseMemoryQaArgs accepts known segment ids and smoke mode', () => {
   const smoke = parseMemoryQaArgs(['--smoke']);
   assert.equal(smoke.runMode, 'smoke');
   assert.equal(smoke.runLabel, 'smoke');
+});
+
+test('parseMemoryQaArgs supports judged mode and keeps it isolated from combined mode', () => {
+  const judged = parseMemoryQaArgs(['--judged']);
+  assert.equal(judged.runMode, 'judged');
+  assert.equal(judged.runLabel, 'judged');
+  assert.equal(judged.judgedMode, true);
+  assert.equal(judged.combinedMode, false);
+
+  assert.throws(() => parseMemoryQaArgs(['--judged', '--smoke']), /cannot combine --judged with --smoke/i);
+  assert.throws(() => parseMemoryQaArgs(['--judged', '--segment', MEMORY_QA_SEGMENT_IDS.SEMANTIC_ARCHIVE]), /cannot combine --judged with --segment/i);
 });
 
 test('parseMemoryQaArgs rejects invalid segment combinations', () => {
@@ -97,4 +109,62 @@ test('buildMemoryQaTrace emits a fallback trust verdict when lane fallback pollu
 
   assert.equal(trace.trust.verdict, 'fallback');
   assert.match(trace.trust.reasonCodes.join(','), /lane_fallback/);
+});
+
+test('summarizeSuites and buildMemoryQaTrace retain judged group totals', () => {
+  const suites = [
+    {
+      name: 'judged',
+      segmentId: 'judged',
+      runLabel: 'judged',
+      serverStatus: {
+        resolvedChatModel: 'q6',
+        toolPreferredModel: 'e4b',
+        embedPreferredModel: 'nomic',
+        availableModels: ['q6', 'e4b'],
+        maxOutputTokens: 320,
+      },
+      environment: {
+        valid: true,
+        reasons: [],
+      },
+      scenarios: [
+        { name: 'write', group: 'write', ok: true, seconds: 1.25, meta: { artifact: { performance: { archiveRetrieval: { sessionItems: 1, globalItems: 0 } }, readiness: { warmState: 'warm' } } } },
+        { name: 'retrieve', group: 'retrieve', ok: true, seconds: 2.5, meta: { artifact: { performance: { archiveRetrieval: { sessionItems: 2, globalItems: 1 } }, readiness: { warmState: 'warm' } } } },
+        { name: 'forget', group: 'forget', ok: false, seconds: 0.75, meta: { artifact: { performance: { archiveRetrieval: { sessionItems: 0, globalItems: 0 } }, readiness: { warmState: 'warm' } } } },
+      ],
+    },
+  ];
+
+  const summary = summarizeSuites(suites);
+  assert.equal(summary.completed, 2);
+  assert.equal(summary.failed, 1);
+  assert.equal(summary.groups.write.total, 1);
+  assert.equal(summary.groups.retrieve.completed, 1);
+  assert.equal(summary.groups.forget.failed, 1);
+
+  const trace = buildMemoryQaTrace({
+    startedAt: '2026-04-16T12:00:00.000Z',
+    finishedAt: '2026-04-16T12:10:00.000Z',
+    runMode: 'judged',
+    runLabel: 'judged',
+    suites,
+    summary,
+    preparation: {
+      loadedModels: ['q6', 'e4b'],
+    },
+    qaModelPolicy: {
+      chat: 'q6',
+      tool: 'e4b',
+      embed: 'nomic',
+    },
+  });
+
+  assert.equal(trace.promptVersion, 'qa-penny-memory.judged.v1');
+  assert.equal(trace.contextLength.judgedMode, true);
+  assert.equal(trace.validation.judgedGroupCount, 3);
+  assert.equal(trace.memoryWrites.judgedWriteScenarios, 1);
+  assert.equal(trace.memoryReads.judgedRetrieveScenarios, 1);
+  assert.equal(trace.outcome.judgedFailedScenarios, 1);
+  assert.equal(trace.outcome.judgedGroupNames, 'write, retrieve, forget');
 });

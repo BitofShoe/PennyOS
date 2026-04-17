@@ -646,7 +646,7 @@ async function main() {
   const preparation = await automationApi.prepareLmStudio({
     reportOnly: false,
     repairPreset: true,
-    loadChatModel: QA_LOAD_CHAT_MODEL,
+    loadChatModel: false,
     chatModel: CHAT_MODEL,
     toolModel: TOOL_MODEL,
   });

@@ -13,6 +13,22 @@ function createProjectToolsApi({
   TOOL_COMMAND_TIMEOUT_MS,
   execFileText,
 } = {}) {
+  const DEFAULT_IGNORED_NAMES = new Set([
+    '.git',
+    'node_modules',
+    'output',
+    'tmp',
+    'logs',
+    '.qa-pw',
+    '.playwright-cli',
+    '.cache',
+    '.next',
+    'dist',
+    'coverage',
+  ]);
+  const DEFAULT_LIST_MAX_DEPTH = 4;
+  const DEFAULT_SEARCH_MAX_DEPTH = 5;
+
   if (!projectRoot) throw new TypeError('createProjectToolsApi requires projectRoot');
   if (!fs || typeof fs.readFileSync !== 'function') throw new TypeError('createProjectToolsApi requires fs');
   if (!path || typeof path.resolve !== 'function') throw new TypeError('createProjectToolsApi requires path');
@@ -41,6 +57,13 @@ function createProjectToolsApi({
     return TEXT_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
   }
 
+  function shouldIgnoreProjectEntry(fullPath, name = '', startPath = projectRoot) {
+    const cleanName = String(name || '').trim();
+    if (!cleanName) return false;
+    if (path.resolve(fullPath) === path.resolve(startPath)) return false;
+    return DEFAULT_IGNORED_NAMES.has(cleanName);
+  }
+
   function readUtf8ProjectFile(filePath) {
     try {
       return fs.readFileSync(filePath, 'utf8');
@@ -52,6 +75,9 @@ function createProjectToolsApi({
   function listProjectFilesTool(args = {}) {
     const startPath = resolveProjectPath(args.path || '.');
     const recursive = args.recursive === true;
+    const maxDepth = recursive
+      ? clampNumber(args.maxDepth, 0, 8, DEFAULT_LIST_MAX_DEPTH)
+      : 0;
     const limit = clampNumber(args.limit, 1, TOOL_FILE_LIST_MAX_ITEMS, Math.min(24, TOOL_FILE_LIST_MAX_ITEMS));
     const needle = String(args.pattern || '').trim().toLowerCase();
     const items = [];
@@ -61,12 +87,12 @@ function createProjectToolsApi({
       const entries = fs.readdirSync(dir, { withFileTypes: true })
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
       for (const entry of entries) {
-        if (entry.name === '.git' || entry.name === 'node_modules') continue;
         const fullPath = path.join(dir, entry.name);
+        if (shouldIgnoreProjectEntry(fullPath, entry.name, startPath)) continue;
         const rel = toProjectRelative(fullPath);
         const label = entry.isDirectory() ? `${rel}/` : rel;
         if (!needle || label.toLowerCase().includes(needle)) items.push(label);
-        if (entry.isDirectory() && recursive && depth < 6 && items.length < limit) {
+        if (entry.isDirectory() && recursive && depth < maxDepth && items.length < limit) {
           queue.push({ dir: fullPath, depth: depth + 1 });
         }
         if (items.length >= limit) break;
@@ -75,8 +101,10 @@ function createProjectToolsApi({
     return {
       root: toProjectRelative(startPath),
       recursive,
+      maxDepth,
       pattern: needle || null,
       limit,
+      ignoredDefaults: [...DEFAULT_IGNORED_NAMES],
       items,
       truncated: items.length >= limit,
     };
@@ -140,18 +168,25 @@ function createProjectToolsApi({
     const query = String(args.query || '').trim();
     if (!query) throw new Error('search_project_text needs a query.');
     const startPath = resolveProjectPath(args.path || '.');
+    const maxDepth = clampNumber(args.maxDepth, 0, 8, DEFAULT_SEARCH_MAX_DEPTH);
     const limit = clampNumber(args.limit, 1, TOOL_SEARCH_MAX_HITS, Math.min(12, TOOL_SEARCH_MAX_HITS));
-    const queue = [startPath];
+    const queue = [{ target: startPath, depth: 0 }];
     const hits = [];
     while (queue.length && hits.length < limit) {
-      const current = queue.shift();
+      const { target: current, depth } = queue.shift();
       const stat = fs.statSync(current);
       if (stat.isDirectory()) {
         const entries = fs.readdirSync(current, { withFileTypes: true })
           .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
         for (const entry of entries) {
-          if (entry.name === '.git' || entry.name === 'node_modules') continue;
-          queue.push(path.join(current, entry.name));
+          const nextPath = path.join(current, entry.name);
+          if (shouldIgnoreProjectEntry(nextPath, entry.name, startPath)) continue;
+          if (entry.isDirectory()) {
+            if (depth >= maxDepth) continue;
+            queue.push({ target: nextPath, depth: depth + 1 });
+          } else {
+            queue.push({ target: nextPath, depth });
+          }
         }
         continue;
       }
@@ -169,7 +204,9 @@ function createProjectToolsApi({
     return {
       query,
       root: toProjectRelative(startPath),
+      maxDepth,
       limit,
+      ignoredDefaults: [...DEFAULT_IGNORED_NAMES],
       hits,
       truncated: hits.length >= limit,
     };

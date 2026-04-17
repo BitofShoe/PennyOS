@@ -83,6 +83,30 @@ function normalizeLatencyClass(value = '') {
   return LATENCY_CLASSES.CASUAL_COMPANION;
 }
 
+function normalizeExecutionPath(value = '', fallback = 'llm-chat') {
+  const text = String(value || fallback || '').trim();
+  if (['deterministic-tool', 'llm-chat', 'llm-tool-loop', 'shadow'].includes(text)) return text;
+  return fallback || 'llm-chat';
+}
+
+function normalizeModelUsage(value = '', fallback = 'used') {
+  const text = String(value || fallback || '').trim();
+  return text === 'not-used' ? 'not-used' : 'used';
+}
+
+function normalizeResearchLedgerUpdate(raw = {}, defaults = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const requestedStatus = String(value.status || fallback.status || '').trim();
+  const status = ['skipped', 'applied', 'failed'].includes(requestedStatus) ? requestedStatus : 'skipped';
+  return {
+    status,
+    reason: trimText(value.reason || fallback.reason || '', 180),
+    topicId: trimText(value.topicId || value?.topic?.topicId || fallback.topicId || fallback?.topic?.topicId || '', 140),
+    topicLabel: trimText(value.topicLabel || value?.topic?.topicLabel || fallback.topicLabel || fallback?.topic?.topicLabel || '', 180),
+  };
+}
+
 function normalizePerformance(value = {}, defaults = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
@@ -137,6 +161,7 @@ function normalizeReadiness(value = {}, defaults = {}) {
     toolModelReady: raw.toolModelReady === true || fallback.toolModelReady === true,
     embeddingReady: raw.embeddingReady === true || fallback.embeddingReady === true,
     fallbackActive,
+    modelUsage: normalizeModelUsage(raw.modelUsage, fallback.modelUsage),
     warmState,
     checkedAt,
     cacheAgeMs: normalizeNonNegativeNumber(raw.cacheAgeMs, fallback.cacheAgeMs || 0),
@@ -170,6 +195,7 @@ function buildRuntimeReadiness({ lmStudio = {}, semanticMemory = {} } = {}) {
     toolModelReady,
     embeddingReady,
     fallbackActive,
+    modelUsage: 'used',
     warmState: fallbackActive ? 'degraded' : (cacheHit ? 'warm' : 'cold'),
     checkedAt,
     cacheAgeMs,
@@ -404,8 +430,11 @@ function normalizeTraceState(raw = {}, defaults = {}) {
       route: String(laneChoiceRaw.route || '').trim() || '/api/penny/chat',
       requestedModel: String(laneChoiceRaw.requestedModel || '').trim(),
       resolvedModel: String(laneChoiceRaw.resolvedModel || '').trim(),
+      executionPath: normalizeExecutionPath(laneChoiceRaw.executionPath, 'llm-chat'),
       usedFallback: laneChoiceRaw.usedFallback === true,
       laneFallback: laneChoiceRaw.laneFallback === true,
+      researchLedgerPromptInjected: laneChoiceRaw.researchLedgerPromptInjected === true,
+      researchLedgerUpdateStatus: String(laneChoiceRaw.researchLedgerUpdateStatus || '').trim() || 'skipped',
     },
     wakeHierarchy: (Array.isArray(value.wakeHierarchy) ? value.wakeHierarchy : fallback.wakeHierarchy || [])
       .map(normalizeTraceStateEntry)
@@ -471,7 +500,12 @@ function sourceLabelForRetrievalItem(item = {}) {
   return 'archive';
 }
 
-function buildRetrievalTraceState(retrieval = null, matchedBooks = [], researchLedgerContext = null) {
+function buildRetrievalTraceState(
+  retrieval = null,
+  matchedBooks = [],
+  researchLedgerContext = null,
+  researchLedgerPromptInjected = true,
+) {
   const entries = [];
   const contradictionState = Array.isArray(retrieval?.provenance) && retrieval.provenance.length
     ? 'tracked'
@@ -551,7 +585,7 @@ function buildRetrievalTraceState(retrieval = null, matchedBooks = [], researchL
       score: item?.status === 'open' ? 1 : item?.status === 'provisional' ? 0.75 : 0.5,
       reason: 'research-continuity-ledger',
       contradictionState: Array.isArray(item?.contradictions) && item.contradictions.length ? 'tracked' : 'none',
-      injected: true,
+      injected: researchLedgerPromptInjected === true,
       sourceType: 'research-ledger',
       scope: 'research-ledger',
       createdAt: item?.lastTouchedAt || '',
@@ -674,8 +708,11 @@ function buildRuntimeTraceState({
   routePath = '/api/penny/chat',
   requestedModel = '',
   resolvedModel = '',
+  executionPath = '',
   usedFallback = false,
   laneFallback = false,
+  researchLedgerPromptInjected = false,
+  researchLedgerUpdate = null,
   retrievalTrace = [],
   toolState = null,
   retrieval = null,
@@ -737,8 +774,11 @@ function buildRuntimeTraceState({
       route: routePath,
       requestedModel,
       resolvedModel,
+      executionPath: normalizeExecutionPath(executionPath, requestedMode === 'shadow' ? 'shadow' : (selectedLane === 'tool' ? 'deterministic-tool' : 'llm-chat')),
       usedFallback,
       laneFallback,
+      researchLedgerPromptInjected: researchLedgerPromptInjected === true,
+      researchLedgerUpdateStatus: normalizeResearchLedgerUpdate(researchLedgerUpdate).status,
     },
     wakeHierarchy: [
       {
@@ -827,6 +867,7 @@ function buildRuntimeArtifact({
   selectedLane = 'chat',
   reason = '',
   backend = '',
+  executionPath = '',
   usedFallback = false,
   laneFallback = false,
   requestedModel = '',
@@ -850,14 +891,28 @@ function buildRuntimeArtifact({
   synthesis = null,
   performance = null,
   readiness = null,
+  researchLedgerPromptInjected = false,
+  researchLedgerUpdate = null,
 } = {}) {
   const safeUsedAt = trimIso(usedAt, new Date().toISOString());
+  const normalizedExecutionPath = normalizeExecutionPath(
+    executionPath,
+    requestedMode === 'shadow'
+      ? 'shadow'
+      : (selectedLane === 'tool' ? 'deterministic-tool' : 'llm-chat'),
+  );
+  const normalizedLedgerUpdate = normalizeResearchLedgerUpdate(researchLedgerUpdate);
   const normalizedRepair = normalizeRepairInfo(repair);
   const normalizedEpistemics = normalizeEpistemicCaution(epistemics);
   const normalizedSynthesis = normalizeArchiveSynthesis(synthesis);
   const toolState = buildToolArtifactState(toolRecords, toolsUsed);
   const retrievalState = buildRetrievalArtifactState(retrieval, matchedBooks);
-  const retrievalTrace = buildRetrievalTraceState(retrieval, matchedBooks, researchLedgerContext);
+  const retrievalTrace = buildRetrievalTraceState(
+    retrieval,
+    matchedBooks,
+    researchLedgerContext,
+    researchLedgerPromptInjected === true,
+  );
   const reasonCodes = uniqueStrings([
     reason,
     retrieval?.reasonCode,
@@ -888,6 +943,13 @@ function buildRuntimeArtifact({
   const sideEffects = [
     { type: 'memory-persist', target: 'lastRoute', status: 'verified' },
     ...(archiveEligible ? [{ type: 'archive-schedule', target: 'archive-session', status: 'queued' }] : []),
+    ...(normalizedLedgerUpdate.status !== 'skipped'
+      ? [{
+          type: 'research-ledger-update',
+          target: normalizedLedgerUpdate.topicLabel || normalizedLedgerUpdate.topicId || 'research-ledger',
+          status: normalizedLedgerUpdate.status,
+        }]
+      : []),
     ...(normalizedRepair?.repairAttempted
       ? [{
           type: 'reply-repair',
@@ -908,8 +970,11 @@ function buildRuntimeArtifact({
     routePath,
     requestedModel,
     resolvedModel,
+    executionPath: normalizedExecutionPath,
     usedFallback,
     laneFallback,
+    researchLedgerPromptInjected,
+    researchLedgerUpdate: normalizedLedgerUpdate,
     retrievalTrace,
     toolState,
     retrieval,
@@ -924,6 +989,9 @@ function buildRuntimeArtifact({
   return normalizeRuntimeArtifact({
     version: RUNTIME_ARTIFACT_VERSION,
     kind,
+    executionPath: normalizedExecutionPath,
+    researchLedgerPromptInjected: researchLedgerPromptInjected === true,
+    researchLedgerUpdate: normalizedLedgerUpdate,
     scope: {
       sessionId,
       route: routePath,
@@ -949,6 +1017,7 @@ function buildRuntimeArtifact({
       backend,
       requestedModel,
       resolvedModel,
+      executionPath: normalizedExecutionPath,
       semanticMemoryReady,
       semanticMemoryMode,
       usedFallback,
@@ -999,11 +1068,20 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   const readiness = normalizeReadiness(raw.readiness, fallback.readiness);
   const version = String(raw.version || fallback.version || RUNTIME_ARTIFACT_VERSION).trim() || RUNTIME_ARTIFACT_VERSION;
   const kind = String(raw.kind || fallback.kind || 'chat-turn').trim() || 'chat-turn';
+  const executionPath = normalizeExecutionPath(
+    raw.executionPath || fallback.executionPath,
+    kind === 'shadow-turn' ? 'shadow' : (kind === 'tool-turn' ? 'deterministic-tool' : 'llm-chat'),
+  );
+  const researchLedgerPromptInjected = raw.researchLedgerPromptInjected === true || fallback.researchLedgerPromptInjected === true;
+  const researchLedgerUpdate = normalizeResearchLedgerUpdate(raw.researchLedgerUpdate, fallback.researchLedgerUpdate);
   const epistemics = normalizeEpistemicCaution(raw.epistemics || fallback.epistemics);
   const synthesis = normalizeArchiveSynthesis(raw.synthesis || fallback.synthesis);
   return {
     version,
     kind,
+    executionPath,
+    researchLedgerPromptInjected,
+    researchLedgerUpdate,
     scope: {
       sessionId: String(scopeRaw.sessionId || '').trim() || 'default',
       route: String(scopeRaw.route || '').trim() || '/api/penny/chat',
@@ -1025,6 +1103,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       backend: String(contextRaw.backend || '').trim(),
       requestedModel: String(contextRaw.requestedModel || '').trim(),
       resolvedModel: String(contextRaw.resolvedModel || '').trim(),
+      executionPath,
       semanticMemoryReady: contextRaw.semanticMemoryReady === true,
       semanticMemoryMode: String(contextRaw.semanticMemoryMode || '').trim() || 'disabled',
       usedFallback: contextRaw.usedFallback === true,
@@ -1079,6 +1158,12 @@ function normalizeLastRouteInfo(value) {
   const selectedLane = String(value.selectedLane || value.localLane || '').trim() || 'chat';
   const requestedMode = String(value.requestedMode || '').trim() || 'local';
   const backend = String(value.backend || '').trim();
+  const executionPath = normalizeExecutionPath(
+    value.executionPath,
+    requestedMode === 'shadow' ? 'shadow' : (selectedLane === 'tool' ? 'deterministic-tool' : 'llm-chat'),
+  );
+  const researchLedgerPromptInjected = value.researchLedgerPromptInjected === true;
+  const researchLedgerUpdate = normalizeResearchLedgerUpdate(value.researchLedgerUpdate);
   const repair = normalizeRepairInfo(value.repair);
   const epistemics = normalizeEpistemicCaution(value.epistemics);
   const synthesis = normalizeArchiveSynthesis(value.synthesis);
@@ -1092,6 +1177,7 @@ function normalizeLastRouteInfo(value) {
       selectedLane,
       reason: String(value.reason || '').trim(),
       backend,
+      executionPath,
       usedFallback: value.usedFallback === true,
       laneFallback: value.laneFallback === true,
       requestedModel: String(value.requestedModel || '').trim(),
@@ -1104,6 +1190,8 @@ function normalizeLastRouteInfo(value) {
       synthesis,
       performance,
       readiness,
+      researchLedgerPromptInjected,
+      researchLedgerUpdate,
       usedAt: String(value.usedAt || '').trim() || new Date().toISOString(),
     }),
   );
@@ -1112,6 +1200,7 @@ function normalizeLastRouteInfo(value) {
     requestedMode,
     reason: String(value.reason || '').trim(),
     backend,
+    executionPath,
     usedFallback: value.usedFallback === true,
     laneFallback: value.laneFallback === true,
     requestedModel: String(value.requestedModel || '').trim(),
@@ -1123,6 +1212,8 @@ function normalizeLastRouteInfo(value) {
     synthesis,
     performance,
     readiness,
+    researchLedgerPromptInjected,
+    researchLedgerUpdate,
     artifact,
     usedAt: trimIso(value.usedAt, new Date().toISOString()),
   };
@@ -1134,6 +1225,7 @@ function buildLastRouteInfo({
   requestedMode = 'local',
   reason = '',
   backend = '',
+  executionPath = '',
   usedFallback = false,
   laneFallback = false,
   requestedModel = '',
@@ -1158,6 +1250,8 @@ function buildLastRouteInfo({
   synthesis = null,
   performance = null,
   readiness = null,
+  researchLedgerPromptInjected = false,
+  researchLedgerUpdate = null,
 } = {}) {
   return normalizeLastRouteInfo({
     sessionId,
@@ -1165,6 +1259,7 @@ function buildLastRouteInfo({
     requestedMode,
     reason,
     backend,
+    executionPath,
     usedFallback,
     laneFallback,
     requestedModel,
@@ -1186,12 +1281,15 @@ function buildLastRouteInfo({
     synthesis,
     performance,
     readiness,
+    researchLedgerPromptInjected,
+    researchLedgerUpdate,
     artifact: artifact || buildRuntimeArtifact({
       sessionId,
       requestedMode,
       selectedLane,
       reason,
       backend,
+      executionPath,
       usedFallback,
       laneFallback,
       requestedModel,
@@ -1215,6 +1313,8 @@ function buildLastRouteInfo({
       synthesis,
       performance,
       readiness,
+      researchLedgerPromptInjected,
+      researchLedgerUpdate,
     }),
   });
 }
@@ -1245,6 +1345,7 @@ function buildCombinedMemoryInspector({
     requestedMode: explicitMemory?.brainMode === 'shadow' ? 'shadow' : 'local',
     reason: '',
     backend: '',
+    executionPath: explicitMemory?.brainMode === 'shadow' ? 'shadow' : 'llm-chat',
     usedFallback: false,
     laneFallback: false,
     requestedModel: '',
@@ -1264,6 +1365,7 @@ function buildCombinedMemoryInspector({
       selectedLane: routingBase.selectedLane,
       reason: routingBase.reason,
       backend: routingBase.backend,
+      executionPath: routingBase.executionPath,
       usedFallback: routingBase.usedFallback === true,
       laneFallback: routingBase.laneFallback === true,
       requestedModel: routingBase.requestedModel,
@@ -1277,6 +1379,8 @@ function buildCombinedMemoryInspector({
       repair: routingBase.repair,
       epistemics: routingBase.epistemics,
       synthesis: routingBase.synthesis,
+      researchLedgerPromptInjected: routingBase.researchLedgerPromptInjected === true,
+      researchLedgerUpdate: routingBase.researchLedgerUpdate || null,
       shadowEnabled,
       usedAt: routingBase.usedAt,
       routePath: '/api/penny/memory/inspector',
@@ -1288,6 +1392,7 @@ function buildCombinedMemoryInspector({
     selectedLane: routing.selectedLane,
     reason: routing.reason,
     backend: routing.backend,
+    executionPath: routing.executionPath,
     usedFallback: routing.usedFallback === true,
     laneFallback: routing.laneFallback === true,
     requestedModel: routing.requestedModel,
@@ -1301,6 +1406,8 @@ function buildCombinedMemoryInspector({
     repair: routing.repair,
     epistemics: routing.epistemics,
     synthesis: routing.synthesis,
+    researchLedgerPromptInjected: routing.researchLedgerPromptInjected === true,
+    researchLedgerUpdate: routing.researchLedgerUpdate || null,
     shadowEnabled,
     usedAt: routing.usedAt,
     routePath: '/api/penny/memory/inspector',

@@ -86,6 +86,16 @@ function createDirectIntentReplyApi({
     const query = String(result.query || '').trim();
     const questionType = String(result.questionType || '').trim().toLowerCase();
     const excerpt = String(result.excerpt || '').trim();
+    const error = String(result.error || '').trim();
+    if (error) {
+      const scope = query
+        ? `${pathLabel} for "${query}"`
+        : pathLabel;
+      if (query && /could not find/i.test(error)) {
+        return `i checked ${scope}, and there is no matching line there. i did not edit anything, and i did not run a verification step.\n[MOOD:thinking]`;
+      }
+      return `i tried to inspect ${scope}, but it blew up: ${error}\n\ni did not edit anything, and i did not run a verification step.\n[MOOD:annoyed]`;
+    }
     if (query) {
       const excerptLines = String(excerpt || '')
         .split('\n')

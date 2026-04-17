@@ -208,6 +208,32 @@ test('runDirectToolAssist keeps read, search, and list intents on deterministic 
   }
 });
 
+test('runDirectToolAssist answers missing read-around-match lookups without crashing', async () => {
+  const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
+    executePennyTool: async () => ({
+      ok: false,
+      label: 'read README.md around cloud-hosted multi-user',
+      data: {
+        path: 'README.md',
+        query: 'cloud-hosted multi-user',
+        error: 'Could not find "cloud-hosted multi-user" in README.md.',
+      },
+    }),
+  });
+
+  const result = await runDirectToolAssist({
+    userText: 'Without making anything up, what exact line in README.md says Penny is a cloud-hosted multi-user product?',
+    messages: [],
+    memories: {},
+    intent: { name: 'read_project_file_around_match', args: { path: 'README.md', query: 'cloud-hosted multi-user' } },
+  });
+
+  assert.match(result.text, /no matching line there/i);
+  assert.match(result.text, /did not edit anything/i);
+  assert.equal(result.skipSemanticRender, true);
+  assert.equal(getLmAssistCalls(), 0);
+});
+
 test('runDirectToolAssist keeps focused read-around-match requests deterministic', async () => {
   const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
     executePennyTool: async () => ({

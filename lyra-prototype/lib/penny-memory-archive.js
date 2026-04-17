@@ -190,6 +190,20 @@ function countPhrases(texts = [], minEvidence = 3) {
       || left[0].localeCompare(right[0]));
 }
 
+function buildDefaultBackgroundVectorizationStatus(batchLimit = 0) {
+  return {
+    enabled: false,
+    status: 'disabled',
+    semanticReady: false,
+    attemptedAt: '',
+    skippedReason: '',
+    batchLimit: Math.max(0, Number(batchLimit || 0)),
+    selectedCount: 0,
+    createdCount: 0,
+    candidates: [],
+  };
+}
+
 function buildArchiveStore(embedModel = '') {
   return {
     meta: {
@@ -198,6 +212,7 @@ function buildArchiveStore(embedModel = '') {
       lastCompactedAt: '',
       lastSummarizedAt: '',
       reviewDecisions: {},
+      backgroundVectorization: buildDefaultBackgroundVectorizationStatus(),
     },
     global: {
       episodes: [],
@@ -215,6 +230,7 @@ function buildEmbeddingsStore(embedModel = '') {
       schemaVersion: EMBEDDINGS_SCHEMA_VERSION,
       embedModel: String(embedModel || '').trim(),
       updatedAt: '',
+      backgroundVectorization: buildDefaultBackgroundVectorizationStatus(),
     },
     items: {},
   };
@@ -245,6 +261,8 @@ function createMemoryArchiveApi({
   LMSTUDIO_BASE = '',
   LMSTUDIO_API_KEY = 'lm-studio-local',
   PENNY_LMSTUDIO_EMBED_MODEL = '',
+  ENABLE_BACKGROUND_CHAT_VECTORS = false,
+  BACKGROUND_CHAT_VECTOR_BATCH_LIMIT = 2,
   getLmStudioConnectionStatus = null,
   modelsLookEquivalent = null,
   nowMs = () => Date.now(),
@@ -256,6 +274,8 @@ function createMemoryArchiveApi({
   if (typeof fetch !== 'function') throw new TypeError('createMemoryArchiveApi requires fetch');
 
   const configuredEmbedModel = normalizeEmbedModelId(PENNY_LMSTUDIO_EMBED_MODEL);
+  const backgroundChatVectorsEnabled = ENABLE_BACKGROUND_CHAT_VECTORS === true;
+  const backgroundChatVectorBatchLimit = Math.max(0, Number(BACKGROUND_CHAT_VECTOR_BATCH_LIMIT || 2));
   const modelComparator = typeof modelsLookEquivalent === 'function'
     ? modelsLookEquivalent
     : ((left = '', right = '') => String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase());
@@ -530,6 +550,45 @@ function createMemoryArchiveApi({
     };
   }
 
+  function normalizeBackgroundVectorizationCandidate(raw = {}) {
+    const id = String(raw.id || '').trim();
+    const text = trimText(raw.text || raw.evidenceSnippet || raw.excerpt || '', 160);
+    if (!id && !text) return null;
+    return {
+      id,
+      sourceType: String(raw.sourceType || 'archive').trim() || 'archive',
+      evidenceSnippet: text,
+      utilityScore: Number.isFinite(Number(raw.utilityScore)) ? Number(raw.utilityScore) : 0,
+      contradictionLinked: raw.contradictionLinked === true,
+      openLoopLinked: raw.openLoopLinked === true,
+      recentlyRetrieved: raw.recentlyRetrieved === true,
+      created: raw.created === true,
+    };
+  }
+
+  function normalizeBackgroundVectorizationStatus(raw = {}, {
+    enabled = backgroundChatVectorsEnabled,
+    batchLimit = backgroundChatVectorBatchLimit,
+  } = {}) {
+    const requestedStatus = String(raw.status || '').trim().toLowerCase();
+    const status = ['disabled', 'skipped', 'applied', 'failed'].includes(requestedStatus)
+      ? requestedStatus
+      : (enabled ? 'skipped' : 'disabled');
+    return {
+      enabled,
+      status,
+      semanticReady: raw.semanticReady === true,
+      attemptedAt: trimIso(raw.attemptedAt || raw.updatedAt, ''),
+      skippedReason: trimText(raw.skippedReason || raw.reason || '', 120),
+      batchLimit: Math.max(0, Number(raw.batchLimit || batchLimit || 0)),
+      selectedCount: Math.max(0, Number(raw.selectedCount || 0)),
+      createdCount: Math.max(0, Number(raw.createdCount || 0)),
+      candidates: Array.isArray(raw.candidates)
+        ? raw.candidates.map(normalizeBackgroundVectorizationCandidate).filter(Boolean).slice(0, 4)
+        : [],
+    };
+  }
+
   function normalizeProvenanceList(items = [], limit = SESSION_PROVENANCE_LIMIT) {
     const out = [];
     for (const raw of Array.isArray(items) ? items : []) {
@@ -602,6 +661,10 @@ function createMemoryArchiveApi({
       reviewDecisions: parsed.meta?.reviewDecisions && typeof parsed.meta.reviewDecisions === 'object'
         ? { ...parsed.meta.reviewDecisions }
         : {},
+      backgroundVectorization: normalizeBackgroundVectorizationStatus(parsed.meta?.backgroundVectorization, {
+        enabled: backgroundChatVectorsEnabled,
+        batchLimit: backgroundChatVectorBatchLimit,
+      }),
     };
     base.global.episodes = Array.isArray(parsed.global?.episodes)
       ? parsed.global.episodes.map(item => normalizeArchiveEntry(item, 'episode', item?.sessionId || '')).filter(Boolean).slice(-500)
@@ -631,6 +694,10 @@ function createMemoryArchiveApi({
       schemaVersion: EMBEDDINGS_SCHEMA_VERSION,
       embedModel: normalizeEmbedModelId(configuredEmbedModel || (parsed.meta && parsed.meta.embedModel) || ''),
       updatedAt: trimIso(parsed.meta?.updatedAt, ''),
+      backgroundVectorization: normalizeBackgroundVectorizationStatus(parsed.meta?.backgroundVectorization, {
+        enabled: backgroundChatVectorsEnabled,
+        batchLimit: backgroundChatVectorBatchLimit,
+      }),
     };
     const items = parsed.items && typeof parsed.items === 'object' ? parsed.items : {};
     for (const [key, raw] of Object.entries(items)) {
@@ -1010,6 +1077,176 @@ function createMemoryArchiveApi({
     normalizeEvidenceIds,
   });
 
+  function collectRecentRetrievedEpisodeIds(session = {}) {
+    const ids = new Set();
+    const retrieval = session?.lastRetrieval && typeof session.lastRetrieval === 'object'
+      ? session.lastRetrieval
+      : {};
+    for (const item of [
+      ...(Array.isArray(retrieval.session) ? retrieval.session : []),
+      ...(Array.isArray(retrieval.global) ? retrieval.global : []),
+    ]) {
+      for (const id of normalizeEvidenceIds(item?.sourceEpisodeIds || [])) ids.add(id);
+      if (String(item?.sourceType || '').trim() === 'episode' && String(item?.id || '').trim()) {
+        ids.add(String(item.id).trim());
+      }
+    }
+    return ids;
+  }
+
+  function selectBackgroundVectorizationCandidates({
+    session = {},
+    embeddings = null,
+    now = nowMs(),
+  } = {}) {
+    const embeddingsStore = embeddings && typeof embeddings === 'object'
+      ? embeddings
+      : readEmbeddingsStore();
+    const activeContradictions = normalizeContradictionList(session.activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT)
+      .filter(isActiveContradiction);
+    const recentRetrievedEpisodeIds = collectRecentRetrievedEpisodeIds(session);
+    return (Array.isArray(session.episodes) ? session.episodes.slice(-12) : [])
+      .map((episode) => {
+        const text = trimText(episode?.text || '', 1000);
+        if (!text) return null;
+        const hash = stableHash(text);
+        if (embeddingsStore?.items?.[hash]?.vector?.length) return null;
+        const contradictionLinked = activeContradictions.some((item) => (
+          contradictionTouchesEpisodeIds(item, [episode?.id])
+          || textReferencesContradiction(text, item)
+        ));
+        const openLoopLinked = (Array.isArray(session.openLoops) ? session.openLoops : [])
+          .some((item) => textMentionsNeedle(text, item?.text || ''));
+        const recentlyRetrieved = recentRetrievedEpisodeIds.has(String(episode?.id || '').trim());
+        const candidate = archivePolicyApi.buildArchiveCandidate({
+          ...episode,
+          text,
+          evidenceCount: episode?.evidenceCount || 1,
+          contradictionLinked,
+          openLoopLinked,
+          recentlyRetrieved,
+        }, 'session', 'episode');
+        const utility = archivePolicyApi.scoreArchiveUtilityCandidate(candidate, now);
+        return {
+          ...candidate,
+          hash,
+          utilityScore: utility.score,
+          ageDays: utility.ageDays,
+          contradictionLinked,
+          openLoopLinked,
+          recentlyRetrieved,
+          evidenceSnippet: trimText(text, 160),
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => right.utilityScore - left.utilityScore
+        || String(right.createdAt || '').localeCompare(String(left.createdAt || '')));
+  }
+
+  function applyBackgroundVectorizationStatus(archive = {}, embeddings = {}, status = {}) {
+    const normalizedStatus = normalizeBackgroundVectorizationStatus(status, {
+      enabled: backgroundChatVectorsEnabled,
+      batchLimit: backgroundChatVectorBatchLimit,
+    });
+    archive.meta = archive.meta && typeof archive.meta === 'object' ? archive.meta : {};
+    embeddings.meta = embeddings.meta && typeof embeddings.meta === 'object' ? embeddings.meta : {};
+    archive.meta.backgroundVectorization = normalizedStatus;
+    embeddings.meta.backgroundVectorization = normalizedStatus;
+    return normalizedStatus;
+  }
+
+  async function runBackgroundVectorizationPrewarm({
+    archive = {},
+    session = {},
+    semanticMemory = null,
+    embeddings = null,
+    now = nowMs(),
+  } = {}) {
+    const attemptedAt = new Date(now).toISOString();
+    const workingEmbeddings = embeddings && typeof embeddings === 'object'
+      ? embeddings
+      : readEmbeddingsStore();
+    const baseStatus = {
+      enabled: backgroundChatVectorsEnabled,
+      semanticReady: semanticMemory?.ready === true,
+      attemptedAt,
+      batchLimit: backgroundChatVectorBatchLimit,
+    };
+    if (!backgroundChatVectorsEnabled) {
+      return {
+        embeddings: workingEmbeddings,
+        status: normalizeBackgroundVectorizationStatus({
+          ...baseStatus,
+          status: 'disabled',
+        }),
+      };
+    }
+    if (backgroundChatVectorBatchLimit < 1) {
+      return {
+        embeddings: workingEmbeddings,
+        status: normalizeBackgroundVectorizationStatus({
+          ...baseStatus,
+          status: 'skipped',
+          skippedReason: 'batch-limit-zero',
+        }),
+      };
+    }
+    if (!semanticMemory?.ready) {
+      return {
+        embeddings: workingEmbeddings,
+        status: normalizeBackgroundVectorizationStatus({
+          ...baseStatus,
+          status: 'skipped',
+          skippedReason: 'semantic-memory-not-ready',
+        }),
+      };
+    }
+
+    const selectedCandidates = selectBackgroundVectorizationCandidates({
+      session,
+      embeddings: workingEmbeddings,
+      now,
+    }).slice(0, backgroundChatVectorBatchLimit);
+
+    if (!selectedCandidates.length) {
+      return {
+        embeddings: workingEmbeddings,
+        status: normalizeBackgroundVectorizationStatus({
+          ...baseStatus,
+          status: 'skipped',
+          skippedReason: 'no-unvectorized-candidates',
+        }),
+      };
+    }
+
+    let createdCount = 0;
+    let failureMessage = '';
+    let nextEmbeddings = workingEmbeddings;
+    for (const candidate of selectedCandidates) {
+      try {
+        const embedded = await ensureEmbeddingForText(candidate.text, nextEmbeddings, semanticMemory);
+        nextEmbeddings = embedded.embeddings;
+        candidate.created = embedded.created === true;
+        if (candidate.created) createdCount += 1;
+      } catch (error) {
+        candidate.created = false;
+        if (!failureMessage) failureMessage = String(error?.message || error || '').trim();
+      }
+    }
+
+    return {
+      embeddings: nextEmbeddings,
+      status: normalizeBackgroundVectorizationStatus({
+        ...baseStatus,
+        status: failureMessage && createdCount === 0 ? 'failed' : 'applied',
+        skippedReason: trimText(failureMessage, 120),
+        selectedCount: selectedCandidates.length,
+        createdCount,
+        candidates: selectedCandidates,
+      }),
+    };
+  }
+
   function attachEpisodeDependentsToContradictions(activeContradictions = [], episode = {}) {
     const episodeId = String(episode?.id || '').trim();
     if (!episodeId) return normalizeContradictionList(activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT);
@@ -1211,6 +1448,9 @@ function createMemoryArchiveApi({
     }
     if (advisories.researchLedger && typeof advisories.researchLedger === 'object') {
       next.researchLedgerContext = advisories.researchLedger;
+    }
+    if (Object.prototype.hasOwnProperty.call(advisories, 'researchLedgerPromptEnabled')) {
+      next.researchLedgerPromptEnabled = advisories.researchLedgerPromptEnabled !== false;
     }
     return next;
   }
@@ -1604,12 +1844,37 @@ function createMemoryArchiveApi({
     archive.meta.lastCompactedAt = createdAt;
 
     archive = trimArchiveStore(archive);
+    let embeddings = readEmbeddingsStore();
+    applyBackgroundVectorizationStatus(archive, embeddings, {
+      enabled: backgroundChatVectorsEnabled,
+      semanticReady: false,
+      attemptedAt: createdAt,
+      status: backgroundChatVectorsEnabled ? 'skipped' : 'disabled',
+      skippedReason: backgroundChatVectorsEnabled ? 'awaiting-semantic-status' : '',
+      batchLimit: backgroundChatVectorBatchLimit,
+    });
     writeArchiveStore(archive);
+    embeddings = writeEmbeddingsStore(embeddings);
 
     const semanticMemory = await getSemanticMemoryStatus();
-    if (!semanticMemory.ready) return { archived: true, semanticMemory };
+    if (!semanticMemory.ready) {
+      applyBackgroundVectorizationStatus(archive, embeddings, {
+        enabled: backgroundChatVectorsEnabled,
+        semanticReady: false,
+        attemptedAt: createdAt,
+        status: backgroundChatVectorsEnabled ? 'skipped' : 'disabled',
+        skippedReason: backgroundChatVectorsEnabled ? 'semantic-memory-not-ready' : '',
+        batchLimit: backgroundChatVectorBatchLimit,
+      });
+      writeArchiveStore(archive);
+      writeEmbeddingsStore(embeddings);
+      return {
+        archived: true,
+        semanticMemory,
+        backgroundVectorization: archive.meta.backgroundVectorization,
+      };
+    }
 
-    let embeddings = readEmbeddingsStore();
     for (const text of [
       episode.userText,
       sessionSummaryText,
@@ -1622,8 +1887,22 @@ function createMemoryArchiveApi({
         embeddings = embedded.embeddings;
       } catch {}
     }
+    const backgroundVectorization = await runBackgroundVectorizationPrewarm({
+      archive,
+      session,
+      semanticMemory,
+      embeddings,
+      now: nowMs(),
+    });
+    embeddings = backgroundVectorization.embeddings;
+    applyBackgroundVectorizationStatus(archive, embeddings, backgroundVectorization.status);
+    writeArchiveStore(archive);
     writeEmbeddingsStore(embeddings);
-    return { archived: true, semanticMemory };
+    return {
+      archived: true,
+      semanticMemory,
+      backgroundVectorization: archive.meta.backgroundVectorization,
+    };
   }
 
   function pruneEmbeddingsToArchive(archive = {}, embeddings = {}) {
@@ -1700,6 +1979,13 @@ function createMemoryArchiveApi({
       embeddings: {
         count: Object.keys(embeddings.items || {}).length,
         semanticMemory: resolvedSemanticMemory,
+        backgroundVectorization: normalizeBackgroundVectorizationStatus(
+          embeddings.meta?.backgroundVectorization || archive.meta?.backgroundVectorization,
+          {
+            enabled: backgroundChatVectorsEnabled,
+            batchLimit: backgroundChatVectorBatchLimit,
+          },
+        ),
       },
     }));
   }
@@ -1822,6 +2108,7 @@ function createMemoryArchiveApi({
     readEmbeddingsStore,
     writeArchiveStore,
     writeEmbeddingsStore,
+    selectBackgroundVectorizationCandidates,
     getSemanticMemoryStatus,
     buildArchiveContext,
     enrichMemoriesForPrompt,
@@ -1829,6 +2116,7 @@ function createMemoryArchiveApi({
     getMemoryInspector,
     reviewPromotion,
     purgeMemory,
+    scoreArchiveUtilityCandidate: archivePolicyApi.scoreArchiveUtilityCandidate,
     SESSION_RECENCY_PROTECTED_EPISODES,
   };
 }

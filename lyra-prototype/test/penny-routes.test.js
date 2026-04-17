@@ -315,16 +315,24 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(toolTurn.statusCode, 200);
     assert.equal(toolTurn.json.meta.localLane, 'tool');
     assert.equal(toolTurn.json.meta.requestedModel, 'google/gemma-4-e4b');
-    assert.equal(typeof toolTurn.json.meta.resolvedModel, 'string');
+    assert.equal(toolTurn.json.meta.resolvedModel, '');
+    assert.equal(toolTurn.json.meta.executionPath, 'deterministic-tool');
+    assert.equal(toolTurn.json.meta.researchLedgerPromptInjected, false);
+    assert.equal(toolTurn.json.meta.researchLedgerUpdate.status, 'applied');
     assert.equal(typeof toolTurn.json.meta.semanticMemoryReady, 'boolean');
     assert.equal(typeof toolTurn.json.meta.semanticMemoryMode, 'string');
     assert.equal(typeof toolTurn.json.meta.laneFallback, 'boolean');
     assert.ok(toolTurn.json.meta.performance && typeof toolTurn.json.meta.performance === 'object');
     assert.ok(toolTurn.json.meta.readiness && typeof toolTurn.json.meta.readiness === 'object');
     assert.equal(toolTurn.json.meta.performance.latencyClass, 'tool-heavy');
+    assert.equal(toolTurn.json.meta.performance.modelRoundTrip.available, false);
+    assert.equal(toolTurn.json.meta.readiness.modelUsage, 'not-used');
     assert.equal(toolTurn.json.meta.readiness.toolModelReady, true);
     assertArtifactShape(toolTurn.json.meta.artifact);
     assert.equal(toolTurn.json.meta.artifact.scope.selectedLane, 'tool');
+    assert.equal(toolTurn.json.meta.artifact.executionPath, 'deterministic-tool');
+    assert.equal(toolTurn.json.meta.artifact.context.resolvedModel, '');
+    assert.equal(toolTurn.json.meta.artifact.researchLedgerPromptInjected, false);
     assert.equal(toolTurn.json.meta.artifact.authority.reply, 'verified-tool-evidence');
     assert.equal(toolTurn.json.meta.artifact.epistemics.enabled, false);
     assert.equal(toolTurn.json.meta.artifact.synthesis.generated, false);
@@ -685,14 +693,23 @@ test('memory inspector tracks archived turns and review approval promotes a pend
     await sendShadowTurn('Midnight rain always calms me down.');
     await sendShadowTurn('I keep thinking about midnight rain and city lights.');
     await sendShadowTurn('Midnight rain makes the whole night feel softer.');
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    let inspector = null;
+    const inspectorDeadline = Date.now() + 2000;
+    while (Date.now() < inspectorDeadline) {
+      inspector = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=archive-route-test`);
+      const episodeCount = Number(inspector?.json?.inspector?.archive?.session?.episodeCount || 0);
+      const queueCount = Number(inspector?.json?.inspector?.archive?.global?.promotionQueue?.length || 0);
+      if (episodeCount >= 3 && queueCount >= 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 
-    const inspector = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=archive-route-test`);
     assert.equal(inspector.statusCode, 200);
     assert.ok(inspector.json.inspector.archive.session.episodeCount >= 3);
     assert.ok(inspector.json.inspector.archive.global.promotionQueue.length >= 1);
     assert.ok(Object.prototype.hasOwnProperty.call(inspector.json.inspector, 'memoryBooks'));
     assert.ok(Object.prototype.hasOwnProperty.call(inspector.json.inspector, 'compression'));
+    assert.equal(inspector.json.inspector.embeddings.backgroundVectorization.status, 'disabled');
+    assert.equal(inspector.json.inspector.embeddings.backgroundVectorization.batchLimit, 2);
     assertArtifactShape(inspector.json.inspector.artifact);
 
     const queueId = inspector.json.inspector.archive.global.promotionQueue[0].id;
@@ -871,6 +888,8 @@ test('memory inspector route serializes bounded provenance details from lastRetr
     assert.equal(response.json.inspector.archive.session.lastRetrieval.compression.explanation.selectedSignals[0], 'active-contradiction');
     assert.equal(response.json.inspector.routing.repair.finalCandidateSource, 'repair');
     assert.equal(response.json.inspector.routing.repair.firstPassGuardCodes[0], 'contradiction_stale_value');
+    assert.equal(response.json.inspector.embeddings.backgroundVectorization.status, 'disabled');
+    assert.equal(response.json.inspector.embeddings.backgroundVectorization.batchLimit, 2);
     assertArtifactShape(response.json.inspector.artifact);
     assert.equal(response.json.inspector.artifact.scope.selectedLane, 'tool');
     assert.equal(response.json.inspector.routing.artifact.version, 'penny-runtime-artifact.v1');

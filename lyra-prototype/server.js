@@ -153,6 +153,8 @@ const PENNY_LMSTUDIO_CHAT_MODEL = process.env.PENNY_LMSTUDIO_CHAT_MODEL
   || 'google/gemma-4-31b';
 const PENNY_LMSTUDIO_TOOL_MODEL = process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b';
 const PENNY_LMSTUDIO_EMBED_MODEL = normalizeEmbedModelId(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5');
+const PENNY_ENABLE_BACKGROUND_CHAT_VECTORS = process.env.PENNY_ENABLE_BACKGROUND_CHAT_VECTORS === '1';
+const PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT = Math.max(0, Number(process.env.PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT || 2));
 const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 /** Full request budget for /chat/completions and /responses (prompt eval + generation). Large quants (e.g. 30B+) and multi-step local tool turns can legitimately take a long time; LM Studio logs "Client disconnected" if this fires first. Override with PENNY_LMSTUDIO_TIMEOUT_MS (ms). */
@@ -187,6 +189,7 @@ const PENNY_ENABLE_RUNTIME_REPAIRS = process.env.PENNY_ENABLE_RUNTIME_REPAIRS !=
 const PENNY_ENABLE_CHAT_REPAIR_RETRY = process.env.PENNY_ENABLE_CHAT_REPAIR_RETRY !== '0';
 const PENNY_ENABLE_EPISTEMIC_CAUTION = process.env.PENNY_ENABLE_EPISTEMIC_CAUTION === '1';
 const PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS = process.env.PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS === '1';
+const PENNY_ENABLE_RESEARCH_LEDGER_PROMPT = process.env.PENNY_ENABLE_RESEARCH_LEDGER_PROMPT !== '0';
 const MAX_REQUEST_BODY_BYTES = Number(process.env.PENNY_MAX_REQUEST_BODY_BYTES || 10 * 1024 * 1024);
 const MAX_IMAGE_DATA_BYTES = Number(process.env.PENNY_MAX_IMAGE_DATA_BYTES || 2 * 1024 * 1024);
 const MAX_TEXT_ATTACHMENT_BYTES = Number(process.env.PENNY_MAX_TEXT_ATTACHMENT_BYTES || 220 * 1024);
@@ -399,6 +402,9 @@ async function buildRuntimeMemoryContext({
     sessionId,
     userText,
   });
+  const researchLedgerPromptInjected = PENNY_ENABLE_RESEARCH_LEDGER_PROMPT
+    && Array.isArray(researchLedger?.topics)
+    && researchLedger.topics.length > 0;
   const memoryBooks = matchMemoryBooksApi({
     sessionId,
     userText,
@@ -443,10 +449,12 @@ async function buildRuntimeMemoryContext({
       epistemicCaution: epistemics,
       archiveSynthesis: synthesis,
       researchLedger,
+      researchLedgerPromptEnabled: PENNY_ENABLE_RESEARCH_LEDGER_PROMPT,
     }),
     archiveContext: archive.archiveContext,
     memoryBooks,
     researchLedger,
+    researchLedgerPromptInjected,
     retrieval,
     semanticMemory: archive.semanticMemory,
     epistemics,
@@ -454,6 +462,7 @@ async function buildRuntimeMemoryContext({
     latencyBudget: budget,
   };
 }
+let archiveConsolidationQueue = Promise.resolve();
 function scheduleArchiveConsolidation({
   sessionId = 'default',
   userText = '',
@@ -463,17 +472,23 @@ function scheduleArchiveConsolidation({
   reviewCandidates = [],
 } = {}) {
   if (!String(userText || '').trim() || !String(assistantText || '').trim()) return;
-  queueMicrotask(() => {
-    archiveCompletedTurnApi({
+  const archiveTask = async () => {
+    await archiveCompletedTurnApi({
       sessionId,
       userText,
       assistantText: stripReplyMoodTags(String(assistantText || '')),
       retrieval,
       provenance,
       reviewCandidates,
-    }).catch((error) => {
-      console.warn(`[penny archive] turn consolidation failed: ${error?.message || error}`);
     });
+  };
+  queueMicrotask(() => {
+    archiveConsolidationQueue = archiveConsolidationQueue
+      .catch(() => {})
+      .then(archiveTask)
+      .catch((error) => {
+        console.warn(`[penny archive] turn consolidation failed: ${error?.message || error}`);
+      });
   });
 }
 function scheduleResearchLedgerUpdate({
@@ -485,20 +500,48 @@ function scheduleResearchLedgerUpdate({
   toolRecords = [],
   provenance = [],
 } = {}) {
-  if (!String(userText || '').trim() || !String(assistantText || '').trim()) return;
-  queueMicrotask(() => {
-    try {
-      updateResearchLedgerFromTurnApi({
-        sessionId,
-        userText,
-        assistantText: stripReplyMoodTags(String(assistantText || '')),
-        selectedLane,
-        backend,
-        toolRecords,
-        provenance,
-      });
-    } catch {}
+  const cleanUserText = String(userText || '').trim();
+  const cleanAssistantText = stripReplyMoodTags(String(assistantText || ''));
+  const currentContext = getResearchLedgerContextApi({
+    sessionId,
+    userText: cleanUserText,
   });
+  if (!cleanUserText || !String(cleanAssistantText || '').trim()) {
+    return {
+      status: 'skipped',
+      reason: 'missing-turn-text',
+      context: currentContext,
+      topic: null,
+    };
+  }
+  try {
+    const result = updateResearchLedgerFromTurnApi({
+      sessionId,
+      userText: cleanUserText,
+      assistantText: cleanAssistantText,
+      selectedLane,
+      backend,
+      toolRecords,
+      provenance,
+    });
+    return {
+      status: result?.updated === true ? 'applied' : 'skipped',
+      reason: String(result?.reason || '').trim() || (result?.updated === true ? 'updated' : 'non-qualifying-turn'),
+      context: getResearchLedgerContextApi({
+        sessionId,
+        userText: cleanUserText,
+      }),
+      topic: result?.topic || null,
+    };
+  } catch (error) {
+    console.warn(`[penny ledger] turn update failed: ${error?.message || error}`);
+    return {
+      status: 'failed',
+      reason: String(error?.message || error || 'ledger-update-failed').trim(),
+      context: currentContext,
+      topic: null,
+    };
+  }
 }
 function execFileText(file, args = [], options = {}) {
   return new Promise((resolve, reject) => {
@@ -560,6 +603,8 @@ const memoryArchiveApi = createMemoryArchiveApi({
   LMSTUDIO_BASE,
   LMSTUDIO_API_KEY,
   PENNY_LMSTUDIO_EMBED_MODEL,
+  ENABLE_BACKGROUND_CHAT_VECTORS: PENNY_ENABLE_BACKGROUND_CHAT_VECTORS,
+  BACKGROUND_CHAT_VECTOR_BATCH_LIMIT: PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT,
   getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
   modelsLookEquivalent: modelsLookEquivalentApi,
 });
@@ -1860,12 +1905,17 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
   const budget = latencyBudget && typeof latencyBudget === 'object'
     ? latencyBudget
     : resolveLatencyBudget({ userText, lane: laneRuntime?.localLane || 'tool', file });
+  const inferExecutionPath = (modelUsed = false) => {
+    if (modelUsed === true) return laneRuntime?.localLane === 'chat' ? 'llm-chat' : 'llm-tool-loop';
+    return 'deterministic-tool';
+  };
   const coerceFinalizedText = (candidate) => {
     const cleaned = cleanDraftForSemanticRender(candidate) || String(candidate || '').trim();
     if (looksLikeWeakToolReply(cleaned, toolRecords) && fallbackText) return fallbackText;
     return cleaned || fallbackText;
   };
   if (budget.allowSemanticRender !== true || !shouldUseSemanticRender({ file, toolRecords, draftText: cleanedText })) {
+    const modelUsed = laneRuntime?.modelUsed === true;
     return {
       text: coerceFinalizedText(cleanedText),
       toolsUsed,
@@ -1873,11 +1923,15 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
       repair: null,
       epistemics: hardTurnEpistemics,
       synthesis: hardTurnSynthesis,
+      modelUsed,
+      executionPath: laneRuntime?.executionPath || inferExecutionPath(modelUsed),
     };
   }
   onToolEvent?.({ type: 'status', stage: 'rendering', label: 'shaping the final reply' });
   const semanticRenderStartedAt = Date.now();
   if (laneRuntime && typeof laneRuntime === 'object') {
+    laneRuntime.modelUsed = true;
+    laneRuntime.executionPath = inferExecutionPath(true);
     laneRuntime.performance = laneRuntime.performance && typeof laneRuntime.performance === 'object'
       ? laneRuntime.performance
       : {};
@@ -1924,6 +1978,8 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
         toolRecords,
         epistemics: hardTurnEpistemics,
         synthesis: hardTurnSynthesis,
+        modelUsed: laneRuntime?.modelUsed === true,
+        executionPath: laneRuntime?.executionPath || inferExecutionPath(true),
         repair: normalizeRepairInfo(firstPassGuardCodes.length
           ? {
               firstPassGuardCodes,
@@ -1970,6 +2026,8 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
           toolRecords,
           epistemics: hardTurnEpistemics,
           synthesis: hardTurnSynthesis,
+          modelUsed: laneRuntime?.modelUsed === true,
+          executionPath: laneRuntime?.executionPath || inferExecutionPath(true),
           repair: normalizeRepairInfo({
             firstPassGuardCodes,
             repairAttempted: true,
@@ -2010,6 +2068,8 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
         toolRecords,
         epistemics: hardTurnEpistemics,
         synthesis: hardTurnSynthesis,
+        modelUsed: laneRuntime?.modelUsed === true,
+        executionPath: laneRuntime?.executionPath || inferExecutionPath(true),
         repair: normalizeRepairInfo({
           firstPassGuardCodes,
           repairAttempted: true,
@@ -2037,6 +2097,8 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
       repair: null,
       epistemics: hardTurnEpistemics,
       synthesis: hardTurnSynthesis,
+      modelUsed: laneRuntime?.modelUsed === true,
+      executionPath: laneRuntime?.executionPath || inferExecutionPath(laneRuntime?.modelUsed === true),
     };
   }
 }
@@ -2460,6 +2522,8 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         abortSignal,
       });
       if (result.skipSemanticRender) {
+        laneRuntime.modelUsed = false;
+        laneRuntime.executionPath = 'deterministic-tool';
         const directEpistemics = buildPostToolEpistemicCaution({
           previous: memories?.epistemicCaution,
           enabled: PENNY_ENABLE_EPISTEMIC_CAUTION,
@@ -2503,6 +2567,8 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
   }
   if (!image && resolvedLaneSelection.localLane === 'tool' && resolvedLaneSelection.needsTools) {
     try {
+      laneRuntime.modelUsed = true;
+      laneRuntime.executionPath = 'llm-tool-loop';
       const result = await runLmStudioToolLoopApiRunner({ userText: toolUserText, messages, memories, abortSignal, laneRuntime, latencyBudget: budget });
       const finalized = await maybeRenderHardTurnReply({
         userText,
@@ -2520,6 +2586,8 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
       return { ...finalized, ...laneRuntime };
     } catch (error) {
       if (!shouldFallbackToManualToolLoopApi(error)) throw error;
+      laneRuntime.modelUsed = true;
+      laneRuntime.executionPath = 'llm-tool-loop';
       const result = await runLmStudioManualToolLoopApiRunner({ userText: toolUserText, messages, memories, abortSignal, laneRuntime, latencyBudget: budget });
       const finalized = await maybeRenderHardTurnReply({
         userText,
@@ -2537,6 +2605,8 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
       return { ...finalized, ...laneRuntime };
     }
   }
+  laneRuntime.modelUsed = true;
+  laneRuntime.executionPath = 'llm-chat';
   const text = await runLmStudioLocalApi({ userText, messages, memories, image, file, abortSignal, lane: laneRuntime.localLane, laneRuntime, latencyBudget: budget });
   return {
     text,
@@ -2544,6 +2614,8 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
     toolRecords: [],
     epistemics: normalizeEpistemicCaution(memories?.epistemicCaution),
     synthesis: normalizeArchiveSynthesis(memories?.archiveSynthesis),
+    modelUsed: true,
+    executionPath: 'llm-chat',
     ...laneRuntime,
   };
 }
@@ -2565,6 +2637,8 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
   if (!image && resolvedLaneSelection.directIntent) {
       const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, latencyBudget: budget, intent: resolvedLaneSelection.directIntent, onToolEvent: onEvent, abortSignal });
       if (result.skipSemanticRender) {
+        laneRuntime.modelUsed = false;
+        laneRuntime.executionPath = 'deterministic-tool';
         const directText = cleanDraftForSemanticRender(result.text) || String(result.text || '').trim();
         const directEpistemics = buildPostToolEpistemicCaution({
           previous: memories?.epistemicCaution,
@@ -2612,10 +2686,14 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
   if (!image && resolvedLaneSelection.localLane === 'tool' && resolvedLaneSelection.needsTools) {
     let result;
     try {
+      laneRuntime.modelUsed = true;
+      laneRuntime.executionPath = 'llm-tool-loop';
       result = await runLmStudioToolLoopApiRunner({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal, laneRuntime, latencyBudget: budget });
     } catch (error) {
       if (!shouldFallbackToManualToolLoopApi(error)) throw error;
       onEvent?.({ type: 'status', stage: 'fallback', label: 'switching tool mode' });
+      laneRuntime.modelUsed = true;
+      laneRuntime.executionPath = 'llm-tool-loop';
       result = await runLmStudioManualToolLoopApiRunner({ userText: toolUserText, messages, memories, onToolEvent: onEvent, abortSignal, laneRuntime, latencyBudget: budget });
     }
     const finalized = await maybeRenderHardTurnReply({
@@ -2634,6 +2712,8 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
     if (finalized.text) onEvent?.({ type: 'message.delta', content: finalized.text, text: finalized.text });
     return { ...finalized, ...laneRuntime };
   }
+  laneRuntime.modelUsed = true;
+  laneRuntime.executionPath = 'llm-chat';
   const text = await streamLmStudioLocalApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane: laneRuntime.localLane, laneRuntime, latencyBudget: budget });
   return {
     text,
@@ -2641,6 +2721,8 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
     toolRecords: [],
     epistemics: normalizeEpistemicCaution(memories?.epistemicCaution),
     synthesis: normalizeArchiveSynthesis(memories?.archiveSynthesis),
+    modelUsed: true,
+    executionPath: 'llm-chat',
     ...laneRuntime,
   };
 }

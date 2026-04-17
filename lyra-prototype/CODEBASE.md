@@ -75,6 +75,14 @@ HTML shell.
 Frontend bootstrap only.
 - `public/js/penny-app.js`
 Main browser orchestration, transcript flow, mood/sprite updates, memory/settings actions, and inspector wiring.
+- `public/js/penny-transcript-ui.mjs`
+Transcript rendering helpers and chat-stream presentation.
+- `public/js/penny-expression-runtime.mjs`
+Mood/expression runtime helpers for Penny's visible vessel.
+- `public/js/penny-ambient-chrome.mjs`
+Ambient chrome helpers such as the boot overlay, emoji picker, particle effects, and idle/parallax behavior.
+- `public/js/penny-memory-panel.mjs`
+Memory-inspector rendering, including runtime artifact, trace provenance, and research continuity views.
 - `public/js/penny-lmstudio-ui.js`
 LM Studio diagnostics and chat-model picker helpers.
 - `public/js/penny-attachments.js`
@@ -183,8 +191,22 @@ Readiness poller used by the durable launcher and tests.
 Comparative chat-lane evaluation harness.
 - [scripts/eval-penny-probes.js](./scripts/eval-penny-probes.js)
 Bounded tool-lane probe harness.
+- [scripts/eval-penny-epistemic-compare.js](./scripts/eval-penny-epistemic-compare.js)
+Epistemic compare harness for `off`, `synthesis-only`, and diagnostic modes.
+- [scripts/eval-penny-runtime-fit.js](./scripts/eval-penny-runtime-fit.js)
+Latency/runtime-fit harness for context-length and semantic-readiness tradeoffs.
+- [scripts/qa-penny-memory.js](./scripts/qa-penny-memory.js)
+Segmented memory QA harness with trace-first runtime artifact validation.
 - [scripts/qa-penny-voice-redo.js](./scripts/qa-penny-voice-redo.js)
 Chat-lane voice QA harness.
+- [scripts/qa-penny-browser-smoke.js](./scripts/qa-penny-browser-smoke.js)
+Disposable-server browser smoke harness for the real streaming UI path.
+- [scripts/qa-penny-next-cycle.js](./scripts/qa-penny-next-cycle.js)
+Fixed-order wrapper for the next-cycle rerun sequence.
+- [scripts/import-penny-conversations.js](./scripts/import-penny-conversations.js)
+Conversation-ingest helper for bringing prior Penny logs into local memory artifacts.
+- [scripts/build-review-bundle.js](./scripts/build-review-bundle.js)
+Filtered outside-review bundle builder.
 - `scripts/strip_sprite_backgrounds.py`
 Asset utility.
 
@@ -208,6 +230,8 @@ Untracked runtime memory store created on first run.
 Hybrid archive runtime store for episodic recall, summaries, patterns, and the promotion queue.
 - `penny-memory-embeddings.json`
 Embedding cache for semantic archive retrieval when a local embedding model is available.
+- `penny-memory-ledger.json`
+Research continuity ledger for bounded advisory topics, evidence refs, and open follow-ups.
 - various QA/eval memory files
 Disposable artifacts from benchmarking or smoke tests.
 
@@ -248,13 +272,22 @@ Current modules worth knowing:
 - [lib/penny-memory.js](./lib/penny-memory.js)
 - [lib/penny-memory-state.js](./lib/penny-memory-state.js)
 - [lib/penny-memory-archive.js](./lib/penny-memory-archive.js)
+- [lib/penny-research-ledger.js](./lib/penny-research-ledger.js)
 - [lib/penny-tool-intents.js](./lib/penny-tool-intents.js)
 - [lib/penny-local-lanes.js](./lib/penny-local-lanes.js)
 - [lib/penny-lmstudio-status.js](./lib/penny-lmstudio-status.js)
 - [lib/penny-visible-reply.js](./lib/penny-visible-reply.js)
+- [lib/penny-runtime-artifacts.js](./lib/penny-runtime-artifacts.js)
+- [lib/penny-qa-trace.js](./lib/penny-qa-trace.js)
+- [lib/penny-qa-validity.js](./lib/penny-qa-validity.js)
+- [lib/penny-qa-trust.js](./lib/penny-qa-trust.js)
+- [lib/penny-route-handlers.js](./lib/penny-route-handlers.js)
+- [lib/penny-server-http.js](./lib/penny-server-http.js)
+- [lib/penny-chat-runtime.js](./lib/penny-chat-runtime.js)
 - [lib/penny-tool-loop.js](./lib/penny-tool-loop.js)
 - [lib/penny-lmstudio-transports.js](./lib/penny-lmstudio-transports.js)
 - [lib/penny-direct-intents.js](./lib/penny-direct-intents.js)
+- [lib/penny-direct-intent-replies.js](./lib/penny-direct-intent-replies.js)
 - [lib/penny-direct-tool-assist.js](./lib/penny-direct-tool-assist.js)
 - [lib/penny-project-tools.js](./lib/penny-project-tools.js)
 - [lib/penny-web-tools.js](./lib/penny-web-tools.js)
@@ -300,12 +333,31 @@ Likely modules you will touch:
 
 - durable memory handling in `lib/penny-memory*.js`
 - hybrid archive recall/promotion logic in `lib/penny-memory-archive.js`
+- research continuity topic tracking in `lib/penny-research-ledger.js`
 - lane selection in `lib/penny-local-lanes.js`
 - direct tool intent routing in `lib/penny-direct-intents.js`
 - direct deterministic tool execution in `lib/penny-direct-tool-assist.js`
 - concrete tool implementations in `lib/penny-*-tools.js`
 - LM Studio status/model resolution in `lib/penny-lmstudio-status.js`
 - LM Studio transport selection in `lib/penny-lmstudio-transports.js`
+- route/runtime artifact assembly in `lib/penny-route-handlers.js` and `lib/penny-runtime-artifacts.js`
+
+### Change trace/provenance or inspector surfaces
+
+Start here:
+
+- `lib/penny-runtime-artifacts.js`
+- `lib/penny-research-ledger.js`
+- `public/js/penny-memory-panel.mjs`
+- `test/penny-runtime-artifacts.test.js`
+- `test/penny-memory-panel.test.js`
+
+Likely modules you will touch:
+
+- archive retrieval/provenance normalization in `lib/penny-memory-archive.js`
+- route assembly in `lib/penny-route-handlers.js`
+- combined inspector construction in `server.js` / `lib/penny-runtime-artifacts.js`
+- QA trace/trust helpers in `lib/penny-qa-trace.js` and `lib/penny-qa-trust.js`
 
 ### Change UI behavior or visuals
 
@@ -317,9 +369,10 @@ Start here:
 
 Memory inspector note:
 
-- the debug Memory tab now shows canonical explicit memory plus archive inspector data
-- archive review/purge actions live in `public/js/penny-app.js`
+- the debug Memory tab now shows canonical explicit memory plus archive inspector data, runtime artifacts, trace provenance, research continuity topics, and recency protection
+- archive review/purge actions still live in `public/js/penny-app.js`, while rendering logic now lives in `public/js/penny-memory-panel.mjs`
 - `public/js/penny-storage.js` still sends only explicit browser memory settings to the server; archive state is not browser-owned
+- `public/js/penny-ambient-chrome.mjs` owns lightweight vessel chrome and composer niceties; keep that behavior out of `penny-app.js`
 
 ### Change model QA or speed QA
 
@@ -327,7 +380,14 @@ Start here:
 
 - `scripts/eval-penny-models.js`
 - `scripts/eval-penny-probes.js`
+- `scripts/eval-penny-epistemic-compare.js`
+- `scripts/qa-penny-memory.js`
+- `scripts/qa-penny-browser-smoke.js`
+- `scripts/eval-penny-runtime-fit.js`
 - `scripts/qa-penny-voice-redo.js`
+- `lib/penny-qa-trace.js`
+- `lib/penny-qa-validity.js`
+- `lib/penny-qa-trust.js`
 - `PENNY_MODEL_EVAL.md`
 
 ### Change shadow/OpenClaw behavior

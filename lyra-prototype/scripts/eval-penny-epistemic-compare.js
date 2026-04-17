@@ -365,6 +365,7 @@ async function prepareLmStudioRuntime() {
     reportOnly: false,
     repairPreset: true,
     loadChatModel: false,
+    loadEmbedModel: false,
     chatModel: CHAT_MODEL,
     toolModel: TOOL_MODEL,
     embedModel: EMBED_MODEL,

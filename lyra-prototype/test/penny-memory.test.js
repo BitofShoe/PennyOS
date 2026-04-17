@@ -285,3 +285,31 @@ test('formatPromptMemories inserts ongoing investigations after contradictions a
   assert.ok(investigationsIndex < retrievalIndex);
   assert.match(out, /package\.json \(open\): open follow-up/i);
 });
+
+test('formatPromptMemories can keep research-ledger context out of the prompt while preserving other advisory sections', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const out = formatPromptMemories({
+    memories: [
+      { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: now },
+    ],
+    researchLedgerPromptEnabled: false,
+    archiveContext: {
+      global: [
+        { text: 'They keep returning to midnight rain.', sourceLabel: 'archive-global' },
+      ],
+    },
+    researchLedgerContext: {
+      topics: [
+        {
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+          status: 'open',
+          summary: 'open follow-up - verify whether the Vitest migration is still pending.',
+        },
+      ],
+    },
+  }, 'What should we verify next?', 3, '- Nothing yet.', now);
+
+  assert.doesNotMatch(out, /Wake state - ongoing investigations \(advisory\):/i);
+  assert.match(out, /Wake state - retrieval hints \(advisory\):/i);
+});

@@ -24,6 +24,58 @@ const READ_ONLY_VERIFIED_TOOLS = new Set([
 const RESEARCH_CONTEXT_RE = /\b(research|investigat|inspect|check|verify|compare|artifact|qa|test|runtime|memory|tool|repo|file|branch|commit|diff|log|readme|package\.json)\b/i;
 const OPEN_FOLLOW_UP_RE = /\b(need to check|needs to check|need to verify|needs to verify|would need to|follow up|follow-up|open question|not yet|unclear|unknown|worth checking|should verify|should check)\b/i;
 const CAUSAL_CHAT_RE = /\b(flirty|kiss|cute|stay and talk|dangerous|banter|soft|softness|tease|mock me|be with me)\b/i;
+const GENERIC_PROMPT_QUERY_TOKENS = new Set([
+  'again',
+  'artifact',
+  'artifacts',
+  'branch',
+  'check',
+  'claim',
+  'claims',
+  'commit',
+  'compare',
+  'diff',
+  'earlier',
+  'exact',
+  'file',
+  'files',
+  'follow',
+  'follow-up',
+  'have',
+  'investigation',
+  'investigations',
+  'investigate',
+  'left',
+  'line',
+  'lines',
+  'log',
+  'memory',
+  'next',
+  'open',
+  'prove',
+  'proves',
+  'proof',
+  'qa',
+  'question',
+  'questions',
+  'repo',
+  'research',
+  'runtime',
+  'should',
+  'still',
+  'test',
+  'tests',
+  'thing',
+  'thread',
+  'threads',
+  'tool',
+  'tools',
+  'unresolved',
+  'verify',
+  'what',
+  'where',
+  'work',
+]);
 
 function trimText(value = '', limit = 320) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -46,6 +98,37 @@ function tokenize(value = '') {
       .toLowerCase()
       .match(/[a-z0-9][a-z0-9._/#:-]{1,}/g) || [],
   )];
+}
+
+function buildMeaningfulPromptQueryTokens(userText = '') {
+  return new Set(
+    tokenize(userText).filter((token) => !GENERIC_PROMPT_QUERY_TOKENS.has(token)),
+  );
+}
+
+function buildTopicPromptTokens(topic = {}) {
+  return new Set([
+    ...tokenize(topic.topicLabel),
+    ...tokenize(topic.question),
+    ...tokenize(topic.conclusion),
+    ...tokenize((topic.openFollowUps || []).join(' ')),
+  ]);
+}
+
+function buildTopicAnchorTokens(topic = {}) {
+  const evidenceRefs = Array.isArray(topic.evidenceRefs) ? topic.evidenceRefs : [];
+  return new Set([
+    ...tokenize(topic.topicLabel),
+    ...evidenceRefs.flatMap((item) => tokenize(`${item?.ref || ''} ${item?.label || ''}`)),
+  ]);
+}
+
+function countTokenOverlap(queryTokens = new Set(), topicTokens = new Set()) {
+  let overlap = 0;
+  for (const token of queryTokens) {
+    if (topicTokens.has(token)) overlap += 1;
+  }
+  return overlap;
 }
 
 function appendUniqueStrings(items = [], values = [], limit = 8) {
@@ -289,15 +372,7 @@ function createResearchLedgerApi({
     if (topic.status === 'open') score += 8;
     else if (topic.status === 'provisional') score += 4;
     else score += 1;
-    const topicTokens = new Set([
-      ...tokenize(topic.topicLabel),
-      ...tokenize(topic.question),
-      ...tokenize(topic.conclusion),
-      ...tokenize((topic.openFollowUps || []).join(' ')),
-    ]);
-    for (const token of queryTokens) {
-      if (topicTokens.has(token)) score += 3;
-    }
+    score += countTokenOverlap(queryTokens, buildTopicPromptTokens(topic)) * 3;
     const touchedMs = Date.parse(topic.lastTouchedAt || '') || 0;
     if (touchedMs) {
       const ageDays = Math.max(0, nowMs() - touchedMs) / (1000 * 60 * 60 * 24);
@@ -327,19 +402,35 @@ function createResearchLedgerApi({
     userText = '',
   } = {}) {
     const store = readLedgerStore();
-    const queryTokens = new Set(tokenize(userText));
-    const topics = Object.values(store.topics)
-      .filter((topic) => {
-        if (!normalizeLedgerEntry(topic)) return false;
-        if (topic.status === 'open') return true;
-        if (Array.isArray(topic.sourceSessionIds) && topic.sourceSessionIds.includes(sessionId)) return true;
-        if (!queryTokens.size) return false;
-        const haystack = `${topic.topicLabel} ${topic.question} ${topic.conclusion} ${(topic.openFollowUps || []).join(' ')}`;
-        return tokenize(haystack).some((token) => queryTokens.has(token));
+    const queryTokens = buildMeaningfulPromptQueryTokens(userText);
+    const eligibleTopics = Object.values(store.topics)
+      .map(normalizeLedgerEntry)
+      .filter(Boolean)
+      .map((topic) => {
+        const sameSession = Array.isArray(topic.sourceSessionIds) && topic.sourceSessionIds.includes(sessionId);
+        const promptOverlap = countTokenOverlap(queryTokens, buildTopicPromptTokens(topic));
+        const anchorOverlap = countTokenOverlap(queryTokens, buildTopicAnchorTokens(topic));
+        const eligible = topic.status === 'open' || sameSession || promptOverlap > 0 || anchorOverlap > 0;
+        return {
+          topic,
+          sameSession,
+          promptOverlap,
+          anchorOverlap,
+          eligible,
+        };
       })
-      .sort((left, right) => topicScore(right, sessionId, queryTokens) - topicScore(left, sessionId, queryTokens))
-      .slice(0, LEDGER_PROMPT_TOPIC_LIMIT)
-      .map((topic) => ({
+      .filter((item) => item.eligible)
+      .sort((left, right) => (
+        right.anchorOverlap - left.anchorOverlap
+        || right.promptOverlap - left.promptOverlap
+        || topicScore(right.topic, sessionId, queryTokens) - topicScore(left.topic, sessionId, queryTokens)
+      ));
+    const hasAnchorOverlap = eligibleTopics.some((item) => item.anchorOverlap > 0);
+    const selectedTopics = hasAnchorOverlap
+      ? eligibleTopics.filter((item) => item.anchorOverlap > 0).slice(0, LEDGER_PROMPT_TOPIC_LIMIT)
+      : eligibleTopics.slice(0, Math.min(1, LEDGER_PROMPT_TOPIC_LIMIT));
+    const topics = selectedTopics
+      .map(({ topic }) => ({
         topicId: topic.topicId,
         topicLabel: topic.topicLabel,
         status: topic.status,

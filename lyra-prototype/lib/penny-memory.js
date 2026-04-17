@@ -221,6 +221,7 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   const researchLedgerContext = memories?.researchLedgerContext && typeof memories.researchLedgerContext === 'object'
     ? memories.researchLedgerContext
     : null;
+  const researchLedgerPromptEnabled = memories?.researchLedgerPromptEnabled !== false;
   const retrievalHints = [];
   const retrievalReason = normalizeText(archiveContext?.reasonCode || '');
   const compressionUsed = archiveContext?.compression?.used === true;
@@ -261,7 +262,7 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
     ...correctionItems.map((item) => `correction: ${item.newText} (replaces: ${item.oldText})`),
     ...openLoops.map((item) => `open question: ${item}`),
   ];
-  const ongoingInvestigations = Array.isArray(researchLedgerContext?.topics)
+  const ongoingInvestigations = researchLedgerPromptEnabled && Array.isArray(researchLedgerContext?.topics)
     ? researchLedgerContext.topics
       .map((item) => {
         const topicLabel = normalizeText(item?.topicLabel || '');

@@ -54,6 +54,8 @@ function buildArchiveApi({
   embeddingsFile,
   embedReady = true,
   embedModel = 'text-embedding-nomic-embed-text-v1.5',
+  enableBackgroundChatVectors = false,
+  backgroundChatVectorBatchLimit = 2,
 } = {}) {
   let fetchCalls = 0;
   const api = createMemoryArchiveApi({
@@ -81,6 +83,8 @@ function buildArchiveApi({
     LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
     LMSTUDIO_API_KEY: 'lm-studio-local',
     PENNY_LMSTUDIO_EMBED_MODEL: embedModel,
+    ENABLE_BACKGROUND_CHAT_VECTORS: enableBackgroundChatVectors,
+    BACKGROUND_CHAT_VECTOR_BATCH_LIMIT: backgroundChatVectorBatchLimit,
     async getLmStudioConnectionStatus() {
       return {
         reachable: true,
@@ -96,6 +100,37 @@ function buildArchiveApi({
   });
   return { api, getFetchCalls: () => fetchCalls };
 }
+
+test('scoreArchiveUtilityCandidate favors recent contradiction-linked anchors over older low-signal episodes', () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    const highUtility = api.scoreArchiveUtilityCandidate({
+      sourceType: 'episode',
+      createdAt: '2026-04-13T11:59:59.000Z',
+      evidenceCount: 3,
+      contradictionLinked: true,
+      openLoopLinked: false,
+      recentlyRetrieved: true,
+    }, Date.UTC(2026, 3, 13, 12, 0, 5));
+    const lowUtility = api.scoreArchiveUtilityCandidate({
+      sourceType: 'episode',
+      createdAt: '2026-03-20T12:00:00.000Z',
+      evidenceCount: 1,
+      contradictionLinked: false,
+      openLoopLinked: false,
+      recentlyRetrieved: false,
+    }, Date.UTC(2026, 3, 13, 12, 0, 5));
+
+    assert.ok(highUtility.score > lowUtility.score);
+    assert.equal(highUtility.contradictionLinked, true);
+    assert.equal(highUtility.recentlyRetrieved, true);
+    assert.equal(lowUtility.openLoopLinked, false);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
 
 test('archiveCompletedTurn preserves raw episodes, summaries, patterns, and promotion queue', async () => {
   const files = makeTempFiles();
@@ -624,6 +659,76 @@ test('archiveCompletedTurn routes heuristic review candidates into the existing 
     assert.equal(archive.global.promotionQueue[0].sourceLabel, 'review-candidate');
     assert.match(archive.global.promotionQueue[0].evidenceSnippet, /rainy cyberpunk vibes/i);
     assert.equal(archive.global.promotionQueue[0].promotionPacket.sourceThreadId, 'demo');
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('archiveCompletedTurn records skipped background vectorization telemetry when semantic memory is unavailable', async () => {
+  const files = makeTempFiles();
+  const { api, getFetchCalls } = buildArchiveApi({
+    ...files,
+    embedReady: false,
+    enableBackgroundChatVectors: true,
+    backgroundChatVectorBatchLimit: 1,
+  });
+
+  try {
+    const result = await api.archiveCompletedTurn({
+      sessionId: 'background-skip',
+      userText: 'The silver thermos stayed on dryer three.',
+      assistantText: 'I can keep that tucked away.',
+    });
+    const inspector = await api.getMemoryInspector({
+      sessionId: 'background-skip',
+      explicitMemory: { memories: [] },
+    });
+
+    assert.equal(result.backgroundVectorization.status, 'skipped');
+    assert.equal(result.backgroundVectorization.skippedReason, 'semantic-memory-not-ready');
+    assert.equal(inspector.embeddings.backgroundVectorization.status, 'skipped');
+    assert.equal(inspector.embeddings.backgroundVectorization.batchLimit, 1);
+    assert.equal(inspector.archive.meta.backgroundVectorization.status, 'skipped');
+    assert.equal(getFetchCalls(), 0);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('archiveCompletedTurn prewarms bounded background chat vectors and records inspector telemetry when enabled', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({
+    ...files,
+    enableBackgroundChatVectors: true,
+    backgroundChatVectorBatchLimit: 1,
+  });
+
+  try {
+    await api.archiveCompletedTurn({
+      sessionId: 'background-apply',
+      userText: 'The photo booth curtain was missing two silver hooks.',
+      assistantText: 'Right, the curtain with the missing hooks.',
+    });
+    const inspector = await api.getMemoryInspector({
+      sessionId: 'background-apply',
+      explicitMemory: { memories: [] },
+      semanticMemory: { ready: true, configuredModel: 'text-embedding-nomic-embed-text-v1.5' },
+    });
+    const embeddings = api.readEmbeddingsStore();
+    const selectedCandidates = api.selectBackgroundVectorizationCandidates({
+      session: api.readArchiveStore().sessions['background-apply'],
+      embeddings,
+      now: Date.UTC(2026, 3, 13, 12, 0, 30),
+    });
+
+    assert.equal(inspector.embeddings.backgroundVectorization.status, 'applied');
+    assert.equal(inspector.embeddings.backgroundVectorization.batchLimit, 1);
+    assert.equal(inspector.embeddings.backgroundVectorization.selectedCount, 1);
+    assert.equal(inspector.embeddings.backgroundVectorization.createdCount, 1);
+    assert.equal(inspector.embeddings.backgroundVectorization.candidates.length, 1);
+    assert.match(inspector.embeddings.backgroundVectorization.candidates[0].evidenceSnippet, /photo booth curtain/i);
+    assert.ok(Object.values(embeddings.items).some((item) => /missing two silver hooks/i.test(item.text)));
+    assert.equal(selectedCandidates.length, 0);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

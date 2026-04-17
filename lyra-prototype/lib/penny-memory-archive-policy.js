@@ -21,6 +21,45 @@ function createMemoryArchivePolicyApi({
   trimIso = (value = '') => String(value || '').trim(),
   normalizeEvidenceIds = (items = []) => (Array.isArray(items) ? items : []),
 } = {}) {
+  function scoreArchiveUtilityCandidate(candidate = {}, now = Date.now()) {
+    const createdAtMs = Date.parse(candidate.createdAt || '');
+    const ageDays = Number.isFinite(createdAtMs)
+      ? Math.max(0, now - createdAtMs) / (1000 * 60 * 60 * 24)
+      : null;
+    const evidenceCount = Math.max(1, Number(candidate.evidenceCount || 1));
+    const contradictionLinked = candidate.contradictionLinked === true;
+    const openLoopLinked = candidate.openLoopLinked === true;
+    const recentlyRetrieved = candidate.recentlyRetrieved === true;
+    const sourceType = String(candidate.sourceType || 'archive').trim().toLowerCase();
+    let score = 0;
+
+    if (sourceType === 'pattern') score += 3.6;
+    else if (sourceType === 'summary') score += 3.1;
+    else if (sourceType === 'chapter') score += 2.8;
+    else if (sourceType === 'episode') score += 2.2;
+    else score += 1.4;
+
+    score += Math.min(2.2, evidenceCount * 0.45);
+    if (contradictionLinked) score += 2.8;
+    if (openLoopLinked) score += 1.7;
+    if (recentlyRetrieved) score += 2.1;
+
+    if (ageDays == null) score += 0.4;
+    else score += Math.max(0, 2.4 - Math.min(2.4, ageDays / 5));
+
+    if (candidate.sensitivity === 'high') score -= 1.2;
+
+    return {
+      score: Math.round(score * 100) / 100,
+      sourceType,
+      evidenceCount,
+      ageDays: ageDays == null ? null : Math.round(ageDays * 100) / 100,
+      contradictionLinked,
+      openLoopLinked,
+      recentlyRetrieved,
+    };
+  }
+
   function buildArchiveCandidate(entry = {}, scope = 'global', sourceType = 'archive') {
     return {
       id: String(entry.id || '').trim(),
@@ -29,6 +68,10 @@ function createMemoryArchivePolicyApi({
       scope,
       createdAt: trimIso(entry.createdAt),
       sensitivity: entry.sensitivity === 'high' ? 'high' : 'normal',
+      evidenceCount: Math.max(1, Number(entry.evidenceCount || 1)),
+      contradictionLinked: entry.contradictionLinked === true,
+      openLoopLinked: entry.openLoopLinked === true,
+      recentlyRetrieved: entry.recentlyRetrieved === true,
       sourceEpisodeIds: normalizeEvidenceIds(entry.sourceEpisodeIds || entry.evidenceIds || []),
     };
   }
@@ -247,6 +290,7 @@ function createMemoryArchivePolicyApi({
     buildArchiveCandidate,
     buildCompressionExplanation,
     buildCompressionState,
+    scoreArchiveUtilityCandidate,
     scoreArchiveCandidate,
     buildSessionChapterText,
     buildSessionChapters,

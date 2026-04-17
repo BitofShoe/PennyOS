@@ -53,6 +53,8 @@ test('validateRuntimeArtifact supports configurable evidence and side-effect min
     requestedMode: 'local',
     selectedLane: 'tool',
     backend: 'local-lmstudio-tools',
+    executionPath: 'llm-tool-loop',
+    resolvedModel: 'google/gemma-4-e4b',
     retrieval: {
       session: [
         {
@@ -88,4 +90,57 @@ test('validateRuntimeArtifact supports configurable evidence and side-effect min
     minEvidence: 4,
     minSideEffects: 1,
   }), /missing verified evidence/i);
+});
+
+test('validateRuntimeArtifact rejects deterministic turns that falsely claim model use', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'demo',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'deterministic-tool',
+    requestedModel: 'google/gemma-4-e4b',
+    resolvedModel: 'google/gemma-4-e4b',
+    readiness: {
+      chatModelReady: true,
+      toolModelReady: true,
+      embeddingReady: true,
+      fallbackActive: false,
+      modelUsage: 'used',
+      warmState: 'warm',
+      checkedAt: '2026-04-16T12:00:00.000Z',
+      cacheAgeMs: 0,
+      cacheExpiresAt: '',
+      cacheHit: false,
+    },
+    performance: {
+      latencyClass: 'tool-heavy',
+      request: { available: true },
+      promptAssembly: { available: true },
+      archiveRetrieval: { available: true },
+      semanticRender: { available: false, attempted: false, used: false },
+      modelResolution: { available: true },
+      semanticProbe: { available: true },
+      firstToken: { available: false },
+      modelRoundTrip: {
+        available: true,
+        startedAt: '2026-04-16T12:00:00.000Z',
+        finishedAt: '2026-04-16T12:00:01.000Z',
+        durationMs: 1000,
+        transport: 'local-lmstudio',
+      },
+    },
+    toolRecords: [
+      {
+        name: 'read_project_file',
+        result: {
+          ok: true,
+          label: 'read README.md',
+          data: { path: 'README.md', textPreview: 'Penny is a local companion prototype.' },
+        },
+      },
+    ],
+  });
+
+  assert.throws(() => validateRuntimeArtifact(artifact), /deterministic turn/i);
 });
