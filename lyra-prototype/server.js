@@ -153,7 +153,7 @@ const PENNY_LMSTUDIO_CHAT_MODEL = process.env.PENNY_LMSTUDIO_CHAT_MODEL
   || 'google/gemma-4-31b';
 const PENNY_LMSTUDIO_TOOL_MODEL = process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b';
 const PENNY_LMSTUDIO_EMBED_MODEL = normalizeEmbedModelId(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5');
-const PENNY_ENABLE_BACKGROUND_CHAT_VECTORS = process.env.PENNY_ENABLE_BACKGROUND_CHAT_VECTORS === '1';
+const PENNY_ENABLE_BACKGROUND_CHAT_VECTORS = !['0', 'false', 'off', 'no'].includes(String(process.env.PENNY_ENABLE_BACKGROUND_CHAT_VECTORS || '').trim().toLowerCase());
 const PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT = Math.max(0, Number(process.env.PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT || 2));
 const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';

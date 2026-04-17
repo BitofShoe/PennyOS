@@ -73,6 +73,7 @@ export function buildMemoryInspectorViewModel(inspector = null) {
   const global = inspector?.archive?.global || {};
   const books = inspector?.memoryBooks || {};
   const semantic = inspector?.embeddings?.semanticMemory || {};
+  const backgroundVectorization = inspector?.embeddings?.backgroundVectorization || {};
   const ledger = inspector?.ledger || {};
   const routing = inspector?.routing || {};
   const artifact = inspector?.artifact || routing?.artifact || null;
@@ -89,6 +90,7 @@ export function buildMemoryInspectorViewModel(inspector = null) {
     global,
     books,
     semantic,
+    backgroundVectorization,
     ledger,
     routing,
     artifact,
@@ -113,6 +115,11 @@ function formatCacheAge(cacheAgeMs = 0) {
   if (seconds < 60) return `${seconds}s old`;
   const minutes = Math.round(seconds / 60);
   return `${minutes}m old`;
+}
+
+function formatInspectorMoment(value = '') {
+  const text = String(value || '').trim();
+  return text || 'not yet';
 }
 
 export function renderMemoryList({ els = {}, memory = {}, escapeHtmlFn = escapeHtml } = {}) {
@@ -176,6 +183,29 @@ function renderRoutingSummary(routing = {}, escapeHtmlFn = escapeHtml) {
       <div class="memory-copy">
         Requested mode: <strong>${escapeHtmlFn(requestedMode)}</strong> &middot; Selected lane: <strong>${escapeHtmlFn(selectedLane)}</strong> &middot; Backend: <strong>${escapeHtmlFn(backend)}</strong>
         <small>${escapeHtmlFn(repairBits.join(' · ') || 'No runtime repair was needed on the last reply.')}</small>
+      </div>
+    </div>
+  `;
+}
+
+function renderBackgroundVectorizationSummary(background = {}, session = {}, escapeHtmlFn = escapeHtml) {
+  const status = String(background.status || 'disabled').trim() || 'disabled';
+  const backgroundCandidateCount = Number(background.backgroundCandidateCount ?? background.selectedCount ?? 0);
+  const backgroundCreatedCount = Number(background.backgroundCreatedCount ?? background.createdCount ?? 0);
+  const detailBits = [
+    `semantic ready ${background.semanticReady ? 'yes' : 'no'}`,
+    `batch ${Math.max(0, Number(background.batchLimit || 0))}`,
+    `eager ${Math.max(0, Number(background.eagerEmbeddingCount || 0))}`,
+    `selected ${Math.max(0, backgroundCandidateCount)}`,
+    `created ${Math.max(0, backgroundCreatedCount)}`,
+  ];
+  if (background.archivePending) detailBits.push('archive update still pending');
+  if (background.skippedReason) detailBits.push(background.skippedReason);
+  return `
+    <div class="list-item">
+      <div class="memory-copy">
+        Background vectors: <strong>${escapeHtmlFn(status)}</strong> &middot; Attempted ${escapeHtmlFn(formatInspectorMoment(background.attemptedAt))} &middot; Last archived ${escapeHtmlFn(formatInspectorMoment(session?.lastArchivedAt))}
+        <small>${escapeHtmlFn(detailBits.join(' | '))}</small>
       </div>
     </div>
   `;
@@ -532,6 +562,8 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
         Explicit facts: ${escapeHtmlFn(String(viewModel.explicit.count || 0))} &middot; Memory books: ${escapeHtmlFn(String(viewModel.books.enabledCount || 0))} enabled &middot; Session archive: ${escapeHtmlFn(String(viewModel.session.episodeCount || 0))} episodes / ${escapeHtmlFn(String(viewModel.session.chapterCount || 0))} chapters &middot; Global patterns: ${escapeHtmlFn(String(viewModel.global.patternCount || 0))} &middot; Investigations: ${escapeHtmlFn(String(viewModel.ledger.topicCount || 0))}
       </div>
     </div>
+    <div class="section-label" style="margin-top:12px;">Background vectorization</div>
+    ${renderBackgroundVectorizationSummary(viewModel.backgroundVectorization, viewModel.session, escapeHtmlFn)}
     ${renderRoutingSummary(viewModel.routing, escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Runtime artifact</div>
     ${renderArtifactSummary(viewModel.artifact, escapeHtmlFn)}

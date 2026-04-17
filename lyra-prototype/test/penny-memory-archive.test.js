@@ -56,6 +56,7 @@ function buildArchiveApi({
   embedModel = 'text-embedding-nomic-embed-text-v1.5',
   enableBackgroundChatVectors = false,
   backgroundChatVectorBatchLimit = 2,
+  fetchImpl = null,
 } = {}) {
   let fetchCalls = 0;
   const api = createMemoryArchiveApi({
@@ -67,6 +68,9 @@ function buildArchiveApi({
       try {
         input = JSON.parse(options.body || '{}').input || '';
       } catch {}
+      if (typeof fetchImpl === 'function') {
+        return fetchImpl(_url, options, { input, fetchCalls });
+      }
       return {
         ok: true,
         async text() {
@@ -127,6 +131,45 @@ test('scoreArchiveUtilityCandidate favors recent contradiction-linked anchors ov
     assert.equal(highUtility.contradictionLinked, true);
     assert.equal(highUtility.recentlyRetrieved, true);
     assert.equal(lowUtility.openLoopLinked, false);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('writeEmbeddingsStore merges additive writes from a stale copy instead of dropping prior vectors', () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    const firstWrite = api.readEmbeddingsStore();
+    const staleWrite = api.readEmbeddingsStore();
+
+    firstWrite.items['hash-a'] = {
+      hash: 'hash-a',
+      text: 'Red glove on dryer three.',
+      model: 'text-embedding-nomic-embed-text-v1.5',
+      updatedAt: '2026-04-13T12:00:00.000Z',
+      vector: buildEmbeddingVector('red glove on dryer three'),
+      sensitivity: 'normal',
+    };
+    firstWrite.meta.updatedAt = '2026-04-13T12:00:00.000Z';
+
+    staleWrite.items['hash-b'] = {
+      hash: 'hash-b',
+      text: 'Photo booth curtain missing two silver hooks.',
+      model: 'text-embedding-nomic-embed-text-v1.5',
+      updatedAt: '2026-04-13T12:00:01.000Z',
+      vector: buildEmbeddingVector('photo booth curtain missing two silver hooks'),
+      sensitivity: 'normal',
+    };
+    staleWrite.meta.updatedAt = '2026-04-13T12:00:01.000Z';
+
+    api.writeEmbeddingsStore(firstWrite);
+    api.writeEmbeddingsStore(staleWrite);
+
+    const merged = api.readEmbeddingsStore();
+    assert.ok(merged.items['hash-a']);
+    assert.ok(merged.items['hash-b']);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
@@ -201,6 +244,46 @@ test('archiveCompletedTurn suppresses low-signal filler themes in stylized chat'
     assert.doesNotMatch(summaryText, /\bi'm\b|honestly|high\b|just saying|still saying/i);
     assert.match(patternText, /black cherry perfume/i);
     assert.doesNotMatch(patternText, /\bi'm\b|honestly|high\b|just saying|still saying/i);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('createMemoryArchiveApi enables bounded background vectorization by default', async () => {
+  const files = makeTempFiles();
+  const api = createMemoryArchiveApi({
+    fs,
+    path,
+    fetch: async () => ({
+      ok: true,
+      async text() {
+        return JSON.stringify({ data: [] });
+      },
+    }),
+    ARCHIVE_FILE: files.archiveFile,
+    EMBEDDINGS_FILE: files.embeddingsFile,
+    LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+    LMSTUDIO_API_KEY: 'lm-studio-local',
+    PENNY_LMSTUDIO_EMBED_MODEL: 'text-embedding-nomic-embed-text-v1.5',
+    async getLmStudioConnectionStatus() {
+      return {
+        reachable: true,
+        installedModels: ['text-embedding-nomic-embed-text-v1.5'],
+        nativeAvailableModels: ['text-embedding-nomic-embed-text-v1.5'],
+        availableModels: ['text-embedding-nomic-embed-text-v1.5'],
+      };
+    },
+  });
+
+  try {
+    const inspector = await api.getMemoryInspector({
+      sessionId: 'default',
+      explicitMemory: { memories: [] },
+    });
+
+    assert.equal(inspector.embeddings.backgroundVectorization.enabled, true);
+    assert.equal(inspector.embeddings.backgroundVectorization.status, 'skipped');
+    assert.equal(inspector.embeddings.backgroundVectorization.batchLimit, 2);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
@@ -425,6 +508,8 @@ test('archiveCompletedTurn preserves retrieval provenance and the inspector surf
     assert.deepEqual(inspector.archive.session.lastRetrieval.compression.explanation.penalties, ['scaffolding-filter']);
     assert.equal(inspector.archive.session.lastRetrieval.compression.explanation.omittedEpisodeCount, 9);
     assert.equal(inspector.archive.session.lastRetrieval.compression.explanation.carriedContradictions[0].conflictKey, 'favorite tea');
+    assert.match(inspector.archive.session.lastArchivedAt, /^2026-04-13T12:00:0\d\.000Z$/);
+    assert.equal(inspector.archive.session.updatedAt, inspector.archive.session.lastArchivedAt);
     assert.equal(inspector.explicit.memories.length, 1);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
@@ -523,6 +608,52 @@ test('buildArchiveContext can surface session chapter fallback when semantic ret
     assert.ok(Array.isArray(result.retrieval.compression.explanation.selectedSignals));
     assert.ok(Array.isArray(result.retrieval.compression.explanation.penalties));
     assert.ok(Number.isFinite(result.retrieval.compression.explanation.omittedEpisodeCount));
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext marks semantic downgrade when query embedding creation fails under semantic-ready recall', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({
+    ...files,
+    fetchImpl: async (_url, _options, { input }) => ({
+      ok: true,
+      async text() {
+        if (/semantic downgrade sentinel/i.test(input)) {
+          return JSON.stringify({ data: [{ embedding: [] }] });
+        }
+        return JSON.stringify({
+          data: [
+            { embedding: buildEmbeddingVector(input) },
+          ],
+        });
+      },
+    }),
+  });
+
+  try {
+    await api.archiveCompletedTurn({
+      sessionId: 'semantic-downgrade',
+      userText: 'The red glove stayed on dryer three.',
+      assistantText: 'I can keep that red glove detail in view.',
+    });
+
+    const result = await api.buildArchiveContext({
+      sessionId: 'semantic-downgrade',
+      userText: 'semantic downgrade sentinel: what happened with the red glove again?',
+      lane: 'chat',
+    });
+
+    assert.equal(result.semanticMemory.ready, true);
+    assert.equal(result.archiveContext.mode, 'keyword');
+    assert.equal(result.archiveContext.reasonCode, ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK);
+    assert.equal(result.archiveContext.semanticReady, true);
+    assert.equal(result.archiveContext.semanticAttempted, true);
+    assert.equal(result.archiveContext.semanticDowngrade, true);
+    assert.equal(result.archiveContext.semanticDowngradeReason, 'query-vector-unavailable');
+    assert.equal(result.retrieval.semanticDowngrade, true);
+    assert.equal(result.retrieval.semanticDowngradeReason, 'query-vector-unavailable');
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
@@ -686,8 +817,15 @@ test('archiveCompletedTurn records skipped background vectorization telemetry wh
 
     assert.equal(result.backgroundVectorization.status, 'skipped');
     assert.equal(result.backgroundVectorization.skippedReason, 'semantic-memory-not-ready');
+    assert.equal(result.backgroundVectorization.archivePending, false);
+    assert.equal(result.backgroundVectorization.eagerEmbeddingCount, 0);
+    assert.equal(result.backgroundVectorization.eagerCreatedCount, 0);
+    assert.equal(result.backgroundVectorization.backgroundCandidateCount, 0);
+    assert.equal(result.backgroundVectorization.backgroundCreatedCount, 0);
     assert.equal(inspector.embeddings.backgroundVectorization.status, 'skipped');
     assert.equal(inspector.embeddings.backgroundVectorization.batchLimit, 1);
+    assert.equal(inspector.embeddings.backgroundVectorization.eagerEmbeddingCount, 0);
+    assert.equal(inspector.embeddings.backgroundVectorization.backgroundCandidateCount, 0);
     assert.equal(inspector.archive.meta.backgroundVectorization.status, 'skipped');
     assert.equal(getFetchCalls(), 0);
   } finally {
@@ -723,6 +861,10 @@ test('archiveCompletedTurn prewarms bounded background chat vectors and records 
 
     assert.equal(inspector.embeddings.backgroundVectorization.status, 'applied');
     assert.equal(inspector.embeddings.backgroundVectorization.batchLimit, 1);
+    assert.ok(inspector.embeddings.backgroundVectorization.eagerEmbeddingCount >= 1);
+    assert.ok(inspector.embeddings.backgroundVectorization.eagerCreatedCount >= 1);
+    assert.equal(inspector.embeddings.backgroundVectorization.backgroundCandidateCount, 1);
+    assert.equal(inspector.embeddings.backgroundVectorization.backgroundCreatedCount, 1);
     assert.equal(inspector.embeddings.backgroundVectorization.selectedCount, 1);
     assert.equal(inspector.embeddings.backgroundVectorization.createdCount, 1);
     assert.equal(inspector.embeddings.backgroundVectorization.candidates.length, 1);

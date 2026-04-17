@@ -87,6 +87,17 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
         ready: true,
         configuredModel: 'text-embedding-nomic-embed-text-v1.5',
       },
+      backgroundVectorization: {
+        status: 'applied',
+        attemptedAt: '2026-04-15T12:00:01.000Z',
+        semanticReady: true,
+        archivePending: false,
+        batchLimit: 2,
+        eagerEmbeddingCount: 4,
+        eagerCreatedCount: 2,
+        backgroundCandidateCount: 2,
+        backgroundCreatedCount: 1,
+      },
     },
     ledger: {
       topicCount: 1,
@@ -243,6 +254,9 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
   assert.equal(viewModel.explicit.count, 3);
   assert.equal(viewModel.books.enabledCount, 2);
   assert.equal(viewModel.ledger.topicCount, 1);
+  assert.equal(viewModel.backgroundVectorization.status, 'applied');
+  assert.equal(viewModel.backgroundVectorization.eagerEmbeddingCount, 4);
+  assert.equal(viewModel.backgroundVectorization.backgroundCandidateCount, 2);
   assert.equal(viewModel.matchedBooks.length, 1);
   assert.equal(viewModel.compression.used, true);
   assert.equal(viewModel.compression.explanation.selectedSignals[0], 'active-contradiction');
@@ -277,6 +291,7 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
         session: {
           episodeCount: 1,
           chapterCount: 0,
+          lastArchivedAt: '2026-04-15T12:00:01.050Z',
           recencyProtection: {
             enabled: true,
             protectedEpisodeCount: 4,
@@ -312,6 +327,17 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
         semanticMemory: {
           ready: true,
           configuredModel: 'text-embedding-nomic-embed-text-v1.5',
+        },
+        backgroundVectorization: {
+          status: 'applied',
+          attemptedAt: '2026-04-15T12:00:01.000Z',
+          semanticReady: true,
+          archivePending: true,
+          batchLimit: 2,
+          eagerEmbeddingCount: 4,
+          eagerCreatedCount: 2,
+          backgroundCandidateCount: 2,
+          backgroundCreatedCount: 1,
         },
       },
       ledger: {
@@ -473,6 +499,11 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Latency class:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Readiness:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /tool-heavy/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Background vectorization/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Background vectors: <strong>applied/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /archive update still pending/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /selected 2/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Last archived 2026-04-15T12:00:01\.050Z/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Trace artifact/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Trace provenance/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Research continuity ledger/);

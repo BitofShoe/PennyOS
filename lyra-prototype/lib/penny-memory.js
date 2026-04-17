@@ -182,6 +182,17 @@ function formatPromptSection(label, lines = []) {
   return `${label}:\n${items.map((line) => `- ${line}`).join('\n')}`;
 }
 
+function isDirectMemoryAuthorityQuestion(userText = '') {
+  const normalized = normalizeText(userText || '').toLowerCase();
+  if (!normalized) return false;
+  return [
+    /\bwhat should you remember\b/,
+    /\bwhat do you remember\b/,
+    /\bwhat should still be true\b/,
+    /\bwhat am i trusting you to remember\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
   const selected = selectMemoriesForPrompt(memories, userText, limit, now);
   const memoryBooks = selectMemoryBooksForPrompt(memories, MEMORY_BOOK_PROMPT_LIMIT);
@@ -226,6 +237,9 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   const retrievalReason = normalizeText(archiveContext?.reasonCode || '');
   const compressionUsed = archiveContext?.compression?.used === true;
   const semanticReady = archiveContext?.semanticReady === true;
+  const semanticDowngrade = archiveContext?.semanticDowngrade === true;
+  const semanticDowngradeReason = normalizeText(archiveContext?.semanticDowngradeReason || '').replace(/-/g, ' ');
+  const directMemoryAuthorityQuestion = isDirectMemoryAuthorityQuestion(userText);
   const archiveAdvisoryContentPresent = Boolean(
     (archiveSynthesis?.generated && archiveSynthesis.summary)
     || globalArchive.some((item) => normalizeText(item?.text || '')),
@@ -233,10 +247,13 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   if (
     archiveContext
     && archiveAdvisoryContentPresent
-    && (!semanticReady || retrievalReason === 'keyword_fallback' || compressionUsed)
+    && (!semanticReady || retrievalReason === 'keyword_fallback' || compressionUsed || semanticDowngrade)
   ) {
     const fallbackBits = [];
     if (!semanticReady) fallbackBits.push('semantic recall is unavailable');
+    if (semanticDowngrade) {
+      fallbackBits.push(`semantic query downgraded${semanticDowngradeReason ? ` (${semanticDowngradeReason})` : ''}`);
+    }
     if (retrievalReason === 'keyword_fallback') fallbackBits.push('archive recall is running in keyword fallback');
     if (compressionUsed) fallbackBits.push('chapter compression is standing in for richer recall');
     retrievalHints.push(`retrieval caution: ${fallbackBits.join(', ')}. treat archive hints as weaker than canon.`);
@@ -255,6 +272,10 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   const stableFacts = [];
   stableFacts.push(...selected.map((item) => item.text));
   stableFacts.push(...memoryBooks.map((item) => `memory book: ${item.text}`));
+  const suppressAdvisoryForDirectAuthority = directMemoryAuthorityQuestion && stableFacts.length > 0;
+  if (suppressAdvisoryForDirectAuthority) {
+    stableFacts.unshift('canon priority: answer direct memory questions from these stable facts first. use archive hints only if canon is silent.');
+  }
   const sessionContext = sessionArchive
     .map((item) => normalizeText(item?.text || ''))
     .filter(Boolean);
@@ -285,8 +306,8 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   if (stableFactsSection) sections.push(stableFactsSection);
   if (sessionContextSection) sections.push(sessionContextSection);
   if (contradictionSection) sections.push(contradictionSection);
-  if (investigationsSection) sections.push(investigationsSection);
-  if (retrievalHintsSection) sections.push(retrievalHintsSection);
+  if (!suppressAdvisoryForDirectAuthority && investigationsSection) sections.push(investigationsSection);
+  if (!suppressAdvisoryForDirectAuthority && retrievalHintsSection) sections.push(retrievalHintsSection);
   if (!sections.length) return fallback;
   return sections.join('\n');
 }

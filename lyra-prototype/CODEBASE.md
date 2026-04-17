@@ -231,7 +231,7 @@ Untracked runtime memory store created on first run.
 - `penny-memory-archive.json`
 Hybrid archive runtime store for episodic recall, summaries, patterns, and the promotion queue.
 - `penny-memory-embeddings.json`
-Embedding cache for semantic archive retrieval when a local embedding model is available, plus bounded background-vectorization telemetry.
+Embedding cache for semantic archive retrieval when a local embedding model is available, plus bounded default-on background-vectorization telemetry that can still be disabled by env.
 - `penny-memory-ledger.json`
 Research continuity ledger for bounded advisory topics, evidence refs, and open follow-ups.
 - various QA/eval memory files
@@ -336,7 +336,7 @@ Likely modules you will touch:
 
 - durable memory handling in `lib/penny-memory*.js`
 - hybrid archive recall/promotion/background-vectorization logic in `lib/penny-memory-archive.js`
-- archive utility scoring and pruning heuristics for eval/shadow selection in `lib/penny-memory-archive-policy.js`
+- archive utility scoring and pruning heuristics for evals plus live background-prewarm candidate ranking in `lib/penny-memory-archive-policy.js`
 - research continuity topic tracking in `lib/penny-research-ledger.js`
 - lane selection in `lib/penny-local-lanes.js`
 - direct tool intent routing in `lib/penny-direct-intents.js`

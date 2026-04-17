@@ -160,7 +160,7 @@ Hybrid archive overlay:
   - session buckets with episodic history, summaries, open loops, and last retrieval provenance
 - `data/penny-memory-embeddings.json`
   - embedding cache used for semantic archive retrieval when a local embed model is available
-  - bounded background-vectorization status for optional post-turn shadow prewarm work
+  - bounded background-vectorization status for default-on post-turn shadow prewarm work that can still be disabled by env
 - `data/penny-memory-ledger.json`
   - bounded research continuity topics with evidence refs, contradictions, open follow-ups, and source session/turn identity
   - advisory only; this does not mutate canonical explicit memory by itself
@@ -169,9 +169,9 @@ Current archive-policy behavior:
 
 - explicit memory is still canonical
 - archive utility scoring lives in `lib/penny-memory-archive-policy.js`
-- that utility score is currently used for eval/shadow selection only, not live auto-forgetting
-- optional background chat vectorization runs only after `archiveCompletedTurn`, never in prompt assembly, and stays bounded behind env flags
-- inspector payloads expose background-vectorization telemetry so the behavior stays inspectable
+- that utility score is currently used for evals plus live background-prewarm candidate ranking, not live auto-forgetting
+- background chat vectorization now defaults on, but it still runs only after `archiveCompletedTurn`, never in prompt assembly, and can be disabled with `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=0`. It is off the reply-latency path, but it still shares process, embedding-backend, and cache/store capacity.
+- inspector payloads expose background-vectorization telemetry, including the session `lastArchivedAt` timestamp, and the in-app panel now surfaces a compact background-vectorization summary so the behavior stays inspectable in practice
 
 Important trust boundary:
 

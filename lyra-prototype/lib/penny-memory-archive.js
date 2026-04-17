@@ -39,6 +39,10 @@ const GLOBAL_THEME_MIN_EVIDENCE = 3;
  * @property {'semantic' | 'keyword'} mode
  * @property {ArchiveRetrievalReasonCode} reasonCode
  * @property {string} embedModel
+ * @property {boolean} semanticReady
+ * @property {boolean} semanticAttempted
+ * @property {boolean} semanticDowngrade
+ * @property {string} semanticDowngradeReason
  * @property {Array<Object>} session
  * @property {Array<Object>} global
  * @property {Object} compression
@@ -190,21 +194,29 @@ function countPhrases(texts = [], minEvidence = 3) {
       || left[0].localeCompare(right[0]));
 }
 
-function buildDefaultBackgroundVectorizationStatus(batchLimit = 0) {
+function buildDefaultBackgroundVectorizationStatus(batchLimit = 0, enabled = false) {
   return {
-    enabled: false,
-    status: 'disabled',
+    enabled,
+    status: enabled ? 'skipped' : 'disabled',
     semanticReady: false,
+    archivePending: false,
     attemptedAt: '',
     skippedReason: '',
+    eagerEmbeddingCount: 0,
+    eagerCreatedCount: 0,
     batchLimit: Math.max(0, Number(batchLimit || 0)),
+    backgroundCandidateCount: 0,
+    backgroundCreatedCount: 0,
     selectedCount: 0,
     createdCount: 0,
     candidates: [],
   };
 }
 
-function buildArchiveStore(embedModel = '') {
+function buildArchiveStore(embedModel = '', {
+  backgroundVectorsEnabled = false,
+  backgroundVectorBatchLimit = 0,
+} = {}) {
   return {
     meta: {
       schemaVersion: ARCHIVE_SCHEMA_VERSION,
@@ -212,7 +224,7 @@ function buildArchiveStore(embedModel = '') {
       lastCompactedAt: '',
       lastSummarizedAt: '',
       reviewDecisions: {},
-      backgroundVectorization: buildDefaultBackgroundVectorizationStatus(),
+      backgroundVectorization: buildDefaultBackgroundVectorizationStatus(backgroundVectorBatchLimit, backgroundVectorsEnabled),
     },
     global: {
       episodes: [],
@@ -224,13 +236,16 @@ function buildArchiveStore(embedModel = '') {
   };
 }
 
-function buildEmbeddingsStore(embedModel = '') {
+function buildEmbeddingsStore(embedModel = '', {
+  backgroundVectorsEnabled = false,
+  backgroundVectorBatchLimit = 0,
+} = {}) {
   return {
     meta: {
       schemaVersion: EMBEDDINGS_SCHEMA_VERSION,
       embedModel: String(embedModel || '').trim(),
       updatedAt: '',
-      backgroundVectorization: buildDefaultBackgroundVectorizationStatus(),
+      backgroundVectorization: buildDefaultBackgroundVectorizationStatus(backgroundVectorBatchLimit, backgroundVectorsEnabled),
     },
     items: {},
   };
@@ -261,7 +276,7 @@ function createMemoryArchiveApi({
   LMSTUDIO_BASE = '',
   LMSTUDIO_API_KEY = 'lm-studio-local',
   PENNY_LMSTUDIO_EMBED_MODEL = '',
-  ENABLE_BACKGROUND_CHAT_VECTORS = false,
+  ENABLE_BACKGROUND_CHAT_VECTORS = true,
   BACKGROUND_CHAT_VECTOR_BATCH_LIMIT = 2,
   getLmStudioConnectionStatus = null,
   modelsLookEquivalent = null,
@@ -574,15 +589,22 @@ function createMemoryArchiveApi({
     const status = ['disabled', 'skipped', 'applied', 'failed'].includes(requestedStatus)
       ? requestedStatus
       : (enabled ? 'skipped' : 'disabled');
+    const backgroundCandidateCount = Math.max(0, Number(raw.backgroundCandidateCount ?? raw.selectedCount ?? 0));
+    const backgroundCreatedCount = Math.max(0, Number(raw.backgroundCreatedCount ?? raw.createdCount ?? 0));
     return {
       enabled,
       status,
       semanticReady: raw.semanticReady === true,
+      archivePending: raw.archivePending === true,
       attemptedAt: trimIso(raw.attemptedAt || raw.updatedAt, ''),
       skippedReason: trimText(raw.skippedReason || raw.reason || '', 120),
+      eagerEmbeddingCount: Math.max(0, Number(raw.eagerEmbeddingCount || 0)),
+      eagerCreatedCount: Math.max(0, Number(raw.eagerCreatedCount || 0)),
       batchLimit: Math.max(0, Number(raw.batchLimit || batchLimit || 0)),
-      selectedCount: Math.max(0, Number(raw.selectedCount || 0)),
-      createdCount: Math.max(0, Number(raw.createdCount || 0)),
+      backgroundCandidateCount,
+      backgroundCreatedCount,
+      selectedCount: backgroundCandidateCount,
+      createdCount: backgroundCreatedCount,
       candidates: Array.isArray(raw.candidates)
         ? raw.candidates.map(normalizeBackgroundVectorizationCandidate).filter(Boolean).slice(0, 4)
         : [],
@@ -632,6 +654,10 @@ function createMemoryArchiveApi({
           usedAt: trimIso(raw.lastRetrieval.usedAt, ''),
           mode: String(raw.lastRetrieval.mode || '').trim() || 'keyword',
           embedModel: String(raw.lastRetrieval.embedModel || '').trim(),
+          semanticReady: raw.lastRetrieval.semanticReady === true,
+          semanticAttempted: raw.lastRetrieval.semanticAttempted === true,
+          semanticDowngrade: raw.lastRetrieval.semanticDowngrade === true,
+          semanticDowngradeReason: trimText(raw.lastRetrieval.semanticDowngradeReason || '', 80),
           session: Array.isArray(raw.lastRetrieval.session) ? raw.lastRetrieval.session.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
           global: Array.isArray(raw.lastRetrieval.global) ? raw.lastRetrieval.global.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
           books: Array.isArray(raw.lastRetrieval.books) ? raw.lastRetrieval.books.map(normalizeBookMatch).filter(Boolean).slice(0, 4) : [],
@@ -651,7 +677,10 @@ function createMemoryArchiveApi({
   }
 
   function normalizeArchiveStore(store = {}) {
-    const base = buildArchiveStore(configuredEmbedModel);
+    const base = buildArchiveStore(configuredEmbedModel, {
+      backgroundVectorsEnabled: backgroundChatVectorsEnabled,
+      backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
+    });
     const parsed = store && typeof store === 'object' ? store : {};
     base.meta = {
       ...base.meta,
@@ -686,7 +715,10 @@ function createMemoryArchiveApi({
   }
 
   function normalizeEmbeddingsStore(store = {}) {
-    const base = buildEmbeddingsStore(configuredEmbedModel);
+    const base = buildEmbeddingsStore(configuredEmbedModel, {
+      backgroundVectorsEnabled: backgroundChatVectorsEnabled,
+      backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
+    });
     const parsed = store && typeof store === 'object' ? store : {};
     base.meta = {
       ...base.meta,
@@ -716,7 +748,10 @@ function createMemoryArchiveApi({
   }
 
   function readArchiveStore() {
-    ensureFile(ARCHIVE_FILE, () => buildArchiveStore(configuredEmbedModel));
+    ensureFile(ARCHIVE_FILE, () => buildArchiveStore(configuredEmbedModel, {
+      backgroundVectorsEnabled: backgroundChatVectorsEnabled,
+      backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
+    }));
     try {
       const raw = fs.readFileSync(ARCHIVE_FILE, 'utf8');
       const parsed = raw ? JSON.parse(raw) : {};
@@ -727,14 +762,20 @@ function createMemoryArchiveApi({
   }
 
   function writeArchiveStore(store = {}) {
-    ensureFile(ARCHIVE_FILE, () => buildArchiveStore(configuredEmbedModel));
+    ensureFile(ARCHIVE_FILE, () => buildArchiveStore(configuredEmbedModel, {
+      backgroundVectorsEnabled: backgroundChatVectorsEnabled,
+      backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
+    }));
     const normalized = normalizeArchiveStore(store);
     fs.writeFileSync(ARCHIVE_FILE, `${JSON.stringify(normalized, null, 2)}\n`);
     return normalized;
   }
 
   function readEmbeddingsStore() {
-    ensureFile(EMBEDDINGS_FILE, () => buildEmbeddingsStore(configuredEmbedModel));
+    ensureFile(EMBEDDINGS_FILE, () => buildEmbeddingsStore(configuredEmbedModel, {
+      backgroundVectorsEnabled: backgroundChatVectorsEnabled,
+      backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
+    }));
     try {
       const raw = fs.readFileSync(EMBEDDINGS_FILE, 'utf8');
       const parsed = raw ? JSON.parse(raw) : {};
@@ -744,9 +785,82 @@ function createMemoryArchiveApi({
     }
   }
 
-  function writeEmbeddingsStore(store = {}) {
-    ensureFile(EMBEDDINGS_FILE, () => buildEmbeddingsStore(configuredEmbedModel));
-    const normalized = normalizeEmbeddingsStore(store);
+  function compareIsoStrings(left = '', right = '') {
+    const leftMs = Date.parse(String(left || '').trim());
+    const rightMs = Date.parse(String(right || '').trim());
+    const leftValid = Number.isFinite(leftMs);
+    const rightValid = Number.isFinite(rightMs);
+    if (!leftValid && !rightValid) return 0;
+    if (!leftValid) return -1;
+    if (!rightValid) return 1;
+    if (leftMs === rightMs) return 0;
+    return leftMs > rightMs ? 1 : -1;
+  }
+
+  function pickPreferredEmbeddingItem(left = null, right = null) {
+    if (!left) return right;
+    if (!right) return left;
+    const byUpdatedAt = compareIsoStrings(left.updatedAt, right.updatedAt);
+    if (byUpdatedAt > 0) return left;
+    if (byUpdatedAt < 0) return right;
+    const leftVectorLength = Array.isArray(left.vector) ? left.vector.length : 0;
+    const rightVectorLength = Array.isArray(right.vector) ? right.vector.length : 0;
+    if (leftVectorLength > rightVectorLength) return left;
+    if (leftVectorLength < rightVectorLength) return right;
+    return right;
+  }
+
+  function pickPreferredBackgroundVectorizationStatus(left = {}, right = {}) {
+    const normalizedLeft = normalizeBackgroundVectorizationStatus(left);
+    const normalizedRight = normalizeBackgroundVectorizationStatus(right);
+    const byAttemptedAt = compareIsoStrings(normalizedLeft.attemptedAt, normalizedRight.attemptedAt);
+    if (byAttemptedAt > 0) return normalizedLeft;
+    if (byAttemptedAt < 0) return normalizedRight;
+    if (normalizedLeft.archivePending !== normalizedRight.archivePending) {
+      return normalizedLeft.archivePending ? normalizedRight : normalizedLeft;
+    }
+    if (normalizedLeft.status !== normalizedRight.status) {
+      if (normalizedLeft.status === 'failed' || normalizedRight.status === 'failed') {
+        return normalizedLeft.status === 'failed' ? normalizedLeft : normalizedRight;
+      }
+      if (normalizedLeft.status === 'applied' || normalizedRight.status === 'applied') {
+        return normalizedLeft.status === 'applied' ? normalizedLeft : normalizedRight;
+      }
+    }
+    return normalizedRight;
+  }
+
+  function mergeEmbeddingsStore(baseStore = {}, incomingStore = {}) {
+    const base = normalizeEmbeddingsStore(baseStore);
+    const incoming = normalizeEmbeddingsStore(incomingStore);
+    const mergedItems = { ...base.items };
+    for (const [key, item] of Object.entries(incoming.items || {})) {
+      mergedItems[key] = pickPreferredEmbeddingItem(mergedItems[key], item);
+    }
+    return normalizeEmbeddingsStore({
+      meta: {
+        ...base.meta,
+        ...incoming.meta,
+        updatedAt: compareIsoStrings(base.meta?.updatedAt, incoming.meta?.updatedAt) > 0
+          ? base.meta?.updatedAt
+          : incoming.meta?.updatedAt,
+        backgroundVectorization: pickPreferredBackgroundVectorizationStatus(
+          base.meta?.backgroundVectorization,
+          incoming.meta?.backgroundVectorization,
+        ),
+      },
+      items: mergedItems,
+    });
+  }
+
+  function writeEmbeddingsStore(store = {}, { replace = false } = {}) {
+    ensureFile(EMBEDDINGS_FILE, () => buildEmbeddingsStore(configuredEmbedModel, {
+      backgroundVectorsEnabled: backgroundChatVectorsEnabled,
+      backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
+    }));
+    const normalized = replace
+      ? normalizeEmbeddingsStore(store)
+      : mergeEmbeddingsStore(readEmbeddingsStore(), store);
     fs.writeFileSync(EMBEDDINGS_FILE, `${JSON.stringify(normalized, null, 2)}\n`);
     return normalized;
   }
@@ -1169,6 +1283,7 @@ function createMemoryArchiveApi({
     const baseStatus = {
       enabled: backgroundChatVectorsEnabled,
       semanticReady: semanticMemory?.ready === true,
+      archivePending: false,
       attemptedAt,
       batchLimit: backgroundChatVectorBatchLimit,
     };
@@ -1240,8 +1355,8 @@ function createMemoryArchiveApi({
         ...baseStatus,
         status: failureMessage && createdCount === 0 ? 'failed' : 'applied',
         skippedReason: trimText(failureMessage, 120),
-        selectedCount: selectedCandidates.length,
-        createdCount,
+        backgroundCandidateCount: selectedCandidates.length,
+        backgroundCreatedCount: createdCount,
         candidates: selectedCandidates,
       }),
     };
@@ -1322,15 +1437,24 @@ function createMemoryArchiveApi({
     const queryTokens = new Set(tokenizeMemoryText(userText));
     let queryVector = null;
     let embeddings = null;
+    const semanticAttempted = semanticMemory.ready && allowSemanticQuery;
+    let semanticDowngrade = false;
+    let semanticDowngradeReason = '';
 
-    if (semanticMemory.ready && allowSemanticQuery) {
+    if (semanticAttempted) {
       try {
         const embedded = await ensureEmbeddingForText(userText, readEmbeddingsStore(), semanticMemory);
         embeddings = embedded.embeddings;
-        queryVector = embedded.vector;
+        queryVector = Array.isArray(embedded.vector) && embedded.vector.length ? embedded.vector : null;
+        if (!queryVector) {
+          semanticDowngrade = true;
+          semanticDowngradeReason = 'query-vector-unavailable';
+        }
         if (embedded.created) writeEmbeddingsStore(embeddings);
       } catch {
         queryVector = null;
+        semanticDowngrade = true;
+        semanticDowngradeReason = 'query-embedding-failed';
       }
     }
 
@@ -1409,6 +1533,10 @@ function createMemoryArchiveApi({
         ? ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY
         : ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK,
       embedModel: semanticMemory.ready ? configuredEmbedModel : '',
+      semanticReady: semanticMemory.ready,
+      semanticAttempted,
+      semanticDowngrade,
+      semanticDowngradeReason,
       session: combinedSessionItems.map(normalizeRetrievalItem).filter(Boolean),
       global: globalItems.map(normalizeRetrievalItem).filter(Boolean),
       compression,
@@ -1424,6 +1552,9 @@ function createMemoryArchiveApi({
         provenance: session.provenance.slice(0, 2),
         activeContradictions: activeContradictions.slice(0, 3),
         semanticReady: semanticMemory.ready,
+        semanticAttempted,
+        semanticDowngrade,
+        semanticDowngradeReason,
         compression,
         recencyProtection: buildRecencyProtection(session),
       },
@@ -1830,6 +1961,10 @@ function createMemoryArchiveApi({
               ? ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY
               : ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK),
           embedModel: String(retrieval.embedModel || ''),
+          semanticReady: retrieval.semanticReady === true,
+          semanticAttempted: retrieval.semanticAttempted === true,
+          semanticDowngrade: retrieval.semanticDowngrade === true,
+          semanticDowngradeReason: trimText(retrieval.semanticDowngradeReason || '', 80),
           session: Array.isArray(retrieval.session) ? retrieval.session.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
           global: Array.isArray(retrieval.global) ? retrieval.global.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
           books: Array.isArray(retrieval.books) ? retrieval.books.map(normalizeBookMatch).filter(Boolean).slice(0, 4) : [],
@@ -1848,6 +1983,7 @@ function createMemoryArchiveApi({
     applyBackgroundVectorizationStatus(archive, embeddings, {
       enabled: backgroundChatVectorsEnabled,
       semanticReady: false,
+      archivePending: true,
       attemptedAt: createdAt,
       status: backgroundChatVectorsEnabled ? 'skipped' : 'disabled',
       skippedReason: backgroundChatVectorsEnabled ? 'awaiting-semantic-status' : '',
@@ -1861,9 +1997,12 @@ function createMemoryArchiveApi({
       applyBackgroundVectorizationStatus(archive, embeddings, {
         enabled: backgroundChatVectorsEnabled,
         semanticReady: false,
+        archivePending: false,
         attemptedAt: createdAt,
         status: backgroundChatVectorsEnabled ? 'skipped' : 'disabled',
         skippedReason: backgroundChatVectorsEnabled ? 'semantic-memory-not-ready' : '',
+        eagerEmbeddingCount: 0,
+        eagerCreatedCount: 0,
         batchLimit: backgroundChatVectorBatchLimit,
       });
       writeArchiveStore(archive);
@@ -1875,16 +2014,21 @@ function createMemoryArchiveApi({
       };
     }
 
-    for (const text of [
+    const eagerTexts = [
       episode.userText,
       sessionSummaryText,
       globalSummaryText,
       ...session.chapters.map(item => item.text),
       ...archive.global.patterns.map(item => item.text),
-    ].filter(Boolean)) {
+    ].filter(Boolean);
+    let eagerEmbeddingCount = 0;
+    let eagerCreatedCount = 0;
+    for (const text of eagerTexts) {
+      eagerEmbeddingCount += 1;
       try {
         const embedded = await ensureEmbeddingForText(text, embeddings, semanticMemory);
         embeddings = embedded.embeddings;
+        if (embedded.created) eagerCreatedCount += 1;
       } catch {}
     }
     const backgroundVectorization = await runBackgroundVectorizationPrewarm({
@@ -1895,7 +2039,12 @@ function createMemoryArchiveApi({
       now: nowMs(),
     });
     embeddings = backgroundVectorization.embeddings;
-    applyBackgroundVectorizationStatus(archive, embeddings, backgroundVectorization.status);
+    applyBackgroundVectorizationStatus(archive, embeddings, {
+      ...backgroundVectorization.status,
+      archivePending: false,
+      eagerEmbeddingCount,
+      eagerCreatedCount,
+    });
     writeArchiveStore(archive);
     writeEmbeddingsStore(embeddings);
     return {
@@ -1952,6 +2101,8 @@ function createMemoryArchiveApi({
           summaryCount: session.summaries.length,
           chapterCount: session.chapters.length,
           provenanceCount: session.provenance.length,
+          lastArchivedAt: session.lastArchivedAt,
+          updatedAt: session.updatedAt,
           recencyProtection: buildRecencyProtection(session),
           activeContradictions: activeContradictions.slice(0, SESSION_ACTIVE_CONTRADICTION_LIMIT),
           staleDependents: activeContradictions.map((item) => ({
@@ -2084,15 +2235,21 @@ function createMemoryArchiveApi({
       rebuildGlobalPatterns(archive);
     }
     if (clearGlobalArchive) {
-      archive = buildArchiveStore(configuredEmbedModel);
+      archive = buildArchiveStore(configuredEmbedModel, {
+        backgroundVectorsEnabled: backgroundChatVectorsEnabled,
+        backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
+      });
     }
     if (clearEmbeddings) {
-      embeddings = buildEmbeddingsStore(configuredEmbedModel);
+      embeddings = buildEmbeddingsStore(configuredEmbedModel, {
+        backgroundVectorsEnabled: backgroundChatVectorsEnabled,
+        backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
+      });
     } else {
       embeddings = pruneEmbeddingsToArchive(archive, embeddings);
     }
     writeArchiveStore(trimArchiveStore(archive));
-    writeEmbeddingsStore(embeddings);
+    writeEmbeddingsStore(embeddings, { replace: true });
     embedStatusCache = { expiresAt: 0, value: null };
     return {
       archive: trimArchiveStore(archive),
@@ -2102,8 +2259,14 @@ function createMemoryArchiveApi({
 
   return {
     configuredEmbedModel,
-    buildArchiveStore,
-    buildEmbeddingsStore,
+    buildArchiveStore: (embedModel = configuredEmbedModel) => buildArchiveStore(embedModel, {
+      backgroundVectorsEnabled: backgroundChatVectorsEnabled,
+      backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
+    }),
+    buildEmbeddingsStore: (embedModel = configuredEmbedModel) => buildEmbeddingsStore(embedModel, {
+      backgroundVectorsEnabled: backgroundChatVectorsEnabled,
+      backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
+    }),
     readArchiveStore,
     readEmbeddingsStore,
     writeArchiveStore,

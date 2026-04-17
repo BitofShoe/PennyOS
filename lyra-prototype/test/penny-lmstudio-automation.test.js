@@ -238,6 +238,25 @@ test('loadModel prefers the family model key before variant aliases when loading
   assert.equal(fixture.state.loadCommands[0][1], 'google/gemma-4-e4b');
 });
 
+test('loadModel short-circuits when an equivalent model is already loaded', async () => {
+  const fixture = createFixture({
+    installedDetailed: [
+      {
+        type: 'embedding',
+        modelKey: 'text-embedding-nomic-embed-text-v1.5',
+        path: 'nomic-ai/nomic-embed-text-v1.5-GGUF/nomic-embed-text-v1.5.Q4_K_M.gguf',
+      },
+    ],
+    loadedModels: ['text-embedding-nomic-embed-text-v1.5'],
+  });
+
+  const result = await fixture.automationApi.loadModel('text-embedding-nomic-embed-text-v1.5', 'embedding model');
+
+  assert.equal(fixture.state.loadCommands.length, 0);
+  assert.equal(result.skippedLoad, true);
+  assert.match(result.stdout, /already loaded/i);
+});
+
 test('loadModel refuses to mix conflicting 31B chat models', async () => {
   const fixture = createFixture({
     installedDetailed: [

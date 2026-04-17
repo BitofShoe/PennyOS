@@ -36,8 +36,8 @@ Read these in order if you need the current truth:
   - archive + semantic recall in `data/penny-memory-archive.json` and `data/penny-memory-embeddings.json`
   - a bounded research continuity ledger in `data/penny-memory-ledger.json`
   - the archive layer is additive and reviewable; it does not silently overwrite explicit facts
-- The archive layer can do bounded post-turn shadow vector prewarm for recent chat history, but only when explicitly enabled and only off the hot path.
-- The memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, and bounded background-vectorization telemetry so the last turn can be audited without digging through raw JSON.
+- The archive layer can do bounded post-turn shadow vector prewarm for recent chat history, but only when explicitly enabled and only off the reply-latency path. It still shares the same process, embedding backend, and cache/store.
+- The backend memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, and bounded background-vectorization telemetry. The in-app panel surfaces a compact background-vectorization summary for day-to-day debugging.
 
 ## Project layout
 
@@ -134,7 +134,7 @@ Penny's runtime memory is now hybrid:
 - Archive memory in `data/penny-memory-archive.json`
   This stores raw episodic turns, rolling summaries, longer-term patterns, utility-scored archive candidates, and the review queue for candidate promotions.
 - Embedding cache in `data/penny-memory-embeddings.json`
-  This supports semantic recall when a local embedding model is available, and can optionally record bounded post-turn background-vectorization telemetry.
+  This supports semantic recall when a local embedding model is available, and can optionally record bounded post-turn background-vectorization telemetry, including eager-vs-background counts.
 - Research continuity ledger in `data/penny-memory-ledger.json`
   This stores bounded advisory topics, evidence refs, open follow-ups, and source session/turn identity so Penny does not keep re-researching the same repo question.
 
@@ -155,7 +155,7 @@ The browser cache is not the source of truth for long-term memory.
 - Semantic memory uses a separate soft-dependency model:
 - `PENNY_LMSTUDIO_EMBED_MODEL` defaults to `text-embedding-nomic-embed-text-v1.5`
   - if that model is missing or unloaded, Penny falls back to keyword-style archive retrieval instead of failing chat
-- `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=1` enables bounded post-turn background vectorization of recent chat-history candidates.
+- `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS` defaults to on for bounded post-turn background vectorization of recent chat-history candidates. Set it to `0` to turn that shadow prewarm work off.
 - `PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT` defaults to `2` and caps that background vector work per archived turn.
 - `npm run lmstudio:prepare` verifies local preset wiring, checks installed/loaded models, and tries to load the requested chat model for QA/startup flows.
 - The settings-panel model picker is now a chat-lane override only. Tool-lane selection is config-driven.

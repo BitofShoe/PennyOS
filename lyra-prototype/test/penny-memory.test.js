@@ -244,6 +244,40 @@ test('formatPromptMemories surfaces retrieval caution when archive recall is wea
   assert.match(out, /archive-global: They keep returning to midnight rain/i);
 });
 
+test('formatPromptMemories keeps direct memory-authority questions canon-first under advisory pressure', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const out = formatPromptMemories({
+    memories: [
+      { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: now },
+    ],
+    archiveContext: {
+      semanticReady: true,
+      semanticDowngrade: true,
+      semanticDowngradeReason: 'query-vector-unavailable',
+      reasonCode: 'keyword_fallback',
+      compression: { used: true },
+      global: [
+        { text: 'They keep returning to midnight rain.', sourceLabel: 'archive-global' },
+      ],
+    },
+    researchLedgerContext: {
+      topics: [
+        {
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+          status: 'open',
+          summary: 'open follow-up - verify whether the Vitest migration is still pending.',
+        },
+      ],
+    },
+  }, 'What should you remember about my tea?', 3, '- Nothing yet.', now);
+
+  assert.match(out, /canon priority:/i);
+  assert.match(out, /Favorite tea is lapsang souchong/);
+  assert.doesNotMatch(out, /Wake state - ongoing investigations \(advisory\):/i);
+  assert.doesNotMatch(out, /Wake state - retrieval hints \(advisory\):/i);
+});
+
 test('formatPromptMemories inserts ongoing investigations after contradictions and before retrieval hints', () => {
   const now = Date.UTC(2026, 3, 12);
   const out = formatPromptMemories({

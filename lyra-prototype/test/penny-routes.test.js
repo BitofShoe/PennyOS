@@ -708,7 +708,8 @@ test('memory inspector tracks archived turns and review approval promotes a pend
     assert.ok(inspector.json.inspector.archive.global.promotionQueue.length >= 1);
     assert.ok(Object.prototype.hasOwnProperty.call(inspector.json.inspector, 'memoryBooks'));
     assert.ok(Object.prototype.hasOwnProperty.call(inspector.json.inspector, 'compression'));
-    assert.equal(inspector.json.inspector.embeddings.backgroundVectorization.status, 'disabled');
+    assert.equal(inspector.json.inspector.embeddings.backgroundVectorization.enabled, true);
+    assert.equal(inspector.json.inspector.embeddings.backgroundVectorization.status, 'applied');
     assert.equal(inspector.json.inspector.embeddings.backgroundVectorization.batchLimit, 2);
     assertArtifactShape(inspector.json.inspector.artifact);
 
@@ -888,7 +889,9 @@ test('memory inspector route serializes bounded provenance details from lastRetr
     assert.equal(response.json.inspector.archive.session.lastRetrieval.compression.explanation.selectedSignals[0], 'active-contradiction');
     assert.equal(response.json.inspector.routing.repair.finalCandidateSource, 'repair');
     assert.equal(response.json.inspector.routing.repair.firstPassGuardCodes[0], 'contradiction_stale_value');
-    assert.equal(response.json.inspector.embeddings.backgroundVectorization.status, 'disabled');
+    assert.equal(response.json.inspector.archive.session.lastArchivedAt, '2026-04-13T12:00:00.000Z');
+    assert.equal(response.json.inspector.embeddings.backgroundVectorization.enabled, true);
+    assert.equal(response.json.inspector.embeddings.backgroundVectorization.status, 'skipped');
     assert.equal(response.json.inspector.embeddings.backgroundVectorization.batchLimit, 2);
     assertArtifactShape(response.json.inspector.artifact);
     assert.equal(response.json.inspector.artifact.scope.selectedLane, 'tool');
@@ -1072,6 +1075,8 @@ test('chat route reports experimental epistemic caution and archive synthesis wh
     assertArtifactShape(inspector.json.inspector.artifact);
     assert.equal(inspector.json.inspector.artifact.epistemics.triggered, true);
     assert.equal(inspector.json.inspector.artifact.synthesis.generated, true);
+    assert.ok(Number.isFinite(Date.parse(inspector.json.inspector.archive.session.lastArchivedAt)));
+    assert.ok(Date.parse(inspector.json.inspector.archive.session.lastArchivedAt) >= Date.parse('2026-04-15T11:56:00.000Z'));
   } finally {
     await new Promise((resolve) => started.close(() => resolve()));
     await mockLmStudio.close();

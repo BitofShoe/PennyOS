@@ -253,6 +253,13 @@ function createLmStudioAutomationApi({
     return loaded;
   }
 
+  async function findLoadedEquivalentModel(targetModel = '') {
+    const clean = String(targetModel || '').trim();
+    if (!clean) return '';
+    const loaded = await listLoadedModels();
+    return loaded.find(model => modelsLookEquivalent(model, clean)) || '';
+  }
+
   function buildExactConfigPath(modelId = '') {
     const clean = String(modelId || '').trim();
     if (!clean) return '';
@@ -467,6 +474,15 @@ function createLmStudioAutomationApi({
     let lastError = null;
 
     for (const candidate of candidates) {
+      const alreadyLoaded = await findLoadedEquivalentModel(candidate);
+      if (alreadyLoaded) {
+        return {
+          stdout: `${label} already loaded as ${alreadyLoaded}`,
+          stderr: '',
+          skippedLoad: true,
+          modelKey: alreadyLoaded,
+        };
+      }
       await assertNoConflictingLoadedChatModels(candidate);
       const args = ['load', candidate, '-y'];
       if (Number.isFinite(contextLength) && contextLength > 0) {
