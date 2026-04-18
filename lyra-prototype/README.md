@@ -37,7 +37,9 @@ Read these in order if you need the current truth:
   - a bounded research continuity ledger in `data/penny-memory-ledger.json`
   - the archive layer is additive and reviewable; it does not silently overwrite explicit facts
 - The archive layer can do bounded post-turn shadow vector prewarm for recent chat history, but only when explicitly enabled and only off the reply-latency path. It still shares the same process, embedding backend, and cache/store.
-- The backend memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, bounded background-vectorization telemetry, compact prompt-slot composition, cleanup-transform class/materiality, approximate-path policy, and advisory-merge provenance summaries. The in-app panel surfaces these as compact debugging summaries instead of raw dumps.
+- The backend memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, bounded background-vectorization telemetry, compact prompt-slot composition, prompt-truth receipts, cleanup-transform class/materiality, approximate-path policy, and advisory-merge provenance summaries. The in-app panel surfaces these as compact debugging summaries instead of raw dumps.
+- The research continuity ledger is now question-scoped instead of file-scoped: one repo anchor can hold multiple bounded topics, and the inspector exposes each topic's anchor/scope identity instead of flattening them together.
+- Session archive buckets now keep a bounded `recentAuditTrail` with compact turn slices: selected lane/mode/path, compact retrieval ids, prompt-truth counts/holdbacks, artifact summary, and post-turn ledger update status. `lastRetrieval` keeps its old compatibility role but now carries the same compact summary so the two views stay aligned.
 
 ## Project layout
 
@@ -132,11 +134,13 @@ Penny's runtime memory is now hybrid:
 - Canonical explicit memory in `data/penny-memory.json`
   This stays the source of truth for direct facts, preferences, user name, brain mode, and other explicit state.
 - Archive memory in `data/penny-memory-archive.json`
-  This stores raw episodic turns, rolling summaries, longer-term patterns, utility-scored archive candidates, and the review queue for candidate promotions.
+  This stores raw episodic turns, rolling summaries, longer-term patterns, utility-scored archive candidates, the review queue for candidate promotions, and a bounded per-session `recentAuditTrail` for compact "what Penny actually used on this turn" slices.
 - Embedding cache in `data/penny-memory-embeddings.json`
   This supports semantic recall when a local embedding model is available, and can optionally record bounded post-turn background-vectorization telemetry, including eager-vs-background counts.
 - Research continuity ledger in `data/penny-memory-ledger.json`
-  This stores bounded advisory topics, evidence refs, open follow-ups, and source session/turn identity so Penny does not keep re-researching the same repo question.
+  This stores bounded advisory topics, evidence refs, open follow-ups, source session/turn identity, and additive topic identity metadata (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`) so Penny can keep multiple distinct questions about the same file or repo area separate.
+- Prompt-truth receipts in runtime artifacts
+  These record what advisory context was selected, what was actually rendered into the prompt, what was held back canon-first, and which post-turn ledger changes happened after the reply instead of before it.
 
 For memory QA, use `npm run qa:memory:smoke` for the fast regression slice, `npm run qa:memory` for the full combined release-style run, and `npm run qa:memory:judged` for the grouped `write / retrieve / forget` trust pass. On the current Q6 setup the full combined run is expected to take roughly 80-90 minutes end to end.
 For automated QA, the standard baseline is Q6 chat/memory plus `google/gemma-4-e4b` tooling. Do not treat a Q8-class chat model or a dual-lane stress setup as the default unless that is the specific thing under test.

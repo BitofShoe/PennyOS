@@ -151,6 +151,7 @@ function createMemoryStateApi({
     const canonicalMemories = [];
     const reviewCandidates = [];
     const replacedTopicKeys = new Set();
+    const replacedMemoryTexts = new Set();
     const userMessages = Array.isArray(messages)
       ? messages.filter((msg) => msg?.role === 'user').map((msg) => String(msg.content || '').trim()).filter(Boolean)
       : [];
@@ -160,14 +161,17 @@ function createMemoryStateApi({
       if (nameMatch) userName = normalizeUserName(nameMatch[1]);
       const extracted = extractMemories(text);
       if (!extracted.length) continue;
-      const correctionStyle = buildCorrectionProvenance(existingMemories, text).length > 0;
+      const correctionProvenance = buildCorrectionProvenance(existingMemories, text);
+      const correctionStyle = correctionProvenance.length > 0;
       const directWrite = hasExplicitMemoryIntent(text) || correctionStyle;
       if (directWrite) {
+        for (const item of correctionProvenance) {
+          const topicKey = normalizeText(item?.topicKey || '').toLowerCase();
+          const oldText = normalizeText(item?.oldText || '').toLowerCase();
+          if (topicKey) replacedTopicKeys.add(topicKey);
+          if (oldText) replacedMemoryTexts.add(oldText);
+        }
         canonicalMemories.push(...extracted.map((item) => {
-          if (correctionStyle) {
-            const topicKey = deriveMemoryTopicKey(item?.text || '', item?.kind || '');
-            if (topicKey) replacedTopicKeys.add(topicKey);
-          }
           return {
             ...item,
             source: correctionStyle ? 'correction' : 'explicit',
@@ -180,6 +184,8 @@ function createMemoryStateApi({
     }
     const retainedExistingMemories = existingMemories.filter((item) => {
       const topicKey = deriveMemoryTopicKey(item?.text || '', item?.kind || '');
+      const textKey = normalizeText(item?.text || '').toLowerCase();
+      if (textKey && replacedMemoryTexts.has(textKey)) return false;
       return !topicKey || !replacedTopicKeys.has(topicKey);
     });
     return {
@@ -223,6 +229,24 @@ function createMemoryStateApi({
     return '';
   }
 
+  function findPreferenceReplacementCandidate(existingMemories = [], latestUserText = '', nextMemory = {}) {
+    const nextText = normalizeText(nextMemory?.text || '');
+    if (String(nextMemory?.kind || '').trim().toLowerCase() !== 'preference' || !/^they like\b/i.test(nextText)) return null;
+    const prefersFavoriteLanguage = /\bfavorite\b/i.test(String(latestUserText || '').trim());
+    const candidates = (Array.isArray(existingMemories) ? existingMemories : [])
+      .filter((item) => String(item?.kind || '').trim().toLowerCase() === 'preference')
+      .filter((item) => {
+        const text = normalizeText(item?.text || '');
+        return text && text.toLowerCase() !== nextText.toLowerCase();
+      });
+    if (!candidates.length) return null;
+    const narrowed = prefersFavoriteLanguage
+      ? candidates.filter((item) => /^favorite\b/i.test(normalizeText(item?.text || '')))
+      : candidates.filter((item) => /^they like\b/i.test(normalizeText(item?.text || '')));
+    const pool = narrowed.length === 1 ? narrowed : (candidates.length === 1 ? candidates : []);
+    return pool.length === 1 ? pool[0] : null;
+  }
+
   function buildCorrectionProvenance(existingMemories = [], latestUserText = '') {
     const trigger = findCorrectionTrigger(latestUserText);
     if (!trigger) return [];
@@ -238,15 +262,20 @@ function createMemoryStateApi({
     const seen = new Set();
     for (const next of extractMemories(latestUserText)) {
       const topicKey = deriveMemoryTopicKey(next?.text || '', next?.kind || '');
-      const previous = topicKey ? existingByTopic.get(topicKey) : null;
-      if (!topicKey || !previous) continue;
+      const previous = topicKey
+        ? existingByTopic.get(topicKey)
+        : findPreferenceReplacementCandidate(existingMemories, latestUserText, next);
+      if (!previous) continue;
       const oldText = normalizeText(previous.text || '');
       const newText = normalizeText(next.text || '');
-      if (!oldText || !newText || oldText.toLowerCase() === newText.toLowerCase() || seen.has(topicKey)) continue;
-      seen.add(topicKey);
+      const conflictKey = topicKey
+        || deriveMemoryTopicKey(previous.text || '', previous.kind || '')
+        || 'preference-like';
+      if (!oldText || !newText || oldText.toLowerCase() === newText.toLowerCase() || seen.has(conflictKey)) continue;
+      seen.add(conflictKey);
       replacements.push({
         topicKey,
-        conflictKey: topicKey,
+        conflictKey,
         oldText,
         newText,
         trigger,

@@ -1,4 +1,4 @@
-const { formatPromptMemories } = require('./penny-memory');
+const { formatPromptMemories, buildPromptTruth } = require('./penny-memory');
 
 const PROMPT_SLOT_REGISTRY = Object.freeze([
   Object.freeze({
@@ -315,6 +315,7 @@ function buildPromptStack({
     return acc;
   }, []);
   const memoryBlock = formatPromptMemories(memories, userText, memoryLimit, fallbackMemory);
+  const promptTruth = buildPromptTruth(memories, userText, memoryLimit, fallbackMemory);
   if (memoryBlock) filledSlotIds.push('memory');
   const slotSummary = buildPromptCompositionSummary({
     slots: slotRegistry,
@@ -331,6 +332,7 @@ function buildPromptStack({
   return {
     stack: blocks.filter(Boolean).join('\n\n'),
     memoryBlock,
+    promptTruth,
     overlays,
     slots: slotRegistry,
     slotSummary,

@@ -3,6 +3,7 @@ const { writeJsonFileAtomicSync } = require('./penny-atomic-json');
 
 const {
   normalizeText,
+  normalizePromptTruth,
   selectMemoriesForPrompt,
   tokenizeMemoryText,
 } = require('./penny-memory');
@@ -21,6 +22,7 @@ const SESSION_PROMPT_LIMIT = 2;
 const GLOBAL_PROMPT_LIMIT = 2;
 const SESSION_CHAPTER_LIMIT = 6;
 const SESSION_RECENCY_PROTECTED_EPISODES = 6;
+const SESSION_RECENT_AUDIT_TRAIL_LIMIT = 8;
 // Let chapter fallback come online sooner so keyword-only sessions
 // can still preserve concrete anchors before the conversation gets huge.
 const SESSION_CHAPTER_TRIGGER_COUNT = 7;
@@ -328,6 +330,7 @@ function createMemoryArchiveApi({
       provenance: [],
       activeContradictions: [],
       openLoops: [],
+      recentAuditTrail: [],
       lastRetrieval: null,
       lastArchivedAt: '',
       updatedAt: '',
@@ -826,6 +829,170 @@ function createMemoryArchiveApi({
     return out;
   }
 
+  function normalizeAuditPromptTruth(raw = null) {
+    const normalized = normalizePromptTruth(raw);
+    const channels = {};
+    for (const key of ['stableFacts', 'memoryBooks', 'sessionArchive', 'globalArchive', 'researchLedger']) {
+      const channel = normalized.channels?.[key] && typeof normalized.channels[key] === 'object'
+        ? normalized.channels[key]
+        : {};
+      channels[key] = {
+        candidateCount: Math.max(0, Number(channel.candidateCount || 0)),
+        renderedCount: Math.max(0, Number(channel.renderedCount || 0)),
+        heldBackReason: trimText(channel.heldBackReason || '', 120),
+      };
+    }
+    return { channels };
+  }
+
+  function normalizeAuditRetrievalSummary(raw = {}) {
+    const value = raw && typeof raw === 'object' ? raw : {};
+    const mode = String(value.mode || '').trim() || 'keyword';
+    const compression = value.compression && typeof value.compression === 'object' ? value.compression : {};
+    return {
+      mode,
+      reasonCode: String(value.reasonCode || '').trim()
+        || (mode === 'semantic'
+          ? ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY
+          : ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK),
+      selectedSessionIds: normalizeEvidenceIds(
+        value.selectedSessionIds
+        || (Array.isArray(value.session) ? value.session.map((item) => item?.id || item) : []),
+      ).slice(0, 6),
+      selectedGlobalIds: normalizeEvidenceIds(
+        value.selectedGlobalIds
+        || (Array.isArray(value.global) ? value.global.map((item) => item?.id || item) : []),
+      ).slice(0, 6),
+      selectedBookIds: normalizeEvidenceIds(
+        value.selectedBookIds
+        || (Array.isArray(value.books) ? value.books.map((item) => item?.id || item) : []),
+      ).slice(0, 4),
+      selectedLedgerIds: normalizeEvidenceIds(
+        value.selectedLedgerIds
+        || (Array.isArray(value.ledger) ? value.ledger.map((item) => item?.topicId || item?.id || item) : []),
+      ).slice(0, 4),
+      compression: {
+        used: compression.used === true,
+      },
+      semanticReady: value.semanticReady === true,
+      semanticDowngrade: value.semanticDowngrade === true,
+    };
+  }
+
+  function normalizeAuditArtifactSummary(raw = {}) {
+    const value = raw && typeof raw === 'object' ? raw : {};
+    const authority = value.authority && typeof value.authority === 'object' ? value.authority : {};
+    const approximatePath = value.approximatePath && typeof value.approximatePath === 'object'
+      ? value.approximatePath
+      : (value.modelAdvisory?.approximatePath && typeof value.modelAdvisory.approximatePath === 'object'
+        ? value.modelAdvisory.approximatePath
+        : {});
+    return {
+      kind: trimText(value.kind || '', 80) || 'unknown',
+      authority: {
+        reply: trimText(authority.reply || value.reply || '', 80) || 'unknown',
+      },
+      approximatePath: {
+        status: trimText(approximatePath.status || '', 80) || 'exact',
+      },
+      researchLedgerPromptInjected: value.researchLedgerPromptInjected === true,
+    };
+  }
+
+  function normalizeAuditResearchLedger(raw = {}) {
+    const value = raw && typeof raw === 'object' ? raw : {};
+    const requestedStatus = String(value.updateStatus || value.status || '').trim();
+    return {
+      updateStatus: ['skipped', 'applied', 'failed'].includes(requestedStatus) ? requestedStatus : 'skipped',
+      topicId: trimText(value.topicId || '', 140),
+      topicLabel: trimText(value.topicLabel || '', 180),
+    };
+  }
+
+  function normalizeRecentAuditSlice(raw = {}) {
+    const value = raw && typeof raw === 'object' ? raw : {};
+    const usedAt = trimIso(value.usedAt, '');
+    const userTextExcerpt = trimText(value.userTextExcerpt || value.userText || '', 220);
+    const turnId = trimText(
+      value.turnId
+      || (usedAt || userTextExcerpt
+        ? `audit-${stableHash(`${usedAt}|${userTextExcerpt}`).slice(0, 12)}`
+        : ''),
+      160,
+    );
+    if (!turnId) return null;
+    return {
+      turnId,
+      usedAt,
+      userTextExcerpt,
+      selectedLane: trimText(value.selectedLane || '', 40) || 'chat',
+      requestedMode: trimText(value.requestedMode || '', 40) || 'local',
+      executionPath: trimText(value.executionPath || '', 80) || 'llm-chat',
+      retrieval: normalizeAuditRetrievalSummary(value.retrieval),
+      promptTruth: normalizeAuditPromptTruth(value.promptTruth),
+      artifactSummary: normalizeAuditArtifactSummary(value.artifactSummary),
+      researchLedger: normalizeAuditResearchLedger(value.researchLedger),
+    };
+  }
+
+  function buildLastRetrievalRecord(raw = {}, {
+    usedAt = '',
+    provenance = [],
+    summary = null,
+  } = {}) {
+    const value = raw && typeof raw === 'object' ? raw : null;
+    const normalizedSummary = normalizeAuditRetrievalSummary(summary || value || {});
+    if (!value) {
+      if (!normalizedSummary) return null;
+      return {
+        usedAt: trimIso(usedAt, ''),
+        mode: normalizedSummary.mode,
+        reasonCode: normalizedSummary.reasonCode,
+        embedModel: '',
+        semanticReady: normalizedSummary.semanticReady,
+        semanticAttempted: false,
+        semanticDowngrade: normalizedSummary.semanticDowngrade,
+        semanticDowngradeReason: '',
+        session: [],
+        global: [],
+        books: [],
+        provenance: normalizeProvenanceList(provenance, 6),
+        compression: normalizeCompressionInfo({
+          used: normalizedSummary.compression.used,
+          chapters: [],
+        }),
+        summary: normalizedSummary,
+      };
+    }
+    return {
+      usedAt: trimIso(value.usedAt || usedAt, usedAt),
+      mode: normalizedSummary.mode,
+      reasonCode: normalizedSummary.reasonCode,
+      embedModel: String(value.embedModel || '').trim(),
+      semanticReady: normalizedSummary.semanticReady,
+      semanticAttempted: value.semanticAttempted === true,
+      semanticDowngrade: normalizedSummary.semanticDowngrade,
+      semanticDowngradeReason: trimText(value.semanticDowngradeReason || '', 80),
+      session: Array.isArray(value.session) ? value.session.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
+      global: Array.isArray(value.global) ? value.global.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
+      books: Array.isArray(value.books) ? value.books.map(normalizeBookMatch).filter(Boolean).slice(0, 4) : [],
+      provenance: normalizeProvenanceList(value.provenance || provenance, 6),
+      compression: normalizeCompressionInfo(value.compression),
+      summary: normalizedSummary,
+    };
+  }
+
+  function appendRecentAuditSlice(currentTrail = [], rawSlice = null) {
+    const slice = normalizeRecentAuditSlice(rawSlice);
+    if (!slice) {
+      return Array.isArray(currentTrail) ? currentTrail.slice(0, SESSION_RECENT_AUDIT_TRAIL_LIMIT) : [];
+    }
+    return [
+      slice,
+      ...(Array.isArray(currentTrail) ? currentTrail : []).filter((item) => String(item?.turnId || '').trim() !== slice.turnId),
+    ].slice(0, SESSION_RECENT_AUDIT_TRAIL_LIMIT);
+  }
+
   function normalizeSessionBucket(raw = {}, sessionId = 'default') {
     const bucket = buildSessionBucket(sessionId);
     bucket.episodes = Array.isArray(raw.episodes)
@@ -842,27 +1009,29 @@ function createMemoryArchiveApi({
     bucket.openLoops = Array.isArray(raw.openLoops)
       ? raw.openLoops.map(normalizeOpenLoop).filter(Boolean).slice(-16)
       : [];
+    bucket.recentAuditTrail = Array.isArray(raw.recentAuditTrail)
+      ? raw.recentAuditTrail.map(normalizeRecentAuditSlice).filter(Boolean).slice(0, SESSION_RECENT_AUDIT_TRAIL_LIMIT)
+      : [];
     bucket.lastRetrieval = raw.lastRetrieval && typeof raw.lastRetrieval === 'object'
-      ? {
-          usedAt: trimIso(raw.lastRetrieval.usedAt, ''),
-          mode: String(raw.lastRetrieval.mode || '').trim() || 'keyword',
-          embedModel: String(raw.lastRetrieval.embedModel || '').trim(),
-          semanticReady: raw.lastRetrieval.semanticReady === true,
-          semanticAttempted: raw.lastRetrieval.semanticAttempted === true,
-          semanticDowngrade: raw.lastRetrieval.semanticDowngrade === true,
-          semanticDowngradeReason: trimText(raw.lastRetrieval.semanticDowngradeReason || '', 80),
-          session: Array.isArray(raw.lastRetrieval.session) ? raw.lastRetrieval.session.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
-          global: Array.isArray(raw.lastRetrieval.global) ? raw.lastRetrieval.global.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
-          books: Array.isArray(raw.lastRetrieval.books) ? raw.lastRetrieval.books.map(normalizeBookMatch).filter(Boolean).slice(0, 4) : [],
-          provenance: normalizeProvenanceList(raw.lastRetrieval.provenance, 6),
-          compression: normalizeCompressionInfo(raw.lastRetrieval.compression),
-        }
+      ? buildLastRetrievalRecord(raw.lastRetrieval, {
+          usedAt: raw.lastRetrieval.usedAt,
+          provenance: raw.lastRetrieval.provenance,
+          summary: raw.lastRetrieval.summary,
+        })
       : null;
-    if (bucket.lastRetrieval && typeof bucket.lastRetrieval === 'object') {
-      bucket.lastRetrieval.reasonCode = String(bucket.lastRetrieval.reasonCode || '').trim()
-        || (bucket.lastRetrieval.mode === 'semantic'
-          ? ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY
-          : ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK);
+    if (!bucket.lastRetrieval && bucket.recentAuditTrail[0]?.retrieval) {
+      bucket.lastRetrieval = buildLastRetrievalRecord(null, {
+        usedAt: bucket.recentAuditTrail[0].usedAt,
+        provenance: bucket.provenance,
+        summary: bucket.recentAuditTrail[0].retrieval,
+      });
+    }
+    if (bucket.lastRetrieval && bucket.recentAuditTrail[0]?.retrieval) {
+      bucket.lastRetrieval.summary = normalizeAuditRetrievalSummary(bucket.recentAuditTrail[0].retrieval);
+      bucket.lastRetrieval.mode = bucket.lastRetrieval.summary.mode;
+      bucket.lastRetrieval.reasonCode = bucket.lastRetrieval.summary.reasonCode;
+      bucket.lastRetrieval.semanticReady = bucket.lastRetrieval.summary.semanticReady;
+      bucket.lastRetrieval.semanticDowngrade = bucket.lastRetrieval.summary.semanticDowngrade;
     }
     bucket.lastArchivedAt = trimIso(raw.lastArchivedAt, '');
     bucket.updatedAt = trimIso(raw.updatedAt, '');
@@ -2096,6 +2265,7 @@ function createMemoryArchiveApi({
     retrieval = null,
     provenance = [],
     reviewCandidates = [],
+    audit = null,
   } = {}) {
     const cleanUserText = trimText(userText, 900);
     const cleanAssistantText = trimText(assistantText, 900);
@@ -2144,6 +2314,19 @@ function createMemoryArchiveApi({
       ], SESSION_PROVENANCE_LIMIT);
     }
     session.activeContradictions = applyProvenanceToContradictions(session, normalizedProvenance, episode, createdAt);
+    const auditSlice = normalizeRecentAuditSlice({
+      turnId: audit?.turnId || `${sessionId}:${createdAt}`,
+      usedAt: audit?.usedAt || retrieval?.usedAt || createdAt,
+      userTextExcerpt: audit?.userTextExcerpt || cleanUserText,
+      selectedLane: audit?.selectedLane || 'chat',
+      requestedMode: audit?.requestedMode || 'local',
+      executionPath: audit?.executionPath || 'llm-chat',
+      retrieval: audit?.retrieval || retrieval || {},
+      promptTruth: audit?.promptTruth || null,
+      artifactSummary: audit?.artifactSummary || {},
+      researchLedger: audit?.researchLedger || {},
+    });
+    session.recentAuditTrail = appendRecentAuditSlice(session.recentAuditTrail, auditSlice);
 
     const sessionTexts = session.episodes.slice(-8).map(item => item.userText || item.text || '');
     const globalTexts = archive.global.episodes.slice(-20).map(item => item.userText || item.text || '');
@@ -2191,26 +2374,16 @@ function createMemoryArchiveApi({
     session.chapters = buildSessionChapters(session);
     session.activeContradictions = attachChapterDependentsToContradictions(session.activeContradictions, session.chapters);
     session.openLoops = rebuildOpenLoops(session);
-    session.lastRetrieval = retrieval && typeof retrieval === 'object'
-      ? {
-          usedAt: trimIso(retrieval.usedAt || createdAt, createdAt),
-          mode: String(retrieval.mode || 'keyword'),
-          reasonCode: String(retrieval.reasonCode || '').trim()
-            || (String(retrieval.mode || 'keyword').trim() === 'semantic'
-              ? ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY
-              : ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK),
-          embedModel: String(retrieval.embedModel || ''),
-          semanticReady: retrieval.semanticReady === true,
-          semanticAttempted: retrieval.semanticAttempted === true,
-          semanticDowngrade: retrieval.semanticDowngrade === true,
-          semanticDowngradeReason: trimText(retrieval.semanticDowngradeReason || '', 80),
-          session: Array.isArray(retrieval.session) ? retrieval.session.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
-          global: Array.isArray(retrieval.global) ? retrieval.global.map(normalizeRetrievalItem).filter(Boolean).slice(0, 6) : [],
-          books: Array.isArray(retrieval.books) ? retrieval.books.map(normalizeBookMatch).filter(Boolean).slice(0, 4) : [],
-          provenance: normalizeProvenanceList(retrieval.provenance || normalizedProvenance, 6),
-          compression: normalizeCompressionInfo(retrieval.compression),
-        }
-      : session.lastRetrieval;
+    if ((retrieval && typeof retrieval === 'object') || auditSlice?.retrieval) {
+      session.lastRetrieval = buildLastRetrievalRecord(
+        retrieval && typeof retrieval === 'object' ? retrieval : null,
+        {
+          usedAt: auditSlice?.usedAt || retrieval?.usedAt || createdAt,
+          provenance: retrieval?.provenance || normalizedProvenance,
+          summary: auditSlice?.retrieval || null,
+        },
+      );
+    }
     session.lastArchivedAt = createdAt;
     session.updatedAt = createdAt;
 
@@ -2354,6 +2527,7 @@ function createMemoryArchiveApi({
           })).filter((item) => item.dependentEpisodeIds.length || item.dependentChapterIds.length),
           openLoops: session.openLoops.slice(-8),
           lastRetrieval: session.lastRetrieval,
+          recentAuditTrail: session.recentAuditTrail.slice(0, SESSION_RECENT_AUDIT_TRAIL_LIMIT),
           recentEpisodes: session.episodes.slice(-6).reverse(),
           summaries: session.summaries.slice(-6).reverse(),
           chapters: session.chapters.slice(-SESSION_CHAPTER_LIMIT).reverse(),

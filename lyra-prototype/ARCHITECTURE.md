@@ -157,12 +157,12 @@ Hybrid archive overlay:
 
 - `data/penny-memory-archive.json`
   - global episodes, summaries, patterns, and promotion queue
-  - session buckets with episodic history, summaries, open loops, and last retrieval provenance
+  - session buckets with episodic history, summaries, open loops, bounded `recentAuditTrail` turn slices, and `lastRetrieval` compatibility state aligned to that newest audit summary
 - `data/penny-memory-embeddings.json`
   - embedding cache used for semantic archive retrieval when a local embed model is available
   - bounded background-vectorization status for default-on post-turn shadow prewarm work that can still be disabled by env
 - `data/penny-memory-ledger.json`
-  - bounded research continuity topics with evidence refs, contradictions, open follow-ups, and source session/turn identity
+  - bounded research continuity topics with evidence refs, contradictions, open follow-ups, source session/turn identity, and additive question-scoped identity (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`)
   - advisory only; this does not mutate canonical explicit memory by itself
 
 Current archive-policy behavior:
@@ -245,8 +245,9 @@ The tool registry now also exposes an internal `ToolCapabilityDescriptor` contra
 Penny now has an explicit research continuity layer in `lib/penny-research-ledger.js`:
 
 - qualifying tool/research turns can update a bounded advisory ledger
-- prompt assembly can surface a small number of open/provisional topics as wake context
-- the memory inspector can render those topics with evidence refs and source identity
+- topic identity is now question-scoped, so one file or repo anchor can hold multiple bounded topics without collapsing into one ledger row
+- prompt assembly can surface a small number of open/provisional topics as wake context, preferring direct anchor-plus-scope overlap over adjacent same-file topics
+- the memory inspector can render those topics with evidence refs plus the additive anchor/scope identity summary
 
 The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
 
@@ -256,8 +257,17 @@ The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
 - a provenance block that exposes source identity for archive and research-ledger inputs
 - cleanup metadata split into legacy visible-reply cleanup plus a typed `cleanupTransform` summary
 - compact prompt-slot composition from `PROMPT_SLOT_REGISTRY`
+- prompt-time `promptTruth` receipts for `stableFacts`, `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger`, including candidate vs rendered ids/counts plus holdback reasons
 - explicit approximate-path policy metadata from the latency budget and runtime fallback state
 - advisory-merge summaries that distinguish lossy merge pressure from canonical memory authority
+- a bounded session `recentAuditTrail` that freezes compact prompt-time/runtime-turn truth before post-turn ledger mutation and keeps `lastRetrieval` summary fields aligned with the newest slice
+
+Important receipt rule:
+
+- prompt assembly is the source of truth for advisory usage
+- `researchLedgerPromptInjected` now means the ledger was actually rendered into the prompt
+- post-reply ledger mutation stays in `researchLedgerUpdate` instead of being backfilled into prompt-use receipts
+- direct canon-authority questions share one detector across latency policy, prompt/history suppression, and memory-state writes
 
 This is meant to improve auditability, not to create a new autonomous memory system.
 

@@ -114,22 +114,40 @@ test('scoreTruthReplacement accepts alternative expected phrasings after normali
 
 test('canonicalAuthorityPressureSatisfied requires canon-first pressure plus same-session advisory presence', () => {
   assert.equal(canonicalAuthorityPressureSatisfied({
+    promptTruth: {
+      canonicalFactsPresent: true,
+      canonicalOverrideActive: true,
+      channels: {
+        sessionArchive: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+        globalArchive: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+        researchLedger: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+      },
+    },
     modelAdvisory: {
       authorityPressure: {
         canonicalFactsPresent: true,
         canonicalOverrideActive: true,
-        advisoryItemsInjected: 2,
-        sameSessionAdvisoryItems: 1,
+        advisoryItemsInjected: 0,
+        sameSessionAdvisoryItems: 0,
       },
     },
   }), true);
 
   assert.equal(canonicalAuthorityPressureSatisfied({
+    promptTruth: {
+      canonicalFactsPresent: true,
+      canonicalOverrideActive: false,
+      channels: {
+        sessionArchive: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+        globalArchive: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+        researchLedger: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+      },
+    },
     modelAdvisory: {
       authorityPressure: {
         canonicalFactsPresent: true,
         canonicalOverrideActive: false,
-        advisoryItemsInjected: 2,
+        advisoryItemsInjected: 1,
         sameSessionAdvisoryItems: 1,
       },
     },

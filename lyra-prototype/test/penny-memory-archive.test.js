@@ -105,6 +105,65 @@ function buildArchiveApi({
   return { api, getFetchCalls: () => fetchCalls };
 }
 
+function buildAuditSlice({
+  turnId = 'turn-1',
+  usedAt = '2026-04-13T12:00:00.000Z',
+  userTextExcerpt = 'Audit excerpt',
+  selectedLane = 'chat',
+  requestedMode = 'local',
+  executionPath = 'llm-chat',
+  retrieval = {},
+  promptTruth = {},
+  artifactSummary = {},
+  researchLedger = {},
+} = {}) {
+  return {
+    turnId,
+    usedAt,
+    userTextExcerpt,
+    selectedLane,
+    requestedMode,
+    executionPath,
+    retrieval: {
+      mode: retrieval.mode || 'keyword',
+      reasonCode: retrieval.reasonCode || ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK,
+      selectedSessionIds: retrieval.selectedSessionIds || [],
+      selectedGlobalIds: retrieval.selectedGlobalIds || [],
+      selectedBookIds: retrieval.selectedBookIds || [],
+      selectedLedgerIds: retrieval.selectedLedgerIds || [],
+      compression: {
+        used: retrieval.compression?.used === true,
+      },
+      semanticReady: retrieval.semanticReady === true,
+      semanticDowngrade: retrieval.semanticDowngrade === true,
+    },
+    promptTruth: {
+      channels: {
+        stableFacts: promptTruth.stableFacts || { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+        memoryBooks: promptTruth.memoryBooks || { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+        sessionArchive: promptTruth.sessionArchive || { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+        globalArchive: promptTruth.globalArchive || { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+        researchLedger: promptTruth.researchLedger || { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+      },
+    },
+    artifactSummary: {
+      kind: artifactSummary.kind || 'chat-turn',
+      authority: {
+        reply: artifactSummary.authority?.reply || 'stable-companion',
+      },
+      approximatePath: {
+        status: artifactSummary.approximatePath?.status || 'exact',
+      },
+      researchLedgerPromptInjected: artifactSummary.researchLedgerPromptInjected === true,
+    },
+    researchLedger: {
+      updateStatus: researchLedger.updateStatus || 'skipped',
+      topicId: researchLedger.topicId || '',
+      topicLabel: researchLedger.topicLabel || '',
+    },
+  };
+}
+
 test('scoreArchiveUtilityCandidate favors recent contradiction-linked anchors over older low-signal episodes', () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi(files);
@@ -885,6 +944,232 @@ test('archiveCompletedTurn prewarms bounded background chat vectors and records 
     assert.match(inspector.embeddings.backgroundVectorization.candidates[0].evidenceSnippet, /photo booth curtain/i);
     assert.ok(Object.values(embeddings.items).some((item) => /missing two silver hooks/i.test(item.text)));
     assert.equal(selectedCandidates.length, 0);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('archiveCompletedTurn appends bounded recent audit slices and keeps lastRetrieval summary aligned', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    for (let index = 0; index < 9; index += 1) {
+      const turnNumber = index + 1;
+      const usedAt = `2026-04-13T12:${String(index).padStart(2, '0')}:00.000Z`;
+      await api.archiveCompletedTurn({
+        sessionId: 'audit-demo',
+        userText: `Audit turn ${turnNumber} about midnight rain.`,
+        assistantText: `Reply ${turnNumber}.`,
+        retrieval: {
+          usedAt,
+          mode: turnNumber % 2 === 0 ? 'keyword' : 'semantic',
+          reasonCode: turnNumber % 2 === 0
+            ? ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK
+            : ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY,
+          semanticReady: turnNumber % 2 === 1,
+          semanticAttempted: turnNumber % 2 === 1,
+          semanticDowngrade: false,
+          session: [
+            {
+              id: `session-${turnNumber}`,
+              text: `Session hit ${turnNumber}`,
+              excerpt: `Session hit ${turnNumber}`,
+              sourceType: 'episode',
+              scope: 'session',
+              sensitivity: 'normal',
+              createdAt: usedAt,
+              score: 8,
+              confidence: 0.6,
+            },
+          ],
+          global: [],
+          books: [],
+          compression: {
+            used: false,
+            chapters: [],
+          },
+        },
+        audit: buildAuditSlice({
+          turnId: `turn-${turnNumber}`,
+          usedAt,
+          userTextExcerpt: `Audit turn ${turnNumber} about midnight rain.`,
+          retrieval: {
+            mode: turnNumber % 2 === 0 ? 'keyword' : 'semantic',
+            reasonCode: turnNumber % 2 === 0
+              ? ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK
+              : ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY,
+            selectedSessionIds: [`session-${turnNumber}`],
+            compression: { used: false },
+            semanticReady: turnNumber % 2 === 1,
+            semanticDowngrade: false,
+          },
+          promptTruth: {
+            stableFacts: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+            sessionArchive: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+          },
+          artifactSummary: {
+            kind: 'chat-turn',
+            authority: { reply: 'stable-companion' },
+            approximatePath: { status: 'exact' },
+          },
+        }),
+      });
+    }
+
+    const archive = api.readArchiveStore();
+    const session = archive.sessions['audit-demo'];
+    const inspector = await api.getMemoryInspector({
+      sessionId: 'audit-demo',
+      explicitMemory: { memories: [] },
+    });
+
+    assert.equal(session.recentAuditTrail.length, 8);
+    assert.equal(session.recentAuditTrail[0].turnId, 'turn-9');
+    assert.equal(session.recentAuditTrail[7].turnId, 'turn-2');
+    assert.deepEqual(session.lastRetrieval.summary.selectedSessionIds, ['session-9']);
+    assert.equal(session.lastRetrieval.reasonCode, session.recentAuditTrail[0].retrieval.reasonCode);
+    assert.equal(inspector.archive.session.recentAuditTrail.length, 8);
+    assert.equal(inspector.archive.session.recentAuditTrail[0].turnId, 'turn-9');
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('archiveCompletedTurn preserves held-back prompt-truth reasons inside compact audit slices', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    await api.archiveCompletedTurn({
+      sessionId: 'audit-held-back',
+      userText: 'What tea do I like again?',
+      assistantText: 'Lapsang souchong.',
+      retrieval: {
+        usedAt: '2026-04-13T12:00:00.000Z',
+        mode: 'keyword',
+        reasonCode: ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK,
+        semanticReady: false,
+        semanticAttempted: false,
+        semanticDowngrade: false,
+        session: [
+          {
+            id: 'session-held',
+            text: 'Favorite tea is lapsang souchong.',
+            excerpt: 'Favorite tea is lapsang souchong.',
+            sourceType: 'episode',
+            scope: 'session',
+            sensitivity: 'normal',
+            createdAt: '2026-04-13T11:59:00.000Z',
+            score: 8,
+            confidence: 0.7,
+          },
+        ],
+        global: [],
+        books: [],
+        compression: {
+          used: false,
+          chapters: [],
+        },
+      },
+      audit: buildAuditSlice({
+        turnId: 'held-back-1',
+        userTextExcerpt: 'What tea do I like again?',
+        retrieval: {
+          mode: 'keyword',
+          reasonCode: ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK,
+          selectedSessionIds: ['session-held'],
+        },
+        promptTruth: {
+          stableFacts: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+          sessionArchive: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+          researchLedger: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+        },
+        artifactSummary: {
+          kind: 'chat-turn',
+          authority: { reply: 'explicit-canonical' },
+          approximatePath: { status: 'exact' },
+          researchLedgerPromptInjected: false,
+        },
+        researchLedger: {
+          updateStatus: 'skipped',
+        },
+      }),
+    });
+
+    const archive = api.readArchiveStore();
+    const slice = archive.sessions['audit-held-back'].recentAuditTrail[0];
+
+    assert.equal(slice.promptTruth.channels.sessionArchive.heldBackReason, 'canon-priority-suppression');
+    assert.equal(slice.promptTruth.channels.researchLedger.heldBackReason, 'canon-priority-suppression');
+    assert.equal(slice.retrieval.selectedSessionIds[0], 'session-held');
+    assert.equal(slice.artifactSummary.researchLedgerPromptInjected, false);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('archiveCompletedTurn can store truthful empty-advisory audit slices for deterministic or no-model paths', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    await api.archiveCompletedTurn({
+      sessionId: 'audit-tool-path',
+      userText: 'Open README.md and do not edit anything.',
+      assistantText: 'README.md says Penny is a local companion prototype.',
+      retrieval: null,
+      audit: buildAuditSlice({
+        turnId: 'tool-path-1',
+        usedAt: '2026-04-13T12:00:00.000Z',
+        userTextExcerpt: 'Open README.md and do not edit anything.',
+        selectedLane: 'tool',
+        executionPath: 'deterministic-tool',
+        retrieval: {
+          mode: 'keyword',
+          reasonCode: ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK,
+          selectedSessionIds: [],
+          selectedGlobalIds: [],
+          selectedBookIds: [],
+          selectedLedgerIds: [],
+          compression: { used: false },
+          semanticReady: false,
+          semanticDowngrade: false,
+        },
+        promptTruth: {
+          stableFacts: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+          memoryBooks: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+          sessionArchive: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+          globalArchive: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+          researchLedger: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+        },
+        artifactSummary: {
+          kind: 'tool-turn',
+          authority: { reply: 'verified-tool-evidence' },
+          approximatePath: { status: 'bounded-approximate' },
+          researchLedgerPromptInjected: false,
+        },
+        researchLedger: {
+          updateStatus: 'applied',
+          topicId: 'path-readme-md',
+          topicLabel: 'README.md',
+        },
+      }),
+    });
+
+    const inspector = await api.getMemoryInspector({
+      sessionId: 'audit-tool-path',
+      explicitMemory: { memories: [] },
+    });
+    const slice = inspector.archive.session.recentAuditTrail[0];
+
+    assert.equal(slice.selectedLane, 'tool');
+    assert.equal(slice.executionPath, 'deterministic-tool');
+    assert.equal(slice.promptTruth.channels.sessionArchive.candidateCount, 0);
+    assert.equal(slice.promptTruth.channels.researchLedger.renderedCount, 0);
+    assert.deepEqual(slice.retrieval.selectedSessionIds, []);
+    assert.equal(slice.artifactSummary.kind, 'tool-turn');
+    assert.equal(inspector.archive.session.lastRetrieval.summary.selectedSessionIds.length, 0);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

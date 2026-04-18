@@ -1,3 +1,5 @@
+const crypto = require('node:crypto');
+
 const MEMORY_ENTRY_LIMIT = 30;
 const MEMORY_PROMPT_LIMIT = 12;
 const MEMORY_RELEVANT_LIMIT = 6;
@@ -15,6 +17,28 @@ const MEMORY_STOPWORDS = new Set([
   'know', 'like', 'maybe', 'more', 'really', 'said', 'some', 'that', 'their', 'them', 'then', 'there',
   'they', 'this', 'very', 'want', 'with', 'would', 'your',
 ]);
+
+const QUESTION_LIKE_PATTERN = /\?|\b(what|which|who|where|when|why|how|do you|did you|did i|tell me)\b/i;
+const CANONICAL_MEMORY_ANCHOR_PATTERN = /\b(?:tea|drink|pet|mascot|name|birthday|pronouns?|notebook|setup|keyboard)\b/i;
+const DIRECT_MEMORY_AUTHORITY_PATTERNS = [
+  /\bwhat should you remember\b/,
+  /\bwhat do you remember\b/,
+  /\bwhat(?:'s| is| are| was| were)\s+my\b/,
+  /\bwhat should still be true\b/,
+  /\bwhat am i trusting you to remember\b/,
+  /\btell me what you remember about\b/,
+  /\bdo you remember where\b/,
+  /\bwhere is my\b/,
+  /\bwhat do you know about my\b/,
+];
+const CANONICAL_MEMORY_QUESTION_PATTERNS = [
+  /\bwhat\b.*\bdo i\b.*\blike\b/,
+  /\bwhat\b.*\bmy\b.*\b(?:name|pronouns?|birthday|setup|mascot|notebook)\b/,
+];
+const PROMPT_TRUTH_HOLDBACK_REASONS = Object.freeze({
+  CANON_PRIORITY: 'canon-priority-suppression',
+  LEDGER_DISABLED: 'ledger-prompt-disabled',
+});
 
 function normalizeText(text = '') {
   return String(text).replace(/\s+/g, ' ').trim().replace(/[.!?;,\s]+$/g, '');
@@ -182,28 +206,82 @@ function formatPromptSection(label, lines = []) {
   return `${label}:\n${items.map((line) => `- ${line}`).join('\n')}`;
 }
 
-function isDirectMemoryAuthorityQuestion(userText = '') {
+function isQuestionLike(userText = '') {
+  return QUESTION_LIKE_PATTERN.test(String(userText || '').trim());
+}
+
+function isCanonicalMemoryQuestion(userText = '') {
   const normalized = normalizeText(userText || '').toLowerCase();
   if (!normalized) return false;
-  return [
-    /\bwhat should you remember\b/,
-    /\bwhat do you remember\b/,
-    /\bwhat(?:'s| is| are| was| were)\s+my\b/,
-    /\bwhat should still be true\b/,
-    /\bwhat am i trusting you to remember\b/,
-    /\btell me what you remember about\b/,
-    /\bdo you remember where\b/,
-    /\bwhere is my\b/,
-    /\bwhat do you know about my\b/,
-  ].some((pattern) => pattern.test(normalized));
+  if (DIRECT_MEMORY_AUTHORITY_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
+  if (!isQuestionLike(normalized)) return false;
+  if (!CANONICAL_MEMORY_ANCHOR_PATTERN.test(normalized)) return false;
+  return CANONICAL_MEMORY_QUESTION_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function isDirectMemoryAuthorityQuestion(userText = '') {
+  return isCanonicalMemoryQuestion(userText);
 }
 
 function shouldPrioritizeCanonicalMemoryOverHistory(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, now = Date.now()) {
-  if (!isDirectMemoryAuthorityQuestion(userText)) return false;
+  if (!isCanonicalMemoryQuestion(userText)) return false;
   return selectMemoriesForPrompt(memories, userText, limit, now).length > 0;
 }
 
-function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
+function stablePromptTruthSourceId(prefix = 'source', text = '') {
+  const normalized = normalizeText(text || '').toLowerCase();
+  if (!normalized) return '';
+  return `${prefix}:${crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 12)}`;
+}
+
+function memoryPromptTruthSourceId(item = {}) {
+  return stablePromptTruthSourceId('memory', item?.text || '');
+}
+
+function memoryBookPromptTruthSourceId(item = {}) {
+  return String(item?.id || '').trim() || stablePromptTruthSourceId('memory-book', item?.text || '');
+}
+
+function archivePromptTruthSourceId(item = {}, prefix = 'archive') {
+  return String(item?.id || '').trim() || stablePromptTruthSourceId(prefix, item?.text || item?.evidenceSnippet || '');
+}
+
+function researchLedgerPromptTruthSourceId(item = {}) {
+  return String(item?.topicId || '').trim() || stablePromptTruthSourceId('research-ledger', item?.topicLabel || item?.summary || item?.question || '');
+}
+
+function normalizePromptTruthChannel(raw = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  return {
+    candidateCount: Math.max(0, Number(value.candidateCount || 0) || 0),
+    renderedCount: Math.max(0, Number(value.renderedCount || 0) || 0),
+    candidateSourceIds: Array.isArray(value.candidateSourceIds)
+      ? value.candidateSourceIds.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12)
+      : [],
+    renderedSourceIds: Array.isArray(value.renderedSourceIds)
+      ? value.renderedSourceIds.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12)
+      : [],
+    heldBackReason: String(value.heldBackReason || '').trim(),
+  };
+}
+
+function normalizePromptTruth(raw = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const channels = value.channels && typeof value.channels === 'object' ? value.channels : {};
+  return {
+    canonicalFactsPresent: value.canonicalFactsPresent === true,
+    canonicalOverrideActive: value.canonicalOverrideActive === true,
+    channels: {
+      stableFacts: normalizePromptTruthChannel(channels.stableFacts),
+      memoryBooks: normalizePromptTruthChannel(channels.memoryBooks),
+      sessionArchive: normalizePromptTruthChannel(channels.sessionArchive),
+      globalArchive: normalizePromptTruthChannel(channels.globalArchive),
+      researchLedger: normalizePromptTruthChannel(channels.researchLedger),
+    },
+  };
+}
+
+function buildPromptMemoryContext(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
   const selected = selectMemoriesForPrompt(memories, userText, limit, now);
   const memoryBooks = selectMemoryBooksForPrompt(memories, MEMORY_BOOK_PROMPT_LIMIT);
   const archiveContext = memories?.archiveContext && typeof memories.archiveContext === 'object'
@@ -249,7 +327,7 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   const semanticReady = archiveContext?.semanticReady === true;
   const semanticDowngrade = archiveContext?.semanticDowngrade === true;
   const semanticDowngradeReason = normalizeText(archiveContext?.semanticDowngradeReason || '').replace(/-/g, ' ');
-  const directMemoryAuthorityQuestion = isDirectMemoryAuthorityQuestion(userText);
+  const directMemoryAuthorityQuestion = isCanonicalMemoryQuestion(userText);
   const archiveAdvisoryContentPresent = Boolean(
     (archiveSynthesis?.generated && archiveSynthesis.summary)
     || globalArchive.some((item) => normalizeText(item?.text || '')),
@@ -271,40 +349,54 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   if (archiveSynthesis?.generated && archiveSynthesis.summary) {
     retrievalHints.push(`archive advisory: ${archiveSynthesis.summary}`);
   }
-  for (const item of globalArchive) {
-    const sourceLabel = normalizeText(item?.sourceLabel || item?.source || 'archive');
-    const text = normalizeText(item?.text || '');
-    if (!text) continue;
-    retrievalHints.push(`${sourceLabel}: ${text}`);
-  }
 
   const sections = [];
-  const stableFacts = [];
-  stableFacts.push(...selected.map((item) => item.text));
-  stableFacts.push(...memoryBooks.map((item) => `memory book: ${item.text}`));
+  const stableFactLines = selected.map((item) => item.text);
+  const memoryBookLines = memoryBooks.map((item) => `memory book: ${item.text}`);
+  const stableFacts = [...stableFactLines, ...memoryBookLines];
   const suppressArchiveForDirectAuthority = directMemoryAuthorityQuestion && selected.length > 0;
   if (suppressArchiveForDirectAuthority) {
     stableFacts.unshift('canon priority: answer direct memory questions from these stable facts first. use archive hints only if canon is silent.');
   }
-  const sessionContext = sessionArchive
-    .map((item) => normalizeText(item?.text || ''))
-    .filter(Boolean);
+  const sessionContextEntries = sessionArchive
+    .map((item) => ({
+      sourceId: archivePromptTruthSourceId(item, 'archive-session'),
+      text: normalizeText(item?.text || ''),
+    }))
+    .filter((item) => item.text);
+  const sessionContext = sessionContextEntries.map((item) => item.text);
   const contradictionAndLoopLines = [
     ...correctionItems.map((item) => `correction: ${item.newText} (replaces: ${item.oldText})`),
     ...openLoops.map((item) => `open question: ${item}`),
   ];
-  const ongoingInvestigations = researchLedgerPromptEnabled && Array.isArray(researchLedgerContext?.topics)
+  const globalArchiveEntries = globalArchive
+    .map((item) => ({
+      sourceId: archivePromptTruthSourceId(item, 'archive-global'),
+      sourceLabel: normalizeText(item?.sourceLabel || item?.source || 'archive'),
+      text: normalizeText(item?.text || ''),
+    }))
+    .filter((item) => item.text)
+    .slice(0, 2);
+  for (const item of globalArchiveEntries) {
+    retrievalHints.push(`${item.sourceLabel}: ${item.text}`);
+  }
+  const researchLedgerEntries = Array.isArray(researchLedgerContext?.topics)
     ? researchLedgerContext.topics
       .map((item) => {
         const topicLabel = normalizeText(item?.topicLabel || '');
         const summary = normalizeText(item?.summary || item?.conclusion || item?.question || '');
         const status = normalizeText(item?.status || 'advisory');
-        if (!topicLabel && !summary) return '';
-        if (summary) return `${topicLabel || 'investigation'} (${status}): ${summary}`;
-        return `${topicLabel} (${status})`;
+        if (!topicLabel && !summary) return null;
+        return {
+          sourceId: researchLedgerPromptTruthSourceId(item),
+          text: summary ? `${topicLabel || 'investigation'} (${status}): ${summary}` : `${topicLabel} (${status})`,
+        };
       })
       .filter(Boolean)
       .slice(0, 2)
+    : [];
+  const ongoingInvestigations = researchLedgerPromptEnabled
+    ? researchLedgerEntries.map((item) => item.text)
     : [];
 
   const stableFactsSection = formatPromptSection('Wake state - stable facts', stableFacts);
@@ -318,8 +410,67 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   if (contradictionSection) sections.push(contradictionSection);
   if (!suppressArchiveForDirectAuthority && investigationsSection) sections.push(investigationsSection);
   if (!suppressArchiveForDirectAuthority && retrievalHintsSection) sections.push(retrievalHintsSection);
-  if (!sections.length) return fallback;
-  return sections.join('\n');
+
+  return {
+    text: sections.length ? sections.join('\n') : fallback,
+    promptTruth: normalizePromptTruth({
+      canonicalFactsPresent: selected.length > 0,
+      canonicalOverrideActive: suppressArchiveForDirectAuthority,
+      channels: {
+        stableFacts: {
+          candidateCount: stableFactLines.length,
+          renderedCount: stableFactLines.length,
+          candidateSourceIds: selected.map(memoryPromptTruthSourceId),
+          renderedSourceIds: selected.map(memoryPromptTruthSourceId),
+        },
+        memoryBooks: {
+          candidateCount: memoryBooks.length,
+          renderedCount: memoryBooks.length,
+          candidateSourceIds: memoryBooks.map(memoryBookPromptTruthSourceId),
+          renderedSourceIds: memoryBooks.map(memoryBookPromptTruthSourceId),
+        },
+        sessionArchive: {
+          candidateCount: sessionContextEntries.length,
+          renderedCount: suppressArchiveForDirectAuthority ? 0 : sessionContextEntries.length,
+          candidateSourceIds: sessionContextEntries.map((item) => item.sourceId),
+          renderedSourceIds: suppressArchiveForDirectAuthority ? [] : sessionContextEntries.map((item) => item.sourceId),
+          heldBackReason: suppressArchiveForDirectAuthority && sessionContextEntries.length
+            ? PROMPT_TRUTH_HOLDBACK_REASONS.CANON_PRIORITY
+            : '',
+        },
+        globalArchive: {
+          candidateCount: globalArchiveEntries.length,
+          renderedCount: suppressArchiveForDirectAuthority ? 0 : globalArchiveEntries.length,
+          candidateSourceIds: globalArchiveEntries.map((item) => item.sourceId),
+          renderedSourceIds: suppressArchiveForDirectAuthority ? [] : globalArchiveEntries.map((item) => item.sourceId),
+          heldBackReason: suppressArchiveForDirectAuthority && globalArchiveEntries.length
+            ? PROMPT_TRUTH_HOLDBACK_REASONS.CANON_PRIORITY
+            : '',
+        },
+        researchLedger: {
+          candidateCount: researchLedgerEntries.length,
+          renderedCount: (!researchLedgerPromptEnabled || suppressArchiveForDirectAuthority) ? 0 : researchLedgerEntries.length,
+          candidateSourceIds: researchLedgerEntries.map((item) => item.sourceId),
+          renderedSourceIds: (!researchLedgerPromptEnabled || suppressArchiveForDirectAuthority)
+            ? []
+            : researchLedgerEntries.map((item) => item.sourceId),
+          heldBackReason: researchLedgerEntries.length
+            ? (!researchLedgerPromptEnabled
+              ? PROMPT_TRUTH_HOLDBACK_REASONS.LEDGER_DISABLED
+              : (suppressArchiveForDirectAuthority ? PROMPT_TRUTH_HOLDBACK_REASONS.CANON_PRIORITY : ''))
+            : '',
+        },
+      },
+    }),
+  };
+}
+
+function buildPromptTruth(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
+  return buildPromptMemoryContext(memories, userText, limit, fallback, now).promptTruth;
+}
+
+function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
+  return buildPromptMemoryContext(memories, userText, limit, fallback, now).text;
 }
 
 function injectRelevantMemoryContext(text = '', memories = {}, userText = '', limit = MEMORY_RELEVANT_LIMIT, now = Date.now()) {
@@ -338,10 +489,14 @@ module.exports = {
   formatPromptMemories,
   injectRelevantMemoryContext,
   selectMemoriesForPrompt,
+  buildPromptTruth,
+  normalizePromptTruth,
+  isCanonicalMemoryQuestion,
   isDirectMemoryAuthorityQuestion,
   shouldPrioritizeCanonicalMemoryOverHistory,
   selectMemoryBooksForPrompt,
   formatPromptSection,
   tokenizeMemoryText,
   scoreMemoryForPrompt,
+  PROMPT_TRUTH_HOLDBACK_REASONS,
 };

@@ -63,6 +63,47 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
             },
           },
         },
+        recentAuditTrail: [
+          {
+            turnId: 'turn-1',
+            usedAt: '2026-04-15T12:00:00.000Z',
+            userTextExcerpt: 'What tea do I like again?',
+            selectedLane: 'chat',
+            requestedMode: 'local',
+            executionPath: 'llm-chat',
+            retrieval: {
+              mode: 'keyword',
+              reasonCode: 'keyword_fallback',
+              selectedSessionIds: ['session-1'],
+              selectedGlobalIds: [],
+              selectedBookIds: [],
+              selectedLedgerIds: ['path-package-json'],
+              compression: { used: false },
+              semanticReady: false,
+              semanticDowngrade: false,
+            },
+            promptTruth: {
+              channels: {
+                stableFacts: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+                memoryBooks: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+                sessionArchive: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+                globalArchive: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+                researchLedger: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+              },
+            },
+            artifactSummary: {
+              kind: 'chat-turn',
+              authority: { reply: 'explicit-canonical' },
+              approximatePath: { status: 'exact' },
+              researchLedgerPromptInjected: false,
+            },
+            researchLedger: {
+              updateStatus: 'skipped',
+              topicId: 'path-package-json',
+              topicLabel: 'package.json',
+            },
+          },
+        ],
       },
       global: {
         patternCount: 1,
@@ -111,6 +152,12 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
           {
             topicId: 'path-package-json',
             topicLabel: 'package.json',
+            identity: {
+              kind: 'anchored-question',
+              anchorType: 'project-path',
+              anchorRef: 'package.json',
+              scopeLabel: 'vitest migration',
+            },
             status: 'open',
             summary: 'open follow-up - verify the vitest migration.',
             evidenceRefs: [{ ref: 'package.json' }],
@@ -322,6 +369,8 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
   assert.equal(viewModel.queue.length, 1);
   assert.equal(viewModel.session.recencyProtection.protectedEpisodeCount, 6);
   assert.equal(viewModel.session.sessionId, 'thread-demo');
+  assert.equal(viewModel.recentAuditTrail.length, 1);
+  assert.equal(viewModel.recentAuditTrail[0].promptTruth.channels.sessionArchive.heldBackReason, 'canon-priority-suppression');
   assert.equal(viewModel.queue[0].promotionPacket.sourceThreadId, 'thread-demo');
   assert.equal(viewModel.artifact.version, 'penny-runtime-artifact.v1');
   assert.equal(viewModel.artifact.modelAdvisory.promptComposition.filledSlotCount, 3);
@@ -364,6 +413,47 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
             global: [],
             compression: { used: false, chapters: [] },
           },
+          recentAuditTrail: [
+            {
+              turnId: 'turn-audit-1',
+              usedAt: '2026-04-15T12:00:00.000Z',
+              userTextExcerpt: 'What tea do I like again?',
+              selectedLane: 'chat',
+              requestedMode: 'local',
+              executionPath: 'llm-chat',
+              retrieval: {
+                mode: 'keyword',
+                reasonCode: 'keyword_fallback',
+                selectedSessionIds: ['session-1'],
+                selectedGlobalIds: [],
+                selectedBookIds: [],
+                selectedLedgerIds: ['path-package-json'],
+                compression: { used: false },
+                semanticReady: false,
+                semanticDowngrade: false,
+              },
+              promptTruth: {
+                channels: {
+                  stableFacts: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+                  memoryBooks: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+                  sessionArchive: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+                  globalArchive: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+                  researchLedger: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+                },
+              },
+              artifactSummary: {
+                kind: 'chat-turn',
+                authority: { reply: 'explicit-canonical' },
+                approximatePath: { status: 'exact' },
+                researchLedgerPromptInjected: false,
+              },
+              researchLedger: {
+                updateStatus: 'skipped',
+                topicId: 'path-package-json',
+                topicLabel: 'package.json',
+              },
+            },
+          ],
           activeContradictions: [],
         },
         global: {
@@ -413,6 +503,12 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
             {
               topicId: 'path-package-json',
               topicLabel: 'package.json',
+              identity: {
+                kind: 'anchored-question',
+                anchorType: 'project-path',
+                anchorRef: 'package.json',
+                scopeLabel: 'vitest migration',
+              },
               status: 'open',
               summary: 'open follow-up - verify the vitest migration.',
               evidenceRefs: [{ ref: 'package.json' }],
@@ -639,6 +735,7 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Trace provenance/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Research continuity ledger/);
   assert.match(els.memoryInspectorPanel.innerHTML, /package\.json/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /scope vitest migration/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /episodes episode-1/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /turns qa-ledger:turn-1/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Evidence refs: package\.json/);
@@ -647,6 +744,9 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Evidence accepted: 2/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Check whether the red glove is still on dryer three/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Recency protection/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Recent audit trail/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /canon-priority-suppression/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /ledger 1/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Protected ids:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /thread thread-demo/i);
 });

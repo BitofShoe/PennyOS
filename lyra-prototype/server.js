@@ -418,9 +418,6 @@ async function buildRuntimeMemoryContext({
     sessionId,
     userText,
   });
-  const researchLedgerPromptInjected = PENNY_ENABLE_RESEARCH_LEDGER_PROMPT
-    && Array.isArray(researchLedger?.topics)
-    && researchLedger.topics.length > 0;
   const memoryBooks = matchMemoryBooksApi({
     sessionId,
     userText,
@@ -466,7 +463,7 @@ async function buildRuntimeMemoryContext({
     researchLedger,
     researchLedgerPromptEnabled: PENNY_ENABLE_RESEARCH_LEDGER_PROMPT,
   });
-  const promptComposition = buildPennyPromptContextBlocks({
+  const promptContext = buildPennyPromptContextBlocks({
     memories: enrichedMemories,
     userText,
     lane,
@@ -476,12 +473,16 @@ async function buildRuntimeMemoryContext({
     includeChatDirectives: true,
     memoryLimit: budget.memoryPromptLimit,
     fallbackMemory: '- Nothing stored yet.',
-  }).slotSummary;
+  });
+  const promptComposition = promptContext.slotSummary;
+  const promptTruth = promptContext.promptTruth || null;
+  const researchLedgerPromptInjected = Number(promptTruth?.channels?.researchLedger?.renderedCount || 0) > 0;
   return {
     memories: enrichedMemories,
     archiveContext: archive.archiveContext,
     memoryBooks,
     researchLedger,
+    promptTruth,
     researchLedgerPromptInjected,
     retrieval,
     semanticMemory: archive.semanticMemory,
@@ -497,6 +498,7 @@ function scheduleArchiveConsolidation({
   userText = '',
   assistantText = '',
   retrieval = null,
+  audit = null,
   provenance = [],
   reviewCandidates = [],
 } = {}) {
@@ -507,6 +509,7 @@ function scheduleArchiveConsolidation({
       userText,
       assistantText: stripReplyMoodTags(String(assistantText || '')),
       retrieval,
+      audit,
       provenance,
       reviewCandidates,
     });

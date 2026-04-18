@@ -5,6 +5,7 @@ const {
   mergeMemoryItems,
   selectMemoriesForPrompt,
   formatPromptMemories,
+  buildPromptTruth,
   injectRelevantMemoryContext,
 } = require('../lib/penny-memory');
 
@@ -78,7 +79,7 @@ test('formatPromptMemories includes bounded archive context without replacing ex
   assert.match(out, /Wake state - retrieval hints \(advisory\):/);
 });
 
-test('formatPromptMemories keeps explicit memories ahead of archive continuity sections', () => {
+test('formatPromptMemories keeps explicit memories ahead of archive continuity sections on non-authority questions', () => {
   const now = Date.UTC(2026, 3, 12);
   const out = formatPromptMemories({
     memories: [
@@ -93,7 +94,7 @@ test('formatPromptMemories keeps explicit memories ahead of archive continuity s
         { text: 'They keep returning to midnight rain.' },
       ],
     },
-  }, 'What tea do I like again?', 3, '- Nothing yet.', now);
+  }, 'Tell me the midnight rain thing again.', 3, '- Nothing yet.', now);
 
   const explicitIndex = out.indexOf('Favorite tea is lapsang souchong');
   const sessionIndex = out.indexOf('Wake state - active session context:');
@@ -106,7 +107,7 @@ test('formatPromptMemories keeps explicit memories ahead of archive continuity s
   assert.ok(sessionIndex < retrievalIndex);
 });
 
-test('formatPromptMemories keeps active corrections behind current explicit facts and ahead of archive continuity', () => {
+test('formatPromptMemories keeps active corrections behind current explicit facts and ahead of archive continuity on non-authority questions', () => {
   const now = Date.UTC(2026, 3, 12);
   const out = formatPromptMemories({
     memories: [
@@ -128,7 +129,7 @@ test('formatPromptMemories keeps active corrections behind current explicit fact
         { text: 'Longer-term patterns: they keep returning to midnight rain.' },
       ],
     },
-  }, 'What tea do I like again?', 3, '- Nothing yet.', now);
+  }, 'Tell me about the midnight rain thread and my tea notes.', 3, '- Nothing yet.', now);
 
   const explicitIndex = out.indexOf('Favorite tea is lapsang souchong');
   const correctionsIndex = out.indexOf('Wake state - contradictions/open questions:');
@@ -195,7 +196,7 @@ test('formatPromptMemories falls back to provenance when no active contradiction
   assert.match(out, /replaces: Favorite tea is oolong/i);
 });
 
-test('formatPromptMemories includes non-canonical archive synthesis ahead of archive continuity', () => {
+test('formatPromptMemories includes non-canonical archive synthesis ahead of archive continuity on non-authority questions', () => {
   const now = Date.UTC(2026, 3, 12);
   const out = formatPromptMemories({
     memories: [
@@ -214,7 +215,7 @@ test('formatPromptMemories includes non-canonical archive synthesis ahead of arc
         { text: 'We were talking about midnight rain on the windows.' },
       ],
     },
-  }, 'What tea do I like again?', 3, '- Nothing yet.', now);
+  }, 'Tell me the midnight rain thing again.', 3, '- Nothing yet.', now);
 
   const synthesisIndex = out.indexOf('archive advisory: Correction in play: favorite tea is lapsang souchong, not oolong');
   const sessionIndex = out.indexOf('Wake state - active session context:');
@@ -238,10 +239,48 @@ test('formatPromptMemories surfaces retrieval caution when archive recall is wea
         { text: 'They keep returning to midnight rain.', sourceLabel: 'archive-global' },
       ],
     },
-  }, 'What tea do I like again?', 3, '- Nothing yet.', now);
+  }, 'Tell me the midnight rain thing again.', 3, '- Nothing yet.', now);
 
   assert.match(out, /retrieval caution:/i);
   assert.match(out, /archive-global: They keep returning to midnight rain/i);
+});
+
+test('buildPromptTruth records canon-first holdback receipts for direct authority questions', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const promptTruth = buildPromptTruth({
+    memories: [
+      { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: now },
+    ],
+    archiveContext: {
+      session: [
+        { id: 'session-1', text: 'Favorite tea used to be oolong.', sourceLabel: 'archive-session' },
+      ],
+      global: [
+        { id: 'global-1', text: 'They keep returning to midnight rain.', sourceLabel: 'archive-global' },
+      ],
+    },
+    researchLedgerContext: {
+      topics: [
+        {
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+          status: 'open',
+          summary: 'open follow-up - verify whether the Vitest migration is still pending.',
+        },
+      ],
+    },
+  }, 'What tea do I like again?', 3, '- Nothing yet.', now);
+
+  assert.equal(promptTruth.canonicalFactsPresent, true);
+  assert.equal(promptTruth.canonicalOverrideActive, true);
+  assert.equal(promptTruth.channels.sessionArchive.candidateCount, 1);
+  assert.equal(promptTruth.channels.sessionArchive.renderedCount, 0);
+  assert.equal(promptTruth.channels.sessionArchive.heldBackReason, 'canon-priority-suppression');
+  assert.equal(promptTruth.channels.globalArchive.candidateCount, 1);
+  assert.equal(promptTruth.channels.globalArchive.renderedCount, 0);
+  assert.equal(promptTruth.channels.researchLedger.candidateCount, 1);
+  assert.equal(promptTruth.channels.researchLedger.renderedCount, 0);
+  assert.equal(promptTruth.channels.researchLedger.heldBackReason, 'canon-priority-suppression');
 });
 
 test('formatPromptMemories keeps direct memory-authority questions canon-first under advisory pressure', () => {

@@ -5,6 +5,10 @@ const LATENCY_CLASSES = Object.freeze({
   IMAGE_HEAVY: 'image-heavy',
 });
 
+const {
+  isCanonicalMemoryQuestion,
+} = require('./penny-memory');
+
 const LATENCY_BUDGETS = Object.freeze({
   [LATENCY_CLASSES.CASUAL_COMPANION]: Object.freeze({
     latencyClass: LATENCY_CLASSES.CASUAL_COMPANION,
@@ -91,25 +95,8 @@ const MEMORY_HEAVY_UPDATE_PATTERNS = [
   /\bi (?:changed|switched|replaced)\b/i,
 ];
 
-const MEMORY_CANONICAL_QUESTION_PATTERNS = [
-  /\bwhere is my\b/i,
-  /\bwhat (?:is|are|was|were)\s+my\b/i,
-  /\bwhat\b.*\bdo i\b.*\blike\b/i,
-  /\bwhat do you know about my\b/i,
-];
-
-const MEMORY_CANONICAL_ANCHOR_PATTERN = /\b(?:tea|drink|pet|mascot|name|birthday|pronouns?|notebook|setup)\b/i;
-const QUESTION_LIKE_PATTERN = /\?|\b(what|which|who|where|when|why|how|do you|did you|did i|tell me)\b/i;
-
-function isQuestionLike(userText = '') {
-  return QUESTION_LIKE_PATTERN.test(String(userText || '').trim());
-}
-
 function looksCanonicalMemoryQuestion(userText = '') {
-  const text = String(userText || '').trim();
-  if (!text || !isQuestionLike(text)) return false;
-  if (!MEMORY_CANONICAL_ANCHOR_PATTERN.test(text)) return false;
-  return MEMORY_CANONICAL_QUESTION_PATTERNS.some((pattern) => pattern.test(text));
+  return isCanonicalMemoryQuestion(userText);
 }
 
 function cloneBudget(budget = LATENCY_BUDGETS[LATENCY_CLASSES.CASUAL_COMPANION]) {

@@ -1,6 +1,7 @@
+const crypto = require('node:crypto');
 const { writeJsonFileAtomicSync } = require('./penny-atomic-json');
 
-const LEDGER_SCHEMA_VERSION = 1;
+const LEDGER_SCHEMA_VERSION = 2;
 const LEDGER_PROMPT_TOPIC_LIMIT = 2;
 const LEDGER_INSPECTOR_TOPIC_LIMIT = 8;
 const LEDGER_EVIDENCE_LIMIT = 6;
@@ -78,6 +79,56 @@ const GENERIC_PROMPT_QUERY_TOKENS = new Set([
   'where',
   'work',
 ]);
+const GENERIC_SCOPE_TOKENS = new Set([
+  ...GENERIC_PROMPT_QUERY_TOKENS,
+  'a',
+  'an',
+  'and',
+  'any',
+  'are',
+  'as',
+  'at',
+  'can',
+  'did',
+  'does',
+  'exactly',
+  'for',
+  'give',
+  'i',
+  'if',
+  'is',
+  'in',
+  'into',
+  'it',
+  'its',
+  'me',
+  'my',
+  'now',
+  'of',
+  'on',
+  'or',
+  'please',
+  'prove',
+  'proving',
+  'show',
+  'since',
+  'the',
+  'tell',
+  'to',
+  'us',
+  'verify',
+  'was',
+  'we',
+  'you',
+]);
+const LEDGER_IDENTITY_KINDS = new Set([
+  'anchored-question',
+  'contradiction',
+]);
+
+function stableIdentityHash(value = '') {
+  return crypto.createHash('sha1').update(String(value || ''), 'utf8').digest('hex').slice(0, 10);
+}
 
 function trimText(value = '', limit = 320) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -109,18 +160,23 @@ function buildMeaningfulPromptQueryTokens(userText = '') {
 }
 
 function buildTopicPromptTokens(topic = {}) {
-  return new Set([
-    ...tokenize(topic.topicLabel),
-    ...tokenize(topic.question),
-    ...tokenize(topic.conclusion),
-    ...tokenize((topic.openFollowUps || []).join(' ')),
-  ]);
+  const anchorTokens = tokenize([
+    topic?.identity?.anchorRef || topic.topicLabel || '',
+    ...(Array.isArray(topic.evidenceRefs)
+      ? topic.evidenceRefs.map((item) => `${item?.ref || ''} ${item?.label || ''}`)
+      : []),
+  ].join(' '));
+  return new Set(buildScopeTokens([
+    topic?.identity?.scopeLabel || '',
+    topic.question,
+    (topic.openFollowUps || []).join(' '),
+  ].join(' '), anchorTokens));
 }
 
 function buildTopicAnchorTokens(topic = {}) {
   const evidenceRefs = Array.isArray(topic.evidenceRefs) ? topic.evidenceRefs : [];
   return new Set([
-    ...tokenize(topic.topicLabel),
+    ...tokenize(topic?.identity?.anchorRef || topic.topicLabel),
     ...evidenceRefs.flatMap((item) => tokenize(`${item?.ref || ''} ${item?.label || ''}`)),
   ]);
 }
@@ -155,6 +211,150 @@ function slugify(value = '', fallback = 'topic') {
     .replace(/^-+|-+$/g, '')
     .slice(0, 80);
   return text || fallback;
+}
+
+function normalizeAnchorType(value = '', fallback = 'query') {
+  const text = String(value || '').trim();
+  if (['project-path', 'web-url', 'query', 'contradiction'].includes(text)) return text;
+  return fallback;
+}
+
+function buildScopeTokens(userText = '', anchorTokens = []) {
+  const anchor = new Set(Array.isArray(anchorTokens) ? anchorTokens : []);
+  const ordered = tokenize(userText);
+  const scopeTokens = [];
+  const seen = new Set();
+  for (const token of ordered) {
+    if (!token || anchor.has(token) || GENERIC_SCOPE_TOKENS.has(token)) continue;
+    if (seen.has(token)) continue;
+    seen.add(token);
+    scopeTokens.push(token);
+    if (scopeTokens.length >= 8) break;
+  }
+  return scopeTokens;
+}
+
+function buildScopeSummary(userText = '', anchorTokens = []) {
+  const scopeTokens = buildScopeTokens(userText, anchorTokens);
+  if (scopeTokens.length) {
+    return {
+      scopeKey: [...scopeTokens].sort().join(' '),
+      scopeLabel: scopeTokens.slice(0, 6).join(' '),
+    };
+  }
+  return {
+    scopeKey: 'general',
+    scopeLabel: 'general follow-up',
+  };
+}
+
+function inferLegacyAnchorType({ topicId = '', evidenceRefs = [] } = {}) {
+  const primaryRef = Array.isArray(evidenceRefs) ? evidenceRefs.find((item) => item?.ref) : null;
+  if (primaryRef?.type) return normalizeAnchorType(primaryRef.type);
+  const normalizedTopicId = String(topicId || '').trim().toLowerCase();
+  if (normalizedTopicId.startsWith('path-')) return 'project-path';
+  if (normalizedTopicId.startsWith('url-')) return 'web-url';
+  if (normalizedTopicId.startsWith('contradiction-')) return 'contradiction';
+  return 'query';
+}
+
+function buildLedgerIdentity({
+  userText = '',
+  topicId = '',
+  topicLabel = '',
+  evidenceRefs = [],
+  contradictions = [],
+  rawIdentity = null,
+} = {}) {
+  const contradiction = Array.isArray(contradictions)
+    ? contradictions.find((item) => item?.conflictKey || item?.newText || item?.oldText)
+    : null;
+  const primaryRef = Array.isArray(evidenceRefs)
+    ? evidenceRefs.find((item) => ['project-path', 'web-url', 'query'].includes(String(item?.type || '').trim()) && item?.ref)
+      || evidenceRefs.find((item) => item?.ref)
+    : null;
+  const requestedKind = String(rawIdentity?.kind || '').trim();
+  const kind = contradiction?.conflictKey || requestedKind === 'contradiction' || String(topicId || '').startsWith('contradiction-')
+    ? 'contradiction'
+    : (LEDGER_IDENTITY_KINDS.has(requestedKind) ? requestedKind : 'anchored-question');
+
+  if (kind === 'contradiction') {
+    const contradictionLabel = trimText(
+      rawIdentity?.scopeLabel
+      || rawIdentity?.anchorRef
+      || contradiction?.conflictKey
+      || topicLabel
+      || userText,
+      180,
+    ) || 'contradiction';
+    return {
+      kind: 'contradiction',
+      anchorType: 'contradiction',
+      anchorRef: trimText(rawIdentity?.anchorRef || contradiction?.conflictKey || contradictionLabel, 220) || contradictionLabel,
+      scopeKey: trimText(rawIdentity?.scopeKey || contradiction?.conflictKey || contradictionLabel, 180).toLowerCase() || 'contradiction',
+      scopeLabel: contradictionLabel,
+    };
+  }
+
+  const anchorType = normalizeAnchorType(
+    rawIdentity?.anchorType || inferLegacyAnchorType({ topicId, evidenceRefs }),
+    primaryRef?.type || 'query',
+  );
+  const anchorRef = trimText(
+    rawIdentity?.anchorRef
+    || primaryRef?.ref
+    || topicLabel
+    || userText,
+    220,
+  ) || 'Research topic';
+  const anchorTokens = tokenize(`${anchorRef} ${primaryRef?.label || ''}`);
+  const scopeSummary = buildScopeSummary(
+    rawIdentity?.scopeLabel
+    || rawIdentity?.scopeKey
+    || userText
+    || topicLabel,
+    anchorTokens,
+  );
+  return {
+    kind: 'anchored-question',
+    anchorType,
+    anchorRef,
+    scopeKey: trimText(rawIdentity?.scopeKey || scopeSummary.scopeKey, 180).toLowerCase() || 'general',
+    scopeLabel: trimText(rawIdentity?.scopeLabel || scopeSummary.scopeLabel, 180) || 'general follow-up',
+  };
+}
+
+function buildLedgerTopicId(identity = {}) {
+  if (identity?.kind === 'contradiction') {
+    return `contradiction-${slugify(identity.scopeKey || identity.scopeLabel || identity.anchorRef, 'contradiction')}`;
+  }
+  const prefix = identity?.anchorType === 'project-path'
+    ? 'path'
+    : (identity?.anchorType === 'web-url' ? 'url' : 'query');
+  const anchorSlug = slugify(identity?.anchorRef || identity?.scopeLabel || 'topic', 'topic');
+  if (String(identity?.scopeKey || '').trim().toLowerCase() === 'general') {
+    return `${prefix}-${anchorSlug}`;
+  }
+  const scopeSlug = slugify(identity?.scopeLabel || identity?.scopeKey || 'scope', 'scope').slice(0, 42);
+  const scopeHash = stableIdentityHash([
+    identity?.kind || '',
+    identity?.anchorType || '',
+    identity?.anchorRef || '',
+    identity?.scopeKey || '',
+  ].join('|'));
+  return `${prefix}-${anchorSlug}-${scopeSlug}-${scopeHash}`;
+}
+
+function buildLedgerTopicLabel(identity = {}) {
+  if (identity?.kind === 'contradiction') {
+    return trimText(identity.scopeLabel || identity.anchorRef || 'contradiction', 180);
+  }
+  const anchorRef = trimText(identity?.anchorRef || '', 120);
+  const scopeLabel = trimText(identity?.scopeLabel || '', 80);
+  if (!scopeLabel || scopeLabel === 'general follow-up' || scopeLabel.toLowerCase() === anchorRef.toLowerCase()) {
+    return anchorRef || scopeLabel || 'Research topic';
+  }
+  return trimText(`${anchorRef} - ${scopeLabel}`, 180);
 }
 
 function defaultResearchLedgerStore() {
@@ -201,8 +401,24 @@ function normalizeContradiction(raw = {}) {
 
 function normalizeLedgerEntry(raw = {}) {
   if (!raw || typeof raw !== 'object') return null;
-  const topicId = trimText(raw.topicId || '', 140);
-  const topicLabel = trimText(raw.topicLabel || '', 180);
+  const evidenceRefs = (Array.isArray(raw.evidenceRefs) ? raw.evidenceRefs : [])
+    .map(normalizeEvidenceRef)
+    .filter(Boolean)
+    .slice(0, LEDGER_EVIDENCE_LIMIT);
+  const contradictions = (Array.isArray(raw.contradictions) ? raw.contradictions : [])
+    .map(normalizeContradiction)
+    .filter(Boolean)
+    .slice(0, LEDGER_CONTRADICTION_LIMIT);
+  const identity = buildLedgerIdentity({
+    userText: trimText(raw.question || '', 260),
+    topicId: trimText(raw.topicId || '', 140),
+    topicLabel: trimText(raw.topicLabel || '', 180),
+    evidenceRefs,
+    contradictions,
+    rawIdentity: raw.identity,
+  });
+  const topicId = buildLedgerTopicId(identity);
+  const topicLabel = trimText(raw.topicLabel || buildLedgerTopicLabel(identity), 180) || buildLedgerTopicLabel(identity);
   if (!topicId || !topicLabel) return null;
   const status = ['open', 'provisional', 'settled'].includes(String(raw.status || '').trim())
     ? String(raw.status || '').trim()
@@ -210,18 +426,13 @@ function normalizeLedgerEntry(raw = {}) {
   return {
     topicId,
     topicLabel,
+    identity,
     question: trimText(raw.question || '', 260),
     status,
     conclusion: trimText(raw.conclusion || '', 320),
-    evidenceRefs: (Array.isArray(raw.evidenceRefs) ? raw.evidenceRefs : [])
-      .map(normalizeEvidenceRef)
-      .filter(Boolean)
-      .slice(0, LEDGER_EVIDENCE_LIMIT),
+    evidenceRefs,
     openFollowUps: appendUniqueStrings([], raw.openFollowUps || [], LEDGER_FOLLOW_UP_LIMIT),
-    contradictions: (Array.isArray(raw.contradictions) ? raw.contradictions : [])
-      .map(normalizeContradiction)
-      .filter(Boolean)
-      .slice(0, LEDGER_CONTRADICTION_LIMIT),
+    contradictions,
     lastTouchedAt: trimIso(raw.lastTouchedAt, ''),
     sourceSessionIds: appendUniqueStrings([], raw.sourceSessionIds || [], LEDGER_SESSION_ID_LIMIT),
     sourceTurnIds: appendUniqueStrings([], raw.sourceTurnIds || [], LEDGER_TURN_ID_LIMIT),
@@ -330,42 +541,6 @@ function createResearchLedgerApi({
     return refs.filter(Boolean).slice(0, LEDGER_EVIDENCE_LIMIT);
   }
 
-  function deriveTopicIdentity({ userText = '', evidenceRefs = [], contradictions = [] } = {}) {
-    const contradiction = contradictions[0] || null;
-    if (contradiction?.conflictKey) {
-      return {
-        topicId: `contradiction-${slugify(contradiction.conflictKey, 'contradiction')}`,
-        topicLabel: contradiction.conflictKey,
-      };
-    }
-
-    const primaryRef = evidenceRefs[0] || null;
-    if (primaryRef?.type === 'project-path' && primaryRef.ref) {
-      return {
-        topicId: `path-${slugify(primaryRef.ref, 'path')}`,
-        topicLabel: primaryRef.ref,
-      };
-    }
-    if (primaryRef?.type === 'web-url' && primaryRef.ref) {
-      return {
-        topicId: `url-${slugify(primaryRef.ref, 'url')}`,
-        topicLabel: primaryRef.ref,
-      };
-    }
-    if (primaryRef?.ref) {
-      return {
-        topicId: `query-${slugify(primaryRef.ref, 'query')}`,
-        topicLabel: primaryRef.ref,
-      };
-    }
-
-    const fallback = trimText(userText, 120) || 'Research topic';
-    return {
-      topicId: `topic-${slugify(fallback, 'topic')}`,
-      topicLabel: fallback,
-    };
-  }
-
   function buildOpenFollowUps({ userText = '', assistantText = '', contradictions = [] } = {}) {
     const cleanUserText = trimText(userText, 220);
     const cleanAssistantText = trimText(assistantText, 260);
@@ -428,13 +603,13 @@ function createResearchLedgerApi({
       .filter(Boolean)
       .map((topic) => {
         const sameSession = Array.isArray(topic.sourceSessionIds) && topic.sourceSessionIds.includes(sessionId);
-        const promptOverlap = countTokenOverlap(queryTokens, buildTopicPromptTokens(topic));
+        const scopeOverlap = countTokenOverlap(queryTokens, buildTopicPromptTokens(topic));
         const anchorOverlap = countTokenOverlap(queryTokens, buildTopicAnchorTokens(topic));
-        const eligible = sameSession || promptOverlap > 0 || anchorOverlap > 0;
+        const eligible = sameSession || scopeOverlap > 0 || anchorOverlap > 0;
         return {
           topic,
           sameSession,
-          promptOverlap,
+          scopeOverlap,
           anchorOverlap,
           eligible,
         };
@@ -442,18 +617,22 @@ function createResearchLedgerApi({
       .filter((item) => item.eligible)
       .sort((left, right) => (
         right.anchorOverlap - left.anchorOverlap
+        || right.scopeOverlap - left.scopeOverlap
         || Number(right.sameSession === true) - Number(left.sameSession === true)
-        || right.promptOverlap - left.promptOverlap
         || topicScore(right.topic, sessionId, queryTokens) - topicScore(left.topic, sessionId, queryTokens)
       ));
-    const hasAnchorOverlap = eligibleTopics.some((item) => item.anchorOverlap > 0);
-    const selectedTopics = hasAnchorOverlap
-      ? eligibleTopics.filter((item) => item.anchorOverlap > 0).slice(0, LEDGER_PROMPT_TOPIC_LIMIT)
-      : eligibleTopics.slice(0, Math.min(1, LEDGER_PROMPT_TOPIC_LIMIT));
+    const anchorTopics = eligibleTopics.filter((item) => item.anchorOverlap > 0);
+    const scopedAnchorTopics = anchorTopics.filter((item) => item.scopeOverlap > 0);
+    const selectedTopics = scopedAnchorTopics.length
+      ? scopedAnchorTopics.slice(0, LEDGER_PROMPT_TOPIC_LIMIT)
+      : (anchorTopics.length
+        ? anchorTopics.slice(0, 1)
+        : eligibleTopics.slice(0, Math.min(1, LEDGER_PROMPT_TOPIC_LIMIT)));
     const topics = selectedTopics
       .map(({ topic }) => ({
         topicId: topic.topicId,
         topicLabel: topic.topicLabel,
+        identity: topic.identity,
         status: topic.status,
         summary: summarizeTopicForPrompt(topic),
         openFollowUps: appendUniqueStrings([], topic.openFollowUps || [], 2),
@@ -520,13 +699,16 @@ function createResearchLedgerApi({
       return { updated: false, reason: 'non-qualifying-turn' };
     }
 
-    const identity = deriveTopicIdentity({
+    const identity = buildLedgerIdentity({
       userText: cleanUserText,
+      topicLabel: '',
       evidenceRefs,
       contradictions,
     });
+    const topicId = buildLedgerTopicId(identity);
+    const topicLabel = buildLedgerTopicLabel(identity);
     const store = readLedgerStore();
-    const existing = normalizeLedgerEntry(store.topics?.[identity.topicId] || {});
+    const existing = normalizeLedgerEntry(store.topics?.[topicId] || {});
     const lastTouchedAt = new Date(nowMs()).toISOString();
     const sourceTurnId = `${sessionId}:${nowMs()}`;
     const mergedOpenFollowUps = appendUniqueStrings(existing?.openFollowUps || [], openFollowUps, LEDGER_FOLLOW_UP_LIMIT);
@@ -535,9 +717,10 @@ function createResearchLedgerApi({
       .filter(Boolean)
       .slice(-LEDGER_CONTRADICTION_LIMIT);
     const next = normalizeLedgerEntry({
-      topicId: identity.topicId,
-      topicLabel: identity.topicLabel,
-      question: cleanUserText || existing?.question || identity.topicLabel,
+      topicId,
+      topicLabel,
+      identity,
+      question: cleanUserText || existing?.question || topicLabel,
       status: determineStatus({
         evidenceRefs: [...(existing?.evidenceRefs || []), ...evidenceRefs],
         contradictions: mergedContradictions,

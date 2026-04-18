@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { createResearchLedgerApi } = require('../lib/penny-research-ledger');
+const { createResearchLedgerApi, LEDGER_SCHEMA_VERSION } = require('../lib/penny-research-ledger');
 
 function buildApi(now = Date.UTC(2026, 3, 16, 12, 0, 0)) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-ledger-test-'));
@@ -20,6 +20,20 @@ function buildApi(now = Date.UTC(2026, 3, 16, 12, 0, 0)) {
     ledgerFile,
     cleanup() {
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    },
+  };
+}
+
+function readPackageJsonToolRecord(note = '"test": "node --test test/*.test.js"') {
+  return {
+    name: 'read_project_file',
+    result: {
+      ok: true,
+      label: 'read package.json',
+      data: {
+        path: 'package.json',
+        textPreview: note,
+      },
     },
   };
 }
@@ -41,13 +55,124 @@ test('research ledger ignores casual chat without verified evidence', () => {
   }
 });
 
-test('research ledger stores verified repo investigations and exposes bounded prompt context', () => {
+test('research ledger scopes multiple questions about the same file into separate topics', () => {
   const { api, cleanup } = buildApi();
   try {
-    const result = api.updateResearchLedgerFromTurn({
+    const first = api.updateResearchLedgerFromTurn({
       sessionId: 'qa-ledger',
       userText: 'What is the npm test script in package.json, and do we still need to verify a Vitest migration?',
       assistantText: 'package.json still uses node --test test/*.test.js. We should verify the Vitest migration separately before claiming anything.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [readPackageJsonToolRecord()],
+    });
+    const second = api.updateResearchLedgerFromTurn({
+      sessionId: 'qa-ledger',
+      userText: 'Does package.json still pin Node 22 in the engines field?',
+      assistantText: 'package.json still pins Node 22 in engines.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [readPackageJsonToolRecord('"engines": { "node": "22.x" }')],
+    });
+
+    const inspector = api.getResearchLedgerInspector({ sessionId: 'qa-ledger' });
+    const topics = inspector.recentTopics;
+
+    assert.equal(first.updated, true);
+    assert.equal(second.updated, true);
+    assert.equal(inspector.meta.schemaVersion, LEDGER_SCHEMA_VERSION);
+    assert.equal(topics.length, 2);
+    assert.notEqual(first.topic.topicId, second.topic.topicId);
+    assert.equal(first.topic.identity.anchorRef, 'package.json');
+    assert.equal(second.topic.identity.anchorRef, 'package.json');
+    assert.notEqual(first.topic.identity.scopeKey, second.topic.identity.scopeKey);
+    assert.match(first.topic.identity.scopeLabel, /npm|script|vitest/i);
+    assert.match(second.topic.identity.scopeLabel, /node|22|engines/i);
+  } finally {
+    cleanup();
+  }
+});
+
+test('research ledger revisits the same anchored question by merging into one scoped topic', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    const first = api.updateResearchLedgerFromTurn({
+      sessionId: 'qa-ledger',
+      userText: 'What is the npm test script in package.json?',
+      assistantText: 'package.json still uses node --test test/*.test.js.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [readPackageJsonToolRecord()],
+    });
+    const second = api.updateResearchLedgerFromTurn({
+      sessionId: 'other-session',
+      userText: 'Can you check package.json again and tell me the npm test script?',
+      assistantText: 'It is still node --test test/*.test.js.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [readPackageJsonToolRecord()],
+    });
+
+    const store = api.readLedgerStore();
+    const topics = Object.values(store.topics);
+
+    assert.equal(first.updated, true);
+    assert.equal(second.updated, true);
+    assert.equal(topics.length, 1);
+    assert.equal(first.topic.topicId, second.topic.topicId);
+    assert.deepEqual(topics[0].sourceSessionIds.sort(), ['other-session', 'qa-ledger']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('research ledger prompt context prefers the directly anchored scoped topic over adjacent same-file topics', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    api.updateResearchLedgerFromTurn({
+      sessionId: 'qa-ledger',
+      userText: 'What is the npm test script in package.json, and do we still need to verify a Vitest migration?',
+      assistantText: 'package.json still uses node --test test/*.test.js. We should verify the Vitest migration separately before claiming anything.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [readPackageJsonToolRecord()],
+    });
+    api.updateResearchLedgerFromTurn({
+      sessionId: 'qa-ledger',
+      userText: 'Does package.json still pin Node 22 in the engines field?',
+      assistantText: 'package.json still pins Node 22 in engines.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [readPackageJsonToolRecord('"engines": { "node": "22.x" }')],
+    });
+
+    const promptContext = api.getPromptContext({
+      sessionId: 'qa-ledger',
+      userText: 'Does package.json still pin Node 22?',
+    });
+
+    assert.equal(promptContext.topics.length, 1);
+    assert.match(promptContext.topics[0].identity.scopeLabel, /node|22|engines/i);
+  } finally {
+    cleanup();
+  }
+});
+
+test('research ledger generic same-session fallback still returns at most one topic', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    api.updateResearchLedgerFromTurn({
+      sessionId: 'qa-ledger',
+      userText: 'What is the npm test script in package.json?',
+      assistantText: 'package.json still uses node --test test/*.test.js.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [readPackageJsonToolRecord()],
+    });
+    api.updateResearchLedgerFromTurn({
+      sessionId: 'qa-ledger',
+      userText: 'Does README.md still prove Penny is cloud-hosted and multi-user?',
+      assistantText: 'README.md does not prove the cloud-hosted claim yet. We still need to verify it.',
       selectedLane: 'tool',
       backend: 'local-lmstudio-tools',
       toolRecords: [
@@ -55,192 +180,31 @@ test('research ledger stores verified repo investigations and exposes bounded pr
           name: 'read_project_file',
           result: {
             ok: true,
-            label: 'read package.json',
+            label: 'read README.md',
             data: {
-              path: 'package.json',
-              textPreview: '"test": "node --test test/*.test.js"',
+              path: 'README.md',
+              textPreview: 'Penny is a local companion prototype.',
             },
           },
         },
       ],
     });
 
-    assert.equal(result.updated, true);
-    assert.equal(result.topic.topicLabel, 'package.json');
-    assert.equal(result.topic.status, 'open');
-    assert.equal(result.topic.evidenceRefs.length, 1);
-
-    const promptContext = api.getPromptContext({
-      sessionId: 'qa-ledger',
-      userText: 'check package.json again',
-    });
-    assert.equal(promptContext.topics.length, 1);
-    assert.equal(promptContext.topics[0].topicLabel, 'package.json');
-    assert.match(promptContext.topics[0].summary, /open follow-up/i);
-    assert.deepEqual(promptContext.topics[0].sourceSessionIds, ['qa-ledger']);
-    assert.equal(promptContext.topics[0].sourceTurnIds.length > 0, true);
-  } finally {
-    cleanup();
-  }
-});
-
-test('research ledger prompt context narrows generic open-topic injection to the top topic', () => {
-  const { api, cleanup } = buildApi();
-  try {
-    api.writeLedgerStore({
-      meta: { schemaVersion: 1, updatedAt: '2026-04-16T12:00:00.000Z' },
-      topics: {
-        'path-package-json': {
-          topicId: 'path-package-json',
-          topicLabel: 'package.json',
-          question: 'What should we verify next in package.json?',
-          status: 'open',
-          conclusion: 'package.json still uses node --test test/*.test.js.',
-          evidenceRefs: [
-            { type: 'project-path', ref: 'package.json', label: 'read package.json', status: 'verified' },
-          ],
-          openFollowUps: ['verify whether the Vitest migration is still pending'],
-          contradictions: [],
-          lastTouchedAt: '2026-04-16T12:05:00.000Z',
-          sourceSessionIds: ['qa-ledger'],
-          sourceTurnIds: ['qa-ledger:1'],
-        },
-        'path-readme-md': {
-          topicId: 'path-readme-md',
-          topicLabel: 'README.md',
-          question: 'Does README.md actually prove Penny is cloud-hosted and multi-user?',
-          status: 'open',
-          conclusion: 'README.md does not prove the cloud-hosted claim yet.',
-          evidenceRefs: [
-            { type: 'project-path', ref: 'README.md', label: 'read README.md', status: 'verified' },
-          ],
-          openFollowUps: ['verify whether README.md actually proves the cloud-hosted claim'],
-          contradictions: [],
-          lastTouchedAt: '2026-04-16T12:04:00.000Z',
-          sourceSessionIds: ['qa-ledger'],
-          sourceTurnIds: ['qa-ledger:2'],
-        },
-      },
-    });
-
     const promptContext = api.getPromptContext({
       sessionId: 'qa-ledger',
       userText: 'What should we verify next?',
     });
 
     assert.equal(promptContext.topics.length, 1);
-    assert.equal(promptContext.topics[0].topicLabel, 'package.json');
   } finally {
     cleanup();
   }
 });
 
-test('research ledger prompt context prefers direct topic anchors over adjacent same-session topics', () => {
+test('research ledger contradiction topics keep their own identity path and purge removes scoped session topics', () => {
   const { api, cleanup } = buildApi();
   try {
-    api.writeLedgerStore({
-      meta: { schemaVersion: 1, updatedAt: '2026-04-16T12:00:00.000Z' },
-      topics: {
-        'path-package-json': {
-          topicId: 'path-package-json',
-          topicLabel: 'package.json',
-          question: 'What should we verify next in package.json?',
-          status: 'open',
-          conclusion: 'package.json still uses node --test test/*.test.js.',
-          evidenceRefs: [
-            { type: 'project-path', ref: 'package.json', label: 'read package.json', status: 'verified' },
-          ],
-          openFollowUps: ['verify whether the Vitest migration is still pending'],
-          contradictions: [],
-          lastTouchedAt: '2026-04-16T12:05:00.000Z',
-          sourceSessionIds: ['qa-ledger'],
-          sourceTurnIds: ['qa-ledger:1'],
-        },
-        'path-readme-md': {
-          topicId: 'path-readme-md',
-          topicLabel: 'README.md',
-          question: 'Does README.md actually prove Penny is cloud-hosted and multi-user?',
-          status: 'open',
-          conclusion: 'README.md does not prove the cloud-hosted claim yet.',
-          evidenceRefs: [
-            { type: 'project-path', ref: 'README.md', label: 'read README.md', status: 'verified' },
-          ],
-          openFollowUps: ['verify whether README.md actually proves the cloud-hosted claim'],
-          contradictions: [],
-          lastTouchedAt: '2026-04-16T12:04:00.000Z',
-          sourceSessionIds: ['qa-ledger'],
-          sourceTurnIds: ['qa-ledger:2'],
-        },
-      },
-    });
-
-    const promptContext = api.getPromptContext({
-      sessionId: 'qa-ledger',
-      userText: 'What does README still need to prove?',
-    });
-
-    assert.equal(promptContext.topics.length, 1);
-    assert.equal(promptContext.topics[0].topicLabel, 'README.md');
-  } finally {
-    cleanup();
-  }
-});
-
-test('research ledger prompt context does not surface unrelated cross-session open topics without overlap', () => {
-  const { api, cleanup } = buildApi();
-  try {
-    api.writeLedgerStore({
-      meta: { schemaVersion: 1, updatedAt: '2026-04-16T12:00:00.000Z' },
-      topics: {
-        'path-package-json': {
-          topicId: 'path-package-json',
-          topicLabel: 'package.json',
-          question: 'What should we verify next in package.json?',
-          status: 'open',
-          conclusion: 'package.json still uses node --test test/*.test.js.',
-          evidenceRefs: [
-            { type: 'project-path', ref: 'package.json', label: 'read package.json', status: 'verified' },
-          ],
-          openFollowUps: ['verify whether the Vitest migration is still pending'],
-          contradictions: [],
-          lastTouchedAt: '2026-04-16T12:05:00.000Z',
-          sourceSessionIds: ['other-session'],
-          sourceTurnIds: ['other-session:1'],
-        },
-        'path-readme-md': {
-          topicId: 'path-readme-md',
-          topicLabel: 'README.md',
-          question: 'Does README.md actually prove Penny is cloud-hosted and multi-user?',
-          status: 'open',
-          conclusion: 'README.md does not prove the cloud-hosted claim yet.',
-          evidenceRefs: [
-            { type: 'project-path', ref: 'README.md', label: 'read README.md', status: 'verified' },
-          ],
-          openFollowUps: ['verify whether README.md actually proves the cloud-hosted claim'],
-          contradictions: [],
-          lastTouchedAt: '2026-04-16T12:04:00.000Z',
-          sourceSessionIds: ['qa-ledger'],
-          sourceTurnIds: ['qa-ledger:2'],
-        },
-      },
-    });
-
-    const promptContext = api.getPromptContext({
-      sessionId: 'qa-ledger',
-      userText: 'What should we verify next?',
-    });
-
-    assert.equal(promptContext.topics.length, 1);
-    assert.equal(promptContext.topics[0].topicLabel, 'README.md');
-  } finally {
-    cleanup();
-  }
-});
-
-test('research ledger tracks contradiction-driven updates and session purge clears session topics', () => {
-  const { api, cleanup } = buildApi();
-  try {
-    const result = api.updateResearchLedgerFromTurn({
+    const contradiction = api.updateResearchLedgerFromTurn({
       sessionId: 'memory-demo',
       userText: 'Actually, my favorite tea is lapsang souchong now.',
       assistantText: 'Noted. Favorite tea is lapsang souchong now, replacing the old oolong note.',
@@ -254,21 +218,48 @@ test('research ledger tracks contradiction-driven updates and session purge clea
         },
       ],
     });
+    api.updateResearchLedgerFromTurn({
+      sessionId: 'memory-demo',
+      userText: 'What is the npm test script in package.json?',
+      assistantText: 'package.json still uses node --test test/*.test.js.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [readPackageJsonToolRecord()],
+    });
+    api.updateResearchLedgerFromTurn({
+      sessionId: 'other-session',
+      userText: 'Does README.md still prove Penny is cloud-hosted and multi-user?',
+      assistantText: 'README.md does not prove the cloud-hosted claim yet.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [
+        {
+          name: 'read_project_file',
+          result: {
+            ok: true,
+            label: 'read README.md',
+            data: {
+              path: 'README.md',
+              textPreview: 'Penny is a local companion prototype.',
+            },
+          },
+        },
+      ],
+    });
 
-    assert.equal(result.updated, true);
-    assert.equal(result.topic.status, 'provisional');
-    assert.equal(result.topic.contradictions.length, 1);
-
-    const inspector = api.getResearchLedgerInspector({ sessionId: 'memory-demo' });
-    assert.equal(inspector.topicCount, 1);
-    assert.equal(inspector.provisionalCount, 1);
+    assert.equal(contradiction.updated, true);
+    assert.equal(contradiction.topic.identity.kind, 'contradiction');
+    assert.match(contradiction.topic.topicId, /^contradiction-/);
 
     const purge = api.purgeResearchLedger({
       sessionId: 'memory-demo',
       clearSessionLedger: true,
     });
-    assert.equal(purge.clearedSessionTopics, 1);
-    assert.equal(api.getResearchLedgerInspector({ sessionId: 'memory-demo' }).topicCount, 0);
+    const remaining = api.getResearchLedgerInspector({ sessionId: 'memory-demo' });
+
+    assert.equal(purge.clearedSessionTopics, 2);
+    assert.equal(remaining.topicCount, 1);
+    assert.equal(remaining.recentTopics[0].sourceSessionIds[0], 'other-session');
   } finally {
     cleanup();
   }

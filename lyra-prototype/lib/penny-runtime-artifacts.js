@@ -10,6 +10,9 @@ const {
   normalizePromptSlotSummary,
 } = require('./penny-prompt-stack');
 const {
+  normalizePromptTruth,
+} = require('./penny-memory');
+const {
   LATENCY_CLASSES,
 } = require('./penny-latency-budget');
 
@@ -641,6 +644,37 @@ function normalizeAuthorityPressure(value = {}, defaults = {}) {
   };
 }
 
+function promptTruthChannel(promptTruth = null, channel = '') {
+  const normalized = normalizePromptTruth(promptTruth);
+  return normalized.channels?.[channel] || normalizePromptTruth().channels[channel] || {
+    candidateCount: 0,
+    renderedCount: 0,
+    candidateSourceIds: [],
+    renderedSourceIds: [],
+    heldBackReason: '',
+  };
+}
+
+function promptTruthRenderedSourceIds(promptTruth = null, channel = '') {
+  return uniqueStrings(promptTruthChannel(promptTruth, channel).renderedSourceIds || [], 12);
+}
+
+function promptTruthCandidateSourceIds(promptTruth = null, channel = '') {
+  return uniqueStrings(promptTruthChannel(promptTruth, channel).candidateSourceIds || [], 12);
+}
+
+function hasPromptTruthReceipt(promptTruth = null) {
+  const normalized = normalizePromptTruth(promptTruth);
+  if (normalized.canonicalFactsPresent === true || normalized.canonicalOverrideActive === true) return true;
+  return Object.values(normalized.channels || {}).some((channel) => (
+    Number(channel?.candidateCount || 0) > 0
+    || Number(channel?.renderedCount || 0) > 0
+    || (Array.isArray(channel?.candidateSourceIds) && channel.candidateSourceIds.length > 0)
+    || (Array.isArray(channel?.renderedSourceIds) && channel.renderedSourceIds.length > 0)
+    || !!String(channel?.heldBackReason || '').trim()
+  ));
+}
+
 function buildAuthorityPressure({
   sessionId = 'default',
   retrievalTrace = [],
@@ -787,9 +821,13 @@ function buildRetrievalTraceState(
   retrieval = null,
   matchedBooks = [],
   researchLedgerContext = null,
-  researchLedgerPromptInjected = true,
+  promptTruth = null,
 ) {
   const entries = [];
+  const renderedSessionIds = new Set(promptTruthRenderedSourceIds(promptTruth, 'sessionArchive'));
+  const renderedGlobalIds = new Set(promptTruthRenderedSourceIds(promptTruth, 'globalArchive'));
+  const renderedBookIds = new Set(promptTruthRenderedSourceIds(promptTruth, 'memoryBooks'));
+  const renderedLedgerIds = new Set(promptTruthRenderedSourceIds(promptTruth, 'researchLedger'));
   const contradictionState = Array.isArray(retrieval?.provenance) && retrieval.provenance.length
     ? 'tracked'
     : 'none';
@@ -802,7 +840,7 @@ function buildRetrievalTraceState(
       score: item?.score,
       reason: reason || 'archive-session',
       contradictionState,
-      injected: true,
+      injected: renderedSessionIds.has(String(item?.id || '').trim()),
       sourceType: item?.sourceType || 'archive',
       scope: item?.scope || 'session',
       createdAt: item?.createdAt || '',
@@ -824,7 +862,7 @@ function buildRetrievalTraceState(
       score: item?.score,
       reason: reason || 'archive-global',
       contradictionState,
-      injected: true,
+      injected: renderedGlobalIds.has(String(item?.id || '').trim()),
       sourceType: item?.sourceType || 'archive',
       scope: item?.scope || 'global',
       createdAt: item?.createdAt || '',
@@ -846,7 +884,7 @@ function buildRetrievalTraceState(
       score: item?.confidence,
       reason: String(retrieval?.compression?.reasonCode || '').trim() || 'chapter-compression',
       contradictionState,
-      injected: retrieval?.compression?.used === true,
+      injected: false,
       sourceType: item?.sourceType || 'chapter',
       scope: 'chapter',
       createdAt: item?.createdAt || '',
@@ -877,7 +915,7 @@ function buildRetrievalTraceState(
       score: item?.score,
       reason: 'memory-book-match',
       contradictionState: 'none',
-      injected: true,
+      injected: renderedBookIds.has(String(item?.id || '').trim()),
       sourceType: 'memory-book',
       scope: item?.placement || 'memory',
       snippet: item?.evidenceSnippet || item?.text || '',
@@ -892,7 +930,7 @@ function buildRetrievalTraceState(
       score: item?.status === 'open' ? 1 : item?.status === 'provisional' ? 0.75 : 0.5,
       reason: 'research-continuity-ledger',
       contradictionState: Array.isArray(item?.contradictions) && item.contradictions.length ? 'tracked' : 'none',
-      injected: researchLedgerPromptInjected === true,
+      injected: renderedLedgerIds.has(String(item?.topicId || '').trim()),
       sourceType: 'research-ledger',
       scope: 'research-ledger',
       createdAt: item?.lastTouchedAt || '',
@@ -1203,6 +1241,7 @@ function buildRuntimeArtifact({
   performance = null,
   readiness = null,
   promptComposition = null,
+  promptTruth = null,
   latencyBudget = null,
   researchLedgerPromptInjected = false,
   researchLedgerUpdate = null,
@@ -1222,19 +1261,23 @@ function buildRuntimeArtifact({
   const normalizedRepair = normalizeRepairInfo(repair);
   const normalizedEpistemics = normalizeEpistemicCaution(epistemics);
   const normalizedSynthesis = normalizeArchiveSynthesis(synthesis);
+  const normalizedPromptTruth = normalizePromptTruth(promptTruth);
+  const effectiveResearchLedgerPromptInjected = hasPromptTruthReceipt(normalizedPromptTruth)
+    ? Number(normalizedPromptTruth.channels?.researchLedger?.renderedCount || 0) > 0
+    : (researchLedgerPromptInjected === true);
   const toolState = buildToolArtifactState(toolRecords, toolsUsed);
   const retrievalState = buildRetrievalArtifactState(retrieval, matchedBooks);
   const retrievalTrace = buildRetrievalTraceState(
     retrieval,
     matchedBooks,
     researchLedgerContext,
-    researchLedgerPromptInjected === true,
+    normalizedPromptTruth,
   );
   const authorityPressure = buildAuthorityPressure({
     sessionId,
     retrievalTrace,
-    canonicalFactsPresent,
-    canonicalOverrideActive,
+    canonicalFactsPresent: normalizedPromptTruth.canonicalFactsPresent || canonicalFactsPresent === true,
+    canonicalOverrideActive: normalizedPromptTruth.canonicalOverrideActive || canonicalOverrideActive === true,
   });
   const approximatePath = buildApproximatePath({
     latencyBudget,
@@ -1307,7 +1350,7 @@ function buildRuntimeArtifact({
     executionPath: normalizedExecutionPath,
     usedFallback,
     laneFallback,
-    researchLedgerPromptInjected,
+    researchLedgerPromptInjected: effectiveResearchLedgerPromptInjected,
     researchLedgerUpdate: normalizedLedgerUpdate,
     retrievalTrace,
     toolState,
@@ -1324,7 +1367,8 @@ function buildRuntimeArtifact({
     version: RUNTIME_ARTIFACT_VERSION,
     kind,
     executionPath: normalizedExecutionPath,
-    researchLedgerPromptInjected: researchLedgerPromptInjected === true,
+    promptTruth: normalizedPromptTruth,
+    researchLedgerPromptInjected: effectiveResearchLedgerPromptInjected,
     researchLedgerUpdate: normalizedLedgerUpdate,
     scope: {
       sessionId,
@@ -1342,9 +1386,13 @@ function buildRuntimeArtifact({
       label: kind,
       text: toolState.evidence.length
         ? `Tool lane reply with ${toolState.evidence.length} verified evidence item${toolState.evidence.length === 1 ? '' : 's'}.`
+        : normalizedExecutionPath === 'deterministic-tool' || readiness?.modelUsage === 'not-used'
+          ? 'Deterministic tool reply without model generation.'
         : requestedMode === 'shadow'
           ? 'Shadow lane reply with additive archive context.'
-          : 'Chat lane reply with additive archive context.',
+          : selectedLane === 'tool'
+            ? 'Tool lane reply without verified evidence.'
+            : 'Chat lane reply with additive archive context.',
       backend,
     },
     context: {
@@ -1375,6 +1423,7 @@ function buildRuntimeArtifact({
       cleanupTransform: normalizedCleanupTransform,
       authorityPressure,
       promptComposition: normalizePromptComposition(promptComposition),
+      promptTruth: normalizedPromptTruth,
       approximatePath,
       advisoryMerge,
       repair: normalizedRepair,
@@ -1408,11 +1457,14 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   const readiness = normalizeReadiness(raw.readiness, fallback.readiness);
   const version = String(raw.version || fallback.version || RUNTIME_ARTIFACT_VERSION).trim() || RUNTIME_ARTIFACT_VERSION;
   const kind = String(raw.kind || fallback.kind || 'chat-turn').trim() || 'chat-turn';
+  const promptTruth = normalizePromptTruth(raw.promptTruth || fallback.promptTruth);
   const executionPath = normalizeExecutionPath(
     raw.executionPath || fallback.executionPath,
     kind === 'shadow-turn' ? 'shadow' : (kind === 'tool-turn' ? 'deterministic-tool' : 'llm-chat'),
   );
-  const researchLedgerPromptInjected = raw.researchLedgerPromptInjected === true || fallback.researchLedgerPromptInjected === true;
+  const researchLedgerPromptInjected = hasPromptTruthReceipt(promptTruth)
+    ? Number(promptTruth.channels?.researchLedger?.renderedCount || 0) > 0
+    : (raw.researchLedgerPromptInjected === true || fallback.researchLedgerPromptInjected === true);
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(raw.researchLedgerUpdate, fallback.researchLedgerUpdate);
   const epistemics = normalizeEpistemicCaution(raw.epistemics || fallback.epistemics);
   const synthesis = normalizeArchiveSynthesis(raw.synthesis || fallback.synthesis);
@@ -1420,6 +1472,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
     version,
     kind,
     executionPath,
+    promptTruth,
     researchLedgerPromptInjected,
     researchLedgerUpdate,
     scope: {
@@ -1479,6 +1532,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       cleanupTransform: normalizeCleanupTransformInfo(advisoryRaw.cleanupTransform, fallback.modelAdvisory?.cleanupTransform),
       authorityPressure: normalizeAuthorityPressure(advisoryRaw.authorityPressure, fallback.modelAdvisory?.authorityPressure),
       promptComposition: normalizePromptComposition(advisoryRaw.promptComposition, fallback.modelAdvisory?.promptComposition),
+      promptTruth,
       approximatePath: normalizeApproximatePath(advisoryRaw.approximatePath, fallback.modelAdvisory?.approximatePath),
       advisoryMerge: normalizeAdvisoryMergeSummary(advisoryRaw.advisoryMerge, fallback.modelAdvisory?.advisoryMerge),
       repair: normalizeRepairInfo(advisoryRaw.repair),
@@ -1508,7 +1562,10 @@ function normalizeLastRouteInfo(value) {
     value.executionPath,
     requestedMode === 'shadow' ? 'shadow' : (selectedLane === 'tool' ? 'deterministic-tool' : 'llm-chat'),
   );
-  const researchLedgerPromptInjected = value.researchLedgerPromptInjected === true;
+  const promptTruth = normalizePromptTruth(value.promptTruth);
+  const researchLedgerPromptInjected = hasPromptTruthReceipt(promptTruth)
+    ? Number(promptTruth.channels?.researchLedger?.renderedCount || 0) > 0
+    : (value.researchLedgerPromptInjected === true);
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(value.researchLedgerUpdate);
   const repair = normalizeRepairInfo(value.repair);
   const epistemics = normalizeEpistemicCaution(value.epistemics);
@@ -1541,6 +1598,7 @@ function normalizeLastRouteInfo(value) {
       performance,
       readiness,
       promptComposition: value.promptComposition || null,
+      promptTruth,
       latencyBudget: value.latencyBudget || null,
       researchLedgerPromptInjected,
       researchLedgerUpdate,
@@ -1564,6 +1622,7 @@ function normalizeLastRouteInfo(value) {
     synthesis,
     performance,
     readiness,
+    promptTruth,
     researchLedgerPromptInjected,
     researchLedgerUpdate,
     artifact,
@@ -1607,6 +1666,7 @@ function buildLastRouteInfo({
   performance = null,
   readiness = null,
   promptComposition = null,
+  promptTruth = null,
   latencyBudget = null,
   researchLedgerPromptInjected = false,
   researchLedgerUpdate = null,
@@ -1644,6 +1704,7 @@ function buildLastRouteInfo({
     performance,
     readiness,
     promptComposition,
+    promptTruth,
     latencyBudget,
     researchLedgerPromptInjected,
     researchLedgerUpdate,
@@ -1682,6 +1743,7 @@ function buildLastRouteInfo({
       performance,
       readiness,
       promptComposition,
+      promptTruth,
       latencyBudget,
       researchLedgerPromptInjected,
       researchLedgerUpdate,
@@ -1746,6 +1808,7 @@ function buildCombinedMemoryInspector({
       archiveContext: inspectorArchiveContext,
       researchLedgerContext: ledger?.context || null,
       matchedBooks,
+      promptTruth: routingBase.promptTruth || routingBase?.artifact?.promptTruth || null,
       repair: routingBase.repair,
       epistemics: routingBase.epistemics,
       synthesis: routingBase.synthesis,
@@ -1773,6 +1836,7 @@ function buildCombinedMemoryInspector({
     archiveContext: inspectorArchiveContext,
     researchLedgerContext: ledger?.context || null,
     matchedBooks,
+    promptTruth: routing.promptTruth || routing?.artifact?.promptTruth || null,
     repair: routing.repair,
     epistemics: routing.epistemics,
     synthesis: routing.synthesis,

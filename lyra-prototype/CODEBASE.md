@@ -82,7 +82,7 @@ Mood/expression runtime helpers for Penny's visible vessel.
 - `public/js/penny-ambient-chrome.mjs`
 Ambient chrome helpers such as the boot overlay, emoji picker, particle effects, and idle/parallax behavior.
 - `public/js/penny-memory-panel.mjs`
-Memory-inspector rendering, including runtime artifact, trace provenance, and research continuity views.
+Memory-inspector rendering, including runtime artifact, trace provenance, question-scoped research continuity views, and compact recent-audit history.
 - `public/js/penny-lmstudio-ui.js`
 LM Studio diagnostics and chat-model picker helpers.
 - `public/js/penny-attachments.js`
@@ -229,11 +229,11 @@ Tracked seed used to initialize the live memory store when it is missing.
 - `penny-memory.json`
 Untracked runtime memory store created on first run.
 - `penny-memory-archive.json`
-Hybrid archive runtime store for episodic recall, summaries, patterns, and the promotion queue.
+Hybrid archive runtime store for episodic recall, summaries, patterns, the promotion queue, and bounded per-session `recentAuditTrail` turn slices.
 - `penny-memory-embeddings.json`
 Embedding cache for semantic archive retrieval when a local embedding model is available, plus bounded default-on background-vectorization telemetry that can still be disabled by env.
 - `penny-memory-ledger.json`
-Research continuity ledger for bounded advisory topics, evidence refs, and open follow-ups.
+Research continuity ledger for bounded advisory topics, evidence refs, open follow-ups, and additive question-scoped identity (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`).
 - various QA/eval memory files
 Disposable artifacts from benchmarking or smoke tests.
 
@@ -362,6 +362,7 @@ Likely modules you will touch:
 - archive retrieval/provenance normalization in `lib/penny-memory-archive.js`
 - shared packet normalization in `lib/penny-knowledge-contracts.js`
 - prompt-slot registry and composition summaries in `lib/penny-prompt-stack.js`
+- prompt-truth receipt generation in `lib/penny-memory.js` and `lib/penny-prompt-stack.js`
 - route assembly in `lib/penny-route-handlers.js`
 - combined inspector construction in `server.js` / `lib/penny-runtime-artifacts.js`
 - QA trace/trust helpers in `lib/penny-qa-trace.js` and `lib/penny-qa-trust.js`
@@ -376,7 +377,7 @@ Start here:
 
 Memory inspector note:
 
-- the debug Memory tab now shows canonical explicit memory plus archive inspector data, runtime artifacts, trace provenance, research continuity topics, recency protection, prompt-slot composition, cleanup-transform metadata, approximate-path policy, and advisory-merge summaries
+- the debug Memory tab now shows canonical explicit memory plus archive inspector data, runtime artifacts, trace provenance, research continuity topics, recency protection, prompt-slot composition, prompt-truth receipts, cleanup-transform metadata, approximate-path policy, and advisory-merge summaries
 - archive review/purge actions still live in `public/js/penny-app.js`, while rendering logic now lives in `public/js/penny-memory-panel.mjs`
 - `public/js/penny-storage.js` still sends only explicit browser memory settings to the server; archive state is not browser-owned
 - `public/js/penny-ambient-chrome.mjs` owns lightweight vessel chrome and composer niceties; keep that behavior out of `penny-app.js`

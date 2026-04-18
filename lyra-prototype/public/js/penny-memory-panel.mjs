@@ -81,6 +81,7 @@ export function buildMemoryInspectorViewModel(inspector = null) {
   const routing = inspector?.routing || {};
   const artifact = inspector?.artifact || routing?.artifact || null;
   const retrieval = session.lastRetrieval || { session: [], global: [] };
+  const recentAuditTrail = Array.isArray(session.recentAuditTrail) ? session.recentAuditTrail : [];
   const matchedBooks = Array.isArray(books.matchedBooks) ? books.matchedBooks : [];
   const compression = inspector?.compression || retrieval.compression || { used: false, chapters: [] };
   const activeContradictions = Array.isArray(session.activeContradictions) ? session.activeContradictions : [];
@@ -98,6 +99,7 @@ export function buildMemoryInspectorViewModel(inspector = null) {
     routing,
     artifact,
     retrieval,
+    recentAuditTrail,
     matchedBooks,
     compression,
     activeContradictions,
@@ -243,6 +245,9 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   const promptComposition = modelAdvisory.promptComposition && typeof modelAdvisory.promptComposition === 'object'
     ? modelAdvisory.promptComposition
     : {};
+  const promptTruth = artifact.promptTruth && typeof artifact.promptTruth === 'object'
+    ? artifact.promptTruth
+    : (modelAdvisory.promptTruth && typeof modelAdvisory.promptTruth === 'object' ? modelAdvisory.promptTruth : {});
   const approximatePath = modelAdvisory.approximatePath && typeof modelAdvisory.approximatePath === 'object'
     ? modelAdvisory.approximatePath
     : {};
@@ -256,6 +261,19 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     ? artifact.researchLedgerUpdate
     : { status: 'skipped', reason: '' };
   const researchLedgerPromptInjected = artifact.researchLedgerPromptInjected === true;
+  const promptTruthBits = ['stableFacts', 'memoryBooks', 'sessionArchive', 'globalArchive', 'researchLedger']
+    .map((channelKey) => {
+      const channel = promptTruth?.channels?.[channelKey] && typeof promptTruth.channels[channelKey] === 'object'
+        ? promptTruth.channels[channelKey]
+        : null;
+      if (!channel) return '';
+      const candidateCount = Number(channel.candidateCount || 0);
+      const renderedCount = Number(channel.renderedCount || 0);
+      const heldBackReason = String(channel.heldBackReason || '').trim();
+      if (!candidateCount && !renderedCount && !heldBackReason) return '';
+      return `${channelKey} ${renderedCount}/${candidateCount}${heldBackReason ? ` (${heldBackReason})` : ''}`;
+    })
+    .filter(Boolean);
   const modelUsage = String(readiness.modelUsage || 'used').trim() === 'not-used' ? 'not-used' : 'used';
   const modelTimingText = modelUsage === 'not-used'
     ? 'not used'
@@ -351,6 +369,12 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     </div>
     <div class="list-item">
       <div class="memory-copy">
+        Prompt truth: <strong>${escapeHtmlFn(promptTruth.canonicalOverrideActive ? 'canon-first holdback' : (promptTruth.canonicalFactsPresent ? 'canon rendered' : 'canon silent'))}</strong>
+        <small>${escapeHtmlFn(promptTruthBits.join(' | ') || 'No prompt-truth receipt recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
         Approximate path: <strong>${escapeHtmlFn(approximatePath.status || 'exact')}</strong> &middot; latency ${escapeHtmlFn(approximatePath.latencyClass || 'casual-companion')}
         <small>${escapeHtmlFn(approximateBits.join(' | ') || (approximatePath.policyNote || 'No approximate-path metadata recorded.'))}</small>
       </div>
@@ -375,8 +399,8 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     </div>
     <div class="list-item">
       <div class="memory-copy">
-        Research ledger prompt: <strong>${escapeHtmlFn(researchLedgerPromptInjected ? 'injected' : 'held back')}</strong> &middot; Ledger update <strong>${escapeHtmlFn(researchLedgerUpdate.status || 'skipped')}</strong>
-        <small>${escapeHtmlFn(researchLedgerUpdate.reason || 'No research-ledger update details were recorded.')}</small>
+        Research ledger prompt: <strong>${escapeHtmlFn(researchLedgerPromptInjected ? 'rendered' : 'held back')}</strong> &middot; Ledger update <strong>${escapeHtmlFn(researchLedgerUpdate.status || 'skipped')}</strong>
+        <small>${escapeHtmlFn(promptTruth?.channels?.researchLedger?.heldBackReason || researchLedgerUpdate.reason || 'No research-ledger update details were recorded.')}</small>
       </div>
     </div>
     <div class="list-item">
@@ -557,10 +581,16 @@ function renderResearchLedger(ledger = {}, escapeHtmlFn = escapeHtml) {
     return '<div class="list-item"><div class="memory-copy">No research continuity topics are stored right now.</div></div>';
   }
   return items.map((item) => {
+    const identity = item?.identity && typeof item.identity === 'object' ? item.identity : {};
     const evidenceCount = Array.isArray(item?.evidenceRefs) ? item.evidenceRefs.length : 0;
     const followUp = Array.isArray(item?.openFollowUps) && item.openFollowUps.length ? item.openFollowUps[0] : '';
     const detail = item?.summary || item?.conclusion || item?.question || '';
     const evidenceSummary = summarizeEvidenceRefs(item?.evidenceRefs);
+    const identitySummary = [
+      identity.kind ? `kind ${identity.kind}` : '',
+      identity.anchorRef ? `${identity.anchorType || 'anchor'}: ${identity.anchorRef}` : '',
+      identity.scopeLabel ? `scope ${identity.scopeLabel}` : '',
+    ].filter(Boolean).join(' Â· ');
     const sourceSummary = [
       Array.isArray(item?.sourceSessionIds) && item.sourceSessionIds.length ? `sessions ${item.sourceSessionIds.join(', ')}` : '',
       Array.isArray(item?.sourceTurnIds) && item.sourceTurnIds.length ? `turns ${item.sourceTurnIds.slice(0, 3).join(', ')}` : '',
@@ -574,8 +604,66 @@ function renderResearchLedger(ledger = {}, escapeHtmlFn = escapeHtml) {
           ${escapeHtmlFn(item?.topicLabel || item?.topicId || 'investigation')}
           <small>${escapeHtmlFn(`${item?.status || 'advisory'}${evidenceCount ? ` · evidence ${evidenceCount}` : ''}${followUp ? ` · ${followUp}` : ''}`)}</small>
           ${detail ? `<small>${escapeHtmlFn(detail)}</small>` : ''}
+          ${identitySummary ? `<small>${escapeHtmlFn(identitySummary)}</small>` : ''}
           ${evidenceSummary ? `<small>${escapeHtmlFn(`Evidence refs: ${evidenceSummary}`)}</small>` : ''}
           ${sourceSummary ? `<small>${escapeHtmlFn(`Source trail: ${sourceSummary}`)}</small>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRecentAuditTrail(items = [], escapeHtmlFn = escapeHtml) {
+  const trail = Array.isArray(items) ? items.slice(0, 4) : [];
+  if (!trail.length) {
+    return '<div class="list-item"><div class="memory-copy">No recent audit slices are stored for this session yet.</div></div>';
+  }
+  return trail.map((item) => {
+    const retrieval = item?.retrieval && typeof item.retrieval === 'object' ? item.retrieval : {};
+    const promptTruth = item?.promptTruth?.channels && typeof item.promptTruth.channels === 'object'
+      ? item.promptTruth.channels
+      : {};
+    const artifactSummary = item?.artifactSummary && typeof item.artifactSummary === 'object' ? item.artifactSummary : {};
+    const ledger = item?.researchLedger && typeof item.researchLedger === 'object' ? item.researchLedger : {};
+    const promptBits = ['stableFacts', 'memoryBooks', 'sessionArchive', 'globalArchive', 'researchLedger']
+      .map((key) => {
+        const channel = promptTruth[key] && typeof promptTruth[key] === 'object' ? promptTruth[key] : {};
+        const candidateCount = Number(channel.candidateCount || 0);
+        const renderedCount = Number(channel.renderedCount || 0);
+        const heldBackReason = String(channel.heldBackReason || '').trim();
+        if (!candidateCount && !renderedCount && !heldBackReason) return '';
+        return `${key} ${renderedCount}/${candidateCount}${heldBackReason ? ` (${heldBackReason})` : ''}`;
+      })
+      .filter(Boolean);
+    const retrievalBits = [
+      retrieval.mode ? `${retrieval.mode}/${retrieval.reasonCode || 'reason-unknown'}` : '',
+      Array.isArray(retrieval.selectedSessionIds) && retrieval.selectedSessionIds.length ? `session ${retrieval.selectedSessionIds.length}` : '',
+      Array.isArray(retrieval.selectedGlobalIds) && retrieval.selectedGlobalIds.length ? `global ${retrieval.selectedGlobalIds.length}` : '',
+      Array.isArray(retrieval.selectedBookIds) && retrieval.selectedBookIds.length ? `books ${retrieval.selectedBookIds.length}` : '',
+      Array.isArray(retrieval.selectedLedgerIds) && retrieval.selectedLedgerIds.length ? `ledger ${retrieval.selectedLedgerIds.length}` : '',
+      retrieval.compression?.used ? 'compression used' : '',
+      retrieval.semanticReady ? 'semantic ready' : 'keyword path',
+      retrieval.semanticDowngrade ? 'semantic downgraded' : '',
+    ].filter(Boolean);
+    const artifactBits = [
+      artifactSummary.kind ? `kind ${artifactSummary.kind}` : '',
+      artifactSummary.authority?.reply ? `reply ${artifactSummary.authority.reply}` : '',
+      artifactSummary.approximatePath?.status ? `approx ${artifactSummary.approximatePath.status}` : '',
+      artifactSummary.researchLedgerPromptInjected ? 'ledger rendered' : 'ledger held',
+    ].filter(Boolean);
+    const ledgerBits = [
+      ledger.updateStatus ? `update ${ledger.updateStatus}` : '',
+      ledger.topicLabel || ledger.topicId || '',
+    ].filter(Boolean);
+    return `
+      <div class="list-item memory-item">
+        <div class="memory-copy">
+          ${escapeHtmlFn(item?.userTextExcerpt || item?.turnId || 'audit slice')}
+          <small>${escapeHtmlFn(`${item?.usedAt || 'not yet'} Â· ${item?.requestedMode || 'local'}/${item?.selectedLane || 'chat'} Â· ${item?.executionPath || 'llm-chat'}`)}</small>
+          <small>${escapeHtmlFn(retrievalBits.join(' | ') || 'No retrieval summary recorded.')}</small>
+          <small>${escapeHtmlFn(promptBits.join(' | ') || 'No prompt-truth summary recorded.')}</small>
+          <small>${escapeHtmlFn(artifactBits.join(' | ') || 'No artifact summary recorded.')}</small>
+          ${ledgerBits.length ? `<small>${escapeHtmlFn(ledgerBits.join(' | '))}</small>` : ''}
         </div>
       </div>
     `;
@@ -669,6 +757,8 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
     ${renderResearchLedger(viewModel.ledger, escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Recency protection</div>
     ${renderRecencyProtection(viewModel.session.recencyProtection, escapeHtmlFn)}
+    <div class="section-label" style="margin-top:12px;">Recent audit trail</div>
+    ${renderRecentAuditTrail(viewModel.recentAuditTrail, escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Last retrieval for Penny's reply</div>
     ${renderItems([...(viewModel.retrieval.session || []), ...(viewModel.retrieval.global || [])], 'No archive memories were used on the last reply.', escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Active contradictions</div>

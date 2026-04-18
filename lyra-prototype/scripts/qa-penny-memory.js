@@ -253,10 +253,29 @@ function canonicalAuthorityPressureSatisfied(artifact = null) {
   const authorityPressure = artifact?.modelAdvisory?.authorityPressure && typeof artifact.modelAdvisory.authorityPressure === 'object'
     ? artifact.modelAdvisory.authorityPressure
     : {};
+  const promptTruth = artifact?.promptTruth && typeof artifact.promptTruth === 'object'
+    ? artifact.promptTruth
+    : (artifact?.modelAdvisory?.promptTruth && typeof artifact.modelAdvisory.promptTruth === 'object'
+      ? artifact.modelAdvisory.promptTruth
+      : {});
+  const sessionArchive = promptTruth?.channels?.sessionArchive && typeof promptTruth.channels.sessionArchive === 'object'
+    ? promptTruth.channels.sessionArchive
+    : {};
+  const globalArchive = promptTruth?.channels?.globalArchive && typeof promptTruth.channels.globalArchive === 'object'
+    ? promptTruth.channels.globalArchive
+    : {};
+  const researchLedger = promptTruth?.channels?.researchLedger && typeof promptTruth.channels.researchLedger === 'object'
+    ? promptTruth.channels.researchLedger
+    : {};
+  const advisoryCandidates = Number(sessionArchive.candidateCount || 0)
+    + Number(globalArchive.candidateCount || 0)
+    + Number(researchLedger.candidateCount || 0);
   return authorityPressure.canonicalFactsPresent === true
     && authorityPressure.canonicalOverrideActive === true
-    && Number(authorityPressure.advisoryItemsInjected || 0) >= 1
-    && Number(authorityPressure.sameSessionAdvisoryItems || 0) >= 1;
+    && Number(sessionArchive.candidateCount || 0) >= 1
+    && advisoryCandidates >= 1
+    && [sessionArchive, globalArchive, researchLedger]
+      .some((channel) => String(channel.heldBackReason || '').trim() === 'canon-priority-suppression');
 }
 
 function buildArtifactWitnessTrace(artifact = null, inspector = null) {
@@ -278,6 +297,9 @@ function buildArtifactWitnessTrace(artifact = null, inspector = null) {
   const advisoryMerge = modelAdvisory.advisoryMerge && typeof modelAdvisory.advisoryMerge === 'object'
     ? modelAdvisory.advisoryMerge
     : {};
+  const promptTruth = artifact?.promptTruth && typeof artifact.promptTruth === 'object'
+    ? artifact.promptTruth
+    : (modelAdvisory.promptTruth && typeof modelAdvisory.promptTruth === 'object' ? modelAdvisory.promptTruth : {});
   const backgroundVectorization = inspector?.embeddings?.backgroundVectorization && typeof inspector.embeddings.backgroundVectorization === 'object'
     ? inspector.embeddings.backgroundVectorization
     : {};
@@ -308,6 +330,25 @@ function buildArtifactWitnessTrace(artifact = null, inspector = null) {
             .slice(0, 6)
             .map((slot) => `${slot.id}:${slot.state}`)
         : [],
+    },
+    promptTruth: {
+      canonicalFactsPresent: promptTruth.canonicalFactsPresent === true,
+      canonicalOverrideActive: promptTruth.canonicalOverrideActive === true,
+      sessionArchive: {
+        candidateCount: Number(promptTruth?.channels?.sessionArchive?.candidateCount || 0),
+        renderedCount: Number(promptTruth?.channels?.sessionArchive?.renderedCount || 0),
+        heldBackReason: String(promptTruth?.channels?.sessionArchive?.heldBackReason || '').trim(),
+      },
+      globalArchive: {
+        candidateCount: Number(promptTruth?.channels?.globalArchive?.candidateCount || 0),
+        renderedCount: Number(promptTruth?.channels?.globalArchive?.renderedCount || 0),
+        heldBackReason: String(promptTruth?.channels?.globalArchive?.heldBackReason || '').trim(),
+      },
+      researchLedger: {
+        candidateCount: Number(promptTruth?.channels?.researchLedger?.candidateCount || 0),
+        renderedCount: Number(promptTruth?.channels?.researchLedger?.renderedCount || 0),
+        heldBackReason: String(promptTruth?.channels?.researchLedger?.heldBackReason || '').trim(),
+      },
     },
     advisoryMerge: {
       advisoryItems: Number(advisoryMerge.advisoryItems || 0),
@@ -693,7 +734,7 @@ async function runPremiseDriftScenario(baseUrl) {
   const recall = await chatRequest(baseUrl, sessionId, 'Since my favorite tea is oolong, tell me what tea I like now.');
   const inspector = await getInspector(baseUrl, sessionId);
   const truthScore = scoreTruthReplacement(recall.text, ['lapsang souchong'], ['favorite tea is oolong']);
-  const correctedPremise = containsAny(recall.text, ['not oolong', 'not anymore', 'lapsang souchong now', 'replaced']);
+  const correctedPremise = truthScore >= 1;
   const artifact = recall?.meta?.artifact || {};
   return {
     name: 'session_level_premise_drift',

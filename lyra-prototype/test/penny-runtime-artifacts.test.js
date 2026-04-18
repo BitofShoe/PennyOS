@@ -81,6 +81,42 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
         { id: 'memory', eligible: true, state: 'filled' },
       ],
     },
+    promptTruth: {
+      canonicalFactsPresent: true,
+      canonicalOverrideActive: false,
+      channels: {
+        stableFacts: {
+          candidateCount: 1,
+          renderedCount: 1,
+          candidateSourceIds: ['memory:stable-tea'],
+          renderedSourceIds: ['memory:stable-tea'],
+        },
+        memoryBooks: {
+          candidateCount: 1,
+          renderedCount: 1,
+          candidateSourceIds: ['appearance'],
+          renderedSourceIds: ['appearance'],
+        },
+        sessionArchive: {
+          candidateCount: 1,
+          renderedCount: 1,
+          candidateSourceIds: ['session-1'],
+          renderedSourceIds: ['session-1'],
+        },
+        globalArchive: {
+          candidateCount: 1,
+          renderedCount: 1,
+          candidateSourceIds: ['global-1'],
+          renderedSourceIds: ['global-1'],
+        },
+        researchLedger: {
+          candidateCount: 1,
+          renderedCount: 1,
+          candidateSourceIds: ['path-package-json'],
+          renderedSourceIds: ['path-package-json'],
+        },
+      },
+    },
     latencyBudget: {
       latencyClass: 'memory-heavy-recall',
       policyMode: 'recall-heavy',
@@ -121,10 +157,13 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.trace.evidenceAccepted.length > 0, true);
   assert.equal(artifact.modelAdvisory.promptComposition.lane, 'chat');
   assert.equal(artifact.modelAdvisory.promptComposition.slots[2].state, 'held-back');
+  assert.equal(artifact.promptTruth.channels.sessionArchive.renderedCount, 1);
+  assert.equal(artifact.promptTruth.channels.researchLedger.renderedCount, 1);
   assert.equal(artifact.modelAdvisory.approximatePath.status, 'bounded-approximate');
   assert.equal(artifact.modelAdvisory.approximatePath.policyMode, 'recall-heavy');
-  assert.equal(artifact.modelAdvisory.advisoryMerge.lossyItems >= 1, true);
-  assert.equal(artifact.modelAdvisory.advisoryMerge.mergeBasis.includes('active-contradiction'), true);
+  assert.equal(artifact.modelAdvisory.advisoryMerge.advisoryItems, 3);
+  assert.equal(artifact.modelAdvisory.advisoryMerge.lossyItems, 0);
+  assert.deepEqual(artifact.modelAdvisory.advisoryMerge.mergeBasis, []);
 });
 
 test('buildRuntimeArtifact preserves deterministic-tool truth without faking model receipts', () => {
@@ -249,6 +288,45 @@ test('buildRuntimeArtifact records cleanup and authority-pressure summaries sepa
         { id: 'memory', eligible: true, state: 'filled' },
       ],
     },
+    promptTruth: {
+      canonicalFactsPresent: true,
+      canonicalOverrideActive: true,
+      channels: {
+        stableFacts: {
+          candidateCount: 1,
+          renderedCount: 1,
+          candidateSourceIds: ['memory:notebook'],
+          renderedSourceIds: ['memory:notebook'],
+        },
+        memoryBooks: {
+          candidateCount: 0,
+          renderedCount: 0,
+          candidateSourceIds: [],
+          renderedSourceIds: [],
+        },
+        sessionArchive: {
+          candidateCount: 1,
+          renderedCount: 0,
+          candidateSourceIds: ['session-1'],
+          renderedSourceIds: [],
+          heldBackReason: 'canon-priority-suppression',
+        },
+        globalArchive: {
+          candidateCount: 1,
+          renderedCount: 0,
+          candidateSourceIds: ['global-1'],
+          renderedSourceIds: [],
+          heldBackReason: 'canon-priority-suppression',
+        },
+        researchLedger: {
+          candidateCount: 1,
+          renderedCount: 0,
+          candidateSourceIds: ['path-package-json'],
+          renderedSourceIds: [],
+          heldBackReason: 'canon-priority-suppression',
+        },
+      },
+    },
     latencyBudget: {
       latencyClass: 'casual-companion',
       policyMode: 'bounded-approximate',
@@ -269,17 +347,21 @@ test('buildRuntimeArtifact records cleanup and authority-pressure summaries sepa
   });
   assert.equal(artifact.modelAdvisory.authorityPressure.canonicalFactsPresent, true);
   assert.equal(artifact.modelAdvisory.authorityPressure.canonicalOverrideActive, true);
-  assert.equal(artifact.modelAdvisory.authorityPressure.advisoryChannelsInjected, 3);
-  assert.equal(artifact.modelAdvisory.authorityPressure.advisoryItemsInjected, 3);
-  assert.equal(artifact.modelAdvisory.authorityPressure.sameSessionAdvisoryItems, 1);
-  assert.equal(artifact.modelAdvisory.authorityPressure.crossSessionAdvisoryItems, 2);
+  assert.equal(artifact.modelAdvisory.authorityPressure.advisoryChannelsInjected, 0);
+  assert.equal(artifact.modelAdvisory.authorityPressure.advisoryItemsInjected, 0);
+  assert.equal(artifact.modelAdvisory.authorityPressure.sameSessionAdvisoryItems, 0);
+  assert.equal(artifact.modelAdvisory.authorityPressure.crossSessionAdvisoryItems, 0);
   assert.equal(artifact.modelAdvisory.repair.scope, 'semantic-render');
   assert.equal(artifact.modelAdvisory.cleanupTransform.class, 'salvage-reconstruction');
   assert.equal(artifact.modelAdvisory.cleanupTransform.materiality, 'reconstructed');
   assert.equal(artifact.modelAdvisory.cleanupTransform.operations.includes('salvage-draft-candidate'), true);
   assert.equal(artifact.modelAdvisory.promptComposition.filledSlotCount, 3);
+  assert.equal(artifact.promptTruth.channels.sessionArchive.candidateCount, 1);
+  assert.equal(artifact.promptTruth.channels.sessionArchive.renderedCount, 0);
+  assert.equal(artifact.promptTruth.channels.sessionArchive.heldBackReason, 'canon-priority-suppression');
+  assert.equal(artifact.researchLedgerPromptInjected, false);
   assert.equal(artifact.modelAdvisory.approximatePath.status, 'bounded-approximate');
   assert.equal(artifact.modelAdvisory.approximatePath.reasons.includes('semantic-query-held-back'), true);
-  assert.equal(artifact.modelAdvisory.advisoryMerge.advisoryItems, 3);
-  assert.equal(artifact.modelAdvisory.advisoryMerge.sameSessionItems, 1);
+  assert.equal(artifact.modelAdvisory.advisoryMerge.advisoryItems, 0);
+  assert.equal(artifact.modelAdvisory.advisoryMerge.sameSessionItems, 0);
 });

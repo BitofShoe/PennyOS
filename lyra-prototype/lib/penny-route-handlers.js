@@ -16,6 +16,7 @@
  * @property {string} [semanticMemoryMode]
  * @property {boolean} [researchLedgerPromptInjected]
  * @property {Object|null} [researchLedgerUpdate]
+ * @property {Object|null} [promptTruth]
  * @property {Array<Object>} [toolsUsed]
  * @property {Object|null} [repair]
  * @property {Object} [artifact]
@@ -273,6 +274,7 @@ function createPennyRouteHandlers(deps = {}) {
     artifact = null,
     performance = null,
     readiness = null,
+    promptTruth = null,
     shadowError = '',
   }) {
     /** @type {ChatResponseMeta} */
@@ -293,6 +295,7 @@ function createPennyRouteHandlers(deps = {}) {
       semanticMemoryMode,
       researchLedgerPromptInjected,
       researchLedgerUpdate,
+      promptTruth,
       toolsUsed,
     };
     if (repair && typeof repair === 'object') meta.repair = repair;
@@ -343,6 +346,7 @@ function createPennyRouteHandlers(deps = {}) {
     performance = null,
     readiness = null,
     promptComposition = null,
+    promptTruth = null,
     latencyBudget = null,
     researchLedgerPromptInjected = false,
     researchLedgerUpdate = null,
@@ -383,6 +387,7 @@ function createPennyRouteHandlers(deps = {}) {
         performance,
         readiness,
         promptComposition,
+        promptTruth,
         latencyBudget,
         researchLedgerPromptInjected,
         researchLedgerUpdate,
@@ -390,13 +395,89 @@ function createPennyRouteHandlers(deps = {}) {
     });
   }
 
+  function trimAuditText(value = '', limit = 220) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    if (text.length <= limit) return text;
+    return `${text.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+  }
+
+  function buildArchiveAuditSnapshot({
+    sessionId = 'default',
+    selectedLane = 'chat',
+    requestedMode = 'local',
+    executionPath = 'llm-chat',
+    userText = '',
+    retrieval = null,
+    promptTruth = null,
+    artifact = null,
+    researchLedgerUpdate = null,
+  } = {}) {
+    const usedAt = String(artifact?.timestamps?.usedAt || retrieval?.usedAt || '').trim() || isoNow();
+    const promptTruthChannels = promptTruth?.channels && typeof promptTruth.channels === 'object'
+      ? promptTruth.channels
+      : {};
+    const mode = String(retrieval?.mode || '').trim() || 'keyword';
+    return {
+      turnId: `${String(sessionId || 'default').trim() || 'default'}:${usedAt}`,
+      usedAt,
+      userTextExcerpt: trimAuditText(userText, 220),
+      selectedLane: String(selectedLane || '').trim() || 'chat',
+      requestedMode: String(requestedMode || '').trim() || 'local',
+      executionPath: String(executionPath || '').trim() || 'llm-chat',
+      retrieval: {
+        mode,
+        reasonCode: String(retrieval?.reasonCode || '').trim()
+          || (mode === 'semantic' ? 'semantic_query' : 'keyword_fallback'),
+        selectedSessionIds: Array.isArray(promptTruthChannels.sessionArchive?.candidateSourceIds)
+          ? promptTruthChannels.sessionArchive.candidateSourceIds
+          : [],
+        selectedGlobalIds: Array.isArray(promptTruthChannels.globalArchive?.candidateSourceIds)
+          ? promptTruthChannels.globalArchive.candidateSourceIds
+          : [],
+        selectedBookIds: Array.isArray(promptTruthChannels.memoryBooks?.candidateSourceIds)
+          ? promptTruthChannels.memoryBooks.candidateSourceIds
+          : [],
+        selectedLedgerIds: Array.isArray(promptTruthChannels.researchLedger?.candidateSourceIds)
+          ? promptTruthChannels.researchLedger.candidateSourceIds
+          : [],
+        compression: {
+          used: retrieval?.compression?.used === true,
+        },
+        semanticReady: retrieval?.semanticReady === true,
+        semanticDowngrade: retrieval?.semanticDowngrade === true,
+      },
+      promptTruth,
+      artifactSummary: {
+        kind: artifact?.kind || '',
+        authority: {
+          reply: artifact?.authority?.reply || '',
+        },
+        approximatePath: {
+          status: artifact?.modelAdvisory?.approximatePath?.status || '',
+        },
+        researchLedgerPromptInjected: artifact?.researchLedgerPromptInjected === true,
+      },
+      researchLedger: {
+        updateStatus: researchLedgerUpdate?.status || 'skipped',
+        topicId: researchLedgerUpdate?.topicId || researchLedgerUpdate?.topic?.topicId || '',
+        topicLabel: researchLedgerUpdate?.topicLabel || researchLedgerUpdate?.topic?.topicLabel || '',
+      },
+    };
+  }
+
   function archiveIfEligible({
     sessionId,
     requestedMode,
     localLane,
+    selectedLane,
+    executionPath,
     userText,
     assistantText,
     retrieval,
+    promptTruth,
+    artifact,
+    researchLedgerUpdate,
     provenance,
     reviewCandidates,
   }) {
@@ -406,6 +487,17 @@ function createPennyRouteHandlers(deps = {}) {
         userText,
         assistantText,
         retrieval,
+        audit: buildArchiveAuditSnapshot({
+          sessionId,
+          selectedLane,
+          requestedMode,
+          executionPath,
+          userText,
+          retrieval,
+          promptTruth,
+          artifact,
+          researchLedgerUpdate,
+        }),
         provenance,
         reviewCandidates,
       });
@@ -469,9 +561,7 @@ function createPennyRouteHandlers(deps = {}) {
     });
     return {
       researchLedgerUpdate,
-      researchLedgerContext: researchLedgerUpdate?.status === 'applied' && researchLedgerUpdate?.context
-        ? researchLedgerUpdate.context
-        : (runtimeMemoryContext?.researchLedger || null),
+      researchLedgerContext: runtimeMemoryContext?.researchLedger || null,
     };
   }
 
@@ -681,6 +771,7 @@ function createPennyRouteHandlers(deps = {}) {
             epistemics,
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
+            promptTruth: runtimeMemoryContext.promptTruth,
             latencyBudget: runtimeMemoryContext.latencyBudget,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
@@ -697,6 +788,7 @@ function createPennyRouteHandlers(deps = {}) {
             semanticMemoryMode,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
+            researchLedgerContext: runtimeMemoryContext.researchLedger,
             matchedBooks,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
@@ -704,6 +796,7 @@ function createPennyRouteHandlers(deps = {}) {
             epistemics,
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
+            promptTruth: runtimeMemoryContext.promptTruth,
             latencyBudget: runtimeMemoryContext.latencyBudget,
           });
           sendJson(res, 200, {
@@ -755,6 +848,7 @@ function createPennyRouteHandlers(deps = {}) {
             epistemics,
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
+            promptTruth: runtimeMemoryContext.promptTruth,
             latencyBudget: runtimeMemoryContext.latencyBudget,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
@@ -770,6 +864,7 @@ function createPennyRouteHandlers(deps = {}) {
             semanticMemoryMode,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
+            researchLedgerContext: runtimeMemoryContext.researchLedger,
             matchedBooks,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
@@ -777,6 +872,7 @@ function createPennyRouteHandlers(deps = {}) {
             epistemics,
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
+            promptTruth: runtimeMemoryContext.promptTruth,
             latencyBudget: runtimeMemoryContext.latencyBudget,
           });
           sendJson(res, 200, {
@@ -828,6 +924,7 @@ function createPennyRouteHandlers(deps = {}) {
             epistemics,
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
+            promptTruth: runtimeMemoryContext.promptTruth,
             latencyBudget: runtimeMemoryContext.latencyBudget,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
@@ -844,6 +941,7 @@ function createPennyRouteHandlers(deps = {}) {
             semanticMemoryMode,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
+            researchLedgerContext: runtimeMemoryContext.researchLedger,
             matchedBooks,
             shadowError: error.message,
             routePath: '/api/penny/chat/shadow',
@@ -852,6 +950,7 @@ function createPennyRouteHandlers(deps = {}) {
             epistemics,
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
+            promptTruth: runtimeMemoryContext.promptTruth,
             latencyBudget: runtimeMemoryContext.latencyBudget,
           });
           sendJson(res, 200, {
@@ -1184,7 +1283,7 @@ function createPennyRouteHandlers(deps = {}) {
             toolRecords,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
-            researchLedgerContext: ledgerState.researchLedgerContext,
+            researchLedgerContext: runtimeMemoryContext.researchLedger,
             matchedBooks,
             cleanup,
             cleanupTransform,
@@ -1196,6 +1295,7 @@ function createPennyRouteHandlers(deps = {}) {
             performance,
             readiness,
             promptComposition: runtimeMemoryContext.promptComposition,
+            promptTruth: runtimeMemoryContext.promptTruth,
             latencyBudget: runtimeMemoryContext.latencyBudget,
             researchLedgerPromptInjected,
             researchLedgerUpdate: ledgerState.researchLedgerUpdate,
@@ -1222,6 +1322,7 @@ function createPennyRouteHandlers(deps = {}) {
             toolRecords,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
+            researchLedgerContext: runtimeMemoryContext.researchLedger,
             matchedBooks,
             cleanup,
             cleanupTransform,
@@ -1237,6 +1338,7 @@ function createPennyRouteHandlers(deps = {}) {
             performance,
             readiness,
             promptComposition: runtimeMemoryContext.promptComposition,
+            promptTruth: runtimeMemoryContext.promptTruth,
             latencyBudget: runtimeMemoryContext.latencyBudget,
             researchLedgerPromptInjected,
             researchLedgerUpdate: ledgerState.researchLedgerUpdate,
@@ -1245,9 +1347,14 @@ function createPennyRouteHandlers(deps = {}) {
             sessionId,
             requestedMode,
             localLane,
+            selectedLane: requestedMode === 'shadow' ? 'shadow' : localLane,
+            executionPath,
             userText,
             assistantText: text,
             retrieval: runtimeMemoryContext.retrieval,
+            promptTruth: runtimeMemoryContext.promptTruth,
+            artifact,
+            researchLedgerUpdate: ledgerState.researchLedgerUpdate,
             provenance: turnProvenance,
             reviewCandidates: turnReviewCandidates,
           });
@@ -1471,7 +1578,7 @@ function createPennyRouteHandlers(deps = {}) {
         toolRecords,
         retrieval: runtimeMemoryContext.retrieval,
         archiveContext: runtimeMemoryContext.archiveContext,
-        researchLedgerContext: ledgerState.researchLedgerContext,
+        researchLedgerContext: runtimeMemoryContext.researchLedger,
         matchedBooks,
         cleanup,
         cleanupTransform,
@@ -1483,6 +1590,7 @@ function createPennyRouteHandlers(deps = {}) {
         performance,
         readiness,
         promptComposition: runtimeMemoryContext.promptComposition,
+        promptTruth: runtimeMemoryContext.promptTruth,
         latencyBudget: runtimeMemoryContext.latencyBudget,
         researchLedgerPromptInjected,
         researchLedgerUpdate: ledgerState.researchLedgerUpdate,
@@ -1510,6 +1618,7 @@ function createPennyRouteHandlers(deps = {}) {
         toolRecords,
         retrieval: runtimeMemoryContext.retrieval,
         archiveContext: runtimeMemoryContext.archiveContext,
+        researchLedgerContext: runtimeMemoryContext.researchLedger,
         matchedBooks,
         cleanup,
         cleanupTransform,
@@ -1525,6 +1634,7 @@ function createPennyRouteHandlers(deps = {}) {
         performance,
         readiness,
         promptComposition: runtimeMemoryContext.promptComposition,
+        promptTruth: runtimeMemoryContext.promptTruth,
         latencyBudget: runtimeMemoryContext.latencyBudget,
         researchLedgerPromptInjected,
         researchLedgerUpdate: ledgerState.researchLedgerUpdate,
@@ -1533,9 +1643,14 @@ function createPennyRouteHandlers(deps = {}) {
         sessionId,
         requestedMode,
         localLane,
+        selectedLane: requestedMode === 'shadow' ? 'shadow' : localLane,
+        executionPath,
         userText,
         assistantText: text,
         retrieval: runtimeMemoryContext.retrieval,
+        promptTruth: runtimeMemoryContext.promptTruth,
+        artifact,
+        researchLedgerUpdate: ledgerState.researchLedgerUpdate,
         provenance: turnProvenance,
         reviewCandidates: turnReviewCandidates,
       });
