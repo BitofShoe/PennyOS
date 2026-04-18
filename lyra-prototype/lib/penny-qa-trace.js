@@ -71,6 +71,7 @@ function buildQaTrace({
   finishedAt = '',
   promptVersion = '',
   runIdentity = {},
+  driftCanaries = {},
   laneDecision = {},
   configuredModels = {},
   resolvedModels = {},
@@ -91,6 +92,7 @@ function buildQaTrace({
     finishedAt: trimIso(finishedAt, ''),
     promptVersion: trimText(promptVersion, 120),
     runIdentity: normalizeMetricObject(runIdentity),
+    driftCanaries: normalizeMetricObject(driftCanaries),
     laneDecision: normalizeMetricObject(laneDecision),
     configuredModels: normalizeModelMap(configuredModels),
     resolvedModels: normalizeModelMap(resolvedModels),
@@ -109,6 +111,8 @@ function buildQaTrace({
 function validateQaTrace(trace = {}) {
   const normalized = buildQaTrace(trace);
   const requiredObjectKeys = [
+    'runIdentity',
+    'driftCanaries',
     'laneDecision',
     'configuredModels',
     'resolvedModels',

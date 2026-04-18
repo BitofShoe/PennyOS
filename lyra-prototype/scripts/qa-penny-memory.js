@@ -278,6 +278,100 @@ function canonicalAuthorityPressureSatisfied(artifact = null) {
       .some((channel) => String(channel.heldBackReason || '').trim() === 'canon-priority-suppression');
 }
 
+function artifactReasoningMode(artifact = null) {
+  const mode = String(artifact?.modelAdvisory?.reasoningPolicy?.mode || '').trim();
+  if (mode) return mode;
+  const executionPath = String(artifact?.executionPath || artifact?.context?.executionPath || artifact?.trace?.laneChoice?.executionPath || '').trim();
+  if (executionPath === 'deterministic-tool') return 'verifier-first';
+  const latencyClass = String(artifact?.performance?.latencyClass || artifact?.modelAdvisory?.approximatePath?.latencyClass || '').trim();
+  if (latencyClass === 'memory-heavy-recall') return 'deliberate';
+  if (latencyClass === 'tool-heavy') return 'verifier-first';
+  if (latencyClass === 'image-heavy') return 'attachment-bounded';
+  return 'minimal';
+}
+
+function artifactDriftReason(artifact = null) {
+  const approximatePath = artifact?.modelAdvisory?.approximatePath && typeof artifact.modelAdvisory.approximatePath === 'object'
+    ? artifact.modelAdvisory.approximatePath
+    : {};
+  const reasons = Array.isArray(approximatePath.reasons) ? approximatePath.reasons.map((item) => String(item || '').trim()).filter(Boolean) : [];
+  const reasoningMode = artifactReasoningMode(artifact);
+  const retrievalReason = String(artifact?.performance?.archiveRetrieval?.reasonCode || '').trim();
+  if (reasons.includes('lane-fallback')) return 'lane-fallback';
+  if (reasons.includes('runtime-fallback')) return 'runtime-fallback';
+  if (approximatePath.semanticDowngrade === true) {
+    return reasons.find((item) => /semantic/i.test(item)) || 'semantic-downgrade';
+  }
+  if (reasoningMode === 'deliberate' && reasons.includes('semantic-query-held-back')) return 'semantic-query-held-back';
+  if (reasoningMode === 'deliberate' && retrievalReason === 'keyword_fallback' && artifact?.context?.semanticMemoryReady === true) {
+    return 'keyword_fallback';
+  }
+  return '';
+}
+
+function buildArtifactDriftCanary(artifact = null, turnLabel = 'current-turn') {
+  const firstDriftReason = artifactDriftReason(artifact);
+  return {
+    firstDriftReason,
+    firstDriftTurn: firstDriftReason ? String(turnLabel || 'current-turn').trim() || 'current-turn' : '',
+    fixationDetected: false,
+    fixationRepeatCount: 0,
+    recoveredAfterDrift: false,
+  };
+}
+
+function collectScenarioArtifactTimeline(value, pathLabel = '', results = [], seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return results;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      collectScenarioArtifactTimeline(item, `${pathLabel}[${index}]`, results, seen);
+    });
+    return results;
+  }
+  if (value?.meta?.artifact && typeof value.meta.artifact === 'object') {
+    results.push({
+      label: pathLabel || 'turn',
+      artifact: value.meta.artifact,
+    });
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'meta') continue;
+    const nextLabel = pathLabel ? `${pathLabel}.${key}` : key;
+    collectScenarioArtifactTimeline(item, nextLabel, results, seen);
+  }
+  return results;
+}
+
+function buildScenarioDriftCanary(scenario = {}) {
+  const timeline = collectScenarioArtifactTimeline(scenario);
+  const driftReasons = timeline.map((entry) => artifactDriftReason(entry.artifact));
+  const firstIndex = driftReasons.findIndex(Boolean);
+  if (firstIndex === -1) {
+    return {
+      firstDriftReason: '',
+      firstDriftTurn: '',
+      fixationDetected: false,
+      fixationRepeatCount: 0,
+      recoveredAfterDrift: false,
+    };
+  }
+  const firstDriftReason = driftReasons[firstIndex];
+  let fixationRepeatCount = 0;
+  for (let index = firstIndex + 1; index < driftReasons.length; index += 1) {
+    if (driftReasons[index] !== firstDriftReason) break;
+    fixationRepeatCount += 1;
+  }
+  const recoveredAfterDrift = driftReasons.slice(firstIndex + fixationRepeatCount + 1).some((reason) => !reason);
+  return {
+    firstDriftReason,
+    firstDriftTurn: timeline[firstIndex]?.label || 'turn',
+    fixationDetected: fixationRepeatCount > 0,
+    fixationRepeatCount,
+    recoveredAfterDrift,
+  };
+}
+
 function buildArtifactWitnessTrace(artifact = null, inspector = null) {
   const modelAdvisory = artifact?.modelAdvisory && typeof artifact.modelAdvisory === 'object'
     ? artifact.modelAdvisory
@@ -296,6 +390,9 @@ function buildArtifactWitnessTrace(artifact = null, inspector = null) {
     : {};
   const advisoryMerge = modelAdvisory.advisoryMerge && typeof modelAdvisory.advisoryMerge === 'object'
     ? modelAdvisory.advisoryMerge
+    : {};
+  const reasoningPolicy = modelAdvisory.reasoningPolicy && typeof modelAdvisory.reasoningPolicy === 'object'
+    ? modelAdvisory.reasoningPolicy
     : {};
   const promptTruth = artifact?.promptTruth && typeof artifact.promptTruth === 'object'
     ? artifact.promptTruth
@@ -318,6 +415,16 @@ function buildArtifactWitnessTrace(artifact = null, inspector = null) {
       degraded: approximatePath.degraded === true,
       reasons: Array.isArray(approximatePath.reasons) ? approximatePath.reasons.slice(0, 6) : [],
     },
+    reasoningPolicy: {
+      mode: String(reasoningPolicy.mode || artifactReasoningMode(artifact)).trim() || 'minimal',
+      sourceLatencyClass: String(reasoningPolicy.sourceLatencyClass || artifact?.performance?.latencyClass || '').trim(),
+      executionPreference: String(reasoningPolicy.executionPreference || '').trim(),
+      verifierUsed: reasoningPolicy.verifierUsed === true,
+      shortCircuitApplied: reasoningPolicy.shortCircuitApplied === true,
+      shortCircuitReason: String(reasoningPolicy.shortCircuitReason || '').trim(),
+      reasonCodes: Array.isArray(reasoningPolicy.reasonCodes) ? reasoningPolicy.reasonCodes.slice(0, 6) : [],
+    },
+    driftCanaries: buildArtifactDriftCanary(artifact),
     promptComposition: {
       lane: String(promptComposition.lane || '').trim(),
       mode: String(promptComposition.mode || '').trim(),
@@ -751,6 +858,7 @@ async function runPremiseDriftScenario(baseUrl) {
   );
   const correctedPremise = truthScore >= 1;
   const artifact = recall?.meta?.artifact || {};
+  const witnessTrace = buildArtifactWitnessTrace(recall?.meta?.artifact, inspector?.inspector);
   return {
     name: 'session_level_premise_drift',
     sessionId,
@@ -760,6 +868,7 @@ async function runPremiseDriftScenario(baseUrl) {
     inspector,
     truthScore,
     correctedPremise,
+    witnessTrace,
     epistemicSignals: Array.isArray(artifact?.epistemics?.signals) ? artifact.epistemics.signals : [],
   };
 }
@@ -1324,6 +1433,14 @@ function uniqueStrings(values = []) {
 function buildMemoryQaTrace(payload = {}) {
   const suites = Array.isArray(payload.suites) ? payload.suites : [];
   const scenarios = suites.flatMap((suite) => Array.isArray(suite?.scenarios) ? suite.scenarios : []);
+  const scenarioDriftCanaries = scenarios.map((scenario) => buildScenarioDriftCanary(scenario));
+  const firstScenarioDrift = scenarioDriftCanaries.find((item) => item.firstDriftReason) || {
+    firstDriftReason: '',
+    firstDriftTurn: '',
+    fixationDetected: false,
+    fixationRepeatCount: 0,
+    recoveredAfterDrift: false,
+  };
   const suiteStatuses = suites.map((suite) => suite?.serverStatus || {});
   const primaryStatus = suiteStatuses[0] || {};
   const judgedGroups = payload?.summary?.groups && typeof payload.summary.groups === 'object'
@@ -1410,6 +1527,13 @@ function buildMemoryQaTrace(payload = {}) {
       maxOutputTokens: Number(primaryStatus?.maxOutputTokens || 0),
       degradedArtifacts,
       fallbackArtifacts: laneCounts.fallback || 0,
+    },
+    driftCanaries: {
+      firstDriftReason: firstScenarioDrift.firstDriftReason,
+      firstDriftTurn: firstScenarioDrift.firstDriftTurn,
+      fixationDetected: scenarioDriftCanaries.some((item) => item.fixationDetected === true),
+      fixationRepeatCount: scenarioDriftCanaries.reduce((max, item) => Math.max(max, Number(item.fixationRepeatCount || 0)), 0),
+      recoveredAfterDrift: firstScenarioDrift.recoveredAfterDrift === true,
     },
     laneDecision: {
       chatLaneTurns: laneCounts.chat || 0,

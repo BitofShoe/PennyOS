@@ -251,6 +251,9 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   const approximatePath = modelAdvisory.approximatePath && typeof modelAdvisory.approximatePath === 'object'
     ? modelAdvisory.approximatePath
     : {};
+  const reasoningPolicy = modelAdvisory.reasoningPolicy && typeof modelAdvisory.reasoningPolicy === 'object'
+    ? modelAdvisory.reasoningPolicy
+    : (artifact?.trace?.reasoningPolicy && typeof artifact.trace.reasoningPolicy === 'object' ? artifact.trace.reasoningPolicy : {});
   const advisoryMerge = modelAdvisory.advisoryMerge && typeof modelAdvisory.advisoryMerge === 'object'
     ? modelAdvisory.advisoryMerge
     : {};
@@ -323,6 +326,15 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   if (Array.isArray(approximatePath.reasons) && approximatePath.reasons.length) {
     approximateBits.push(approximatePath.reasons.slice(0, 4).join(', '));
   }
+  const reasoningBits = [];
+  if (reasoningPolicy.executionPreference) reasoningBits.push(`preference ${reasoningPolicy.executionPreference}`);
+  if (reasoningPolicy.verifierUsed === true) reasoningBits.push('verifier used');
+  if (reasoningPolicy.shortCircuitApplied === true) {
+    reasoningBits.push(`short circuit ${reasoningPolicy.shortCircuitReason || 'applied'}`);
+  }
+  if (Array.isArray(reasoningPolicy.reasonCodes) && reasoningPolicy.reasonCodes.length) {
+    reasoningBits.push(reasoningPolicy.reasonCodes.slice(0, 4).join(', '));
+  }
   const advisoryMergeBits = [];
   if (Array.isArray(advisoryMerge.mergeBasis) && advisoryMerge.mergeBasis.length) {
     advisoryMergeBits.push(`basis ${advisoryMerge.mergeBasis.slice(0, 3).join(', ')}`);
@@ -371,6 +383,12 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
       <div class="memory-copy">
         Prompt truth: <strong>${escapeHtmlFn(promptTruth.canonicalOverrideActive ? 'canon-first holdback' : (promptTruth.canonicalFactsPresent ? 'canon rendered' : 'canon silent'))}</strong>
         <small>${escapeHtmlFn(promptTruthBits.join(' | ') || 'No prompt-truth receipt recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Reasoning policy: <strong>${escapeHtmlFn(reasoningPolicy.mode || 'unknown')}</strong> &middot; latency ${escapeHtmlFn(reasoningPolicy.sourceLatencyClass || approximatePath.latencyClass || 'casual-companion')}
+        <small>${escapeHtmlFn(reasoningBits.join(' | ') || 'No reasoning-policy receipt recorded.')}</small>
       </div>
     </div>
     <div class="list-item">
@@ -436,6 +454,11 @@ function renderTraceArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) 
     return '<div class="list-item"><div class="memory-copy">No trace artifact details are available for the last turn yet.</div></div>';
   }
   const laneChoice = trace.laneChoice && typeof trace.laneChoice === 'object' ? trace.laneChoice : {};
+  const reasoningPolicy = trace.reasoningPolicy && typeof trace.reasoningPolicy === 'object'
+    ? trace.reasoningPolicy
+    : (artifact?.modelAdvisory?.reasoningPolicy && typeof artifact.modelAdvisory.reasoningPolicy === 'object'
+      ? artifact.modelAdvisory.reasoningPolicy
+      : {});
   const wakeHierarchy = Array.isArray(trace.wakeHierarchy) ? trace.wakeHierarchy : [];
   const retrievalChannels = Array.isArray(trace.retrievalChannels) ? trace.retrievalChannels : [];
   const contradictions = Array.isArray(trace.contradictions) ? trace.contradictions : [];
@@ -475,11 +498,29 @@ function renderTraceArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) 
     .slice(0, 3)
     .map((item) => `${item?.channel || item?.type || 'trace'} - ${item?.label || 'entry'}${item?.detail ? ` - ${item.detail}` : ''}`)
     .filter(Boolean);
+  const reasoningSummary = [
+    reasoningPolicy.mode ? `mode ${reasoningPolicy.mode}` : '',
+    reasoningPolicy.sourceLatencyClass ? `latency ${reasoningPolicy.sourceLatencyClass}` : '',
+    reasoningPolicy.executionPreference ? `preference ${reasoningPolicy.executionPreference}` : '',
+    reasoningPolicy.verifierUsed === true ? 'verifier used' : '',
+    reasoningPolicy.shortCircuitApplied === true
+      ? `short circuit ${reasoningPolicy.shortCircuitReason || 'applied'}`
+      : '',
+    Array.isArray(reasoningPolicy.reasonCodes) && reasoningPolicy.reasonCodes.length
+      ? reasoningPolicy.reasonCodes.slice(0, 4).join(', ')
+      : '',
+  ].filter(Boolean);
   return `
     <div class="list-item">
       <div class="memory-copy">
         Trace lane: <strong>${escapeHtmlFn(laneChoice.requestedMode || 'local')}</strong>/<strong>${escapeHtmlFn(laneChoice.selectedLane || 'chat')}</strong> &middot; Backend <strong>${escapeHtmlFn(laneChoice.backend || 'unknown')}</strong>
         <small>${escapeHtmlFn(`Route ${laneChoice.route || '/api/penny/chat'} · requested ${laneChoice.requestedModel || 'n/a'} · resolved ${laneChoice.resolvedModel || 'n/a'}${laneChoice.laneFallback ? ' · lane fallback' : ''}${laneChoice.usedFallback ? ' · runtime fallback' : ''}`)}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Trace reasoning: <strong>${escapeHtmlFn(reasoningPolicy.mode || 'unknown')}</strong>
+        <small>${escapeHtmlFn(reasoningSummary.join(' | ') || 'No trace reasoning-policy details were recorded.')}</small>
       </div>
     </div>
     <div class="list-item">

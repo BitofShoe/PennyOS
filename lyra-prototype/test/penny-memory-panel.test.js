@@ -226,6 +226,17 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
           usedFallback: false,
           laneFallback: false,
         },
+        reasoningPolicy: {
+          mode: 'verifier-first',
+          sourceLatencyClass: 'tool-heavy',
+          executionPreference: 'verifier-first',
+          semanticQueryAllowed: false,
+          archiveCompressionAllowed: false,
+          verifierUsed: true,
+          shortCircuitApplied: false,
+          shortCircuitReason: '',
+          reasonCodes: ['bounded-latency-policy', 'verified-tool-evidence'],
+        },
         wakeHierarchy: [
           { layer: 'stable-facts', label: 'Explicit facts stay canonical', detail: 'Explicit memory remains authoritative.', status: 'authoritative', count: 1 },
           { layer: 'active-session', label: 'Active session context', detail: '1 session recall hit was available.', status: 'present', count: 1 },
@@ -320,6 +331,17 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
           policyMode: 'deterministic-priority',
           reasons: ['bounded-latency-policy'],
         },
+        reasoningPolicy: {
+          mode: 'verifier-first',
+          sourceLatencyClass: 'tool-heavy',
+          executionPreference: 'verifier-first',
+          semanticQueryAllowed: false,
+          archiveCompressionAllowed: false,
+          verifierUsed: true,
+          shortCircuitApplied: false,
+          shortCircuitReason: '',
+          reasonCodes: ['bounded-latency-policy', 'verified-tool-evidence'],
+        },
         advisoryMerge: {
           advisoryItems: 2,
           lossyItems: 1,
@@ -378,6 +400,8 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
   assert.equal(viewModel.artifact.version, 'penny-runtime-artifact.v1');
   assert.equal(viewModel.artifact.modelAdvisory.promptComposition.filledSlotCount, 3);
   assert.equal(viewModel.artifact.modelAdvisory.approximatePath.policyMode, 'deterministic-priority');
+  assert.equal(viewModel.artifact.modelAdvisory.reasoningPolicy.mode, 'verifier-first');
+  assert.equal(viewModel.artifact.trace.reasoningPolicy.executionPreference, 'verifier-first');
   assert.equal(viewModel.artifact.modelAdvisory.advisoryMerge.mergeBasis[0], 'active-contradiction');
   assert.equal(viewModel.runtime.readiness.warmState, 'warm');
   assert.equal(viewModel.runtime.performance.semanticProbe.source, 'semantic-memory-status');
@@ -576,6 +600,17 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
           usedFallback: false,
           laneFallback: false,
         },
+        reasoningPolicy: {
+          mode: 'verifier-first',
+          sourceLatencyClass: 'tool-heavy',
+          executionPreference: 'verifier-first',
+          semanticQueryAllowed: false,
+          archiveCompressionAllowed: false,
+          verifierUsed: true,
+          shortCircuitApplied: false,
+          shortCircuitReason: '',
+          reasonCodes: ['bounded-latency-policy', 'verified-tool-evidence'],
+        },
         wakeHierarchy: [
           { layer: 'stable-facts', label: 'Explicit facts stay canonical', detail: 'Explicit memory remains authoritative.', status: 'authoritative', count: 1 },
           { layer: 'active-session', label: 'Active session context', detail: 'No session archive hits were selected for this turn.', status: 'empty', count: 0 },
@@ -672,6 +707,17 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
             policyMode: 'deterministic-priority',
             reasons: ['bounded-latency-policy', 'semantic-query-held-back'],
           },
+          reasoningPolicy: {
+            mode: 'verifier-first',
+            sourceLatencyClass: 'tool-heavy',
+            executionPreference: 'verifier-first',
+            semanticQueryAllowed: false,
+            archiveCompressionAllowed: false,
+            verifierUsed: true,
+            shortCircuitApplied: false,
+            shortCircuitReason: '',
+            reasonCodes: ['bounded-latency-policy', 'verified-tool-evidence'],
+          },
           advisoryMerge: {
             advisoryItems: 2,
             lossyItems: 1,
@@ -726,6 +772,8 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /same session 1 \| cross session 1/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Prompt composition:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /voiceBlend:filled/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Reasoning policy:/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /preference verifier-first/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Approximate path:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /deterministic-priority/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Advisory merge:/);
@@ -749,6 +797,8 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /summary question-carryover/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Summary refs: package\.json/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Wake hierarchy/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Trace reasoning:/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /mode verifier-first/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Retrieval channels: 2/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Evidence accepted: 2/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Check whether the red glove is still on dryer three/);
@@ -952,6 +1002,17 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
             researchLedgerPromptInjected: false,
             researchLedgerUpdateStatus: 'applied',
           },
+          reasoningPolicy: {
+            mode: 'verifier-first',
+            sourceLatencyClass: 'tool-heavy',
+            executionPreference: 'verifier-first',
+            semanticQueryAllowed: false,
+            archiveCompressionAllowed: false,
+            verifierUsed: true,
+            shortCircuitApplied: true,
+            shortCircuitReason: 'semantic-render-held-back',
+            reasonCodes: ['semantic-render-held-back', 'deterministic-tool'],
+          },
           wakeHierarchy: [],
           retrievalChannels: [],
           contradictions: [],
@@ -990,6 +1051,17 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
             sameSessionAdvisoryItems: 0,
             crossSessionAdvisoryItems: 0,
           },
+          reasoningPolicy: {
+            mode: 'verifier-first',
+            sourceLatencyClass: 'tool-heavy',
+            executionPreference: 'verifier-first',
+            semanticQueryAllowed: false,
+            archiveCompressionAllowed: false,
+            verifierUsed: true,
+            shortCircuitApplied: true,
+            shortCircuitReason: 'semantic-render-held-back',
+            reasonCodes: ['semantic-render-held-back', 'deterministic-tool'],
+          },
           repair: null,
           shadowError: '',
           toolsUsed: [],
@@ -1024,6 +1096,9 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
 
   assert.match(els.memoryInspectorPanel.innerHTML, /Execution <strong>deterministic-tool/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Model not used/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Reasoning policy: <strong>verifier-first/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /short circuit semantic-render-held-back/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Trace reasoning: <strong>verifier-first/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>held back/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Ledger update <strong>applied/i);
 });

@@ -13,12 +13,31 @@ test('classifyLatencyTurn keeps casual, memory, tool, and image turns distinct',
   assert.equal(classifyLatencyTurn({ userText: 'Remember what my favorite tea is now?' }), LATENCY_CLASSES.MEMORY_HEAVY_RECALL);
   assert.equal(classifyLatencyTurn({ userText: 'Tell me what you remember about my coding setup.' }), LATENCY_CLASSES.MEMORY_HEAVY_RECALL);
   assert.equal(classifyLatencyTurn({ userText: 'Do you remember where my notebook is?' }), LATENCY_CLASSES.MEMORY_HEAVY_RECALL);
+  assert.equal(
+    classifyLatencyTurn({
+      userText: 'Long-memory check: what color glove did I drop under the skee-ball lane, and what kind of mug sat beside the register?',
+    }),
+    LATENCY_CLASSES.MEMORY_HEAVY_RECALL,
+  );
   assert.equal(classifyLatencyTurn({ userText: 'you still up?' }), LATENCY_CLASSES.CASUAL_COMPANION);
   assert.equal(classifyLatencyTurn({ userText: 'favorite movie right now?' }), LATENCY_CLASSES.CASUAL_COMPANION);
   assert.equal(classifyLatencyTurn({ userText: 'last time you roasted me so hard' }), LATENCY_CLASSES.CASUAL_COMPANION);
   assert.equal(classifyLatencyTurn({ userText: 'do you prefer tea or coffee?' }), LATENCY_CLASSES.CASUAL_COMPANION);
   assert.equal(classifyLatencyTurn({ userText: 'Open README.md and inspect it.', lane: 'tool' }), LATENCY_CLASSES.TOOL_HEAVY);
   assert.equal(classifyLatencyTurn({ userText: 'What is in this picture?', attachmentType: 'image' }), LATENCY_CLASSES.IMAGE_HEAVY);
+});
+
+test('classifyLatencyTurn keeps repo-shaped possessive questions out of memory-heavy recall when explicit overlap is absent', () => {
+  const memories = {
+    memories: [
+      { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: Date.UTC(2026, 3, 18) },
+    ],
+  };
+
+  assert.equal(
+    classifyLatencyTurn({ userText: 'What is my package.json again?', memories }),
+    LATENCY_CLASSES.CASUAL_COMPANION,
+  );
 });
 
 test('resolveLatencyBudget keeps casual turns lean and memory turns richer', () => {

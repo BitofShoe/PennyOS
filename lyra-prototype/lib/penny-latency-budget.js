@@ -79,6 +79,7 @@ const LATENCY_BUDGETS = Object.freeze({
 const MEMORY_HEAVY_RECALL_PATTERNS = [
   /\bremember\b/i,
   /\brecall\b/i,
+  /\blong[- ]memory\b/i,
   /\bwhat should you remember\b/i,
   /\bwhat do you remember\b/i,
   /\bwhat should still be true\b/i,
@@ -95,8 +96,27 @@ const MEMORY_HEAVY_UPDATE_PATTERNS = [
   /\bi (?:changed|switched|replaced)\b/i,
 ];
 
-function looksCanonicalMemoryQuestion(userText = '') {
-  return isCanonicalMemoryQuestion(userText);
+const QUESTION_LIKE_PATTERN = /\?|\b(what|which|who|where|when|why|how|tell me)\b/i;
+const PROJECT_SURFACE_PATTERN = /\b(?:package\.json|readme(?:\.md)?|server\.js|codebase\.md|architecture\.md|repo(?:sitory)?|branch|commit|git|file|path|url|folder|directory)\b/i;
+const MEMORY_EVENT_RECALL_DETAIL_PATTERNS = [
+  /\bwhat\s+(?:color|colour|kind|type)\b/i,
+  /\bwhat was\b.+\b(?:sitting|tied|left|right|under|beside|next to|inside|tucked|dropped|balanced|painted|written)\b/i,
+  /\bwhat did i\b.+\b(?:drop|tuck|put|leave|stash|hide|write|say)\b/i,
+  /\bwhere did i\b/i,
+];
+
+function looksCanonicalMemoryQuestion(userText = '', memories = null) {
+  return isCanonicalMemoryQuestion(userText, memories);
+}
+
+function looksArchiveRecallQuestion(userText = '') {
+  const text = String(userText || '').trim();
+  if (!text) return false;
+  if (PROJECT_SURFACE_PATTERN.test(text)) return false;
+  const hasQuestionShape = QUESTION_LIKE_PATTERN.test(text);
+  const hasPersonalFrame = /\b(?:i|we|my)\b/i.test(text);
+  if (!hasQuestionShape || !hasPersonalFrame) return false;
+  return MEMORY_EVENT_RECALL_DETAIL_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 function cloneBudget(budget = LATENCY_BUDGETS[LATENCY_CLASSES.CASUAL_COMPANION]) {
@@ -118,12 +138,13 @@ function cloneBudget(budget = LATENCY_BUDGETS[LATENCY_CLASSES.CASUAL_COMPANION])
   };
 }
 
-function looksMemoryHeavy(userText = '') {
+function looksMemoryHeavy(userText = '', memories = null) {
   const text = String(userText || '').trim();
   if (!text) return false;
   return MEMORY_HEAVY_RECALL_PATTERNS.some((pattern) => pattern.test(text))
     || MEMORY_HEAVY_UPDATE_PATTERNS.some((pattern) => pattern.test(text))
-    || looksCanonicalMemoryQuestion(text);
+    || looksCanonicalMemoryQuestion(text, memories)
+    || looksArchiveRecallQuestion(text);
 }
 
 function classifyLatencyTurn({
@@ -132,12 +153,13 @@ function classifyLatencyTurn({
   image = null,
   file = null,
   attachmentType = 'none',
+  memories = null,
 } = {}) {
   const normalizedLane = String(lane || 'chat').trim().toLowerCase() || 'chat';
   const normalizedAttachmentType = String(attachmentType || 'none').trim().toLowerCase() || 'none';
   if (image || normalizedAttachmentType === 'image') return LATENCY_CLASSES.IMAGE_HEAVY;
   if (file || normalizedAttachmentType === 'file' || normalizedLane === 'tool') return LATENCY_CLASSES.TOOL_HEAVY;
-  if (looksMemoryHeavy(userText)) return LATENCY_CLASSES.MEMORY_HEAVY_RECALL;
+  if (looksMemoryHeavy(userText, memories)) return LATENCY_CLASSES.MEMORY_HEAVY_RECALL;
   return LATENCY_CLASSES.CASUAL_COMPANION;
 }
 

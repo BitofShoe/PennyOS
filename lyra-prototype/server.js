@@ -413,7 +413,7 @@ async function buildRuntimeMemoryContext({
   const archiveLane = lane === 'tool' ? 'tool' : 'chat';
   const budget = latencyBudget && typeof latencyBudget === 'object'
     ? latencyBudget
-    : resolveLatencyBudget({ userText, lane, attachmentType });
+    : resolveLatencyBudget({ userText, lane, attachmentType, memories });
   const researchLedger = getResearchLedgerContextApi({
     sessionId,
     userText,
@@ -2599,6 +2599,7 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         image,
         file,
         attachmentType: image ? 'image' : (file ? 'file' : 'none'),
+        memories,
       });
   const laneRuntime = createLaneRuntime(resolvedLaneSelection.localLane);
   laneRuntime.performance = { latencyClass: budget.latencyClass };
@@ -2742,6 +2743,7 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
         image,
         file,
         attachmentType: image ? 'image' : (file ? 'file' : 'none'),
+        memories,
       });
   const laneRuntime = createLaneRuntime(resolvedLaneSelection.localLane);
   laneRuntime.performance = { latencyClass: budget.latencyClass };

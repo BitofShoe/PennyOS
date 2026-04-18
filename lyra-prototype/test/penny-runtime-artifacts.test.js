@@ -161,6 +161,10 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.promptTruth.channels.researchLedger.renderedCount, 1);
   assert.equal(artifact.modelAdvisory.approximatePath.status, 'bounded-approximate');
   assert.equal(artifact.modelAdvisory.approximatePath.policyMode, 'recall-heavy');
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.mode, 'deliberate');
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.executionPreference, 'model-led');
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.semanticQueryAllowed, true);
+  assert.equal(artifact.trace.reasoningPolicy.mode, 'deliberate');
   assert.equal(artifact.modelAdvisory.advisoryMerge.advisoryItems, 3);
   assert.equal(artifact.modelAdvisory.advisoryMerge.lossyItems, 0);
   assert.deepEqual(artifact.modelAdvisory.advisoryMerge.mergeBasis, []);
@@ -228,6 +232,11 @@ test('buildRuntimeArtifact preserves deterministic-tool truth without faking mod
   assert.equal(artifact.trace.laneChoice.executionPath, 'deterministic-tool');
   assert.equal(artifact.trace.laneChoice.researchLedgerPromptInjected, false);
   assert.equal(artifact.trace.laneChoice.researchLedgerUpdateStatus, 'applied');
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.mode, 'verifier-first');
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.executionPreference, 'verifier-first');
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.verifierUsed, true);
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.shortCircuitApplied, true);
+  assert.equal(artifact.summary.text, 'Verifier-first turn short-circuited before extra model reasoning (deterministic-tool).');
   assert.equal(artifact.provenance.retrieval[0].injected, false);
   assert.equal(artifact.provenance.retrieval[0].sourceLabel, 'package.json');
 });
@@ -362,9 +371,12 @@ test('buildRuntimeArtifact records cleanup and authority-pressure summaries sepa
   assert.equal(artifact.researchLedgerPromptInjected, false);
   assert.equal(artifact.modelAdvisory.approximatePath.status, 'bounded-approximate');
   assert.equal(artifact.modelAdvisory.approximatePath.reasons.includes('semantic-query-held-back'), true);
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.mode, 'minimal');
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.reasonCodes.includes('semantic-query-held-back'), true);
+  assert.equal(artifact.trace.reasoningPolicy.mode, 'minimal');
   assert.equal(artifact.modelAdvisory.advisoryMerge.advisoryItems, 0);
   assert.equal(artifact.modelAdvisory.advisoryMerge.sameSessionItems, 0);
-  assert.equal(artifact.summary.text, 'Chat lane reply with advisory context held back canon-first.');
+  assert.equal(artifact.summary.text, 'Minimal ordinary turn with advisory context held back canon-first.');
   assert.match(artifact.trace.wakeHierarchy[1].detail, /selected but held back \(canon priority suppression\)/i);
   assert.match(artifact.trace.wakeHierarchy[4].detail, /selected but held back \(canon priority suppression\)/i);
   assert.equal(artifact.trace.ongoingInvestigations[0].status, 'held-back');
@@ -418,7 +430,66 @@ test('buildRuntimeArtifact does not claim additive archive support when no advis
     },
   });
 
-  assert.equal(artifact.summary.text, 'Chat lane reply without rendered advisory context.');
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.mode, 'minimal');
+  assert.equal(artifact.trace.reasoningPolicy.mode, 'minimal');
+  assert.equal(artifact.summary.text, 'Minimal ordinary turn without rendered advisory context.');
   assert.equal(artifact.trace.wakeHierarchy[1].detail, 'No session archive hits were selected for this turn.');
   assert.equal(artifact.trace.wakeHierarchy[4].detail, 'No ongoing investigation topics were active for this turn.');
+});
+
+test('buildRuntimeArtifact marks image-heavy turns as attachment-bounded without exposing reasoning text', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'demo-attachment',
+    requestedMode: 'local',
+    selectedLane: 'chat',
+    backend: 'local-lmstudio',
+    promptTruth: {
+      canonicalFactsPresent: false,
+      canonicalOverrideActive: false,
+      channels: {
+        stableFacts: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        memoryBooks: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        sessionArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        globalArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        researchLedger: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+      },
+    },
+    latencyBudget: {
+      latencyClass: 'image-heavy',
+      policyMode: 'attachment-bounded',
+      approximateByPolicy: false,
+      policyNote: 'Keep attachment turns bounded.',
+      allowSemanticQuery: false,
+      allowArchiveCompression: false,
+      allowSemanticRender: true,
+    },
+    performance: {
+      latencyClass: 'image-heavy',
+      request: { available: true, durationMs: 120 },
+      promptAssembly: { available: true, durationMs: 15 },
+      archiveRetrieval: { available: true, durationMs: 8, sessionItems: 0, globalItems: 0, semanticReady: true, reasonCode: '' },
+      semanticRender: { available: true, attempted: false, used: false },
+      modelResolution: { available: true, durationMs: 5 },
+      semanticProbe: { available: true, durationMs: 5 },
+      firstToken: { available: true, durationMs: 40 },
+      modelRoundTrip: { available: true, durationMs: 110, transport: 'local-lmstudio' },
+    },
+    readiness: {
+      chatModelReady: true,
+      toolModelReady: true,
+      embeddingReady: true,
+      fallbackActive: false,
+      modelUsage: 'used',
+      warmState: 'warm',
+      checkedAt: '2026-04-18T13:00:00.000Z',
+      cacheAgeMs: 0,
+      cacheExpiresAt: '',
+      cacheHit: false,
+    },
+  });
+
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.mode, 'attachment-bounded');
+  assert.equal(artifact.modelAdvisory.reasoningPolicy.executionPreference, 'attachment-bounded');
+  assert.equal(artifact.trace.reasoningPolicy.mode, 'attachment-bounded');
+  assert.equal(artifact.summary.text, 'Attachment-bounded turn without rendered advisory context.');
 });

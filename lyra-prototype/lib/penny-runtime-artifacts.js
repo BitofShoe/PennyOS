@@ -470,6 +470,7 @@ function normalizeTraceState(raw = {}, defaults = {}) {
       researchLedgerPromptInjected: laneChoiceRaw.researchLedgerPromptInjected === true,
       researchLedgerUpdateStatus: String(laneChoiceRaw.researchLedgerUpdateStatus || '').trim() || 'skipped',
     },
+    reasoningPolicy: normalizeReasoningPolicy(value.reasoningPolicy, fallback.reasoningPolicy),
     wakeHierarchy: (Array.isArray(value.wakeHierarchy) ? value.wakeHierarchy : fallback.wakeHierarchy || [])
       .map(normalizeTraceStateEntry)
       .filter(Boolean)
@@ -610,6 +611,111 @@ function normalizeApproximatePath(value = {}, defaults = {}) {
       10,
     ),
   };
+}
+
+function normalizeReasoningMode(value = '', fallback = 'minimal') {
+  const text = String(value || fallback || '').trim();
+  if (['minimal', 'deliberate', 'verifier-first', 'attachment-bounded'].includes(text)) return text;
+  return fallback || 'minimal';
+}
+
+function normalizeExecutionPreference(value = '', fallback = 'model-led') {
+  const text = String(value || fallback || '').trim();
+  if (['model-led', 'verifier-first', 'attachment-bounded'].includes(text)) return text;
+  return fallback || 'model-led';
+}
+
+function normalizeReasoningPolicy(value = {}, defaults = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  return {
+    mode: normalizeReasoningMode(raw.mode, fallback.mode || 'minimal'),
+    sourceLatencyClass: normalizeLatencyClass(raw.sourceLatencyClass || fallback.sourceLatencyClass),
+    executionPreference: normalizeExecutionPreference(raw.executionPreference, fallback.executionPreference || 'model-led'),
+    semanticQueryAllowed: raw.semanticQueryAllowed === true || fallback.semanticQueryAllowed === true,
+    archiveCompressionAllowed: raw.archiveCompressionAllowed === true || fallback.archiveCompressionAllowed === true,
+    verifierUsed: raw.verifierUsed === true || fallback.verifierUsed === true,
+    shortCircuitApplied: raw.shortCircuitApplied === true || fallback.shortCircuitApplied === true,
+    shortCircuitReason: String(raw.shortCircuitReason || fallback.shortCircuitReason || '').trim(),
+    reasonCodes: uniqueStrings(
+      Array.isArray(raw.reasonCodes) ? raw.reasonCodes : (fallback.reasonCodes || []),
+      10,
+    ),
+  };
+}
+
+function reasoningModeForLatencyClass(latencyClass = LATENCY_CLASSES.CASUAL_COMPANION) {
+  switch (normalizeLatencyClass(latencyClass)) {
+    case LATENCY_CLASSES.MEMORY_HEAVY_RECALL:
+      return 'deliberate';
+    case LATENCY_CLASSES.TOOL_HEAVY:
+      return 'verifier-first';
+    case LATENCY_CLASSES.IMAGE_HEAVY:
+      return 'attachment-bounded';
+    default:
+      return 'minimal';
+  }
+}
+
+function executionPreferenceForReasoningMode(mode = 'minimal') {
+  const normalizedMode = normalizeReasoningMode(mode);
+  if (normalizedMode === 'verifier-first') return 'verifier-first';
+  if (normalizedMode === 'attachment-bounded') return 'attachment-bounded';
+  return 'model-led';
+}
+
+function buildReasoningPolicy({
+  latencyBudget = null,
+  selectedLane = 'chat',
+  executionPath = '',
+  readiness = null,
+  toolState = null,
+  toolsUsed = [],
+  performance = null,
+  approximatePath = null,
+} = {}) {
+  const budget = latencyBudget && typeof latencyBudget === 'object' ? latencyBudget : {};
+  const normalizedExecutionPath = normalizeExecutionPath(
+    executionPath,
+    selectedLane === 'tool' ? 'deterministic-tool' : 'llm-chat',
+  );
+  const sourceLatencyClass = normalizeLatencyClass(
+    budget.latencyClass
+      || performance?.latencyClass
+      || (selectedLane === 'tool' ? LATENCY_CLASSES.TOOL_HEAVY : LATENCY_CLASSES.CASUAL_COMPANION),
+  );
+  let mode = reasoningModeForLatencyClass(sourceLatencyClass);
+  if (normalizedExecutionPath === 'deterministic-tool') mode = 'verifier-first';
+  const toolNames = Array.isArray(toolsUsed)
+    ? toolsUsed.map((item) => String(item?.name || '').trim()).filter(Boolean)
+    : [];
+  const verifierToolNames = new Set(['run_node_check', 'get_git_status']);
+  const verifierUsed = normalizedExecutionPath === 'deterministic-tool'
+    || (toolState?.evidence?.length || 0) > 0
+    || toolNames.some((name) => verifierToolNames.has(name));
+  const shortCircuitApplied = normalizedExecutionPath === 'deterministic-tool';
+  let shortCircuitReason = '';
+  if (shortCircuitApplied) {
+    if (selectedLane === 'tool' && budget.allowSemanticRender === false) shortCircuitReason = 'semantic-render-held-back';
+    else if (readiness?.modelUsage === 'not-used') shortCircuitReason = 'deterministic-tool';
+    else shortCircuitReason = 'deterministic-tool';
+  }
+  return normalizeReasoningPolicy({
+    mode,
+    sourceLatencyClass,
+    executionPreference: executionPreferenceForReasoningMode(mode),
+    semanticQueryAllowed: budget.allowSemanticQuery === true,
+    archiveCompressionAllowed: budget.allowArchiveCompression === true,
+    verifierUsed,
+    shortCircuitApplied,
+    shortCircuitReason,
+    reasonCodes: uniqueStrings([
+      ...(Array.isArray(approximatePath?.reasons) ? approximatePath.reasons : []),
+      ...(shortCircuitReason ? [shortCircuitReason] : []),
+      ...(normalizedExecutionPath === 'deterministic-tool' ? ['deterministic-tool'] : []),
+      ...(verifierUsed && normalizedExecutionPath !== 'deterministic-tool' ? ['verified-tool-evidence'] : []),
+    ], 10),
+  });
 }
 
 function normalizeAdvisoryMergeSummary(value = {}, defaults = {}) {
@@ -767,32 +873,42 @@ function buildLaneAdvisorySummaryText({
   readiness = null,
   toolEvidenceCount = 0,
   promptTruth = null,
+  reasoningPolicy = null,
 } = {}) {
+  const policy = normalizeReasoningPolicy(reasoningPolicy);
+  const modeLabel = policy.mode === 'deliberate'
+    ? 'Deliberate recall turn'
+    : policy.mode === 'verifier-first'
+      ? 'Verifier-first turn'
+      : policy.mode === 'attachment-bounded'
+        ? 'Attachment-bounded turn'
+        : 'Minimal ordinary turn';
   if (toolEvidenceCount > 0) {
-    return `Tool lane reply with ${toolEvidenceCount} verified evidence item${toolEvidenceCount === 1 ? '' : 's'}.`;
+    return policy.shortCircuitApplied && policy.shortCircuitReason
+      ? `${modeLabel} with ${toolEvidenceCount} verified evidence item${toolEvidenceCount === 1 ? '' : 's'}; short-circuited before extra model reasoning (${policy.shortCircuitReason}).`
+      : `${modeLabel} with ${toolEvidenceCount} verified evidence item${toolEvidenceCount === 1 ? '' : 's'}.`;
   }
   if (executionPath === 'deterministic-tool' || readiness?.modelUsage === 'not-used') {
-    return 'Deterministic tool reply without model generation.';
+    return policy.shortCircuitReason
+      ? `${modeLabel} short-circuited before extra model reasoning (${policy.shortCircuitReason}).`
+      : `${modeLabel} without model generation.`;
   }
-  const laneLabel = requestedMode === 'shadow'
-    ? 'Shadow lane'
-    : (selectedLane === 'tool' ? 'Tool lane' : 'Chat lane');
   const renderedCount = promptTruthAdvisoryRenderedCount(promptTruth);
   if (renderedCount > 0) {
-    return `${laneLabel} reply with ${renderedCount} rendered advisory context item${renderedCount === 1 ? '' : 's'}.`;
+    return `${modeLabel} with ${renderedCount} rendered advisory context item${renderedCount === 1 ? '' : 's'}.`;
   }
   const heldBackChannels = promptTruthHeldBackChannels(promptTruth);
   if (heldBackChannels.length) {
     const canonOnly = heldBackChannels.every((item) => item.reason === 'canon-priority-suppression');
     return canonOnly
-      ? `${laneLabel} reply with advisory context held back canon-first.`
-      : `${laneLabel} reply with advisory context held back by policy.`;
+      ? `${modeLabel} with advisory context held back canon-first.`
+      : `${modeLabel} with advisory context held back by policy.`;
   }
   const candidateCount = promptTruthAdvisoryCandidateCount(promptTruth);
   if (candidateCount > 0) {
-    return `${laneLabel} reply without rendered advisory context.`;
+    return `${modeLabel} without rendered advisory context.`;
   }
-  return `${laneLabel} reply without rendered advisory context.`;
+  return `${modeLabel} without rendered advisory context.`;
 }
 
 function buildAuthorityPressure({
@@ -1184,6 +1300,7 @@ function buildRuntimeTraceState({
   archiveContext = null,
   researchLedgerContext = null,
   promptTruth = null,
+  reasoningPolicy = null,
 } = {}) {
   const toolEvidence = Array.isArray(toolState?.evidence) ? toolState.evidence : [];
   const activeContradictions = Array.isArray(archiveContext?.activeContradictions)
@@ -1273,6 +1390,7 @@ function buildRuntimeTraceState({
       researchLedgerPromptInjected: researchLedgerPromptInjected === true,
       researchLedgerUpdateStatus: normalizeResearchLedgerUpdate(researchLedgerUpdate).status,
     },
+    reasoningPolicy,
     wakeHierarchy: [
       {
         layer: 'stable-facts',
@@ -1434,6 +1552,16 @@ function buildRuntimeArtifact({
     usedFallback,
     laneFallback,
   });
+  const reasoningPolicy = buildReasoningPolicy({
+    latencyBudget,
+    selectedLane,
+    executionPath: normalizedExecutionPath,
+    readiness,
+    toolState,
+    toolsUsed,
+    performance,
+    approximatePath,
+  });
   const advisoryMerge = buildAdvisoryMergeSummary({
     sessionId,
     retrievalTrace,
@@ -1506,6 +1634,7 @@ function buildRuntimeArtifact({
     archiveContext,
     researchLedgerContext,
     promptTruth: normalizedPromptTruth,
+    reasoningPolicy,
   });
   const provenance = buildArtifactProvenance({
     retrievalTrace,
@@ -1540,6 +1669,7 @@ function buildRuntimeArtifact({
         readiness,
         toolEvidenceCount: toolState.evidence.length,
         promptTruth: normalizedPromptTruth,
+        reasoningPolicy,
       }),
       backend,
     },
@@ -1572,6 +1702,7 @@ function buildRuntimeArtifact({
       authorityPressure,
       promptComposition: normalizePromptComposition(promptComposition),
       promptTruth: normalizedPromptTruth,
+      reasoningPolicy,
       approximatePath,
       advisoryMerge,
       repair: normalizedRepair,
@@ -1616,6 +1747,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(raw.researchLedgerUpdate, fallback.researchLedgerUpdate);
   const epistemics = normalizeEpistemicCaution(raw.epistemics || fallback.epistemics);
   const synthesis = normalizeArchiveSynthesis(raw.synthesis || fallback.synthesis);
+  const reasoningPolicy = normalizeReasoningPolicy(advisoryRaw.reasoningPolicy, fallback.modelAdvisory?.reasoningPolicy);
   return {
     version,
     kind,
@@ -1663,7 +1795,13 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       .map(normalizeRetrievalTraceEntry)
       .filter(Boolean)
       .slice(0, 12),
-    trace: normalizeTraceState(raw.trace || fallback.trace, fallback.trace),
+    trace: normalizeTraceState(
+      raw.trace || fallback.trace,
+      {
+        ...(fallback.trace && typeof fallback.trace === 'object' ? fallback.trace : {}),
+        reasoningPolicy,
+      },
+    ),
     provenance: normalizeArtifactProvenance(raw.provenance || fallback.provenance, fallback.provenance),
     sideEffects: (Array.isArray(raw.sideEffects) ? raw.sideEffects : fallback.sideEffects || [])
       .map(normalizeSideEffectEntry)
@@ -1681,6 +1819,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       authorityPressure: normalizeAuthorityPressure(advisoryRaw.authorityPressure, fallback.modelAdvisory?.authorityPressure),
       promptComposition: normalizePromptComposition(advisoryRaw.promptComposition, fallback.modelAdvisory?.promptComposition),
       promptTruth,
+      reasoningPolicy,
       approximatePath: normalizeApproximatePath(advisoryRaw.approximatePath, fallback.modelAdvisory?.approximatePath),
       advisoryMerge: normalizeAdvisoryMergeSummary(advisoryRaw.advisoryMerge, fallback.modelAdvisory?.advisoryMerge),
       repair: normalizeRepairInfo(advisoryRaw.repair),

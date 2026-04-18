@@ -260,6 +260,7 @@ The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
 - cleanup metadata split into legacy visible-reply cleanup plus a typed `cleanupTransform` summary
 - compact prompt-slot composition from `PROMPT_SLOT_REGISTRY`
 - prompt-time `promptTruth` receipts for `stableFacts`, `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger`, including candidate vs rendered ids/counts plus holdback reasons
+- a bounded `reasoningPolicy` receipt derived from latency budget plus execution path, with `minimal`, `deliberate`, `verifier-first`, and `attachment-bounded` modes instead of any raw reasoning text surface
 - explicit approximate-path policy metadata from the latency budget and runtime fallback state
 - advisory-merge summaries that distinguish lossy merge pressure from canonical memory authority
 - a bounded session `recentAuditTrail` that freezes compact prompt-time/runtime-turn truth before post-turn ledger mutation and keeps `lastRetrieval` summary fields aligned with the newest slice
@@ -272,6 +273,7 @@ Important receipt rule:
 - post-reply ledger mutation stays in `researchLedgerUpdate` instead of being backfilled into prompt-use receipts
 - direct canon-authority questions share one detector across latency policy, prompt/history suppression, and memory-state writes
 - that detector now covers broader personal recall shapes such as preference, attribute, and location questions, but it is still gated by question phrasing, possessive framing, and explicit-memory overlap so repo questions do not bleed into canon recall
+- verifier-first exactness is explicit for deterministic tool paths and other short-circuited verified turns, but Penny still does not expose chain-of-thought as a runtime trust surface
 
 This is meant to improve auditability, not to create a new autonomous memory system.
 
@@ -291,6 +293,7 @@ The QA/eval harnesses now share three small helper layers:
 
 - `lib/penny-qa-trace.js`
   - normalized replayable trace envelopes for QA/eval runs, including a compact `runIdentity` canary for resolved models, loaded models, execution-path facts, semantic readiness, runtime-artifact version, and degraded/fallback counters
+  - additive drift/fixation canaries such as first drift reason/turn, fixation repeat count, and recovered-after-drift
 - `lib/penny-qa-validity.js`
   - environment/readiness validation so harnesses can mark runs invalid or degraded for machine reasons instead of blaming Penny
 - `lib/penny-qa-trust.js`

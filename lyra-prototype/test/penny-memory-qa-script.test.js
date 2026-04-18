@@ -14,6 +14,9 @@ const {
   MEMORY_QA_SEGMENT_IDS,
   MEMORY_QA_SEGMENT_ORDER,
 } = require('../scripts/qa-penny-memory');
+const {
+  buildRuntimeArtifact,
+} = require('../lib/penny-runtime-artifacts');
 
 test('parseMemoryQaArgs defaults to combined mode when no flags are supplied', () => {
   const parsed = parseMemoryQaArgs([]);
@@ -172,6 +175,51 @@ test('canonicalAuthorityPressureSatisfied requires canon-first pressure plus sam
 });
 
 test('buildMemoryQaTrace emits a fallback trust verdict when lane fallback polluted the run', () => {
+  const fallbackArtifact = buildRuntimeArtifact({
+    sessionId: 'qa-fallback',
+    requestedMode: 'local',
+    selectedLane: 'chat',
+    backend: 'local-lmstudio',
+    laneFallback: true,
+    promptTruth: {
+      canonicalFactsPresent: false,
+      canonicalOverrideActive: false,
+      channels: {
+        stableFacts: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        memoryBooks: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        sessionArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        globalArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        researchLedger: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+      },
+    },
+    latencyBudget: {
+      latencyClass: 'memory-heavy-recall',
+      policyMode: 'recall-heavy',
+      approximateByPolicy: false,
+      policyNote: 'Favor recall.',
+      allowSemanticQuery: true,
+      allowArchiveCompression: true,
+      allowSemanticRender: true,
+    },
+    readiness: {
+      chatModelReady: true,
+      toolModelReady: true,
+      embeddingReady: true,
+      fallbackActive: false,
+      modelUsage: 'used',
+      warmState: 'warm',
+      checkedAt: '2026-04-16T12:00:00.000Z',
+      cacheAgeMs: 0,
+      cacheExpiresAt: '',
+      cacheHit: false,
+    },
+    performance: {
+      latencyClass: 'memory-heavy-recall',
+      archiveRetrieval: { available: true, sessionItems: 1, globalItems: 0, semanticReady: true, reasonCode: 'semantic_query' },
+      semanticRender: { available: true, attempted: true, used: true },
+      modelRoundTrip: { available: true, durationMs: 125, transport: 'local-lmstudio' },
+    },
+  });
   const trace = buildMemoryQaTrace({
     startedAt: '2026-04-16T12:00:00.000Z',
     finishedAt: '2026-04-16T12:10:00.000Z',
@@ -199,10 +247,7 @@ test('buildMemoryQaTrace emits a fallback trust verdict when lane fallback pollu
             meta: {
               localLane: 'chat',
               laneFallback: true,
-              artifact: {
-                performance: { archiveRetrieval: { sessionItems: 1, globalItems: 0 } },
-                readiness: { warmState: 'warm' },
-              },
+              artifact: fallbackArtifact,
               toolsUsed: [],
             },
             memory: { memories: [] },
@@ -236,6 +281,171 @@ test('buildMemoryQaTrace emits a fallback trust verdict when lane fallback pollu
   assert.equal(trace.runIdentity.resolvedToolModel, 'e4b');
   assert.equal(trace.runIdentity.loadedModels, 'q6, e4b');
   assert.equal(trace.runIdentity.fallbackArtifacts, 1);
+  assert.equal(trace.driftCanaries.firstDriftReason, 'lane-fallback');
+  assert.equal(trace.driftCanaries.firstDriftTurn, 'turn');
+  assert.equal(trace.driftCanaries.fixationDetected, false);
+  assert.equal(trace.driftCanaries.recoveredAfterDrift, false);
+});
+
+test('buildMemoryQaTrace records first drift and recovery from artifact facts without inventing a score', () => {
+  const driftArtifact = buildRuntimeArtifact({
+    sessionId: 'qa-drift',
+    requestedMode: 'local',
+    selectedLane: 'chat',
+    backend: 'local-lmstudio',
+    laneFallback: true,
+    promptTruth: {
+      canonicalFactsPresent: false,
+      canonicalOverrideActive: false,
+      channels: {
+        stableFacts: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        memoryBooks: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        sessionArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        globalArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        researchLedger: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+      },
+    },
+    latencyBudget: {
+      latencyClass: 'memory-heavy-recall',
+      policyMode: 'recall-heavy',
+      approximateByPolicy: false,
+      policyNote: 'Favor recall.',
+      allowSemanticQuery: true,
+      allowArchiveCompression: true,
+      allowSemanticRender: false,
+    },
+    readiness: {
+      chatModelReady: true,
+      toolModelReady: true,
+      embeddingReady: true,
+      fallbackActive: false,
+      modelUsage: 'used',
+      warmState: 'warm',
+      checkedAt: '2026-04-18T07:00:00.000Z',
+      cacheAgeMs: 0,
+      cacheExpiresAt: '',
+      cacheHit: false,
+    },
+    performance: {
+      latencyClass: 'memory-heavy-recall',
+      archiveRetrieval: { available: true, sessionItems: 1, globalItems: 0, semanticReady: true, reasonCode: 'semantic_query' },
+      semanticRender: { available: false, attempted: false, used: false },
+      modelRoundTrip: { available: true, durationMs: 120, transport: 'local-lmstudio' },
+    },
+  });
+  const recoveredArtifact = buildRuntimeArtifact({
+    sessionId: 'qa-drift',
+    requestedMode: 'local',
+    selectedLane: 'chat',
+    backend: 'local-lmstudio',
+    promptTruth: {
+      canonicalFactsPresent: false,
+      canonicalOverrideActive: false,
+      channels: {
+        stableFacts: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        memoryBooks: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        sessionArchive: { candidateCount: 1, renderedCount: 1, candidateSourceIds: ['session-1'], renderedSourceIds: ['session-1'] },
+        globalArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        researchLedger: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+      },
+    },
+    retrieval: {
+      reasonCode: 'semantic_query',
+      session: [{ id: 'session-1', sourceLabel: 'archive-session', scope: 'session', sourceType: 'episode', evidenceSnippet: 'Red glove on dryer three.' }],
+    },
+    latencyBudget: {
+      latencyClass: 'memory-heavy-recall',
+      policyMode: 'recall-heavy',
+      approximateByPolicy: false,
+      policyNote: 'Favor recall.',
+      allowSemanticQuery: true,
+      allowArchiveCompression: true,
+      allowSemanticRender: true,
+    },
+    readiness: {
+      chatModelReady: true,
+      toolModelReady: true,
+      embeddingReady: true,
+      fallbackActive: false,
+      modelUsage: 'used',
+      warmState: 'warm',
+      checkedAt: '2026-04-18T07:01:00.000Z',
+      cacheAgeMs: 0,
+      cacheExpiresAt: '',
+      cacheHit: false,
+    },
+    performance: {
+      latencyClass: 'memory-heavy-recall',
+      archiveRetrieval: { available: true, sessionItems: 1, globalItems: 0, semanticReady: true, reasonCode: 'semantic_query' },
+      semanticRender: { available: true, attempted: true, used: true },
+      modelRoundTrip: { available: true, durationMs: 110, transport: 'local-lmstudio' },
+    },
+  });
+
+  const trace = buildMemoryQaTrace({
+    startedAt: '2026-04-18T07:00:00.000Z',
+    finishedAt: '2026-04-18T07:02:00.000Z',
+    runMode: 'segment',
+    segmentId: 'semantic-archive',
+    suites: [
+      {
+        environment: {
+          valid: true,
+          laneFallbackArtifacts: 0,
+          usedFallbackArtifacts: 0,
+          reasons: [],
+        },
+        serverStatus: {
+          resolvedChatModel: 'q6',
+          toolPreferredModel: 'e4b',
+          embedPreferredModel: 'nomic',
+          availableModels: ['q6', 'e4b'],
+          maxOutputTokens: 320,
+        },
+        scenarios: [
+          {
+            ok: true,
+            seconds: 14,
+            meta: {
+              localLane: 'chat',
+              artifact: driftArtifact,
+              toolsUsed: [],
+            },
+            recall: {
+              meta: {
+                localLane: 'chat',
+                artifact: recoveredArtifact,
+                toolsUsed: [],
+              },
+            },
+            memory: { memories: [] },
+            inspectorAfter: { inspector: { archive: { global: { promotionQueue: [] } } } },
+          },
+        ],
+      },
+    ],
+    summary: {
+      completed: 1,
+      failed: 0,
+      invalid: 0,
+      totalScenarioSeconds: 14,
+      averageScenarioSeconds: 14,
+    },
+    preparation: {
+      loadedModels: ['q6', 'e4b'],
+    },
+    qaModelPolicy: {
+      chat: 'q6',
+      tool: 'e4b',
+      embed: 'nomic',
+    },
+  });
+
+  assert.equal(trace.driftCanaries.firstDriftReason, 'lane-fallback');
+  assert.equal(trace.driftCanaries.firstDriftTurn, 'turn');
+  assert.equal(trace.driftCanaries.fixationDetected, false);
+  assert.equal(trace.driftCanaries.fixationRepeatCount, 0);
+  assert.equal(trace.driftCanaries.recoveredAfterDrift, true);
 });
 
 test('summarizeSuites and buildMemoryQaTrace retain judged group totals', () => {
