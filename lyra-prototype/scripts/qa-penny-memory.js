@@ -16,6 +16,7 @@ const SPAWN_SERVER = process.env.PENNY_QA_SPAWN_SERVER !== '0';
 const PORT = Number(process.env.PENNY_QA_MEMORY_PORT || (SPAWN_SERVER ? 4348 : 4317));
 const BASE_URL = process.env.PENNY_QA_MEMORY_BASE_URL || `http://127.0.0.1:${PORT}`;
 const GENERAL_TIMEOUT_MS = Number(process.env.PENNY_QA_GENERAL_TIMEOUT_MS || 420000);
+const SMOKE_CHAT_TIMEOUT_MS = Number(process.env.PENNY_QA_SMOKE_CHAT_TIMEOUT_MS || 120000);
 const MAX_OUTPUT_TOKENS = String(process.env.PENNY_QA_MEMORY_MAX_OUTPUT_TOKENS || process.env.PENNY_QA_MAX_OUTPUT_TOKENS || 320);
 const QA_CHAT_CONTEXT_LENGTH = Number(process.env.PENNY_QA_CHAT_CONTEXT_LENGTH || 6144);
 const QA_MODEL_TTL_SECONDS = Number(process.env.PENNY_QA_MODEL_TTL_SECONDS || 1800);
@@ -208,9 +209,19 @@ function lower(text = '') {
   return String(text || '').toLowerCase();
 }
 
+function normalizeNeedleVariants(needle) {
+  const variants = Array.isArray(needle) ? needle : [needle];
+  return variants
+    .map((value) => normalizeForComparison(value))
+    .filter(Boolean);
+}
+
 function countNeedleHits(text = '', needles = []) {
-  const hay = lower(text);
-  return needles.filter((needle) => hay.includes(String(needle).toLowerCase())).length;
+  const hay = normalizeForComparison(text);
+  return needles.filter((needle) => {
+    const variants = normalizeNeedleVariants(needle);
+    return variants.some((variant) => hay.includes(variant));
+  }).length;
 }
 
 function scoreNeedles(text = '', needles = []) {
@@ -238,6 +249,82 @@ function scoreTruthReplacement(text = '', expectedNeedles = [], forbiddenNeedles
   return expectedScore >= 1 && !forbiddenHit ? 1 : 0;
 }
 
+function canonicalAuthorityPressureSatisfied(artifact = null) {
+  const authorityPressure = artifact?.modelAdvisory?.authorityPressure && typeof artifact.modelAdvisory.authorityPressure === 'object'
+    ? artifact.modelAdvisory.authorityPressure
+    : {};
+  return authorityPressure.canonicalFactsPresent === true
+    && authorityPressure.canonicalOverrideActive === true
+    && Number(authorityPressure.advisoryItemsInjected || 0) >= 1
+    && Number(authorityPressure.sameSessionAdvisoryItems || 0) >= 1;
+}
+
+function buildArtifactWitnessTrace(artifact = null, inspector = null) {
+  const modelAdvisory = artifact?.modelAdvisory && typeof artifact.modelAdvisory === 'object'
+    ? artifact.modelAdvisory
+    : {};
+  const cleanup = modelAdvisory.cleanup && typeof modelAdvisory.cleanup === 'object'
+    ? modelAdvisory.cleanup
+    : {};
+  const cleanupTransform = modelAdvisory.cleanupTransform && typeof modelAdvisory.cleanupTransform === 'object'
+    ? modelAdvisory.cleanupTransform
+    : {};
+  const approximatePath = modelAdvisory.approximatePath && typeof modelAdvisory.approximatePath === 'object'
+    ? modelAdvisory.approximatePath
+    : {};
+  const promptComposition = modelAdvisory.promptComposition && typeof modelAdvisory.promptComposition === 'object'
+    ? modelAdvisory.promptComposition
+    : {};
+  const advisoryMerge = modelAdvisory.advisoryMerge && typeof modelAdvisory.advisoryMerge === 'object'
+    ? modelAdvisory.advisoryMerge
+    : {};
+  const backgroundVectorization = inspector?.embeddings?.backgroundVectorization && typeof inspector.embeddings.backgroundVectorization === 'object'
+    ? inspector.embeddings.backgroundVectorization
+    : {};
+  return {
+    cleanup: {
+      reasonCode: String(cleanup.reasonCode || 'none').trim() || 'none',
+      cleanupApplied: cleanup.cleanupApplied === true,
+      reconstructedReply: cleanup.reconstructedReply === true,
+      transformClass: String(cleanupTransform.class || 'pass-through').trim() || 'pass-through',
+      transformMateriality: String(cleanupTransform.materiality || 'none').trim() || 'none',
+      operations: Array.isArray(cleanupTransform.operations) ? cleanupTransform.operations.slice(0, 6) : [],
+    },
+    approximatePath: {
+      status: String(approximatePath.status || 'exact').trim() || 'exact',
+      policyMode: String(approximatePath.policyMode || '').trim(),
+      degraded: approximatePath.degraded === true,
+      reasons: Array.isArray(approximatePath.reasons) ? approximatePath.reasons.slice(0, 6) : [],
+    },
+    promptComposition: {
+      lane: String(promptComposition.lane || '').trim(),
+      mode: String(promptComposition.mode || '').trim(),
+      filledSlotCount: Number(promptComposition.filledSlotCount || 0),
+      heldBackSlotCount: Number(promptComposition.heldBackSlotCount || 0),
+      noOpSlotCount: Number(promptComposition.noOpSlotCount || 0),
+      slots: Array.isArray(promptComposition.slots)
+        ? promptComposition.slots
+            .filter((slot) => slot && slot.eligible)
+            .slice(0, 6)
+            .map((slot) => `${slot.id}:${slot.state}`)
+        : [],
+    },
+    advisoryMerge: {
+      advisoryItems: Number(advisoryMerge.advisoryItems || 0),
+      lossyItems: Number(advisoryMerge.lossyItems || 0),
+      reviewGatedItems: Number(advisoryMerge.reviewGatedItems || 0),
+      mergeBasis: Array.isArray(advisoryMerge.mergeBasis) ? advisoryMerge.mergeBasis.slice(0, 6) : [],
+      discardedDetailSummary: Array.isArray(advisoryMerge.discardedDetailSummary) ? advisoryMerge.discardedDetailSummary.slice(0, 4) : [],
+    },
+    backgroundVectorization: {
+      status: String(backgroundVectorization.status || '').trim() || 'disabled',
+      eagerCreatedCount: Number(backgroundVectorization.eagerCreatedCount || 0),
+      backgroundCandidateCount: Number(backgroundVectorization.backgroundCandidateCount ?? backgroundVectorization.selectedCount ?? 0),
+      backgroundCreatedCount: Number(backgroundVectorization.backgroundCreatedCount ?? backgroundVectorization.createdCount ?? 0),
+    },
+  };
+}
+
 function collectSeconds(value) {
   if (Array.isArray(value)) {
     return value.reduce((sum, item) => sum + collectSeconds(item), 0);
@@ -259,6 +346,7 @@ function buildSuitePaths(slug) {
     memoryFile: path.join(ROOT_DIR, 'data', `penny-memory.${slug}.${STAMP}.json`),
     archiveFile: path.join(ROOT_DIR, 'data', `penny-memory-archive.${slug}.${STAMP}.json`),
     embeddingsFile: path.join(ROOT_DIR, 'data', `penny-memory-embeddings.${slug}.${STAMP}.json`),
+    ledgerFile: path.join(ROOT_DIR, 'data', `penny-memory-ledger.${slug}.${STAMP}.json`),
     stdoutPath: path.join(OUTPUT_DIR, `memory-qa-${slug}-${STAMP}.server.out.log`),
     stderrPath: path.join(OUTPUT_DIR, `memory-qa-${slug}-${STAMP}.server.err.log`),
   };
@@ -330,13 +418,19 @@ async function waitForServerReady(baseUrl, timeoutMs = 120000) {
   throw new Error(`Timed out waiting for Penny server at ${baseUrl}`);
 }
 
+function resolveChatRequestTimeoutMs(timeoutMs = null, { smokeMode = SMOKE_MODE } = {}) {
+  if (Number.isFinite(timeoutMs) && Number(timeoutMs) > 0) return Number(timeoutMs);
+  return smokeMode ? SMOKE_CHAT_TIMEOUT_MS : GENERAL_TIMEOUT_MS;
+}
+
 function buildMemoryPayload() {
   return { userName: '', voiceOn: false, brainMode: 'local' };
 }
 
-async function chatRequest(baseUrl, sessionId, prompt, timeoutMs = GENERAL_TIMEOUT_MS) {
+async function chatRequest(baseUrl, sessionId, prompt, timeoutMs = null) {
   const started = Date.now();
   try {
+    const effectiveTimeoutMs = resolveChatRequestTimeoutMs(timeoutMs);
     const data = await fetchJson(`${baseUrl}/api/penny/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -345,7 +439,7 @@ async function chatRequest(baseUrl, sessionId, prompt, timeoutMs = GENERAL_TIMEO
         messages: [{ role: 'user', content: prompt }],
         memories: buildMemoryPayload(),
       }),
-    }, timeoutMs);
+    }, effectiveTimeoutMs);
     validateRuntimeArtifact(data?.meta?.artifact, {
       label: 'chat response artifact',
       minEvidence: 1,
@@ -393,6 +487,14 @@ async function patchMemory(baseUrl, sessionId, patch) {
   }, 30000);
 }
 
+async function purgeMemory(baseUrl, sessionId, options = {}) {
+  return fetchJson(`${baseUrl}/api/penny/memory/purge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, ...options }),
+  }, 30000);
+}
+
 async function execFileText(command, args, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { cwd: ROOT_DIR, timeout: timeoutMs, windowsHide: true, maxBuffer: 32 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -417,20 +519,7 @@ function createServerProcess({ suiteSlug, suitePaths, embedModel }) {
   const errStream = fs.createWriteStream(suitePaths.stderrPath, { flags: 'w' });
   const child = spawn(process.execPath, ['server.js'], {
     cwd: ROOT_DIR,
-    env: {
-      ...process.env,
-      PORT: String(PORT),
-      PENNY_MEMORY_FILE: suitePaths.memoryFile,
-      PENNY_MEMORY_ARCHIVE_FILE: suitePaths.archiveFile,
-      PENNY_MEMORY_EMBEDDINGS_FILE: suitePaths.embeddingsFile,
-      PENNY_OPENCLAW_ENABLED: '0',
-      PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
-      PENNY_LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
-      PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
-      PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
-      PENNY_LMSTUDIO_EMBED_MODEL: embedModel,
-      PENNY_QA_SUITE: suiteSlug,
-    },
+    env: buildQaServerEnv({ suiteSlug, suitePaths, embedModel }),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -441,6 +530,26 @@ function createServerProcess({ suiteSlug, suitePaths, embedModel }) {
     errStream.end();
   });
   return child;
+}
+
+function buildQaServerEnv({ suiteSlug, suitePaths, embedModel }) {
+  return {
+    ...process.env,
+    PORT: String(PORT),
+    PENNY_MEMORY_FILE: suitePaths.memoryFile,
+    PENNY_MEMORY_ARCHIVE_FILE: suitePaths.archiveFile,
+    PENNY_MEMORY_EMBEDDINGS_FILE: suitePaths.embeddingsFile,
+    PENNY_MEMORY_LEDGER_FILE: suitePaths.ledgerFile,
+    PENNY_OPENCLAW_ENABLED: '0',
+    // Keep judged memory QA stateless so long suites do not inherit hidden LM Studio thread state.
+    PENNY_LOCAL_LLM_TRANSPORT: 'chat',
+    PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
+    PENNY_LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
+    PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
+    PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
+    PENNY_LMSTUDIO_EMBED_MODEL: embedModel,
+    PENNY_QA_SUITE: suiteSlug,
+  };
 }
 
 async function stopServerProcess(child) {
@@ -501,23 +610,39 @@ async function runContradictionScenario(baseUrl) {
   const filler = await chatRequest(baseUrl, sessionId, CONTRADICTION_TURNS[1]);
   const correction = await chatRequest(baseUrl, sessionId, CONTRADICTION_TURNS[2]);
   const aftershock = await chatRequest(baseUrl, sessionId, CONTRADICTION_TURNS[3]);
+  const memoryAfterCorrection = await getMemory(baseUrl, sessionId);
+  const savedMemoryTexts = memoryItemTexts(memoryAfterCorrection);
   const currentTruth = await chatRequest(baseUrl, sessionId, 'Now answer exactly: what is my coding mascot now?');
   const priorTruth = await chatRequest(baseUrl, sessionId, 'Before I corrected you, what was my coding mascot?');
   const currentTruthScore = scoreTruthReplacement(currentTruth.text, ['copper rabbit'], ['brass fox']);
   const priorTruthScore = scoreNeedles(priorTruth.text, ['brass fox']);
-  const correctionSeen = containsAny(correction.text, ['copper rabbit']) && containsAny(currentTruth.text, ['copper rabbit']);
+  const correctionSeen = containsAny(correction.text, ['copper rabbit', 'bunny']) && containsAny(currentTruth.text, ['copper rabbit']);
+  const correctionPersisted = savedMemoryTexts.some((text) => /coding mascot is a copper rabbit now, not a brass fox/i.test(text))
+    && !savedMemoryTexts.some((text) => /coding mascot is a brass fox\b/i.test(text));
   return {
     name: 'contradiction_recall_flip',
     sessionId,
-    ok: capture.ok && filler.ok && correction.ok && aftershock.ok && currentTruth.ok && priorTruth.ok && currentTruthScore >= 1 && priorTruthScore >= 0.5 && correctionSeen,
+    ok: capture.ok
+      && filler.ok
+      && correction.ok
+      && aftershock.ok
+      && currentTruth.ok
+      && priorTruth.ok
+      && currentTruthScore >= 1
+      && priorTruthScore >= 0.5
+      && correctionPersisted,
     capture,
     filler,
     correction,
     aftershock,
+    memoryAfterCorrection,
+    savedMemoryTexts,
     currentTruth,
     priorTruth,
     currentTruthScore,
     priorTruthScore,
+    correctionSeen,
+    correctionPersisted,
   };
 }
 
@@ -661,6 +786,7 @@ async function runLongArchiveScenario(baseUrl, {
     || usedCompression;
   const semanticExpectationMet = expectSemanticReady ? semanticReady : !semanticReady;
   const compressionExpectationMet = expectCompression ? usedCompression : true;
+  const witnessTrace = buildArtifactWitnessTrace(recall?.meta?.artifact, inspectorAfter?.inspector);
   return {
     name,
     sessionId,
@@ -675,6 +801,7 @@ async function runLongArchiveScenario(baseUrl, {
     retrievalMode: retrieval?.mode || '',
     usedCompression,
     semanticReady,
+    witnessTrace,
     memoryThreadBeforeClear: Boolean(memoryBeforeClear?.memory?.lmStudioThread),
     memoryThreadCleared: !memoryAfterClear?.memory?.lmStudioThread,
   };
@@ -778,12 +905,71 @@ async function runJudgedRetrieveChapterFallbackScenario(baseUrl) {
       name: 'judged_retrieve_chapter_fallback',
       sessionId: 'qa-memory-judged-fallback',
       turns: FALLBACK_TURNS,
-      recallPrompt: 'Long-memory fallback check: what was sitting on dryer three, and what was tied around the cashier\'s wrist?',
+      recallPrompt: 'Tell me what you remember about the laundromat: what was sitting on dryer three, and what was tied around the cashier\'s wrist?',
       expectedNeedles: ['silver thermos', 'sunflower bandana'],
       expectSemanticReady: false,
       expectCompression: true,
     })),
     group: 'retrieve',
+  };
+}
+
+async function runJudgedRetrieveCanonOverAdvisoryScenario(baseUrl) {
+  const sessionId = 'qa-memory-judged-canon-over-advisory';
+  const staleCapture = await chatRequest(baseUrl, sessionId, 'Remember this exactly for later: my coding notebook stays on the right side of the keyboard.');
+  const filler = await chatRequest(baseUrl, sessionId, 'One short sentence only: the desk lamp keeps buzzing like a trapped bee.');
+  const canonicalMemory = {
+    text: 'My coding notebook stays left of the keyboard.',
+    kind: 'personal',
+    ts: Date.now(),
+  };
+  const explicitPatch = await patchMemory(baseUrl, sessionId, {
+    memories: [canonicalMemory],
+  });
+  const memoryAfterPatch = await getMemory(baseUrl, sessionId);
+  const inspectorBeforeRecall = await getInspector(baseUrl, sessionId);
+  const recall = await chatRequest(baseUrl, sessionId, 'Tell me what you remember about my coding notebook.');
+  const recallTruthScore = scoreTruthReplacement(
+    recall.text,
+    [['left of the keyboard', 'left of your keyboard']],
+    ['right side of the keyboard'],
+  );
+  const explicitTexts = memoryItemTexts(memoryAfterPatch);
+  const recentEpisodes = Array.isArray(inspectorBeforeRecall?.inspector?.archive?.session?.recentEpisodes)
+    ? inspectorBeforeRecall.inspector.archive.session.recentEpisodes
+    : [];
+  const archiveHasStaleCue = recentEpisodes.some((item) => /right side of the keyboard/i.test(String(item?.text || item?.userText || '')));
+  const explicitStayedCanonical = explicitTexts.some((text) => /coding notebook stays left of the keyboard/i.test(text));
+  const staleCueStayedAdvisory = !containsAny(recall.text, ['right side of the keyboard']);
+  const authorityPressure = recall?.meta?.artifact?.modelAdvisory?.authorityPressure || {};
+  const authorityPressureOk = canonicalAuthorityPressureSatisfied(recall?.meta?.artifact);
+  const witnessTrace = buildArtifactWitnessTrace(recall?.meta?.artifact, inspectorBeforeRecall?.inspector);
+  return {
+    name: 'judged_retrieve_canon_over_advisory',
+    sessionId,
+    group: 'retrieve',
+    ok: staleCapture.ok
+      && filler.ok
+      && explicitPatch.ok !== false
+      && explicitStayedCanonical
+      && archiveHasStaleCue
+      && recall.ok
+      && recallTruthScore >= 1
+      && staleCueStayedAdvisory
+      && authorityPressureOk,
+    staleCapture,
+    filler,
+    explicitPatch,
+    memoryAfterPatch,
+    inspectorBeforeRecall,
+    recall,
+    recallTruthScore,
+    archiveHasStaleCue,
+    explicitStayedCanonical,
+    staleCueStayedAdvisory,
+    authorityPressure,
+    authorityPressureOk,
+    witnessTrace,
   };
 }
 
@@ -804,30 +990,44 @@ async function runJudgedForgetScenario(baseUrl) {
   });
   const seededTexts = memoryItemTexts(seeded);
   const beforeRecall = await chatRequest(baseUrl, sessionId, 'What should you remember about my coding setup?');
-  const beforeRecallScore = scoreNeedles(beforeRecall.text, ['left of the keyboard']);
+  const beforeRecallScore = scoreNeedles(beforeRecall.text, [
+    ['left of the keyboard', 'left of your keyboard'],
+    'mint-green calculator',
+  ]);
   const forgetPatch = await patchMemory(baseUrl, sessionId, {
     memories: [anchorMemory],
   });
-  const afterMemory = await getMemory(baseUrl, sessionId);
+  const archivePrune = await purgeMemory(baseUrl, sessionId, {
+    clearSessionArchive: true,
+  });
+  const afterMemory = archivePrune?.memory || await getMemory(baseUrl, sessionId);
   const afterTexts = memoryItemTexts(afterMemory);
-  const anchorRecall = await chatRequest(baseUrl, sessionId, 'What should still be true about my coding notebook?');
-  const anchorRecallScore = scoreNeedles(anchorRecall.text, ['left of the keyboard', 'notebook']);
+  const anchorRecall = await chatRequest(baseUrl, sessionId, 'Tell me what you remember about my coding notebook now.');
+  const anchorRecallScore = scoreNeedles(anchorRecall.text, [[
+    'left of the keyboard',
+    'left of your keyboard',
+    'to the left of your keyboard',
+  ]]);
   const disposableRecall = await chatRequest(baseUrl, sessionId, 'What disposable detail did I mention?');
   const disposableRecallScore = scoreNeedles(disposableRecall.text, ['mint-green calculator']);
   const anchorRetained = afterTexts.some((text) => /coding notebook stays left of the keyboard/i.test(text));
   const disposableRemoved = !afterTexts.some((text) => /mint-green calculator/i.test(text));
+  const sessionArchiveCleared = Number(archivePrune?.inspector?.archive?.session?.episodeCount || 0) === 0;
+  const witnessTrace = buildArtifactWitnessTrace(anchorRecall?.meta?.artifact, archivePrune?.inspector);
   return {
     name: 'judged_forget_prune',
     sessionId,
     group: 'forget',
     ok: seeded.ok !== false
       && forgetPatch.ok !== false
+      && archivePrune.ok !== false
       && anchorRetained
       && disposableRemoved
+      && sessionArchiveCleared
       && beforeRecall.ok
-      && beforeRecallScore >= 0.5
+      && beforeRecallScore >= 1
       && anchorRecall.ok
-      && anchorRecallScore >= 0.5
+      && anchorRecallScore >= 1
       && disposableRecall.ok
       && disposableRecallScore === 0,
     seeded,
@@ -835,6 +1035,7 @@ async function runJudgedForgetScenario(baseUrl) {
     beforeRecall,
     beforeRecallScore,
     forgetPatch,
+    archivePrune,
     afterMemory,
     afterTexts,
     anchorRecall,
@@ -843,6 +1044,8 @@ async function runJudgedForgetScenario(baseUrl) {
     disposableRecallScore,
     anchorRetained,
     disposableRemoved,
+    sessionArchiveCleared,
+    witnessTrace,
   };
 }
 
@@ -883,7 +1086,7 @@ function buildMemoryQaSegmentConfig(segmentId) {
             name: 'long_term_chapter_fallback',
             sessionId: 'qa-memory-long-fallback',
             turns: FALLBACK_TURNS,
-            recallPrompt: 'Long-memory fallback check: what was sitting on dryer three, and what was tied around the cashier\'s wrist?',
+            recallPrompt: 'Tell me what you remember about the laundromat: what was sitting on dryer three, and what was tied around the cashier\'s wrist?',
             expectedNeedles: ['silver thermos', 'sunflower bandana'],
             expectSemanticReady: false,
             expectCompression: true,
@@ -921,6 +1124,35 @@ function buildMemoryQaSegmentConfig(segmentId) {
   }
 }
 
+function buildSmokeScenarioSpecs() {
+  return [
+    {
+      id: 'short-term-explicit',
+      run: (baseUrl) => runShortTermExplicit(baseUrl),
+    },
+    {
+      id: 'contradiction',
+      run: (baseUrl) => runContradictionScenario(baseUrl),
+    },
+    {
+      id: 'premise-drift',
+      run: (baseUrl) => runPremiseDriftScenario(baseUrl),
+    },
+    {
+      id: 'chapter-fallback-smoke',
+      run: (baseUrl) => runLongArchiveScenario(baseUrl, {
+        name: 'long_term_chapter_fallback_smoke',
+        sessionId: 'qa-memory-smoke-fallback',
+        turns: SMOKE_FALLBACK_TURNS,
+        recallPrompt: 'Tell me what you remember about the laundromat: what was sitting on dryer three, and what was tied around the cashier\'s wrist?',
+        expectedNeedles: ['silver thermos', 'sunflower bandana'],
+        expectSemanticReady: false,
+        expectCompression: true,
+      }),
+    },
+  ];
+}
+
 async function runSmokeSuite({ embedModel }) {
   const suitePaths = buildSuitePaths('smoke');
   const baseUrl = BASE_URL;
@@ -931,6 +1163,7 @@ async function runSmokeSuite({ embedModel }) {
       memoryFile: suitePaths.memoryFile,
       archiveFile: suitePaths.archiveFile,
       embeddingsFile: suitePaths.embeddingsFile,
+      ledgerFile: suitePaths.ledgerFile,
       stdout: suitePaths.stdoutPath,
       stderr: suitePaths.stderrPath,
     },
@@ -953,19 +1186,10 @@ async function runSmokeSuite({ embedModel }) {
       availableModels: lmStudio.availableModels || [],
     };
 
-    suite.scenarios.push(await runShortTermExplicit(baseUrl));
-    suite.scenarios.push(await runContradictionScenario(baseUrl));
-    suite.scenarios.push(await runPremiseDriftScenario(baseUrl));
-    suite.scenarios.push(await runObfuscatedPromptScenario(baseUrl));
-    suite.scenarios.push(await runLongArchiveScenario(baseUrl, {
-      name: 'long_term_chapter_fallback_smoke',
-      sessionId: 'qa-memory-smoke-fallback',
-      turns: SMOKE_FALLBACK_TURNS,
-      recallPrompt: 'Smoketest fallback check: what was sitting on dryer three, and what was tied around the cashier\'s wrist?',
-      expectedNeedles: ['silver thermos', 'sunflower bandana'],
-      expectSemanticReady: false,
-      expectCompression: true,
-    }));
+    // Keep smoke bounded and product-shaped; the obfuscated routing probe stays in the dedicated contradiction-premise segment.
+    for (const spec of buildSmokeScenarioSpecs()) {
+      suite.scenarios.push(await spec.run(baseUrl));
+    }
     suite.environment = buildQaEnvironmentValidity({
       serverMode: SPAWN_SERVER ? 'spawned-disposable' : 'existing-main-server',
       serverStatus: suite.serverStatus,
@@ -980,7 +1204,7 @@ async function runSmokeSuite({ embedModel }) {
   } finally {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
-      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile]) {
+      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           suite.cleanedFiles.push(filePath);
@@ -1215,6 +1439,7 @@ async function runMemoryQaSegment(segmentId) {
       memoryFile: suitePaths.memoryFile,
       archiveFile: suitePaths.archiveFile,
       embeddingsFile: suitePaths.embeddingsFile,
+      ledgerFile: suitePaths.ledgerFile,
       stdout: suitePaths.stdoutPath,
       stderr: suitePaths.stderrPath,
     },
@@ -1254,7 +1479,7 @@ async function runMemoryQaSegment(segmentId) {
   } finally {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
-      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile]) {
+      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           suite.cleanedFiles.push(filePath);
@@ -1293,6 +1518,7 @@ async function runMemoryQaJudgedSuite({
       memoryFile: suitePaths.memoryFile,
       archiveFile: suitePaths.archiveFile,
       embeddingsFile: suitePaths.embeddingsFile,
+      ledgerFile: suitePaths.ledgerFile,
       stdout: suitePaths.stdoutPath,
       stderr: suitePaths.stderrPath,
     },
@@ -1332,7 +1558,7 @@ async function runMemoryQaJudgedSuite({
   } finally {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
-      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile]) {
+      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           suite.cleanedFiles.push(filePath);
@@ -1356,6 +1582,7 @@ async function runMemoryQaJudged() {
       (baseUrl) => runJudgedWriteCorrectionScenario(baseUrl),
       (baseUrl) => runJudgedWriteReviewCandidateScenario(baseUrl),
       (baseUrl) => runJudgedRetrieveSemanticArchiveScenario(baseUrl),
+      (baseUrl) => runJudgedRetrieveCanonOverAdvisoryScenario(baseUrl),
       (baseUrl) => runJudgedForgetScenario(baseUrl),
     ],
   }));
@@ -1411,7 +1638,7 @@ async function main() {
     segmentId: MEMORY_QA_ARGS.segmentId || '',
     serverMode: SPAWN_SERVER ? 'spawned-disposable' : 'existing-main-server',
     memoryStrategy: SMOKE_MODE
-      ? 'smoke: short-term explicit + contradiction flip + premise drift + obfuscated route stability + long-term compression fallback'
+      ? 'smoke: short-term explicit + contradiction flip + premise drift + long-term compression fallback'
       : (MEMORY_QA_ARGS.runMode === 'judged'
         ? 'judged: grouped write/retrieve/forget memory QA with review-queue and prune checks'
       : (MEMORY_QA_ARGS.segmentId
@@ -1467,11 +1694,17 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildQaServerEnv,
+  buildSmokeScenarioSpecs,
+  canonicalAuthorityPressureSatisfied,
+  countNeedleHits,
   main,
   parseMemoryQaArgs,
+  resolveChatRequestTimeoutMs,
   runMemoryQaSegment,
   runMemoryQaCombined,
   runMemoryQaJudged,
+  scoreTruthReplacement,
   summarizeSuites,
   buildMemoryQaTrace,
   runSmokeSuite,

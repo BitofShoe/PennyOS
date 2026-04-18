@@ -1,3 +1,5 @@
+const { writeJsonFileAtomicSync } = require('./penny-atomic-json');
+
 const BOOKS_SCHEMA_VERSION = 1;
 const MEMORY_BOOK_MATCH_LIMIT = 2;
 const BOOK_TEXT_LIMIT = 260;
@@ -77,7 +79,13 @@ function createMemoryBooksApi({
   BOOKS_SEED_FILE = '',
   nowMs = () => Date.now(),
 } = {}) {
-  if (!fs || typeof fs.existsSync !== 'function' || typeof fs.readFileSync !== 'function' || typeof fs.writeFileSync !== 'function') {
+  if (!fs
+    || typeof fs.existsSync !== 'function'
+    || typeof fs.readFileSync !== 'function'
+    || typeof fs.writeFileSync !== 'function'
+    || typeof fs.renameSync !== 'function'
+    || typeof fs.unlinkSync !== 'function'
+    || typeof fs.mkdirSync !== 'function') {
     throw new TypeError('createMemoryBooksApi requires fs');
   }
   if (!path || typeof path.dirname !== 'function') throw new TypeError('createMemoryBooksApi requires path');
@@ -92,7 +100,12 @@ function createMemoryBooksApi({
         initial = normalizeMemoryBooksStore(JSON.parse(fs.readFileSync(seedFile, 'utf8')));
       } catch {}
     }
-    fs.writeFileSync(filePath, `${JSON.stringify(initial, null, 2)}\n`);
+    writeJsonFileAtomicSync({
+      fs,
+      path,
+      filePath,
+      value: initial,
+    });
   }
 
   function readMemoryBooksStore() {
@@ -108,7 +121,12 @@ function createMemoryBooksApi({
     ensureFile(BOOKS_FILE, buildMemoryBooksStore, BOOKS_SEED_FILE);
     const normalized = normalizeMemoryBooksStore(store);
     normalized.meta.updatedAt = new Date(nowMs()).toISOString();
-    fs.writeFileSync(BOOKS_FILE, `${JSON.stringify(normalized, null, 2)}\n`);
+    writeJsonFileAtomicSync({
+      fs,
+      path,
+      filePath: BOOKS_FILE,
+      value: normalized,
+    });
     return normalized;
   }
 

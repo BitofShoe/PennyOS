@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 
 const PROMOTION_PACKET_VERSION = 'penny-promotion-packet.v1';
+const CONSOLIDATION_PACKET_VERSION = 'penny-consolidation-packet.v1';
 
 function createId(prefix = 'pkb') {
   return `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
@@ -44,6 +45,110 @@ function normalizeTemporalScope(value = {}) {
     observedAt: trimIso(raw.observedAt || raw.pointInTime || '', ''),
     startAt: trimIso(raw.startAt || '', ''),
     endAt: trimIso(raw.endAt || '', ''),
+  };
+}
+
+function normalizeFreshnessLabel(value = '', fallback = 'unknown') {
+  const text = trimText(value || fallback, 40).toLowerCase();
+  if (!text) return fallback;
+  if (['live', 'current', 'fresh', 'recent', 'stale', 'rolling', 'archived', 'unknown'].includes(text)) {
+    return text;
+  }
+  return fallback;
+}
+
+function normalizeSourceScope(value = '', fallback = 'unknown') {
+  const text = trimText(value || fallback, 40).toLowerCase();
+  if (!text) return 'unknown';
+  if (['session', 'cross-session', 'global', 'chapter', 'promotion-review', 'unknown'].includes(text)) {
+    return text;
+  }
+  return 'unknown';
+}
+
+function normalizeProbationState(raw = {}, defaults = {}) {
+  const source = {
+    ...(defaults && typeof defaults === 'object' ? defaults : {}),
+    ...(raw && typeof raw === 'object' ? raw : {}),
+  };
+  const reviewStatus = trimText(source.reviewStatus || source.status || 'pending', 40) || 'pending';
+  const reviewerDecision = trimText(source.reviewerDecision || '', 40);
+  const pending = reviewStatus === 'pending';
+  const probationary = source.probationary === true
+    || (source.probationary !== false && !['approved', 'rejected'].includes(reviewStatus));
+  return {
+    reviewStatus,
+    reviewerDecision,
+    reviewedAt: trimIso(source.reviewedAt || '', ''),
+    canonical: source.canonical === true && reviewStatus === 'approved',
+    scope: trimText(source.scope || 'review-gated', 80) || 'review-gated',
+    pending,
+    probationary,
+    queueReason: trimText(source.queueReason || source.reason || '', 140),
+  };
+}
+
+function normalizeConsolidationPacket(raw = {}, defaults = {}) {
+  const source = {
+    ...(defaults && typeof defaults === 'object' ? defaults : {}),
+    ...(raw && typeof raw === 'object' ? raw : {}),
+  };
+  const mergeBasis = normalizeStringArray(
+    source.mergeBasis || source.selectedSignals || source.reasons || [],
+    8,
+    100,
+  );
+  const discardedDetailSummary = normalizeStringArray(
+    source.discardedDetailSummary || source.penalties || source.discarded || [],
+    8,
+    140,
+  );
+  const sourceSessionIds = normalizeStringArray(
+    source.sourceSessionIds || (source.sourceSessionId ? [source.sourceSessionId] : []),
+    8,
+    120,
+  );
+  const sourceTurnIds = normalizeStringArray(source.sourceTurnIds || source.turnIds || [], 16, 120);
+  const sourceEpisodeIds = normalizeStringArray(source.sourceEpisodeIds || source.evidenceIds || [], 16, 120);
+  const observedAt = trimIso(source.observedAt || source.createdAt || '', '');
+  const lastTouchedAt = trimIso(source.lastTouchedAt || source.updatedAt || source.createdAt || '', '');
+  const freshnessLabel = normalizeFreshnessLabel(source.freshnessLabel, source.lossy === true ? 'rolling' : 'unknown');
+  const reviewStatus = trimText(source.reviewStatus || source.status || '', 40);
+  return {
+    contract: 'ConsolidationPacket',
+    version: CONSOLIDATION_PACKET_VERSION,
+    lossy: source.lossy === true,
+    mergeKind: trimText(source.mergeKind || source.kind || (source.lossy === true ? 'lossy-merge' : 'carryover'), 60)
+      || (source.lossy === true ? 'lossy-merge' : 'carryover'),
+    mergeReason: trimText(source.mergeReason || source.reason || '', 140),
+    mergeBasis,
+    discardedDetailSummary,
+    sourceScope: normalizeSourceScope(
+      source.sourceScope || source.scope || '',
+      sourceSessionIds.length > 1 ? 'cross-session' : (sourceSessionIds.length === 1 ? 'session' : 'unknown'),
+    ),
+    sourceSessionIds,
+    sourceTurnIds,
+    sourceEpisodeIds,
+    sourceCount: Math.max(
+      0,
+      Number(
+        source.sourceCount
+        || sourceEpisodeIds.length
+        || sourceTurnIds.length
+        || sourceSessionIds.length,
+      ),
+    ),
+    observedAt,
+    lastTouchedAt,
+    freshnessLabel,
+    timing: {
+      observedAt,
+      lastTouchedAt,
+      freshnessLabel,
+    },
+    reviewStatus,
+    probationary: source.probationary === true || reviewStatus === 'pending',
   };
 }
 
@@ -191,8 +296,23 @@ function normalizePromotionPacket(raw = {}) {
     archiveExcerpt: trimText(raw.archiveExcerpt || raw.evidenceSnippet || proposedMemoryText, 220),
     evidenceSnippet: trimText(raw.evidenceSnippet || raw.archiveExcerpt || proposedMemoryText, 220),
     temporalScope: normalizeTemporalScope(raw.temporalScope),
+    probation: normalizeProbationState(raw.probation || raw, {
+      reviewStatus: raw.reviewStatus || 'pending',
+      reviewerDecision: raw.reviewerDecision || '',
+      reviewedAt: raw.reviewedAt || '',
+      canonical: false,
+      scope: 'promotion-review',
+    }),
     reviewStatus: trimText(raw.reviewStatus || 'pending', 40) || 'pending',
     reviewerDecision: trimText(raw.reviewerDecision || '', 40),
+    consolidation: normalizeConsolidationPacket(raw.consolidation || raw.mergeProvenance || {}, {
+      lossy: true,
+      sourceSessionIds: raw.sourceThreadId ? [raw.sourceThreadId] : [],
+      sourceTurnIds: raw.sourceTurnIds || raw.turnIds || raw.evidenceIds || [],
+      observedAt: raw.createdAt || '',
+      lastTouchedAt: raw.reviewedAt || raw.createdAt || '',
+      freshnessLabel: raw.reviewStatus === 'approved' ? 'archived' : 'current',
+    }),
     createdAt: trimIso(raw.createdAt || '', ''),
     reviewedAt: trimIso(raw.reviewedAt || '', ''),
   };
@@ -223,6 +343,7 @@ function validatePromotionPacket(packet = {}) {
 
 module.exports = {
   PROMOTION_PACKET_VERSION,
+  CONSOLIDATION_PACKET_VERSION,
   normalizeConversationMessage,
   normalizeConversationThread,
   normalizeThreadChunk,
@@ -230,6 +351,8 @@ module.exports = {
   normalizeTemporalPreference,
   normalizeLifeEvent,
   normalizeKnowledgeNode,
+  normalizeProbationState,
+  normalizeConsolidationPacket,
   normalizePromotionPacket,
   validatePromotionPacket,
 };

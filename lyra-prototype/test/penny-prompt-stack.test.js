@@ -100,6 +100,7 @@ test('buildPromptStack keeps the slot order stable and excludes examples on tool
   const toolSlotIds = toolResult.slots.map((slot) => slot.id);
   const toolSlotFlags = toolResult.slots.map((slot) => slot.enabled);
   const semanticSlotFlags = semanticResult.slots.map((slot) => slot.enabled);
+  const toolSlotSummary = toolResult.slotSummary;
 
   const toolOverlayIndex = toolResult.stack.indexOf('Lane overlays:');
   const toolExamplesIndex = toolResult.stack.indexOf('Quick voice examples:');
@@ -128,4 +129,13 @@ test('buildPromptStack keeps the slot order stable and excludes examples on tool
   assert.ok(sessionIndex >= 0);
   assert.ok(explicitIndex < booksIndex);
   assert.ok(booksIndex < sessionIndex);
+  assert.equal(toolSlotSummary.lane, 'tool');
+  assert.equal(toolSlotSummary.mode, 'local');
+  assert.equal(toolSlotSummary.eligibleSlotCount, 4);
+  assert.equal(toolSlotSummary.filledSlotCount, 4);
+  assert.equal(toolSlotSummary.heldBackSlotCount, 0);
+  assert.equal(toolSlotSummary.noOpSlotCount, 0);
+  assert.equal(toolSlotSummary.slots.find((slot) => slot.id === 'examples').state, 'ineligible');
+  assert.equal(toolSlotSummary.slots.find((slot) => slot.id === 'overlays').state, 'filled');
+  assert.equal(toolSlotSummary.slots.find((slot) => slot.id === 'memory').renderTarget, 'memory-block');
 });

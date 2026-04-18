@@ -22,6 +22,7 @@ test('buildMemoryPanelViewModel normalizes explicit memory rows', async () => {
 test('buildMemoryInspectorViewModel exposes books, compression, contradictions, routing, and queue slices', async () => {
   const { buildMemoryInspectorViewModel } = await helpersPromise;
   const viewModel = buildMemoryInspectorViewModel({
+    sessionId: 'thread-demo',
     explicit: { count: 3 },
     archive: {
       session: {
@@ -90,6 +91,7 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
       backgroundVectorization: {
         status: 'applied',
         attemptedAt: '2026-04-15T12:00:01.000Z',
+        sourceSessionId: 'thread-demo',
         semanticReady: true,
         archivePending: false,
         batchLimit: 2,
@@ -224,7 +226,61 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
       reasonCodes: ['direct-inspect'],
       epistemics: { enabled: true, triggered: true, scope: 'tool', stance: 'refuse', signals: ['missing_tool_evidence'], note: 'Tool-backed claims need verified evidence before Penny presents them as done.' },
       synthesis: { enabled: true, generated: true, kind: 'archive-advisory-summary', scope: 'archive-advisory', summary: 'Correction in play: favorite tea is lapsang souchong, not oolong.', evidenceSources: ['correction'] },
-      modelAdvisory: { mood: '', repair: null, shadowError: '', toolsUsed: [] },
+      modelAdvisory: {
+        mood: '',
+        cleanup: {
+          reasonCode: 'none',
+          cleanupApplied: false,
+          materialChange: false,
+          reconstructedReply: false,
+          usedReasoningFallback: false,
+        },
+        cleanupTransform: {
+          class: 'pass-through',
+          scope: 'presentation-only',
+          materiality: 'none',
+          idempotent: true,
+          operations: [],
+        },
+        authorityPressure: {
+          canonicalFactsPresent: false,
+          canonicalOverrideActive: false,
+          advisoryChannelsInjected: 0,
+          advisoryItemsInjected: 0,
+          sameSessionAdvisoryItems: 0,
+          crossSessionAdvisoryItems: 0,
+        },
+        promptComposition: {
+          lane: 'tool',
+          mode: 'local',
+          eligibleSlotCount: 4,
+          filledSlotCount: 3,
+          heldBackSlotCount: 1,
+          noOpSlotCount: 0,
+          slots: [
+            { id: 'voiceBlend', eligible: true, state: 'filled' },
+            { id: 'directives', eligible: true, state: 'filled' },
+            { id: 'examples', eligible: true, state: 'held-back' },
+            { id: 'memory', eligible: true, state: 'filled' },
+          ],
+        },
+        approximatePath: {
+          status: 'bounded-approximate',
+          latencyClass: 'tool-heavy',
+          policyMode: 'deterministic-priority',
+          reasons: ['bounded-latency-policy'],
+        },
+        advisoryMerge: {
+          advisoryItems: 2,
+          lossyItems: 1,
+          reviewGatedItems: 0,
+          mergeBasis: ['active-contradiction'],
+          discardedDetailSummary: ['episode-level detail omitted'],
+        },
+        repair: null,
+        shadowError: '',
+        toolsUsed: [],
+      },
       performance: {
         latencyClass: 'tool-heavy',
         request: { startedAt: '2026-04-15T12:00:00.000Z', finishedAt: '2026-04-15T12:00:01.200Z', durationMs: 1200, available: true, cacheHit: false, source: 'route-handler', note: '' },
@@ -255,6 +311,7 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
   assert.equal(viewModel.books.enabledCount, 2);
   assert.equal(viewModel.ledger.topicCount, 1);
   assert.equal(viewModel.backgroundVectorization.status, 'applied');
+  assert.equal(viewModel.backgroundVectorization.sourceSessionId, 'thread-demo');
   assert.equal(viewModel.backgroundVectorization.eagerEmbeddingCount, 4);
   assert.equal(viewModel.backgroundVectorization.backgroundCandidateCount, 2);
   assert.equal(viewModel.matchedBooks.length, 1);
@@ -264,8 +321,12 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
   assert.equal(viewModel.routing.selectedLane, 'tool');
   assert.equal(viewModel.queue.length, 1);
   assert.equal(viewModel.session.recencyProtection.protectedEpisodeCount, 6);
+  assert.equal(viewModel.session.sessionId, 'thread-demo');
   assert.equal(viewModel.queue[0].promotionPacket.sourceThreadId, 'thread-demo');
   assert.equal(viewModel.artifact.version, 'penny-runtime-artifact.v1');
+  assert.equal(viewModel.artifact.modelAdvisory.promptComposition.filledSlotCount, 3);
+  assert.equal(viewModel.artifact.modelAdvisory.approximatePath.policyMode, 'deterministic-priority');
+  assert.equal(viewModel.artifact.modelAdvisory.advisoryMerge.mergeBasis[0], 'active-contradiction');
   assert.equal(viewModel.runtime.readiness.warmState, 'warm');
   assert.equal(viewModel.runtime.performance.semanticProbe.source, 'semantic-memory-status');
   assert.equal(viewModel.retrieval.session[0].sourceLabel, 'archive-session');
@@ -286,6 +347,7 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   renderMemoryInspector({
     els,
     inspector: {
+      sessionId: 'demo',
       explicit: { count: 1 },
       archive: {
         session: {
@@ -331,6 +393,7 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
         backgroundVectorization: {
           status: 'applied',
           attemptedAt: '2026-04-15T12:00:01.000Z',
+          sourceSessionId: 'demo',
           semanticReady: true,
           archivePending: true,
           batchLimit: 2,
@@ -463,7 +526,61 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
         reasonCodes: ['direct-inspect'],
         epistemics: { enabled: true, triggered: true, scope: 'tool', stance: 'refuse', signals: ['missing_tool_evidence'], note: 'Tool-backed claims need verified evidence before Penny presents them as done.' },
         synthesis: { enabled: true, generated: true, kind: 'archive-advisory-summary', scope: 'archive-advisory', summary: 'Correction in play: favorite tea is lapsang souchong, not oolong.', evidenceSources: ['correction'] },
-        modelAdvisory: { mood: '', repair: null, shadowError: '', toolsUsed: [{ name: 'read_project_file', label: 'read README.md', ok: true }] },
+        modelAdvisory: {
+          mood: '',
+          cleanup: {
+            reasonCode: 'salvaged_draft_candidate',
+            cleanupApplied: true,
+            materialChange: true,
+            reconstructedReply: true,
+            usedReasoningFallback: true,
+          },
+          cleanupTransform: {
+            class: 'salvage-reconstruction',
+            scope: 'presentation-only',
+            materiality: 'reconstructed',
+            idempotent: true,
+            operations: ['salvage-draft-candidate', 'fallback-to-reasoning'],
+          },
+          authorityPressure: {
+            canonicalFactsPresent: true,
+            canonicalOverrideActive: true,
+            advisoryChannelsInjected: 2,
+            advisoryItemsInjected: 2,
+            sameSessionAdvisoryItems: 1,
+            crossSessionAdvisoryItems: 1,
+          },
+          promptComposition: {
+            lane: 'tool',
+            mode: 'local',
+            eligibleSlotCount: 4,
+            filledSlotCount: 3,
+            heldBackSlotCount: 1,
+            noOpSlotCount: 0,
+            slots: [
+              { id: 'voiceBlend', eligible: true, state: 'filled' },
+              { id: 'directives', eligible: true, state: 'filled' },
+              { id: 'examples', eligible: true, state: 'held-back' },
+              { id: 'memory', eligible: true, state: 'filled' },
+            ],
+          },
+          approximatePath: {
+            status: 'bounded-approximate',
+            latencyClass: 'tool-heavy',
+            policyMode: 'deterministic-priority',
+            reasons: ['bounded-latency-policy', 'semantic-query-held-back'],
+          },
+          advisoryMerge: {
+            advisoryItems: 2,
+            lossyItems: 1,
+            reviewGatedItems: 0,
+            mergeBasis: ['active-contradiction'],
+            discardedDetailSummary: ['episode-level detail omitted'],
+          },
+          repair: null,
+          shadowError: '',
+          toolsUsed: [{ name: 'read_project_file', label: 'read README.md', ok: true }],
+        },
         performance: {
           latencyClass: 'tool-heavy',
           request: { startedAt: '2026-04-15T12:00:00.000Z', finishedAt: '2026-04-15T12:00:01.200Z', durationMs: 1200, available: true, cacheHit: false, source: 'route-handler', note: '' },
@@ -498,10 +615,24 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Archive synthesis:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Latency class:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Readiness:/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Visible reply cleanup:/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /reconstructed from reasoning spill/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Cleanup transform:/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /salvage-reconstruction/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Authority pressure:/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /canon present/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /same session 1 \| cross session 1/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Prompt composition:/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /voiceBlend:filled/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Approximate path:/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /deterministic-priority/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Advisory merge:/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /basis active-contradiction/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /tool-heavy/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Background vectorization/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Background vectors: <strong>applied/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /archive update still pending/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /source this session/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /selected 2/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Last archived 2026-04-15T12:00:01\.050Z/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Trace artifact/);
@@ -518,6 +649,64 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Recency protection/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Protected ids:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /thread thread-demo/i);
+});
+
+test('renderMemoryInspector shows when background vectorization status came from another session', async () => {
+  const { renderMemoryInspector } = await helpersPromise;
+  const els = {
+    memoryInspectorPanel: {
+      className: '',
+      textContent: '',
+      innerHTML: '',
+    },
+  };
+
+  renderMemoryInspector({
+    els,
+    inspector: {
+      sessionId: 'demo',
+      explicit: { count: 0 },
+      archive: {
+        session: {
+          episodeCount: 0,
+          chapterCount: 0,
+          lastArchivedAt: '2026-04-15T12:00:01.050Z',
+          recencyProtection: { enabled: false, protectedEpisodeCount: 0, protectedEpisodeIds: [] },
+          lastRetrieval: { session: [], global: [], compression: { used: false, chapters: [] } },
+          activeContradictions: [],
+        },
+        global: {
+          patternCount: 0,
+          promotionQueue: [],
+        },
+      },
+      memoryBooks: { enabledCount: 0, matchedBooks: [] },
+      embeddings: {
+        semanticMemory: {
+          ready: true,
+          configuredModel: 'text-embedding-nomic-embed-text-v1.5',
+        },
+        backgroundVectorization: {
+          status: 'skipped',
+          attemptedAt: '2026-04-15T12:00:01.000Z',
+          sourceSessionId: 'other-session',
+          semanticReady: true,
+          archivePending: false,
+          batchLimit: 2,
+          eagerEmbeddingCount: 0,
+          eagerCreatedCount: 0,
+          backgroundCandidateCount: 0,
+          backgroundCreatedCount: 0,
+        },
+      },
+      ledger: { topicCount: 0, openCount: 0, provisionalCount: 0, settledCount: 0, context: { topics: [] }, recentTopics: [] },
+      routing: { selectedLane: 'chat', requestedMode: 'local', backend: 'local-lmstudio-chat', repair: null },
+      runtime: { readiness: {}, performance: {} },
+      artifact: null,
+    },
+  });
+
+  assert.match(els.memoryInspectorPanel.innerHTML, /source other-session/i);
 });
 
 test('buildBrainModeNote keeps local, shadow, and fallback explanations stable', async () => {
@@ -673,7 +862,27 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
         reasonCodes: ['direct-inspect'],
         epistemics: { enabled: false, triggered: false, scope: 'tool', stance: 'answer', signals: [], note: '' },
         synthesis: { enabled: false, generated: false, kind: '', scope: '', summary: '', evidenceSources: [] },
-        modelAdvisory: { mood: '', repair: null, shadowError: '', toolsUsed: [] },
+        modelAdvisory: {
+          mood: '',
+          cleanup: {
+            reasonCode: 'none',
+            cleanupApplied: false,
+            materialChange: false,
+            reconstructedReply: false,
+            usedReasoningFallback: false,
+          },
+          authorityPressure: {
+            canonicalFactsPresent: false,
+            canonicalOverrideActive: false,
+            advisoryChannelsInjected: 0,
+            advisoryItemsInjected: 0,
+            sameSessionAdvisoryItems: 0,
+            crossSessionAdvisoryItems: 0,
+          },
+          repair: null,
+          shadowError: '',
+          toolsUsed: [],
+        },
         performance: {
           latencyClass: 'tool-heavy',
           request: { available: true, durationMs: 10 },

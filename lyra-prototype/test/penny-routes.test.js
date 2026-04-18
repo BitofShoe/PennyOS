@@ -64,6 +64,28 @@ function assertArtifactShape(artifact, { requireEvidence = true, requireSideEffe
   assert.ok(artifact.synthesis && typeof artifact.synthesis === 'object');
   assert.ok(Array.isArray(artifact.synthesis.evidenceSources));
   assert.ok(artifact.modelAdvisory && typeof artifact.modelAdvisory === 'object');
+  assert.ok(artifact.modelAdvisory.cleanup && typeof artifact.modelAdvisory.cleanup === 'object');
+  assert.ok(artifact.modelAdvisory.cleanupTransform && typeof artifact.modelAdvisory.cleanupTransform === 'object');
+  assert.ok(artifact.modelAdvisory.authorityPressure && typeof artifact.modelAdvisory.authorityPressure === 'object');
+  assert.ok(artifact.modelAdvisory.promptComposition && typeof artifact.modelAdvisory.promptComposition === 'object');
+  assert.ok(artifact.modelAdvisory.approximatePath && typeof artifact.modelAdvisory.approximatePath === 'object');
+  assert.ok(artifact.modelAdvisory.advisoryMerge && typeof artifact.modelAdvisory.advisoryMerge === 'object');
+  assert.equal(typeof artifact.modelAdvisory.cleanup.reasonCode, 'string');
+  assert.equal(typeof artifact.modelAdvisory.cleanup.cleanupApplied, 'boolean');
+  assert.equal(typeof artifact.modelAdvisory.cleanup.materialChange, 'boolean');
+  assert.equal(typeof artifact.modelAdvisory.cleanup.reconstructedReply, 'boolean');
+  assert.equal(typeof artifact.modelAdvisory.cleanup.usedReasoningFallback, 'boolean');
+  assert.equal(typeof artifact.modelAdvisory.cleanupTransform.class, 'string');
+  assert.ok(Array.isArray(artifact.modelAdvisory.cleanupTransform.operations));
+  assert.equal(typeof artifact.modelAdvisory.authorityPressure.canonicalFactsPresent, 'boolean');
+  assert.equal(typeof artifact.modelAdvisory.authorityPressure.canonicalOverrideActive, 'boolean');
+  assert.equal(typeof artifact.modelAdvisory.authorityPressure.advisoryChannelsInjected, 'number');
+  assert.equal(typeof artifact.modelAdvisory.authorityPressure.advisoryItemsInjected, 'number');
+  assert.equal(typeof artifact.modelAdvisory.authorityPressure.sameSessionAdvisoryItems, 'number');
+  assert.equal(typeof artifact.modelAdvisory.authorityPressure.crossSessionAdvisoryItems, 'number');
+  assert.equal(typeof artifact.modelAdvisory.promptComposition.filledSlotCount, 'number');
+  assert.equal(typeof artifact.modelAdvisory.approximatePath.status, 'string');
+  assert.equal(typeof artifact.modelAdvisory.advisoryMerge.advisoryItems, 'number');
   assert.ok(artifact.performance && typeof artifact.performance === 'object');
   assert.equal(typeof artifact.performance.latencyClass, 'string');
   for (const key of ['request', 'promptAssembly', 'archiveRetrieval', 'semanticRender', 'modelResolution', 'semanticProbe', 'firstToken', 'modelRoundTrip']) {
@@ -89,6 +111,9 @@ function assertArtifactShape(artifact, { requireEvidence = true, requireSideEffe
 
 function buildMockLmStudioReply(payload = {}) {
   const raw = JSON.stringify(payload);
+  if (/tell me what you remember about my notebook/i.test(raw) || /cleanup-heavy-route-probe/i.test(raw)) {
+    return 'Thinking Process:\nDraft: Fine. I remember where it goes.\n[MOOD:thinking]';
+  }
   if (/route-semantic-render-bug\.js/i.test(raw)) {
     return 'Wrote tmp/route-semantic-render-bug.js with exactly console.log("hi"); [MOOD:thinking]';
   }
@@ -338,6 +363,49 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(toolTurn.json.meta.artifact.synthesis.generated, false);
     assert.equal(toolTurn.json.meta.artifact.evidence.some((item) => item.source === 'verified-tool'), true);
     assert.equal(toolTurn.json.meta.artifact.modelAdvisory.toolsUsed.some((item) => String(item.label || '').trim().length >= 1), true);
+
+    const seededCleanupMemory = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'route-cleanup-probe',
+        memory: {
+          brainMode: 'local',
+          memories: [
+            { text: 'My coding notebook stays left of the keyboard.', kind: 'explicit', source: 'explicit', ts: Date.UTC(2026, 3, 16) },
+          ],
+        },
+      }),
+    });
+    assert.equal(seededCleanupMemory.statusCode, 200);
+
+    const cleanupTurn = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'route-cleanup-probe',
+        messages: [
+          { role: 'user', content: 'Tell me what you remember about my notebook.' },
+        ],
+        memories: { brainMode: 'local' },
+      }),
+    });
+    assert.equal(cleanupTurn.statusCode, 200);
+    assertArtifactShape(cleanupTurn.json.meta.artifact);
+    assert.equal(cleanupTurn.json.meta.artifact.modelAdvisory.cleanup.cleanupApplied, true);
+    assert.equal(cleanupTurn.json.meta.artifact.modelAdvisory.cleanup.reconstructedReply, true);
+    assert.equal(cleanupTurn.json.meta.artifact.modelAdvisory.cleanupTransform.class, 'salvage-reconstruction');
+    assert.equal(cleanupTurn.json.meta.artifact.modelAdvisory.authorityPressure.canonicalFactsPresent, true);
+    assert.equal(cleanupTurn.json.meta.artifact.modelAdvisory.authorityPressure.canonicalOverrideActive, true);
+    assert.equal(cleanupTurn.json.meta.artifact.modelAdvisory.promptComposition.lane, 'chat');
+    assert.equal(typeof cleanupTurn.json.meta.artifact.modelAdvisory.approximatePath.policyMode, 'string');
+    assert.equal(typeof cleanupTurn.json.meta.artifact.modelAdvisory.advisoryMerge.lossyItems, 'number');
+
+    const inspectorTurn = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=route-cleanup-probe`);
+    assert.equal(inspectorTurn.statusCode, 200);
+    assertArtifactShape(inspectorTurn.json.inspector.artifact, { requireEvidence: false });
+    assert.equal(inspectorTurn.json.inspector.artifact.modelAdvisory.cleanup.cleanupApplied, true);
+    assert.equal(inspectorTurn.json.inspector.artifact.modelAdvisory.authorityPressure.canonicalFactsPresent, true);
   } finally {
     await new Promise((resolve) => started.close(() => resolve()));
     await mockLmStudio.close();

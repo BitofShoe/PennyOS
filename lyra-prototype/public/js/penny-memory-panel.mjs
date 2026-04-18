@@ -69,7 +69,10 @@ export function buildMemoryPanelViewModel(memory = {}) {
 
 export function buildMemoryInspectorViewModel(inspector = null) {
   const explicit = inspector?.explicit || {};
-  const session = inspector?.archive?.session || {};
+  const session = {
+    ...(inspector?.archive?.session || {}),
+    sessionId: String(inspector?.sessionId || inspector?.archive?.session?.sessionId || ''),
+  };
   const global = inspector?.archive?.global || {};
   const books = inspector?.memoryBooks || {};
   const semantic = inspector?.embeddings?.semanticMemory || {};
@@ -192,6 +195,8 @@ function renderBackgroundVectorizationSummary(background = {}, session = {}, esc
   const status = String(background.status || 'disabled').trim() || 'disabled';
   const backgroundCandidateCount = Number(background.backgroundCandidateCount ?? background.selectedCount ?? 0);
   const backgroundCreatedCount = Number(background.backgroundCreatedCount ?? background.createdCount ?? 0);
+  const sourceSessionId = String(background.sourceSessionId || '').trim();
+  const inspectedSessionId = String(session?.sessionId || '').trim();
   const detailBits = [
     `semantic ready ${background.semanticReady ? 'yes' : 'no'}`,
     `batch ${Math.max(0, Number(background.batchLimit || 0))}`,
@@ -199,6 +204,9 @@ function renderBackgroundVectorizationSummary(background = {}, session = {}, esc
     `selected ${Math.max(0, backgroundCandidateCount)}`,
     `created ${Math.max(0, backgroundCreatedCount)}`,
   ];
+  if (sourceSessionId) {
+    detailBits.push(sourceSessionId === inspectedSessionId ? 'source this session' : `source ${sourceSessionId}`);
+  }
   if (background.archivePending) detailBits.push('archive update still pending');
   if (background.skippedReason) detailBits.push(background.skippedReason);
   return `
@@ -225,6 +233,22 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   const epistemics = artifact.epistemics && typeof artifact.epistemics === 'object' ? artifact.epistemics : {};
   const synthesis = artifact.synthesis && typeof artifact.synthesis === 'object' ? artifact.synthesis : {};
   const modelAdvisory = artifact.modelAdvisory && typeof artifact.modelAdvisory === 'object' ? artifact.modelAdvisory : {};
+  const cleanup = modelAdvisory.cleanup && typeof modelAdvisory.cleanup === 'object' ? modelAdvisory.cleanup : {};
+  const cleanupTransform = modelAdvisory.cleanupTransform && typeof modelAdvisory.cleanupTransform === 'object'
+    ? modelAdvisory.cleanupTransform
+    : {};
+  const authorityPressure = modelAdvisory.authorityPressure && typeof modelAdvisory.authorityPressure === 'object'
+    ? modelAdvisory.authorityPressure
+    : {};
+  const promptComposition = modelAdvisory.promptComposition && typeof modelAdvisory.promptComposition === 'object'
+    ? modelAdvisory.promptComposition
+    : {};
+  const approximatePath = modelAdvisory.approximatePath && typeof modelAdvisory.approximatePath === 'object'
+    ? modelAdvisory.approximatePath
+    : {};
+  const advisoryMerge = modelAdvisory.advisoryMerge && typeof modelAdvisory.advisoryMerge === 'object'
+    ? modelAdvisory.advisoryMerge
+    : {};
   const performance = artifact.performance && typeof artifact.performance === 'object' ? artifact.performance : {};
   const readiness = artifact.readiness && typeof artifact.readiness === 'object' ? artifact.readiness : {};
   const executionPath = String(artifact.executionPath || artifact.context?.executionPath || '').trim() || 'llm-chat';
@@ -253,6 +277,41 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     const value = String(item?.value || '').trim();
     return [type, value].filter(Boolean).join(': ');
   }).filter(Boolean);
+  const cleanupSummary = cleanup.reconstructedReply
+    ? (cleanup.usedReasoningFallback ? 'reconstructed from reasoning spill' : 'reconstructed from cleanup salvage')
+    : (cleanup.cleanupApplied
+      ? (cleanup.materialChange ? 'material cleanup' : 'strip-only cleanup')
+      : 'no meaningful cleanup');
+  const cleanupBits = [];
+  if (cleanup.reasonCode) cleanupBits.push(`reason ${cleanup.reasonCode}`);
+  if (cleanup.usedReasoningFallback) cleanupBits.push('reasoning fallback');
+  if (!cleanup.cleanupApplied) cleanupBits.push('reply passed through cleanly');
+  const cleanupTransformBits = [];
+  if (cleanupTransform.scope) cleanupTransformBits.push(cleanupTransform.scope);
+  if (cleanupTransform.materiality) cleanupTransformBits.push(`materiality ${cleanupTransform.materiality}`);
+  if (Array.isArray(cleanupTransform.operations) && cleanupTransform.operations.length) {
+    cleanupTransformBits.push(cleanupTransform.operations.slice(0, 4).join(', '));
+  }
+  const canonicalSummary = authorityPressure.canonicalFactsPresent ? 'canon present' : 'canon silent';
+  const overrideSummary = authorityPressure.canonicalOverrideActive ? 'override active' : 'override idle';
+  const promptSlotDetails = Array.isArray(promptComposition.slots)
+    ? promptComposition.slots
+        .filter((slot) => slot && slot.eligible)
+        .slice(0, 5)
+        .map((slot) => `${slot.id}:${slot.state}`)
+    : [];
+  const approximateBits = [];
+  if (approximatePath.policyMode) approximateBits.push(approximatePath.policyMode);
+  if (Array.isArray(approximatePath.reasons) && approximatePath.reasons.length) {
+    approximateBits.push(approximatePath.reasons.slice(0, 4).join(', '));
+  }
+  const advisoryMergeBits = [];
+  if (Array.isArray(advisoryMerge.mergeBasis) && advisoryMerge.mergeBasis.length) {
+    advisoryMergeBits.push(`basis ${advisoryMerge.mergeBasis.slice(0, 3).join(', ')}`);
+  }
+  if (Array.isArray(advisoryMerge.discardedDetailSummary) && advisoryMerge.discardedDetailSummary.length) {
+    advisoryMergeBits.push(`discarded ${advisoryMerge.discardedDetailSummary.slice(0, 2).join(', ')}`);
+  }
   return `
     <div class="list-item">
       <div class="memory-copy">
@@ -264,6 +323,42 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
       <div class="memory-copy">
         Authority: reply ${escapeHtmlFn(authority.reply || 'unknown')} &middot; memory ${escapeHtmlFn(authority.memory || 'unknown')} &middot; archive ${escapeHtmlFn(authority.archive || 'unknown')}
         <small>${escapeHtmlFn(reasonCodes.join(', ') || 'No reason codes recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Visible reply cleanup: <strong>${escapeHtmlFn(cleanupSummary)}</strong>
+        <small>${escapeHtmlFn(cleanupBits.join(' | ') || 'No cleanup metadata recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Cleanup transform: <strong>${escapeHtmlFn(cleanupTransform.class || 'pass-through')}</strong> &middot; idempotent ${escapeHtmlFn(cleanupTransform.idempotent === false ? 'no' : 'yes')}
+        <small>${escapeHtmlFn(cleanupTransformBits.join(' | ') || 'Presentation cleanup stayed on the pass-through path.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Authority pressure: <strong>${escapeHtmlFn(canonicalSummary)}</strong> &middot; ${escapeHtmlFn(overrideSummary)} &middot; advisory ${escapeHtmlFn(String(Number(authorityPressure.advisoryItemsInjected || 0)))} item(s) across ${escapeHtmlFn(String(Number(authorityPressure.advisoryChannelsInjected || 0)))} channel(s)
+        <small>${escapeHtmlFn(`same session ${Number(authorityPressure.sameSessionAdvisoryItems || 0)} | cross session ${Number(authorityPressure.crossSessionAdvisoryItems || 0)}`)}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Prompt composition: <strong>${escapeHtmlFn(promptComposition.lane || 'chat')}</strong>/<strong>${escapeHtmlFn(promptComposition.mode || 'local')}</strong> &middot; filled ${escapeHtmlFn(String(Number(promptComposition.filledSlotCount || 0)))} of ${escapeHtmlFn(String(Number(promptComposition.eligibleSlotCount || 0)))}
+        <small>${escapeHtmlFn(promptSlotDetails.join(' | ') || 'No prompt-slot summary recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Approximate path: <strong>${escapeHtmlFn(approximatePath.status || 'exact')}</strong> &middot; latency ${escapeHtmlFn(approximatePath.latencyClass || 'casual-companion')}
+        <small>${escapeHtmlFn(approximateBits.join(' | ') || (approximatePath.policyNote || 'No approximate-path metadata recorded.'))}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Advisory merge: <strong>${escapeHtmlFn(String(Number(advisoryMerge.advisoryItems || 0)))}</strong> item(s) &middot; lossy ${escapeHtmlFn(String(Number(advisoryMerge.lossyItems || 0)))} &middot; review-gated ${escapeHtmlFn(String(Number(advisoryMerge.reviewGatedItems || 0)))}
+        <small>${escapeHtmlFn(advisoryMergeBits.join(' | ') || 'No advisory-merge summary recorded.')}</small>
       </div>
     </div>
     <div class="list-item">

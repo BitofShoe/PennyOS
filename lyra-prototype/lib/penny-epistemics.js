@@ -1,3 +1,7 @@
+const {
+  looksMemoryHeavy,
+} = require('./penny-latency-budget');
+
 const EPISTEMIC_STANCES = Object.freeze({
   ANSWER: 'answer',
   QUALIFY: 'qualify',
@@ -142,10 +146,6 @@ function isQuestionLike(text = '') {
   return /\?/.test(String(text || '')) || /\b(what|which|who|where|when|why|how|did|do|does|is|are|was|were|tell me|remind me|check|verify|confirm)\b/i.test(String(text || ''));
 }
 
-function looksMemoryHeavy(text = '') {
-  return /\b(remember|recall|earlier|before|favorite|correct|actually|again|what was|what did|what do i|what did i|still|now)\b/i.test(String(text || ''));
-}
-
 function looksToolClaimHeavy(text = '') {
   return /\b(you already|you did|you changed|you edited|you fixed|you verified|you checked|you inspected|you read|you looked|confirm you|say that you)\b/i.test(String(text || ''));
 }
@@ -241,12 +241,8 @@ function buildArchiveSynthesis({
   const global = Array.isArray(archiveContext?.global) ? archiveContext.global : [];
   const contradictions = Array.isArray(archiveContext?.activeContradictions) ? archiveContext.activeContradictions : [];
   const compression = retrieval?.compression || archiveContext?.compression || {};
-  const recallish = isQuestionLike(userText) && (
-    looksMemoryHeavy(userText)
-    || contradictions.length > 0
-    || session.length > 0
-    || (global.length > 0 && looksMemoryHeavy(userText))
-  );
+  const memoryHeavy = isQuestionLike(userText) && looksMemoryHeavy(userText);
+  const recallish = memoryHeavy || contradictions.length > 0;
   if (!recallish) return normalizeArchiveSynthesis({ enabled: true, generated: false });
 
   const parts = [];

@@ -188,9 +188,19 @@ function isDirectMemoryAuthorityQuestion(userText = '') {
   return [
     /\bwhat should you remember\b/,
     /\bwhat do you remember\b/,
+    /\bwhat(?:'s| is| are| was| were)\s+my\b/,
     /\bwhat should still be true\b/,
     /\bwhat am i trusting you to remember\b/,
+    /\btell me what you remember about\b/,
+    /\bdo you remember where\b/,
+    /\bwhere is my\b/,
+    /\bwhat do you know about my\b/,
   ].some((pattern) => pattern.test(normalized));
+}
+
+function shouldPrioritizeCanonicalMemoryOverHistory(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, now = Date.now()) {
+  if (!isDirectMemoryAuthorityQuestion(userText)) return false;
+  return selectMemoriesForPrompt(memories, userText, limit, now).length > 0;
 }
 
 function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
@@ -272,8 +282,8 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   const stableFacts = [];
   stableFacts.push(...selected.map((item) => item.text));
   stableFacts.push(...memoryBooks.map((item) => `memory book: ${item.text}`));
-  const suppressAdvisoryForDirectAuthority = directMemoryAuthorityQuestion && stableFacts.length > 0;
-  if (suppressAdvisoryForDirectAuthority) {
+  const suppressArchiveForDirectAuthority = directMemoryAuthorityQuestion && selected.length > 0;
+  if (suppressArchiveForDirectAuthority) {
     stableFacts.unshift('canon priority: answer direct memory questions from these stable facts first. use archive hints only if canon is silent.');
   }
   const sessionContext = sessionArchive
@@ -304,10 +314,10 @@ function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMP
   const retrievalHintsSection = formatPromptSection('Wake state - retrieval hints (advisory)', retrievalHints);
 
   if (stableFactsSection) sections.push(stableFactsSection);
-  if (sessionContextSection) sections.push(sessionContextSection);
+  if (!suppressArchiveForDirectAuthority && sessionContextSection) sections.push(sessionContextSection);
   if (contradictionSection) sections.push(contradictionSection);
-  if (!suppressAdvisoryForDirectAuthority && investigationsSection) sections.push(investigationsSection);
-  if (!suppressAdvisoryForDirectAuthority && retrievalHintsSection) sections.push(retrievalHintsSection);
+  if (!suppressArchiveForDirectAuthority && investigationsSection) sections.push(investigationsSection);
+  if (!suppressArchiveForDirectAuthority && retrievalHintsSection) sections.push(retrievalHintsSection);
   if (!sections.length) return fallback;
   return sections.join('\n');
 }
@@ -328,6 +338,8 @@ module.exports = {
   formatPromptMemories,
   injectRelevantMemoryContext,
   selectMemoriesForPrompt,
+  isDirectMemoryAuthorityQuestion,
+  shouldPrioritizeCanonicalMemoryOverHistory,
   selectMemoryBooksForPrompt,
   formatPromptSection,
   tokenizeMemoryText,

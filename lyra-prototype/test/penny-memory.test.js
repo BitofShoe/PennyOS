@@ -256,6 +256,9 @@ test('formatPromptMemories keeps direct memory-authority questions canon-first u
       semanticDowngradeReason: 'query-vector-unavailable',
       reasonCode: 'keyword_fallback',
       compression: { used: true },
+      session: [
+        { text: 'Favorite tea used to be oolong.', sourceLabel: 'archive-session' },
+      ],
       global: [
         { text: 'They keep returning to midnight rain.', sourceLabel: 'archive-global' },
       ],
@@ -270,10 +273,74 @@ test('formatPromptMemories keeps direct memory-authority questions canon-first u
         },
       ],
     },
-  }, 'What should you remember about my tea?', 3, '- Nothing yet.', now);
+  }, 'Tell me what you remember about my tea.', 3, '- Nothing yet.', now);
 
   assert.match(out, /canon priority:/i);
   assert.match(out, /Favorite tea is lapsang souchong/);
+  assert.doesNotMatch(out, /Wake state - active session context:/i);
+  assert.doesNotMatch(out, /Wake state - ongoing investigations \(advisory\):/i);
+  assert.doesNotMatch(out, /Wake state - retrieval hints \(advisory\):/i);
+});
+
+test('formatPromptMemories treats natural location authority questions as canon-first when explicit facts exist', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const out = formatPromptMemories({
+    memories: [
+      { text: 'My coding notebook stays left of the keyboard', kind: 'personal', ts: now },
+    ],
+    archiveContext: {
+      semanticReady: true,
+      reasonCode: 'semantic_query',
+      session: [
+        { text: 'My coding notebook stays on the right side of the keyboard.', sourceLabel: 'archive-session' },
+      ],
+      global: [
+        { text: 'Longer pattern: the notebook used to drift around the desk.', sourceLabel: 'archive-global' },
+      ],
+    },
+    archiveSynthesis: {
+      generated: true,
+      summary: 'Archive advisory: older notes still mention the notebook on the right side.',
+    },
+  }, 'Where is my coding notebook?', 3, '- Nothing yet.', now);
+
+  assert.match(out, /canon priority:/i);
+  assert.match(out, /My coding notebook stays left of the keyboard/i);
+  assert.doesNotMatch(out, /Wake state - active session context:/i);
+  assert.doesNotMatch(out, /Wake state - retrieval hints \(advisory\):/i);
+});
+
+test('formatPromptMemories treats natural identity authority questions as canon-first when explicit facts exist', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const out = formatPromptMemories({
+    memories: [
+      { text: 'My coding mascot is a copper rabbit', kind: 'personal', ts: now },
+    ],
+    archiveContext: {
+      semanticReady: true,
+      reasonCode: 'semantic_query',
+      session: [
+        { text: 'My coding mascot is a brass fox.', sourceLabel: 'archive-session' },
+      ],
+      global: [
+        { text: 'Longer pattern: the mascot keeps changing.', sourceLabel: 'archive-global' },
+      ],
+    },
+    researchLedgerContext: {
+      topics: [
+        {
+          topicId: 'coding-mascot',
+          topicLabel: 'coding mascot',
+          status: 'provisional',
+          summary: 'Older notes still mention the fox.',
+        },
+      ],
+    },
+  }, 'What is my coding mascot now?', 3, '- Nothing yet.', now);
+
+  assert.match(out, /canon priority:/i);
+  assert.match(out, /My coding mascot is a copper rabbit/i);
+  assert.doesNotMatch(out, /Wake state - active session context:/i);
   assert.doesNotMatch(out, /Wake state - ongoing investigations \(advisory\):/i);
   assert.doesNotMatch(out, /Wake state - retrieval hints \(advisory\):/i);
 });

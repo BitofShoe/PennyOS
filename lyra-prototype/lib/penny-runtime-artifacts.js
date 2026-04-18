@@ -3,6 +3,13 @@ const {
   normalizeArchiveSynthesis,
 } = require('./penny-epistemics');
 const {
+  normalizeConsolidationPacket,
+  normalizeProbationState,
+} = require('./penny-knowledge-contracts');
+const {
+  normalizePromptSlotSummary,
+} = require('./penny-prompt-stack');
+const {
   LATENCY_CLASSES,
 } = require('./penny-latency-budget');
 
@@ -317,6 +324,19 @@ function normalizeRetrievalTraceEntry(raw = {}) {
     .map(normalizeEvidenceRefSummary)
     .filter(Boolean)
     .slice(0, 4);
+  const consolidationPacket = normalizeConsolidationPacket(raw.consolidation || raw.mergeProvenance || {}, {
+    lossy: raw?.consolidation?.lossy === true,
+    freshnessLabel: raw?.consolidation?.freshnessLabel || 'unknown',
+  });
+  const probation = raw.probation || raw.reviewStatus || raw.reviewedAt
+    ? normalizeProbationState(raw.probation || {}, {
+        reviewStatus: raw.reviewStatus || '',
+        reviewedAt: raw.reviewedAt || '',
+        reviewerDecision: raw.reviewerDecision || '',
+        canonical: false,
+        scope: 'archive-advisory',
+      })
+    : null;
   if (!sourceId && !sourceLabel) return null;
   return {
     channel,
@@ -335,6 +355,17 @@ function normalizeRetrievalTraceEntry(raw = {}) {
     sourceTurnIds,
     matchedTokens,
     evidenceRefs,
+    reviewStatus: probation?.reviewStatus || '',
+    probationary: probation?.probationary === true,
+    consolidation: {
+      lossy: consolidationPacket.lossy === true,
+      mergeKind: consolidationPacket.mergeKind,
+      mergeReason: consolidationPacket.mergeReason,
+      mergeBasis: consolidationPacket.mergeBasis,
+      discardedDetailSummary: consolidationPacket.discardedDetailSummary,
+      sourceScope: consolidationPacket.sourceScope,
+      freshnessLabel: consolidationPacket.freshnessLabel,
+    },
   };
 }
 
@@ -489,6 +520,258 @@ function normalizeRepairInfo(value) {
   };
 }
 
+function normalizeCleanupInfo(value = {}, defaults = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  return {
+    reasonCode: String(raw.reasonCode || fallback.reasonCode || '').trim() || 'none',
+    cleanupApplied: raw.cleanupApplied === true || fallback.cleanupApplied === true,
+    materialChange: raw.materialChange === true || fallback.materialChange === true,
+    reconstructedReply: raw.reconstructedReply === true || fallback.reconstructedReply === true,
+    usedReasoningFallback: raw.usedReasoningFallback === true || fallback.usedReasoningFallback === true,
+  };
+}
+
+function normalizeCleanupTransformInfo(value = {}, defaults = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  return {
+    class: String(raw.class || fallback.class || '').trim() || 'pass-through',
+    scope: String(raw.scope || fallback.scope || '').trim() || 'presentation-only',
+    semanticRepair: raw.semanticRepair === true || fallback.semanticRepair === true,
+    materiality: String(raw.materiality || fallback.materiality || '').trim() || 'none',
+    idempotent: raw.idempotent !== false && fallback.idempotent !== false,
+    expectedIdempotence: String(raw.expectedIdempotence || fallback.expectedIdempotence || '').trim() || 'stable-once-cleaned',
+    operations: uniqueStrings(
+      Array.isArray(raw.operations) ? raw.operations : (fallback.operations || []),
+      12,
+    ),
+  };
+}
+
+function deriveCleanupTransformInfoFromCleanup(cleanup = null) {
+  const normalizedCleanup = normalizeCleanupInfo(cleanup);
+  const reasonCode = String(normalizedCleanup.reasonCode || 'none').trim() || 'none';
+  let transformClass = 'pass-through';
+  if (reasonCode === 'raw_reasoning_fallback') transformClass = 'reasoning-fallback';
+  else if (['salvaged_draft_candidate', 'salvaged_quote_candidate'].includes(reasonCode)) transformClass = 'salvage-reconstruction';
+  else if (reasonCode === 'tagged_visible_reply') transformClass = 'tag-extract';
+  else if (normalizedCleanup.cleanupApplied === true) transformClass = 'presentation-cleanup';
+  const operations = [];
+  if (reasonCode === 'salvaged_draft_candidate') operations.push('salvage-draft-candidate');
+  if (reasonCode === 'salvaged_quote_candidate') operations.push('salvage-quoted-reply');
+  if (normalizedCleanup.usedReasoningFallback === true) operations.push('fallback-to-reasoning');
+  if (transformClass === 'presentation-cleanup') operations.push('presentation-cleanup');
+  if (transformClass === 'tag-extract') operations.push('extract-visible-tag');
+  return {
+    class: transformClass,
+    scope: 'presentation-only',
+    semanticRepair: false,
+    materiality: normalizedCleanup.reconstructedReply
+      ? 'reconstructed'
+      : (normalizedCleanup.cleanupApplied
+        ? (normalizedCleanup.materialChange ? 'material' : 'surface')
+        : 'none'),
+    idempotent: true,
+    expectedIdempotence: 'stable-once-cleaned',
+    operations,
+  };
+}
+
+function normalizePromptComposition(value = {}, defaults = {}) {
+  return normalizePromptSlotSummary(
+    value && typeof value === 'object' ? value : {},
+    defaults && typeof defaults === 'object' ? defaults : {},
+  );
+}
+
+function normalizeApproximatePath(value = {}, defaults = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  return {
+    status: String(raw.status || fallback.status || '').trim() || 'exact',
+    degraded: raw.degraded === true || fallback.degraded === true,
+    approximateByPolicy: raw.approximateByPolicy === true || fallback.approximateByPolicy === true,
+    latencyClass: String(raw.latencyClass || fallback.latencyClass || '').trim() || LATENCY_CLASSES.CASUAL_COMPANION,
+    policyMode: String(raw.policyMode || fallback.policyMode || '').trim() || 'bounded-approximate',
+    policyNote: trimText(raw.policyNote || fallback.policyNote || '', 220),
+    semanticQueryAllowed: raw.semanticQueryAllowed === true || fallback.semanticQueryAllowed === true,
+    archiveCompressionAllowed: raw.archiveCompressionAllowed === true || fallback.archiveCompressionAllowed === true,
+    semanticRenderAllowed: raw.semanticRenderAllowed === true || fallback.semanticRenderAllowed === true,
+    compressionUsed: raw.compressionUsed === true || fallback.compressionUsed === true,
+    semanticDowngrade: raw.semanticDowngrade === true || fallback.semanticDowngrade === true,
+    usedFallback: raw.usedFallback === true || fallback.usedFallback === true,
+    laneFallback: raw.laneFallback === true || fallback.laneFallback === true,
+    reasons: uniqueStrings(
+      Array.isArray(raw.reasons) ? raw.reasons : (fallback.reasons || []),
+      10,
+    ),
+  };
+}
+
+function normalizeAdvisoryMergeSummary(value = {}, defaults = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  return {
+    advisoryItems: normalizeNonNegativeNumber(raw.advisoryItems, fallback.advisoryItems || 0),
+    lossyItems: normalizeNonNegativeNumber(raw.lossyItems, fallback.lossyItems || 0),
+    reviewGatedItems: normalizeNonNegativeNumber(raw.reviewGatedItems, fallback.reviewGatedItems || 0),
+    sameSessionItems: normalizeNonNegativeNumber(raw.sameSessionItems, fallback.sameSessionItems || 0),
+    crossSessionItems: normalizeNonNegativeNumber(raw.crossSessionItems, fallback.crossSessionItems || 0),
+    mergeBasis: uniqueStrings(Array.isArray(raw.mergeBasis) ? raw.mergeBasis : fallback.mergeBasis || [], 10),
+    discardedDetailSummary: uniqueStrings(
+      Array.isArray(raw.discardedDetailSummary) ? raw.discardedDetailSummary : fallback.discardedDetailSummary || [],
+      10,
+    ),
+    sourceScopes: uniqueStrings(Array.isArray(raw.sourceScopes) ? raw.sourceScopes : fallback.sourceScopes || [], 6),
+    freshnessLabels: uniqueStrings(Array.isArray(raw.freshnessLabels) ? raw.freshnessLabels : fallback.freshnessLabels || [], 6),
+  };
+}
+
+function normalizeAuthorityPressure(value = {}, defaults = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  return {
+    canonicalFactsPresent: raw.canonicalFactsPresent === true || fallback.canonicalFactsPresent === true,
+    canonicalOverrideActive: raw.canonicalOverrideActive === true || fallback.canonicalOverrideActive === true,
+    advisoryChannelsInjected: normalizeNonNegativeNumber(raw.advisoryChannelsInjected, fallback.advisoryChannelsInjected || 0),
+    advisoryItemsInjected: normalizeNonNegativeNumber(raw.advisoryItemsInjected, fallback.advisoryItemsInjected || 0),
+    sameSessionAdvisoryItems: normalizeNonNegativeNumber(raw.sameSessionAdvisoryItems, fallback.sameSessionAdvisoryItems || 0),
+    crossSessionAdvisoryItems: normalizeNonNegativeNumber(raw.crossSessionAdvisoryItems, fallback.crossSessionAdvisoryItems || 0),
+  };
+}
+
+function buildAuthorityPressure({
+  sessionId = 'default',
+  retrievalTrace = [],
+  canonicalFactsPresent = false,
+  canonicalOverrideActive = false,
+} = {}) {
+  const advisoryItems = (Array.isArray(retrievalTrace) ? retrievalTrace : [])
+    .filter((item) => item?.injected !== false)
+    .filter((item) => ['archive-session', 'archive-global', 'archive-chapter', 'memory-book', 'research-ledger'].includes(String(item?.channel || '').trim()));
+  const advisoryChannelsInjected = new Set(
+    advisoryItems
+      .map((item) => String(item?.channel || '').trim())
+      .filter(Boolean),
+  ).size;
+  let sameSessionAdvisoryItems = 0;
+  let crossSessionAdvisoryItems = 0;
+  const normalizedSessionId = String(sessionId || '').trim() || 'default';
+  for (const item of advisoryItems) {
+    const channel = String(item?.channel || '').trim();
+    if (!channel || channel === 'memory-book') continue;
+    if (channel === 'archive-session') {
+      sameSessionAdvisoryItems += 1;
+      continue;
+    }
+    const sourceSessionIds = Array.isArray(item?.sourceSessionIds)
+      ? item.sourceSessionIds.map((value) => String(value || '').trim()).filter(Boolean)
+      : [];
+    if (sourceSessionIds.length) {
+      if (sourceSessionIds.includes(normalizedSessionId)) sameSessionAdvisoryItems += 1;
+      else crossSessionAdvisoryItems += 1;
+      continue;
+    }
+    if (channel === 'archive-global' || channel === 'archive-chapter' || channel === 'research-ledger') {
+      crossSessionAdvisoryItems += 1;
+    }
+  }
+  return normalizeAuthorityPressure({
+    canonicalFactsPresent,
+    canonicalOverrideActive,
+    advisoryChannelsInjected,
+    advisoryItemsInjected: advisoryItems.length,
+    sameSessionAdvisoryItems,
+    crossSessionAdvisoryItems,
+  });
+}
+
+function buildApproximatePath({
+  latencyBudget = null,
+  retrieval = null,
+  readiness = null,
+  usedFallback = false,
+  laneFallback = false,
+} = {}) {
+  const budget = latencyBudget && typeof latencyBudget === 'object' ? latencyBudget : {};
+  const semanticDowngrade = retrieval?.semanticDowngrade === true;
+  const compressionUsed = retrieval?.compression?.used === true;
+  const degraded = usedFallback === true || laneFallback === true || readiness?.fallbackActive === true || semanticDowngrade;
+  const approximateByPolicy = budget.approximateByPolicy === true;
+  const reasons = [];
+  if (budget.approximateByPolicy === true) reasons.push('bounded-latency-policy');
+  if (budget.allowSemanticQuery === false) reasons.push('semantic-query-held-back');
+  if (budget.allowArchiveCompression === false) reasons.push('chapter-compression-held-back');
+  if (budget.allowSemanticRender === false) reasons.push('semantic-render-held-back');
+  if (compressionUsed) reasons.push('chapter-compression-used');
+  if (semanticDowngrade) reasons.push(String(retrieval?.semanticDowngradeReason || 'semantic-downgrade').trim() || 'semantic-downgrade');
+  if (laneFallback) reasons.push('lane-fallback');
+  if (usedFallback === true || readiness?.fallbackActive === true) reasons.push('runtime-fallback');
+  return normalizeApproximatePath({
+    status: degraded ? 'degraded' : ((approximateByPolicy || compressionUsed) ? 'bounded-approximate' : 'exact'),
+    degraded,
+    approximateByPolicy,
+    latencyClass: budget.latencyClass || LATENCY_CLASSES.CASUAL_COMPANION,
+    policyMode: budget.policyMode || 'bounded-approximate',
+    policyNote: budget.policyNote || '',
+    semanticQueryAllowed: budget.allowSemanticQuery === true,
+    archiveCompressionAllowed: budget.allowArchiveCompression === true,
+    semanticRenderAllowed: budget.allowSemanticRender === true,
+    compressionUsed,
+    semanticDowngrade,
+    usedFallback,
+    laneFallback,
+    reasons,
+  });
+}
+
+function buildAdvisoryMergeSummary({ sessionId = 'default', retrievalTrace = [] } = {}) {
+  const normalizedSessionId = String(sessionId || '').trim() || 'default';
+  const advisoryItems = (Array.isArray(retrievalTrace) ? retrievalTrace : [])
+    .filter((item) => item?.injected !== false)
+    .filter((item) => ['archive-session', 'archive-global', 'archive-chapter', 'research-ledger'].includes(String(item?.channel || '').trim()));
+  const mergeBasis = [];
+  const discardedDetailSummary = [];
+  const sourceScopes = [];
+  const freshnessLabels = [];
+  let lossyItems = 0;
+  let reviewGatedItems = 0;
+  let sameSessionItems = 0;
+  let crossSessionItems = 0;
+  for (const item of advisoryItems) {
+    const consolidation = item?.consolidation && typeof item.consolidation === 'object' ? item.consolidation : {};
+    if (consolidation.lossy === true) lossyItems += 1;
+    if (item?.probationary === true || item?.reviewStatus === 'pending') reviewGatedItems += 1;
+    mergeBasis.push(...(Array.isArray(consolidation.mergeBasis) ? consolidation.mergeBasis : []));
+    discardedDetailSummary.push(...(Array.isArray(consolidation.discardedDetailSummary) ? consolidation.discardedDetailSummary : []));
+    if (consolidation.sourceScope) sourceScopes.push(consolidation.sourceScope);
+    if (consolidation.freshnessLabel) freshnessLabels.push(consolidation.freshnessLabel);
+    const sourceSessionIds = Array.isArray(item?.sourceSessionIds)
+      ? item.sourceSessionIds.map((value) => String(value || '').trim()).filter(Boolean)
+      : [];
+    if (sourceSessionIds.length) {
+      if (sourceSessionIds.includes(normalizedSessionId)) sameSessionItems += 1;
+      else crossSessionItems += 1;
+    } else if (item?.channel === 'archive-session') {
+      sameSessionItems += 1;
+    } else {
+      crossSessionItems += 1;
+    }
+  }
+  return normalizeAdvisoryMergeSummary({
+    advisoryItems: advisoryItems.length,
+    lossyItems,
+    reviewGatedItems,
+    sameSessionItems,
+    crossSessionItems,
+    mergeBasis,
+    discardedDetailSummary,
+    sourceScopes,
+    freshnessLabels,
+  });
+}
+
 function sourceLabelForRetrievalItem(item = {}) {
   const sourceLabel = String(item.sourceLabel || '').trim();
   if (sourceLabel) return sourceLabel;
@@ -525,7 +808,12 @@ function buildRetrievalTraceState(
       createdAt: item?.createdAt || '',
       snippet: item?.evidenceSnippet || item?.text || '',
       sourceEpisodeIds: item?.sourceEpisodeIds || [],
+      sourceSessionIds: item?.sourceSessionIds || (item?.sessionId ? [item.sessionId] : []),
+      sourceTurnIds: item?.sourceTurnIds || [],
       matchedTokens: item?.matchedTokens || [],
+      consolidation: item?.consolidation || null,
+      probation: item?.probation || null,
+      reviewStatus: item?.reviewStatus || item?.probation?.reviewStatus || '',
     });
   }
   for (const item of Array.isArray(retrieval?.global) ? retrieval.global : []) {
@@ -542,7 +830,12 @@ function buildRetrievalTraceState(
       createdAt: item?.createdAt || '',
       snippet: item?.evidenceSnippet || item?.text || '',
       sourceEpisodeIds: item?.sourceEpisodeIds || [],
+      sourceSessionIds: item?.sourceSessionIds || (item?.sessionId ? [item.sessionId] : []),
+      sourceTurnIds: item?.sourceTurnIds || [],
       matchedTokens: item?.matchedTokens || [],
+      consolidation: item?.consolidation || null,
+      probation: item?.probation || null,
+      reviewStatus: item?.reviewStatus || item?.probation?.reviewStatus || '',
     });
   }
   for (const item of Array.isArray(retrieval?.compression?.chapters) ? retrieval.compression.chapters : []) {
@@ -559,7 +852,21 @@ function buildRetrievalTraceState(
       createdAt: item?.createdAt || '',
       snippet: item?.evidenceSnippet || item?.text || '',
       sourceEpisodeIds: item?.sourceEpisodeIds || [],
+      sourceSessionIds: item?.sourceSessionIds || [],
+      sourceTurnIds: item?.sourceTurnIds || [],
       matchedTokens: item?.matchedTokens || [],
+      consolidation: item?.consolidation || retrieval?.compression?.consolidation || {
+        lossy: retrieval?.compression?.used === true,
+        mergeKind: retrieval?.compression?.used === true ? 'compression-fallback' : 'compression-idle',
+        mergeReason: retrieval?.compression?.reasonCode || retrieval?.compression?.reason || '',
+        mergeBasis: retrieval?.compression?.explanation?.selectedSignals
+          || (Array.isArray(retrieval?.provenance) && retrieval.provenance.length ? ['active-contradiction'] : []),
+        discardedDetailSummary: retrieval?.compression?.explanation?.penalties || [],
+        freshnessLabel: retrieval?.compression?.used === true ? 'rolling' : 'unknown',
+        sourceScope: 'chapter',
+      },
+      probation: item?.probation || null,
+      reviewStatus: item?.reviewStatus || item?.probation?.reviewStatus || '',
     });
   }
   for (const item of Array.isArray(matchedBooks) ? matchedBooks : []) {
@@ -880,6 +1187,10 @@ function buildRuntimeArtifact({
   archiveContext = null,
   researchLedgerContext = null,
   matchedBooks = [],
+  cleanup = null,
+  cleanupTransform = null,
+  canonicalFactsPresent = false,
+  canonicalOverrideActive = false,
   repair = null,
   shadowEnabled = false,
   shadowError = '',
@@ -891,6 +1202,8 @@ function buildRuntimeArtifact({
   synthesis = null,
   performance = null,
   readiness = null,
+  promptComposition = null,
+  latencyBudget = null,
   researchLedgerPromptInjected = false,
   researchLedgerUpdate = null,
 } = {}) {
@@ -902,6 +1215,10 @@ function buildRuntimeArtifact({
       : (selectedLane === 'tool' ? 'deterministic-tool' : 'llm-chat'),
   );
   const normalizedLedgerUpdate = normalizeResearchLedgerUpdate(researchLedgerUpdate);
+  const normalizedCleanup = normalizeCleanupInfo(cleanup);
+  const normalizedCleanupTransform = normalizeCleanupTransformInfo(
+    cleanupTransform || cleanup?.cleanupTransform || deriveCleanupTransformInfoFromCleanup(cleanup),
+  );
   const normalizedRepair = normalizeRepairInfo(repair);
   const normalizedEpistemics = normalizeEpistemicCaution(epistemics);
   const normalizedSynthesis = normalizeArchiveSynthesis(synthesis);
@@ -913,6 +1230,23 @@ function buildRuntimeArtifact({
     researchLedgerContext,
     researchLedgerPromptInjected === true,
   );
+  const authorityPressure = buildAuthorityPressure({
+    sessionId,
+    retrievalTrace,
+    canonicalFactsPresent,
+    canonicalOverrideActive,
+  });
+  const approximatePath = buildApproximatePath({
+    latencyBudget,
+    retrieval,
+    readiness,
+    usedFallback,
+    laneFallback,
+  });
+  const advisoryMerge = buildAdvisoryMergeSummary({
+    sessionId,
+    retrievalTrace,
+  });
   const reasonCodes = uniqueStrings([
     reason,
     retrieval?.reasonCode,
@@ -1037,6 +1371,12 @@ function buildRuntimeArtifact({
     readiness,
     modelAdvisory: {
       mood: String(mood || '').trim(),
+      cleanup: normalizedCleanup,
+      cleanupTransform: normalizedCleanupTransform,
+      authorityPressure,
+      promptComposition: normalizePromptComposition(promptComposition),
+      approximatePath,
+      advisoryMerge,
       repair: normalizedRepair,
       shadowError: String(shadowError || '').trim(),
       toolsUsed: Array.isArray(toolsUsed)
@@ -1135,6 +1475,12 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
     readiness,
     modelAdvisory: {
       mood: String(advisoryRaw.mood || '').trim(),
+      cleanup: normalizeCleanupInfo(advisoryRaw.cleanup, fallback.modelAdvisory?.cleanup),
+      cleanupTransform: normalizeCleanupTransformInfo(advisoryRaw.cleanupTransform, fallback.modelAdvisory?.cleanupTransform),
+      authorityPressure: normalizeAuthorityPressure(advisoryRaw.authorityPressure, fallback.modelAdvisory?.authorityPressure),
+      promptComposition: normalizePromptComposition(advisoryRaw.promptComposition, fallback.modelAdvisory?.promptComposition),
+      approximatePath: normalizeApproximatePath(advisoryRaw.approximatePath, fallback.modelAdvisory?.approximatePath),
+      advisoryMerge: normalizeAdvisoryMergeSummary(advisoryRaw.advisoryMerge, fallback.modelAdvisory?.advisoryMerge),
       repair: normalizeRepairInfo(advisoryRaw.repair),
       shadowError: String(advisoryRaw.shadowError || '').trim(),
       toolsUsed: Array.isArray(advisoryRaw.toolsUsed)
@@ -1185,11 +1531,17 @@ function normalizeLastRouteInfo(value) {
       semanticMemoryReady: value.semanticMemoryReady === true,
       semanticMemoryMode: String(value.semanticMemoryMode || '').trim() || 'disabled',
       researchLedgerContext: value.researchLedgerContext || null,
+      cleanup: value.cleanup || null,
+      cleanupTransform: value.cleanupTransform || null,
+      canonicalFactsPresent: value.canonicalFactsPresent === true,
+      canonicalOverrideActive: value.canonicalOverrideActive === true,
       repair,
       epistemics,
       synthesis,
       performance,
       readiness,
+      promptComposition: value.promptComposition || null,
+      latencyBudget: value.latencyBudget || null,
       researchLedgerPromptInjected,
       researchLedgerUpdate,
       usedAt: String(value.usedAt || '').trim() || new Date().toISOString(),
@@ -1238,6 +1590,10 @@ function buildLastRouteInfo({
   archiveContext = null,
   researchLedgerContext = null,
   matchedBooks = [],
+  cleanup = null,
+  cleanupTransform = null,
+  canonicalFactsPresent = false,
+  canonicalOverrideActive = false,
   repair = null,
   shadowEnabled = false,
   shadowError = '',
@@ -1250,6 +1606,8 @@ function buildLastRouteInfo({
   synthesis = null,
   performance = null,
   readiness = null,
+  promptComposition = null,
+  latencyBudget = null,
   researchLedgerPromptInjected = false,
   researchLedgerUpdate = null,
 } = {}) {
@@ -1270,6 +1628,10 @@ function buildLastRouteInfo({
     toolRecords,
     retrieval,
     matchedBooks,
+    cleanup,
+    cleanupTransform,
+    canonicalFactsPresent,
+    canonicalOverrideActive,
     repair,
     shadowEnabled,
     shadowError,
@@ -1281,6 +1643,8 @@ function buildLastRouteInfo({
     synthesis,
     performance,
     readiness,
+    promptComposition,
+    latencyBudget,
     researchLedgerPromptInjected,
     researchLedgerUpdate,
     artifact: artifact || buildRuntimeArtifact({
@@ -1302,6 +1666,10 @@ function buildLastRouteInfo({
       archiveContext,
       researchLedgerContext,
       matchedBooks,
+      cleanup,
+      cleanupTransform,
+      canonicalFactsPresent,
+      canonicalOverrideActive,
       repair,
       shadowEnabled,
       shadowError,
@@ -1313,6 +1681,8 @@ function buildLastRouteInfo({
       synthesis,
       performance,
       readiness,
+      promptComposition,
+      latencyBudget,
       researchLedgerPromptInjected,
       researchLedgerUpdate,
     }),

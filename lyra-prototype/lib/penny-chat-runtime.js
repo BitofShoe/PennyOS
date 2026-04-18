@@ -76,6 +76,16 @@ function createLaneRuntime(localLane = 'chat', getPreferredModelForLane = () => 
     laneFallback: false,
     modelUsed: false,
     executionPath: '',
+    canonicalFactsPresent: false,
+    canonicalOverrideActive: false,
+    cleanup: {
+      reasonCode: 'none',
+      cleanupApplied: false,
+      materialChange: false,
+      reconstructedReply: false,
+      usedReasoningFallback: false,
+    },
+    cleanupTransform: null,
   };
 }
 

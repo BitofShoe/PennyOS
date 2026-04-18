@@ -1,3 +1,5 @@
+const { writeJsonFileAtomicSync } = require('./penny-atomic-json');
+
 const LEDGER_SCHEMA_VERSION = 1;
 const LEDGER_PROMPT_TOPIC_LIMIT = 2;
 const LEDGER_INSPECTOR_TOPIC_LIMIT = 8;
@@ -234,14 +236,27 @@ function createResearchLedgerApi({
   LEDGER_FILE,
   nowMs = () => Date.now(),
 } = {}) {
-  if (!fs || typeof fs.readFileSync !== 'function') throw new TypeError('createResearchLedgerApi requires fs');
+  if (!fs
+    || typeof fs.readFileSync !== 'function'
+    || typeof fs.writeFileSync !== 'function'
+    || typeof fs.renameSync !== 'function'
+    || typeof fs.unlinkSync !== 'function'
+    || typeof fs.mkdirSync !== 'function'
+    || typeof fs.existsSync !== 'function') {
+    throw new TypeError('createResearchLedgerApi requires fs');
+  }
   if (!path || typeof path.resolve !== 'function') throw new TypeError('createResearchLedgerApi requires path');
   if (!LEDGER_FILE) throw new TypeError('createResearchLedgerApi requires LEDGER_FILE');
 
   function ensureLedgerFile() {
     fs.mkdirSync(path.dirname(LEDGER_FILE), { recursive: true });
     if (fs.existsSync(LEDGER_FILE)) return;
-    fs.writeFileSync(LEDGER_FILE, `${JSON.stringify(defaultResearchLedgerStore(), null, 2)}\n`, 'utf8');
+    writeJsonFileAtomicSync({
+      fs,
+      path,
+      filePath: LEDGER_FILE,
+      value: defaultResearchLedgerStore(),
+    });
   }
 
   function readLedgerStore() {
@@ -279,7 +294,12 @@ function createResearchLedgerApi({
       const topic = normalizeLedgerEntry({ ...value, topicId: value?.topicId || key });
       if (topic) normalized.topics[topic.topicId] = topic;
     }
-    fs.writeFileSync(LEDGER_FILE, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
+    writeJsonFileAtomicSync({
+      fs,
+      path,
+      filePath: LEDGER_FILE,
+      value: normalized,
+    });
     return normalized;
   }
 
@@ -410,7 +430,7 @@ function createResearchLedgerApi({
         const sameSession = Array.isArray(topic.sourceSessionIds) && topic.sourceSessionIds.includes(sessionId);
         const promptOverlap = countTokenOverlap(queryTokens, buildTopicPromptTokens(topic));
         const anchorOverlap = countTokenOverlap(queryTokens, buildTopicAnchorTokens(topic));
-        const eligible = topic.status === 'open' || sameSession || promptOverlap > 0 || anchorOverlap > 0;
+        const eligible = sameSession || promptOverlap > 0 || anchorOverlap > 0;
         return {
           topic,
           sameSession,
@@ -422,6 +442,7 @@ function createResearchLedgerApi({
       .filter((item) => item.eligible)
       .sort((left, right) => (
         right.anchorOverlap - left.anchorOverlap
+        || Number(right.sameSession === true) - Number(left.sameSession === true)
         || right.promptOverlap - left.promptOverlap
         || topicScore(right.topic, sessionId, queryTokens) - topicScore(left.topic, sessionId, queryTokens)
       ));

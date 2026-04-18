@@ -18,6 +18,7 @@ function createLmStudioTransportApi({
   extractPennyFromPlanningBlob,
   extractPennyFromReasoning,
   coercePennyVisibleReply,
+  classifyVisibleReplyDecision,
   textFromChatMessage,
   textValueFromField,
   collectTextParts,
@@ -54,6 +55,7 @@ function createLmStudioTransportApi({
   if (typeof extractPennyFromPlanningBlob !== 'function') throw new TypeError('createLmStudioTransportApi requires extractPennyFromPlanningBlob');
   if (typeof extractPennyFromReasoning !== 'function') throw new TypeError('createLmStudioTransportApi requires extractPennyFromReasoning');
   if (typeof coercePennyVisibleReply !== 'function') throw new TypeError('createLmStudioTransportApi requires coercePennyVisibleReply');
+  if (typeof classifyVisibleReplyDecision !== 'function') throw new TypeError('createLmStudioTransportApi requires classifyVisibleReplyDecision');
   if (typeof textFromChatMessage !== 'function') throw new TypeError('createLmStudioTransportApi requires textFromChatMessage');
   if (typeof textValueFromField !== 'function') throw new TypeError('createLmStudioTransportApi requires textValueFromField');
   if (typeof collectTextParts !== 'function') throw new TypeError('createLmStudioTransportApi requires collectTextParts');
@@ -69,17 +71,70 @@ function createLmStudioTransportApi({
     } catch {}
   }
 
+  function normalizeCleanupDecision(decision = {}, overrides = {}) {
+    const raw = decision && typeof decision === 'object' ? decision : {};
+    const text = String(Object.prototype.hasOwnProperty.call(overrides, 'text') ? overrides.text : raw.text || '').trim();
+    return {
+      text,
+      reasonCode: String(overrides.reasonCode || raw.reasonCode || 'none').trim() || 'none',
+      cleanupApplied: overrides.cleanupApplied === true || raw.cleanupApplied === true,
+      materialChange: overrides.materialChange === true || raw.materialChange === true,
+      reconstructedReply: overrides.reconstructedReply === true || raw.reconstructedReply === true,
+      usedReasoningFallback: overrides.usedReasoningFallback === true || raw.usedReasoningFallback === true,
+      cleanupTransform: raw.cleanupTransform && typeof raw.cleanupTransform === 'object'
+        ? { ...raw.cleanupTransform }
+        : null,
+    };
+  }
+
+  function recordLaneCleanup(laneRuntime, decision = {}) {
+    const cleanup = normalizeCleanupDecision(decision);
+    if (laneRuntime && typeof laneRuntime === 'object') {
+      laneRuntime.cleanup = {
+        reasonCode: cleanup.reasonCode,
+        cleanupApplied: cleanup.cleanupApplied,
+        materialChange: cleanup.materialChange,
+        reconstructedReply: cleanup.reconstructedReply,
+        usedReasoningFallback: cleanup.usedReasoningFallback,
+      };
+      laneRuntime.cleanupTransform = cleanup.cleanupTransform && typeof cleanup.cleanupTransform === 'object'
+        ? { ...cleanup.cleanupTransform }
+        : null;
+    }
+    return cleanup;
+  }
+
+  function salvageVisibleReplyDecision({ visibleText = '', reasoningText = '' } = {}) {
+    const visibleDecision = normalizeCleanupDecision(classifyVisibleReplyDecision(String(visibleText || '').trim()));
+    if (visibleDecision.text && !looksOnlyLikeCoT(visibleDecision.text)) {
+      return visibleDecision;
+    }
+    let fromReasoning = extractPennyFromReasoning(reasoningText);
+    if (!fromReasoning) fromReasoning = extractPennyFromPlanningBlob(reasoningText);
+    if (fromReasoning) {
+      return normalizeCleanupDecision(classifyVisibleReplyDecision(fromReasoning), {
+        cleanupApplied: true,
+        materialChange: true,
+        reconstructedReply: true,
+        usedReasoningFallback: true,
+      });
+    }
+    if (!visibleDecision.text && ALLOW_RAW_REASONING_FALLBACK && reasoningText) {
+      return normalizeCleanupDecision({
+        text: String(reasoningText || '').trim(),
+        reasonCode: 'raw_reasoning_fallback',
+      }, {
+        cleanupApplied: true,
+        materialChange: true,
+        reconstructedReply: true,
+        usedReasoningFallback: true,
+      });
+    }
+    return visibleDecision;
+  }
+
   function salvageVisibleReply({ visibleText = '', reasoningText = '' } = {}) {
-    let primary = coercePennyVisibleReply(String(visibleText || '').trim());
-    if (!primary || looksOnlyLikeCoT(primary)) {
-      let fromR = extractPennyFromReasoning(reasoningText);
-      if (!fromR) fromR = extractPennyFromPlanningBlob(reasoningText);
-      if (fromR) primary = coercePennyVisibleReply(fromR);
-    }
-    if (!primary && ALLOW_RAW_REASONING_FALLBACK && reasoningText) {
-      primary = String(reasoningText).trim();
-    }
-    return primary ? primary.trim() : '';
+    return salvageVisibleReplyDecision({ visibleText, reasoningText }).text;
   }
 
   function stripTrailingMoodTag(text = '') {
@@ -98,14 +153,28 @@ function createLmStudioTransportApi({
     return finalizedLength <= Math.floor(streamedLength * 0.72);
   }
 
+  function chooseFinalStreamReplyDecision({ streamedVisibleText = '', finalizedVisibleText = '', reasoningText = '' } = {}) {
+    const streamedDecision = normalizeCleanupDecision(classifyVisibleReplyDecision(String(streamedVisibleText || '').trim()));
+    const finalizedDecision = salvageVisibleReplyDecision({ visibleText: finalizedVisibleText, reasoningText });
+    if (!finalizedDecision.text) return streamedDecision;
+    if (!streamedDecision.text) return finalizedDecision;
+    return shouldPreferStreamedVisibleReply(streamedDecision.text, finalizedDecision.text)
+      ? streamedDecision
+      : finalizedDecision;
+  }
+
   function chooseFinalStreamReply({ streamedVisibleText = '', finalizedVisibleText = '', reasoningText = '' } = {}) {
-    const streamedCandidate = coercePennyVisibleReply(String(streamedVisibleText || '').trim());
-    const finalizedCandidate = salvageVisibleReply({ visibleText: finalizedVisibleText, reasoningText });
-    if (!finalizedCandidate) return streamedCandidate || '';
-    if (!streamedCandidate) return finalizedCandidate;
-    return shouldPreferStreamedVisibleReply(streamedCandidate, finalizedCandidate)
-      ? streamedCandidate.trim()
-      : finalizedCandidate;
+    return chooseFinalStreamReplyDecision({ streamedVisibleText, finalizedVisibleText, reasoningText }).text;
+  }
+
+  function resolveChatMessageVisibleReplyDecision(message = {}) {
+    const msg = message && typeof message === 'object' ? message : {};
+    const visibleText = textValueFromField(msg.content, 'visible') || String(msg.content ?? '').trim();
+    const reasoningText = [
+      textValueFromField(msg.reasoning_content, 'reasoning') || String(msg.reasoning_content ?? '').trim(),
+      textValueFromField(msg.reasoning, 'reasoning') || String(msg.reasoning ?? '').trim(),
+    ].filter(Boolean).join('\n').trim();
+    return salvageVisibleReplyDecision({ visibleText, reasoningText });
   }
 
   async function runLmStudioResponsesApi({ userText, messages, memories, file, abortSignal, lane = 'chat', laneRuntime, latencyBudget = null }) {
@@ -147,16 +216,17 @@ function createLmStudioTransportApi({
         }
         const { outputText, reasoningText } = collectLmStudioResponsesStrings(parsed);
         maybeReportReasoning({ transport: 'responses', lane, model, reasoningText });
-        const primary = salvageVisibleReply({ visibleText: outputText, reasoningText });
-        if (!primary && RESPONSES_THEN_CHAT_FALLBACK) {
+        const primary = salvageVisibleReplyDecision({ visibleText: outputText, reasoningText });
+        if (!primary.text && RESPONSES_THEN_CHAT_FALLBACK) {
           return runLmStudioChatCompletionsApi({ userText, messages, memories, file, abortSignal, lane, laneRuntime });
         }
-        if (!primary) {
+        if (!primary.text) {
           throw new Error(
             'LM Studio /responses returned only internal reasoning (no speakable reply). Try: set PENNY_LOCAL_LLM_TRANSPORT=chat, or enable PENNY_RESPONSES_CHAT_FALLBACK (default on), or turn off reasoning in LM Studio for this model.',
           );
         }
-        return primary;
+        recordLaneCleanup(laneRuntime, primary);
+        return primary.text;
       } catch (error) {
         if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
         throw error;
@@ -219,8 +289,8 @@ function createLmStudioTransportApi({
 
         const { responseId, outputText, reasoningText } = collectLmStudioStatefulChatStrings(parsed);
         maybeReportReasoning({ transport: 'native-stateful', lane, model: nativeModel, reasoningText });
-        const primary = salvageVisibleReply({ visibleText: outputText, reasoningText });
-        if (!primary) {
+        const primary = salvageVisibleReplyDecision({ visibleText: outputText, reasoningText });
+        if (!primary.text) {
           throw new Error(`No assistant text from LM Studio stateful chat: ${bodyText.slice(0, 800)}`);
         }
 
@@ -235,7 +305,8 @@ function createLmStudioTransportApi({
             laneRuntime.resolvedModel = nativeModel;
           }
         }
-        return primary;
+        recordLaneCleanup(laneRuntime, primary);
+        return primary.text;
       } catch (error) {
         if (canContinue && isMissingLmStudioThreadError(error)) {
           if (memories && typeof memories === 'object') memories.lmStudioThread = null;
@@ -330,13 +401,13 @@ function createLmStudioTransportApi({
           },
         });
 
-        const primary = chooseFinalStreamReply({
+        const primary = chooseFinalStreamReplyDecision({
           streamedVisibleText,
           finalizedVisibleText: visibleText,
           reasoningText,
         });
         maybeReportReasoning({ transport: 'native-stateful-stream', lane, model: nativeModel, reasoningText });
-        if (!primary) throw new Error('No assistant text from LM Studio stateful chat stream');
+        if (!primary.text) throw new Error('No assistant text from LM Studio stateful chat stream');
 
         if (responseId && memories && typeof memories === 'object') {
           memories.lmStudioThread = {
@@ -349,7 +420,8 @@ function createLmStudioTransportApi({
             laneRuntime.resolvedModel = nativeModel;
           }
         }
-        return primary;
+        recordLaneCleanup(laneRuntime, primary);
+        return primary.text;
       } catch (error) {
         if (canContinue && isMissingLmStudioThreadError(error)) {
           if (memories && typeof memories === 'object') memories.lmStudioThread = null;
@@ -456,30 +528,31 @@ function createLmStudioTransportApi({
           },
         });
 
-        let primary = chooseFinalStreamReply({
+        let primary = chooseFinalStreamReplyDecision({
           streamedVisibleText,
           finalizedVisibleText: visibleText,
           reasoningText,
         });
         maybeReportReasoning({ transport: 'responses-stream', lane, model, reasoningText });
-        if (!primary && finalResponse) {
+        if (!primary.text && finalResponse) {
           const collected = collectLmStudioResponsesStrings(finalResponse);
-          primary = chooseFinalStreamReply({
+          primary = chooseFinalStreamReplyDecision({
             streamedVisibleText,
             finalizedVisibleText: collected.outputText,
             reasoningText: collected.reasoningText,
           });
           maybeReportReasoning({ transport: 'responses-stream-final', lane, model, reasoningText: collected.reasoningText });
         }
-        if (!primary && RESPONSES_THEN_CHAT_FALLBACK) {
+        if (!primary.text && RESPONSES_THEN_CHAT_FALLBACK) {
           return streamLmStudioChatCompletionsApi({ userText, messages, memories, file, onEvent, abortSignal, lane, laneRuntime });
         }
-        if (!primary) {
+        if (!primary.text) {
           throw new Error(
             'LM Studio /responses stream returned only internal reasoning (no speakable reply). Try: set PENNY_LOCAL_LLM_TRANSPORT=chat, or enable PENNY_RESPONSES_CHAT_FALLBACK (default on), or turn off reasoning in LM Studio for this model.',
           );
         }
-        return primary;
+        recordLaneCleanup(laneRuntime, primary);
+        return primary.text;
       } catch (error) {
         if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
         throw error;
@@ -564,11 +637,12 @@ function createLmStudioTransportApi({
           },
         });
 
-        const primary = salvageVisibleReply({ visibleText, reasoningText });
+        const primary = salvageVisibleReplyDecision({ visibleText, reasoningText });
         maybeReportReasoning({ transport: 'chat-completions-stream', lane, model, reasoningText });
-        if (!primary) throw new Error('No assistant text from chat/completions stream');
+        if (!primary.text) throw new Error('No assistant text from chat/completions stream');
         clearLmStudioThread(memories);
-        return primary;
+        recordLaneCleanup(laneRuntime, primary);
+        return primary.text;
       } catch (error) {
         if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
         throw error;
@@ -620,17 +694,18 @@ function createLmStudioTransportApi({
           textValueFromField(msg?.reasoning_content, 'reasoning') || String(msg?.reasoning_content ?? '').trim(),
           textValueFromField(msg?.reasoning, 'reasoning') || String(msg?.reasoning ?? '').trim(),
         ].filter(Boolean).join('\n').trim();
-        let text = textFromChatMessage(msg);
-        if (!text) {
+        let decision = resolveChatMessageVisibleReplyDecision(msg);
+        if (!decision.text) {
           const delta = parsed?.choices?.[0]?.delta;
-          text = textFromChatMessage(
+          decision = resolveChatMessageVisibleReplyDecision(
             typeof delta === 'object' ? { content: delta?.content, reasoning_content: delta?.reasoning_content } : {},
           );
         }
         maybeReportReasoning({ transport: 'chat-completions', lane, model, reasoningText });
-        if (!text) throw new Error(`No assistant text from chat/completions: ${bodyText.slice(0, 800)}`);
+        if (!decision.text) throw new Error(`No assistant text from chat/completions: ${bodyText.slice(0, 800)}`);
         clearLmStudioThread(memories);
-        return text.trim();
+        recordLaneCleanup(laneRuntime, decision);
+        return decision.text.trim();
       } catch (error) {
         if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
         throw error;

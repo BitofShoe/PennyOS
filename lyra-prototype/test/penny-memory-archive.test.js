@@ -199,9 +199,12 @@ test('archiveCompletedTurn preserves raw episodes, summaries, patterns, and prom
     const archive = api.readArchiveStore();
     assert.equal(archive.sessions.demo.episodes.length, 3);
     assert.match(archive.sessions.demo.summaries[0].text, /recent session threads/i);
+    assert.equal(archive.sessions.demo.summaries[0].consolidation.lossy, true);
     assert.ok(archive.global.patterns.some((item) => /midnight rain/i.test(item.text)));
     assert.ok(archive.global.promotionQueue.some((item) => /midnight rain/i.test(item.text)));
     assert.ok(archive.global.promotionQueue.every((item) => item.promotionPacket && item.promotionPacket.sourceThreadId));
+    assert.ok(archive.global.promotionQueue.every((item) => item.probation?.reviewStatus === 'pending'));
+    assert.ok(archive.global.promotionQueue.every((item) => item.consolidation?.lossy === true));
 
     const embeddings = api.readEmbeddingsStore();
     assert.ok(Object.keys(embeddings.items).length >= 3);
@@ -284,6 +287,7 @@ test('createMemoryArchiveApi enables bounded background vectorization by default
     assert.equal(inspector.embeddings.backgroundVectorization.enabled, true);
     assert.equal(inspector.embeddings.backgroundVectorization.status, 'skipped');
     assert.equal(inspector.embeddings.backgroundVectorization.batchLimit, 2);
+    assert.equal(inspector.embeddings.backgroundVectorization.sourceSessionId, '');
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
@@ -498,16 +502,22 @@ test('archiveCompletedTurn preserves retrieval provenance and the inspector surf
     assert.equal(inspector.archive.session.lastRetrieval.session[0].sourceLabel, 'archive-session');
     assert.equal(inspector.archive.session.lastRetrieval.global[0].sourceLabel, 'archive-global');
     assert.equal(inspector.archive.session.lastRetrieval.session[0].evidenceSnippet, 'Session hit 1');
+    assert.equal(inspector.archive.session.lastRetrieval.session[0].consolidation.sourceScope, 'session');
+    assert.equal(inspector.archive.session.lastRetrieval.session[0].consolidation.freshnessLabel, 'recent');
+    assert.equal(inspector.archive.session.lastRetrieval.session[0].probation, null);
     assert.equal(inspector.archive.session.lastRetrieval.books.length, 1);
     assert.equal(inspector.archive.session.lastRetrieval.books[0].id, 'appearance');
     assert.equal(inspector.archive.session.lastRetrieval.books[0].sourceLabel, 'book');
     assert.equal(inspector.archive.session.lastRetrieval.compression.used, true);
     assert.equal(inspector.archive.session.lastRetrieval.compression.reasonCode, ARCHIVE_COMPRESSION_REASON_CODES.LOW_RETRIEVAL_CONFIDENCE);
     assert.equal(inspector.archive.session.lastRetrieval.compression.chapters[0].sourceType, 'chapter');
+    assert.equal(inspector.archive.session.lastRetrieval.compression.chapters[0].consolidation.lossy, true);
     assert.deepEqual(inspector.archive.session.lastRetrieval.compression.explanation.selectedSignals, ['active-contradiction', 'named-object-anchor']);
     assert.deepEqual(inspector.archive.session.lastRetrieval.compression.explanation.penalties, ['scaffolding-filter']);
     assert.equal(inspector.archive.session.lastRetrieval.compression.explanation.omittedEpisodeCount, 9);
     assert.equal(inspector.archive.session.lastRetrieval.compression.explanation.carriedContradictions[0].conflictKey, 'favorite tea');
+    assert.equal(inspector.archive.session.lastRetrieval.compression.consolidation.lossy, true);
+    assert.equal(inspector.archive.session.lastRetrieval.compression.consolidation.mergeBasis.includes('active-contradiction'), true);
     assert.match(inspector.archive.session.lastArchivedAt, /^2026-04-13T12:00:0\d\.000Z$/);
     assert.equal(inspector.archive.session.updatedAt, inspector.archive.session.lastArchivedAt);
     assert.equal(inspector.explicit.memories.length, 1);
@@ -822,10 +832,13 @@ test('archiveCompletedTurn records skipped background vectorization telemetry wh
     assert.equal(result.backgroundVectorization.eagerCreatedCount, 0);
     assert.equal(result.backgroundVectorization.backgroundCandidateCount, 0);
     assert.equal(result.backgroundVectorization.backgroundCreatedCount, 0);
+    assert.equal(result.backgroundVectorization.sourceSessionId, 'background-skip');
     assert.equal(inspector.embeddings.backgroundVectorization.status, 'skipped');
     assert.equal(inspector.embeddings.backgroundVectorization.batchLimit, 1);
+    assert.equal(inspector.embeddings.backgroundVectorization.sourceSessionId, 'background-skip');
     assert.equal(inspector.embeddings.backgroundVectorization.eagerEmbeddingCount, 0);
     assert.equal(inspector.embeddings.backgroundVectorization.backgroundCandidateCount, 0);
+    assert.equal(inspector.archive.meta.backgroundVectorization.sourceSessionId, 'background-skip');
     assert.equal(inspector.archive.meta.backgroundVectorization.status, 'skipped');
     assert.equal(getFetchCalls(), 0);
   } finally {
@@ -861,6 +874,7 @@ test('archiveCompletedTurn prewarms bounded background chat vectors and records 
 
     assert.equal(inspector.embeddings.backgroundVectorization.status, 'applied');
     assert.equal(inspector.embeddings.backgroundVectorization.batchLimit, 1);
+    assert.equal(inspector.embeddings.backgroundVectorization.sourceSessionId, 'background-apply');
     assert.ok(inspector.embeddings.backgroundVectorization.eagerEmbeddingCount >= 1);
     assert.ok(inspector.embeddings.backgroundVectorization.eagerCreatedCount >= 1);
     assert.equal(inspector.embeddings.backgroundVectorization.backgroundCandidateCount, 1);

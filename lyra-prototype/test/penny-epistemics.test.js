@@ -81,3 +81,33 @@ test('buildArchiveSynthesis still emits advisory summaries for memory-heavy glob
   assert.equal(synthesis.generated, true);
   assert.match(synthesis.summary, /favorite tea is lapsang/i);
 });
+
+test('buildEpistemicCaution keeps borderline casual prompts out of memory caution', () => {
+  const caution = buildEpistemicCaution({
+    enabled: true,
+    userText: 'you still up?',
+    selectedLane: 'chat',
+    archiveContext: {
+      reasonCode: 'keyword_fallback',
+      session: [{ text: 'The notebook used to stay on the right side of the keyboard.' }],
+    },
+  });
+
+  assert.equal(caution.triggered, false);
+  assert.equal(caution.scope, 'none');
+  assert.deepEqual(caution.signals, []);
+});
+
+test('buildArchiveSynthesis ignores borderline casual questions even when archive session hits exist', () => {
+  const synthesis = buildArchiveSynthesis({
+    enabled: true,
+    userText: 'favorite movie right now?',
+    selectedLane: 'chat',
+    archiveContext: {
+      session: [{ text: 'My coding notebook stays on the right side of the keyboard.', sourceLabel: 'archive-session' }],
+      global: [{ text: 'Favorite tea is lapsang souchong.', sourceLabel: 'archive-global' }],
+    },
+  });
+
+  assert.equal(synthesis.generated, false);
+});

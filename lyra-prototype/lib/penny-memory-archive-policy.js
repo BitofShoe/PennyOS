@@ -181,11 +181,21 @@ function createMemoryArchivePolicyApi({
         || contradictionFallback
         || buildRollingSummaryText('Session chapter', texts, 2);
       if (!summary) continue;
+      const explanation = buildCompressionExplanation({
+        chapterItems: [{ text: summary }],
+        session: { episodes: chunk },
+        carriedContradictions: chunkContradictions,
+      });
       chapters.push({
         summary,
         sourceEpisodeIds,
         confidence: Math.max(0.4, Math.min(0.88, 0.38 + (chunk.length * 0.05))),
         createdAt: chunk[chunk.length - 1]?.createdAt || '',
+        mergeBasis: explanation.selectedSignals,
+        discardedDetailSummary: explanation.penalties,
+        omittedEpisodeCount: explanation.omittedEpisodeCount,
+        carriedContradictions: explanation.carriedContradictions,
+        mergeReason: chunkContradictions.length ? 'chapter-contradiction-merge' : 'chapter-detail-merge',
       });
     }
     return chapters.slice(-sessionChapterLimit);

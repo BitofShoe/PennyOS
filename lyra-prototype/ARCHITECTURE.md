@@ -254,6 +254,10 @@ The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
 - contradiction/open-loop/ongoing-investigation context
 - accepted vs rejected evidence summaries
 - a provenance block that exposes source identity for archive and research-ledger inputs
+- cleanup metadata split into legacy visible-reply cleanup plus a typed `cleanupTransform` summary
+- compact prompt-slot composition from `PROMPT_SLOT_REGISTRY`
+- explicit approximate-path policy metadata from the latency budget and runtime fallback state
+- advisory-merge summaries that distinguish lossy merge pressure from canonical memory authority
 
 This is meant to improve auditability, not to create a new autonomous memory system.
 

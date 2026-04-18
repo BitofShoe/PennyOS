@@ -2,8 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { createLmStudioTransportApi } = require('../lib/penny-lmstudio-transports');
+const { createVisibleReplyApi } = require('../lib/penny-visible-reply');
 
-function retag(text = '', preferredMood = 'calm') {
+function retag(text = '', preferredMood = 'smug') {
   const stripped = String(text || '').replace(/\s*\[MOOD:\w+\]\s*/g, ' ').trim();
   const explicitMood = String(text || '').match(/\[MOOD:(\w+)\]/i)?.[1] || '';
   const mood = explicitMood || preferredMood || 'calm';
@@ -18,7 +19,13 @@ function makeTransportApi({
   collectLmStudioStatefulChatStrings = () => ({ responseId: 'resp_stateful', outputText: '', reasoningText: '' }),
   collectLmStudioResponsesStrings = () => ({ outputText: '', reasoningText: '' }),
   reportLmStudioReasoning = () => {},
+  extractPennyFromPlanningBlob = () => '',
+  extractPennyFromReasoning = () => '',
 } = {}) {
+  const visibleReplyApi = createVisibleReplyApi({
+    ALLOW_RAW_REASONING_FALLBACK: false,
+    retagAssistantReply: retag,
+  });
   return createLmStudioTransportApi({
     withLmStudioLaneModel: async (_lane, fn, runtime) => fn('google/gemma-4-31b', { runtime }),
     getLmStudioConnectionStatus: async () => ({ resolvedChatModel: 'google/gemma-4-31b' }),
@@ -36,9 +43,10 @@ function makeTransportApi({
     bindAbortSignal: () => {},
     collectLmStudioResponsesStrings,
     collectLmStudioStatefulChatStrings,
-    extractPennyFromPlanningBlob: () => '',
-    extractPennyFromReasoning: () => '',
-    coercePennyVisibleReply: (text) => retag(String(text || '').trim(), 'smug'),
+    extractPennyFromPlanningBlob,
+    extractPennyFromReasoning,
+    coercePennyVisibleReply: visibleReplyApi.coercePennyVisibleReply,
+    classifyVisibleReplyDecision: visibleReplyApi.classifyVisibleReplyDecision,
     textFromChatMessage: (msg) => String(msg?.content || '').trim(),
     textValueFromField: (value) => String(value || '').trim(),
     collectTextParts: (value) => Array.isArray(value) ? value.map(v => String(v || '')) : [],
@@ -147,6 +155,79 @@ test('stateful stream still prefers the finalized reply when the difference is o
   assert.equal(result, `${finalizedReply}\n[MOOD:smug]`);
 });
 
+test('chat completions record strip-only cleanup metadata when minor scaffolding is removed', async () => {
+  const laneRuntime = {};
+  const api = makeTransportApi({
+    postJsonSse: async () => {
+      throw new Error('postJsonSse should not be called in this test');
+    },
+    postJsonLongRunning: async () => ({
+      statusCode: 200,
+      bodyText: JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: '*Draft:*\nVisible reply only.\n[MOOD:smug]',
+            },
+          },
+        ],
+      }),
+    }),
+  });
+
+  const result = await api.runLmStudioChatCompletionsApi({
+    userText: 'test',
+    messages: [],
+    memories: {},
+    laneRuntime,
+  });
+
+  assert.equal(result, 'Visible reply only.\n[MOOD:smug]');
+  assert.deepEqual(laneRuntime.cleanup, {
+    reasonCode: 'cleanup_mood_tagged_reply',
+    cleanupApplied: true,
+    materialChange: false,
+    reconstructedReply: false,
+    usedReasoningFallback: false,
+  });
+});
+
+test('chat completions mark reasoning salvage as reconstructed cleanup', async () => {
+  const laneRuntime = {};
+  const api = makeTransportApi({
+    postJsonSse: async () => {
+      throw new Error('postJsonSse should not be called in this test');
+    },
+    postJsonLongRunning: async () => ({
+      statusCode: 200,
+      bodyText: JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: '',
+              reasoning_content: 'Draft: Fine. I remember.\n[MOOD:smug]',
+            },
+          },
+        ],
+      }),
+    }),
+    extractPennyFromReasoning: (text) => String(text || '').trim(),
+  });
+
+  const result = await api.runLmStudioChatCompletionsApi({
+    userText: 'test',
+    messages: [],
+    memories: {},
+    laneRuntime,
+  });
+
+  assert.equal(result, 'Fine. I remember.\n[MOOD:smug]');
+  assert.equal(laneRuntime.cleanup.cleanupApplied, true);
+  assert.equal(laneRuntime.cleanup.materialChange, true);
+  assert.equal(laneRuntime.cleanup.reconstructedReply, true);
+  assert.equal(laneRuntime.cleanup.usedReasoningFallback, true);
+});
+
 test('stateful stream can report reasoning to server logs without leaking it into the visible reply', async () => {
   const reported = [];
   const api = makeTransportApi({
@@ -205,7 +286,7 @@ test('chat completions can report separate reasoning without leaking it into the
     memories: {},
   });
 
-  assert.equal(result, 'Visible reply only.');
+  assert.equal(result, 'Visible reply only.\n[MOOD:smug]');
   assert.equal(reported.length, 1);
   assert.equal(reported[0].transport, 'chat-completions');
   assert.match(reported[0].reasoningText, /Hidden scratchpad/);

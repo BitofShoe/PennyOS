@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { writeJsonFileAtomicSync } = require('./penny-atomic-json');
 
 const {
   normalizeText,
@@ -7,6 +8,8 @@ const {
 } = require('./penny-memory');
 const { createMemoryArchivePolicyApi } = require('./penny-memory-archive-policy');
 const {
+  normalizeConsolidationPacket,
+  normalizeProbationState,
   normalizePromotionPacket,
   validatePromotionPacket,
 } = require('./penny-knowledge-contracts');
@@ -198,6 +201,7 @@ function buildDefaultBackgroundVectorizationStatus(batchLimit = 0, enabled = fal
   return {
     enabled,
     status: enabled ? 'skipped' : 'disabled',
+    sourceSessionId: '',
     semanticReady: false,
     archivePending: false,
     attemptedAt: '',
@@ -282,7 +286,13 @@ function createMemoryArchiveApi({
   modelsLookEquivalent = null,
   nowMs = () => Date.now(),
 } = {}) {
-  if (!fs || typeof fs.existsSync !== 'function' || typeof fs.readFileSync !== 'function' || typeof fs.writeFileSync !== 'function') {
+  if (!fs
+    || typeof fs.existsSync !== 'function'
+    || typeof fs.readFileSync !== 'function'
+    || typeof fs.writeFileSync !== 'function'
+    || typeof fs.renameSync !== 'function'
+    || typeof fs.unlinkSync !== 'function'
+    || typeof fs.mkdirSync !== 'function') {
     throw new TypeError('createMemoryArchiveApi requires fs');
   }
   if (!path || typeof path.dirname !== 'function') throw new TypeError('createMemoryArchiveApi requires path');
@@ -301,7 +311,12 @@ function createMemoryArchiveApi({
     if (!filePath) return;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     if (fs.existsSync(filePath)) return;
-    fs.writeFileSync(filePath, `${JSON.stringify(builder(), null, 2)}\n`);
+    writeJsonFileAtomicSync({
+      fs,
+      path,
+      filePath,
+      value: builder(),
+    });
   }
 
   function buildSessionBucket(sessionId = 'default') {
@@ -343,6 +358,96 @@ function createMemoryArchiveApi({
     return out;
   }
 
+  function inferArchiveFreshnessLabel(type = 'episode', reviewStatus = '') {
+    if (type === 'episode') return 'recent';
+    if (type === 'promotion') return reviewStatus === 'approved' ? 'archived' : 'current';
+    if (type === 'summary' || type === 'pattern' || type === 'chapter') return 'rolling';
+    return 'archived';
+  }
+
+  function inferArchiveSourceScope(type = 'episode', sessionId = '') {
+    if (type === 'promotion') return 'promotion-review';
+    if (type === 'chapter') return 'chapter';
+    if (type === 'pattern' || type === 'summary') return sessionId ? 'session' : 'global';
+    return sessionId ? 'session' : 'global';
+  }
+
+  function buildDiscardedDetailSummary(raw = {}, explanation = {}) {
+    const discarded = [
+      ...(Array.isArray(raw.discardedDetailSummary) ? raw.discardedDetailSummary : []),
+      ...(Array.isArray(raw.penalties) ? raw.penalties : []),
+      ...(Array.isArray(explanation.penalties) ? explanation.penalties : []),
+    ].map((value) => trimText(value, 120)).filter(Boolean);
+    const omittedEpisodeCount = Math.max(0, Number(
+      raw.omittedEpisodeCount
+      ?? explanation.omittedEpisodeCount
+      ?? 0,
+    ));
+    if (omittedEpisodeCount > 0) {
+      discarded.push(`${omittedEpisodeCount} episode detail(s) omitted`);
+    }
+    return discarded;
+  }
+
+  function normalizeArchiveProbation(raw = {}, {
+    type = 'episode',
+    reviewStatus = '',
+    reviewedAt = '',
+  } = {}) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    if (
+      type !== 'promotion'
+      && !source.probation
+      && !source.reviewStatus
+      && !reviewStatus
+      && !source.reviewedAt
+      && !reviewedAt
+    ) {
+      return null;
+    }
+    return normalizeProbationState(source.probation || source, {
+      reviewStatus: reviewStatus || source.reviewStatus || (type === 'promotion' ? 'pending' : ''),
+      reviewedAt: reviewedAt || source.reviewedAt || '',
+      reviewerDecision: source.reviewerDecision || '',
+      canonical: source.reviewStatus === 'approved',
+      scope: type === 'promotion' ? 'promotion-review' : 'archive-advisory',
+    });
+  }
+
+  function normalizeArchiveConsolidation(raw = {}, {
+    type = 'episode',
+    sessionId = '',
+    createdAt = '',
+    updatedAt = '',
+    sourceEpisodeIds = [],
+    sourceTurnIds = [],
+    lossy = false,
+  } = {}) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const explanation = source.explanation && typeof source.explanation === 'object'
+      ? source.explanation
+      : (source.compression?.explanation && typeof source.compression.explanation === 'object'
+        ? source.compression.explanation
+        : {});
+    return normalizeConsolidationPacket(source.consolidation || source.mergeProvenance || source, {
+      lossy,
+      mergeKind: source.mergeKind
+        || (lossy ? `${type}-consolidation` : `${type}-carryover`),
+      mergeReason: source.mergeReason || source.reason || source.reasonCode || '',
+      mergeBasis: source.mergeBasis || source.selectedSignals || explanation.selectedSignals || [],
+      discardedDetailSummary: buildDiscardedDetailSummary(source, explanation),
+      sourceScope: inferArchiveSourceScope(type, sessionId),
+      sourceSessionIds: source.sourceSessionIds || (sessionId ? [sessionId] : []),
+      sourceTurnIds: source.sourceTurnIds || source.turnIds || source.evidenceTurnIds || sourceTurnIds || [],
+      sourceEpisodeIds: source.sourceEpisodeIds || source.evidenceIds || sourceEpisodeIds || [],
+      observedAt: source.observedAt || createdAt || '',
+      lastTouchedAt: source.lastTouchedAt || updatedAt || createdAt || '',
+      freshnessLabel: source.freshnessLabel || inferArchiveFreshnessLabel(type, source.reviewStatus || ''),
+      reviewStatus: source.reviewStatus || '',
+      probationary: source.reviewStatus === 'pending',
+    });
+  }
+
   function normalizeArchiveEntry(raw = {}, type = 'episode', sessionId = '') {
     const createdAt = trimIso(raw.createdAt || raw.updatedAt, new Date().toISOString());
     const text = trimText(raw.text || raw.userText || raw.excerpt || '');
@@ -367,6 +472,21 @@ function createMemoryArchiveApi({
             reviewedAt: raw.reviewedAt || '',
           })
         : null);
+    const sourceTurnIds = normalizeEvidenceIds(
+      raw.sourceTurnIds
+      || raw.turnIds
+      || raw.evidenceTurnIds
+      || raw.promotionPacket?.sourceTurnIds
+      || [],
+    );
+    const sourceEpisodeIds = normalizeEvidenceIds(
+      raw.sourceEpisodeIds
+      || raw.evidenceIds
+      || raw.promotionPacket?.consolidation?.sourceEpisodeIds
+      || [],
+    );
+    const reviewStatus = trimText(raw.reviewStatus || promotionPacket?.reviewStatus || '', 40);
+    const reviewedAt = trimIso(raw.reviewedAt || promotionPacket?.reviewedAt || '', '');
     return {
       id: String(raw.id || createId(type)).trim(),
       type,
@@ -380,7 +500,7 @@ function createMemoryArchiveApi({
       sensitivity: raw.sensitivity === 'high' ? 'high' : 'normal',
       phrases: extractPhrases(raw.text || raw.userText || raw.excerpt || '', 18),
       evidenceCount: Math.max(1, Number(raw.evidenceCount || 1)),
-      evidenceIds: normalizeEvidenceIds(raw.evidenceIds || []),
+      evidenceIds: sourceEpisodeIds,
       confidence: Math.max(0, Math.min(1, Number(raw.confidence || 0))),
       promotedAt: trimIso(raw.promotedAt || '', ''),
       patternKey: String(raw.patternKey || '').trim(),
@@ -389,8 +509,9 @@ function createMemoryArchiveApi({
       originSource: String(raw.originSource || '').trim(),
       originKind: String(raw.originKind || '').trim(),
       evidenceSnippet: trimText(raw.evidenceSnippet || raw.excerpt || raw.userText || raw.text || '', 160),
-      reviewStatus: trimText(raw.reviewStatus || '', 40),
-      reviewedAt: trimIso(raw.reviewedAt || '', ''),
+      reviewStatus,
+      reviewerDecision: trimText(raw.reviewerDecision || promotionPacket?.reviewerDecision || '', 40),
+      reviewedAt,
       temporalScope: raw.temporalScope && typeof raw.temporalScope === 'object'
         ? {
             label: trimText(raw.temporalScope.label || '', 120),
@@ -399,6 +520,24 @@ function createMemoryArchiveApi({
             endAt: trimIso(raw.temporalScope.endAt || '', ''),
           }
         : null,
+      sourceSessionIds: Array.isArray(raw.sourceSessionIds)
+        ? normalizeEvidenceIds(raw.sourceSessionIds)
+        : (String(raw.sessionId || sessionId || '').trim() ? [String(raw.sessionId || sessionId || '').trim()] : []),
+      sourceTurnIds,
+      probation: normalizeArchiveProbation(raw.promotionPacket || raw, {
+        type,
+        reviewStatus,
+        reviewedAt,
+      }),
+      consolidation: normalizeArchiveConsolidation(raw.promotionPacket || raw, {
+        type,
+        sessionId: String(raw.sessionId || sessionId || '').trim(),
+        createdAt,
+        updatedAt: trimIso(raw.updatedAt || createdAt, createdAt),
+        sourceEpisodeIds,
+        sourceTurnIds,
+        lossy: ['summary', 'pattern', 'promotion'].includes(type),
+      }),
       promotionPacket,
     };
   }
@@ -417,6 +556,20 @@ function createMemoryArchiveApi({
       sourceEpisodeIds: normalizeEvidenceIds(raw.sourceEpisodeIds || raw.evidenceIds || []),
       confidence: Math.max(0, Math.min(1, Number(raw.confidence || 0))),
       sourceType: 'chapter',
+      sourceSessionIds: String(raw.sessionId || sessionId || '').trim()
+        ? [String(raw.sessionId || sessionId || '').trim()]
+        : [],
+      sourceTurnIds: normalizeEvidenceIds(raw.sourceTurnIds || raw.turnIds || []),
+      probation: null,
+      consolidation: normalizeArchiveConsolidation(raw, {
+        type: 'chapter',
+        sessionId: String(raw.sessionId || sessionId || '').trim(),
+        createdAt,
+        updatedAt: trimIso(raw.updatedAt || createdAt, createdAt),
+        sourceEpisodeIds: normalizeEvidenceIds(raw.sourceEpisodeIds || raw.evidenceIds || []),
+        sourceTurnIds: normalizeEvidenceIds(raw.sourceTurnIds || raw.turnIds || []),
+        lossy: true,
+      }),
     };
   }
 
@@ -481,6 +634,13 @@ function createMemoryArchiveApi({
     const scope = String(raw.scope || '').trim() || 'global';
     const sourceLabel = String(raw.sourceLabel || '').trim()
       || (scope === 'session' ? 'archive-session' : 'archive-global');
+    const sourceEpisodeIds = normalizeEvidenceIds(raw.sourceEpisodeIds || raw.evidenceIds || []);
+    const sourceTurnIds = normalizeEvidenceIds(raw.sourceTurnIds || raw.turnIds || []);
+    const sourceSessionIds = normalizeEvidenceIds(
+      raw.sourceSessionIds
+      || (raw.sourceSessionId ? [raw.sourceSessionId] : [])
+      || (raw.sessionId ? [raw.sessionId] : []),
+    );
     return {
       id: String(raw.id || '').trim(),
       text,
@@ -491,11 +651,27 @@ function createMemoryArchiveApi({
       createdAt: trimIso(raw.createdAt, ''),
       score: Number.isFinite(Number(raw.score)) ? Number(raw.score) : 0,
       confidence: Number.isFinite(Number(raw.confidence)) ? Number(raw.confidence) : 0,
-      sourceEpisodeIds: normalizeEvidenceIds(raw.sourceEpisodeIds || raw.evidenceIds || []),
+      sourceEpisodeIds,
+      sourceSessionIds,
+      sourceTurnIds,
       matchedTokens: Array.isArray(raw.matchedTokens)
         ? raw.matchedTokens.map((value) => trimText(value, 40)).filter(Boolean).slice(0, 6)
         : [],
       evidenceSnippet: trimText(raw.evidenceSnippet || raw.excerpt || raw.text || '', 160),
+      probation: normalizeArchiveProbation(raw, {
+        type: raw.sourceType === 'promotion' ? 'promotion' : 'episode',
+        reviewStatus: raw.reviewStatus || '',
+        reviewedAt: raw.reviewedAt || '',
+      }),
+      consolidation: normalizeArchiveConsolidation(raw, {
+        type: raw.sourceType === 'chapter' ? 'chapter' : (raw.sourceType || 'episode'),
+        sessionId: sourceSessionIds[0] || raw.sessionId || (scope === 'session' ? 'session-scope' : ''),
+        createdAt: trimIso(raw.createdAt, ''),
+        updatedAt: trimIso(raw.updatedAt || raw.createdAt, trimIso(raw.createdAt, '')),
+        sourceEpisodeIds,
+        sourceTurnIds,
+        lossy: raw.sourceType === 'chapter' || raw.sourceType === 'summary' || raw.sourceType === 'pattern',
+      }),
     };
   }
 
@@ -537,9 +713,30 @@ function createMemoryArchiveApi({
           omittedEpisodeCount: 0,
           carriedContradictions: [],
         },
+        consolidation: normalizeConsolidationPacket({
+          lossy: false,
+          mergeKind: 'compression-idle',
+          mergeReason: ARCHIVE_COMPRESSION_REASON_CODES.NOT_NEEDED,
+          freshnessLabel: 'unknown',
+        }),
       };
     }
     const reasonCode = normalizeCompressionReasonCode(raw.reasonCode || raw.reason);
+    const explanation = {
+      selectedSignals: Array.isArray(raw.explanation?.selectedSignals)
+        ? raw.explanation.selectedSignals.map((value) => trimText(value, 80)).filter(Boolean).slice(0, 8)
+        : [],
+      penalties: Array.isArray(raw.explanation?.penalties)
+        ? raw.explanation.penalties.map((value) => trimText(value, 80)).filter(Boolean).slice(0, 8)
+        : [],
+      omittedEpisodeCount: Math.max(0, Number(raw.explanation?.omittedEpisodeCount || 0)),
+      carriedContradictions: Array.isArray(raw.explanation?.carriedContradictions)
+        ? raw.explanation.carriedContradictions
+          .map((item) => normalizeContradictionItem(item))
+          .filter(Boolean)
+          .slice(0, 4)
+        : [],
+    };
     return {
       used: raw.used === true,
       reason: trimText(raw.reason || '', 80),
@@ -547,21 +744,16 @@ function createMemoryArchiveApi({
       chapters: Array.isArray(raw.chapters)
         ? raw.chapters.map(normalizeRetrievalItem).filter(Boolean).slice(0, 4)
         : [],
-      explanation: {
-        selectedSignals: Array.isArray(raw.explanation?.selectedSignals)
-          ? raw.explanation.selectedSignals.map((value) => trimText(value, 80)).filter(Boolean).slice(0, 8)
-          : [],
-        penalties: Array.isArray(raw.explanation?.penalties)
-          ? raw.explanation.penalties.map((value) => trimText(value, 80)).filter(Boolean).slice(0, 8)
-          : [],
-        omittedEpisodeCount: Math.max(0, Number(raw.explanation?.omittedEpisodeCount || 0)),
-        carriedContradictions: Array.isArray(raw.explanation?.carriedContradictions)
-          ? raw.explanation.carriedContradictions
-            .map((item) => normalizeContradictionItem(item))
-            .filter(Boolean)
-            .slice(0, 4)
-          : [],
-      },
+      explanation,
+      consolidation: normalizeConsolidationPacket(raw.consolidation || raw, {
+        lossy: raw.used === true,
+        mergeKind: raw.used === true ? 'compression-fallback' : 'compression-idle',
+        mergeReason: raw.reason || reasonCode || '',
+        mergeBasis: explanation.selectedSignals,
+        discardedDetailSummary: buildDiscardedDetailSummary(raw, explanation),
+        sourceScope: 'chapter',
+        freshnessLabel: raw.used === true ? 'rolling' : 'unknown',
+      }),
     };
   }
 
@@ -594,6 +786,7 @@ function createMemoryArchiveApi({
     return {
       enabled,
       status,
+      sourceSessionId: String(raw.sourceSessionId || raw.sessionId || '').trim(),
       semanticReady: raw.semanticReady === true,
       archivePending: raw.archivePending === true,
       attemptedAt: trimIso(raw.attemptedAt || raw.updatedAt, ''),
@@ -767,7 +960,12 @@ function createMemoryArchiveApi({
       backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
     }));
     const normalized = normalizeArchiveStore(store);
-    fs.writeFileSync(ARCHIVE_FILE, `${JSON.stringify(normalized, null, 2)}\n`);
+    writeJsonFileAtomicSync({
+      fs,
+      path,
+      filePath: ARCHIVE_FILE,
+      value: normalized,
+    });
     return normalized;
   }
 
@@ -861,7 +1059,12 @@ function createMemoryArchiveApi({
     const normalized = replace
       ? normalizeEmbeddingsStore(store)
       : mergeEmbeddingsStore(readEmbeddingsStore(), store);
-    fs.writeFileSync(EMBEDDINGS_FILE, `${JSON.stringify(normalized, null, 2)}\n`);
+    writeJsonFileAtomicSync({
+      fs,
+      path,
+      filePath: EMBEDDINGS_FILE,
+      value: normalized,
+    });
     return normalized;
   }
 
@@ -1282,6 +1485,7 @@ function createMemoryArchiveApi({
       : readEmbeddingsStore();
     const baseStatus = {
       enabled: backgroundChatVectorsEnabled,
+      sourceSessionId: String(session?.sessionId || '').trim(),
       semanticReady: semanticMemory?.ready === true,
       archivePending: false,
       attemptedAt,
@@ -1660,6 +1864,16 @@ function createMemoryArchiveApi({
           excerpt: item.summary,
           sourceEpisodeIds,
           confidence: item.confidence,
+          mergeReason: item.mergeReason || 'chapter-detail-merge',
+          mergeBasis: item.mergeBasis || [],
+          discardedDetailSummary: item.discardedDetailSummary || [],
+          omittedEpisodeCount: item.omittedEpisodeCount || 0,
+          explanation: {
+            selectedSignals: item.mergeBasis || [],
+            penalties: item.discardedDetailSummary || [],
+            omittedEpisodeCount: item.omittedEpisodeCount || 0,
+            carriedContradictions: item.carriedContradictions || [],
+          },
         }, session.sessionId);
       })
       .filter(Boolean)
@@ -1734,6 +1948,9 @@ function createMemoryArchiveApi({
         patternKey: phrase,
         evidenceIds: supportingEpisodes.map((item) => item.id).filter(Boolean),
         evidenceSnippet: supportingEpisodes[0]?.userText || supportingEpisodes[0]?.text || text,
+        mergeReason: 'global-pattern-rebuild',
+        mergeBasis: ['recurring-phrase', 'episode-evidence-count'],
+        discardedDetailSummary: ['episode-level detail omitted'],
       }, 'pattern');
     }).filter(Boolean);
     archive.global.patterns = patterns;
@@ -1764,6 +1981,7 @@ function createMemoryArchiveApi({
           observedAt: pattern.updatedAt || pattern.createdAt || '',
         },
         reviewStatus: 'pending',
+        consolidation: pattern.consolidation || null,
         createdAt: pattern.updatedAt || pattern.createdAt || '',
       });
       nextQueue.push(normalizeArchiveEntry({
@@ -1783,6 +2001,7 @@ function createMemoryArchiveApi({
         evidenceSnippet: pattern.evidenceSnippet || pattern.text,
         temporalScope: packet?.temporalScope || null,
         reviewStatus: 'pending',
+        consolidation: packet?.consolidation || pattern.consolidation || null,
         promotionPacket: packet,
       }, 'promotion'));
     }
@@ -1815,6 +2034,17 @@ function createMemoryArchiveApi({
         observedAt: createdAt || episode?.createdAt || '',
       },
       reviewStatus: 'pending',
+      consolidation: {
+        mergeKind: 'review-candidate',
+        mergeReason: 'candidate-queued-for-review',
+        mergeBasis: ['chat-review-candidate'],
+        discardedDetailSummary: ['full episode detail omitted'],
+        sourceScope: 'promotion-review',
+        sourceSessionIds: [episode?.sessionId || ''].filter(Boolean),
+        sourceTurnIds: [String(episode?.id || '').trim()].filter(Boolean),
+        sourceEpisodeIds: [String(episode?.id || '').trim()].filter(Boolean),
+        freshnessLabel: 'current',
+      },
       createdAt: createdAt || episode?.createdAt || '',
     });
     return normalizeArchiveEntry({
@@ -1837,6 +2067,7 @@ function createMemoryArchiveApi({
       evidenceSnippet,
       reviewStatus: 'pending',
       temporalScope: packet?.temporalScope || null,
+      consolidation: packet?.consolidation || null,
       promotionPacket: packet,
     }, 'promotion', episode?.sessionId || '');
   }
@@ -1929,6 +2160,10 @@ function createMemoryArchiveApi({
         evidenceCount: Math.max(2, countPhrases(sessionTexts, 2)[0]?.[1] || 2),
         confidence: 0.56,
         sourceType: 'summary',
+        mergeReason: 'session-rolling-summary',
+        mergeBasis: ['recent-session-threads'],
+        discardedDetailSummary: ['older episode detail omitted'],
+        evidenceIds: session.episodes.slice(-8).map((item) => item?.id).filter(Boolean),
       }, 'summary', sessionId)).slice(-24);
       archive.meta.lastSummarizedAt = createdAt;
     }
@@ -1945,6 +2180,10 @@ function createMemoryArchiveApi({
         evidenceCount: Math.max(GLOBAL_THEME_MIN_EVIDENCE, countPhrases(globalTexts, GLOBAL_THEME_MIN_EVIDENCE)[0]?.[1] || GLOBAL_THEME_MIN_EVIDENCE),
         confidence: 0.62,
         sourceType: 'summary',
+        mergeReason: 'global-rolling-summary',
+        mergeBasis: ['global-theme-count'],
+        discardedDetailSummary: ['episode-level detail omitted'],
+        evidenceIds: archive.global.episodes.slice(-20).map((item) => item?.id).filter(Boolean),
       }, 'summary')).slice(-24);
       archive.meta.lastSummarizedAt = createdAt;
     }
@@ -1982,6 +2221,7 @@ function createMemoryArchiveApi({
     let embeddings = readEmbeddingsStore();
     applyBackgroundVectorizationStatus(archive, embeddings, {
       enabled: backgroundChatVectorsEnabled,
+      sourceSessionId: sessionId,
       semanticReady: false,
       archivePending: true,
       attemptedAt: createdAt,
@@ -1996,6 +2236,7 @@ function createMemoryArchiveApi({
     if (!semanticMemory.ready) {
       applyBackgroundVectorizationStatus(archive, embeddings, {
         enabled: backgroundChatVectorsEnabled,
+        sourceSessionId: sessionId,
         semanticReady: false,
         archivePending: false,
         attemptedAt: createdAt,
@@ -2230,6 +2471,10 @@ function createMemoryArchiveApi({
             evidenceCount: Math.max(GLOBAL_THEME_MIN_EVIDENCE, countPhrases(globalTexts, GLOBAL_THEME_MIN_EVIDENCE)[0]?.[1] || GLOBAL_THEME_MIN_EVIDENCE),
             confidence: 0.62,
             sourceType: 'summary',
+            mergeReason: 'global-rolling-summary',
+            mergeBasis: ['global-theme-count'],
+            discardedDetailSummary: ['episode-level detail omitted'],
+            evidenceIds: archive.global.episodes.slice(-20).map((item) => item?.id).filter(Boolean),
           }, 'summary'))
         : [];
       rebuildGlobalPatterns(archive);

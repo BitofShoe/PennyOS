@@ -67,6 +67,29 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
         },
       ],
     },
+    promptComposition: {
+      lane: 'chat',
+      mode: 'local',
+      eligibleSlotCount: 4,
+      filledSlotCount: 4,
+      heldBackSlotCount: 1,
+      noOpSlotCount: 0,
+      slots: [
+        { id: 'voiceBlend', eligible: true, state: 'filled' },
+        { id: 'directives', eligible: true, state: 'filled' },
+        { id: 'examples', eligible: true, state: 'held-back' },
+        { id: 'memory', eligible: true, state: 'filled' },
+      ],
+    },
+    latencyBudget: {
+      latencyClass: 'memory-heavy-recall',
+      policyMode: 'recall-heavy',
+      approximateByPolicy: false,
+      policyNote: 'Spend more budget on explicit recall.',
+      allowSemanticQuery: true,
+      allowArchiveCompression: true,
+      allowSemanticRender: false,
+    },
     matchedBooks: [
       { id: 'appearance', sourceLabel: 'book', score: 105 },
     ],
@@ -96,6 +119,12 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.provenance.retrieval[4].evidenceRefs[0].ref, 'package.json');
   assert.equal(artifact.provenance.acceptedEvidence.length > 0, true);
   assert.equal(artifact.trace.evidenceAccepted.length > 0, true);
+  assert.equal(artifact.modelAdvisory.promptComposition.lane, 'chat');
+  assert.equal(artifact.modelAdvisory.promptComposition.slots[2].state, 'held-back');
+  assert.equal(artifact.modelAdvisory.approximatePath.status, 'bounded-approximate');
+  assert.equal(artifact.modelAdvisory.approximatePath.policyMode, 'recall-heavy');
+  assert.equal(artifact.modelAdvisory.advisoryMerge.lossyItems >= 1, true);
+  assert.equal(artifact.modelAdvisory.advisoryMerge.mergeBasis.includes('active-contradiction'), true);
 });
 
 test('buildRuntimeArtifact preserves deterministic-tool truth without faking model receipts', () => {
@@ -162,4 +191,95 @@ test('buildRuntimeArtifact preserves deterministic-tool truth without faking mod
   assert.equal(artifact.trace.laneChoice.researchLedgerUpdateStatus, 'applied');
   assert.equal(artifact.provenance.retrieval[0].injected, false);
   assert.equal(artifact.provenance.retrieval[0].sourceLabel, 'package.json');
+});
+
+test('buildRuntimeArtifact records cleanup and authority-pressure summaries separately from repair', () => {
+    const artifact = buildRuntimeArtifact({
+      sessionId: 'demo-session',
+      requestedMode: 'local',
+      selectedLane: 'chat',
+      backend: 'local-lmstudio',
+      researchLedgerPromptInjected: true,
+      cleanup: {
+        reasonCode: 'salvaged_draft_candidate',
+        cleanupApplied: true,
+        materialChange: true,
+      reconstructedReply: true,
+      usedReasoningFallback: true,
+    },
+    canonicalFactsPresent: true,
+    canonicalOverrideActive: true,
+    retrieval: {
+      session: [
+        { id: 'session-1', sourceLabel: 'archive-session', scope: 'session', sourceType: 'episode', evidenceSnippet: 'Notebook stays left of the keyboard.' },
+      ],
+      global: [
+        { id: 'global-1', sourceLabel: 'archive-global', scope: 'global', sourceType: 'summary', evidenceSnippet: 'Older setup notes conflict.' },
+      ],
+    },
+    researchLedgerContext: {
+      topics: [
+        {
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+          status: 'open',
+          summary: 'verify the migration',
+          sourceSessionIds: ['other-session'],
+          sourceTurnIds: ['other-session:1'],
+        },
+      ],
+    },
+    repair: {
+      repairAttempted: true,
+      repairAccepted: false,
+      repairRejectedReason: 'already-stable',
+      finalCandidateSource: 'first-pass',
+    },
+    promptComposition: {
+      lane: 'chat',
+      mode: 'local',
+      eligibleSlotCount: 4,
+      filledSlotCount: 3,
+      heldBackSlotCount: 0,
+      noOpSlotCount: 1,
+      slots: [
+        { id: 'voiceBlend', eligible: true, state: 'filled' },
+        { id: 'directives', eligible: true, state: 'filled' },
+        { id: 'overlays', eligible: true, state: 'no-op' },
+        { id: 'memory', eligible: true, state: 'filled' },
+      ],
+    },
+    latencyBudget: {
+      latencyClass: 'casual-companion',
+      policyMode: 'bounded-approximate',
+      approximateByPolicy: true,
+      policyNote: 'Keep advisory recall narrow.',
+      allowSemanticQuery: false,
+      allowArchiveCompression: false,
+      allowSemanticRender: false,
+    },
+  });
+
+  assert.deepEqual(artifact.modelAdvisory.cleanup, {
+    reasonCode: 'salvaged_draft_candidate',
+    cleanupApplied: true,
+    materialChange: true,
+    reconstructedReply: true,
+    usedReasoningFallback: true,
+  });
+  assert.equal(artifact.modelAdvisory.authorityPressure.canonicalFactsPresent, true);
+  assert.equal(artifact.modelAdvisory.authorityPressure.canonicalOverrideActive, true);
+  assert.equal(artifact.modelAdvisory.authorityPressure.advisoryChannelsInjected, 3);
+  assert.equal(artifact.modelAdvisory.authorityPressure.advisoryItemsInjected, 3);
+  assert.equal(artifact.modelAdvisory.authorityPressure.sameSessionAdvisoryItems, 1);
+  assert.equal(artifact.modelAdvisory.authorityPressure.crossSessionAdvisoryItems, 2);
+  assert.equal(artifact.modelAdvisory.repair.scope, 'semantic-render');
+  assert.equal(artifact.modelAdvisory.cleanupTransform.class, 'salvage-reconstruction');
+  assert.equal(artifact.modelAdvisory.cleanupTransform.materiality, 'reconstructed');
+  assert.equal(artifact.modelAdvisory.cleanupTransform.operations.includes('salvage-draft-candidate'), true);
+  assert.equal(artifact.modelAdvisory.promptComposition.filledSlotCount, 3);
+  assert.equal(artifact.modelAdvisory.approximatePath.status, 'bounded-approximate');
+  assert.equal(artifact.modelAdvisory.approximatePath.reasons.includes('semantic-query-held-back'), true);
+  assert.equal(artifact.modelAdvisory.advisoryMerge.advisoryItems, 3);
+  assert.equal(artifact.modelAdvisory.advisoryMerge.sameSessionItems, 1);
 });

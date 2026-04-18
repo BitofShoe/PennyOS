@@ -4,6 +4,11 @@
  * @typedef {Object} VisibleReplyDecision
  * @property {string} text
  * @property {VisibleReplyReasonCode} reasonCode
+ * @property {boolean} cleanupApplied
+ * @property {boolean} materialChange
+ * @property {boolean} reconstructedReply
+ * @property {boolean} usedReasoningFallback
+ * @property {Object} cleanupTransform
  */
 const VISIBLE_REPLY_REASON_CODES = Object.freeze({
   EMPTY_INPUT: 'empty_input',
@@ -91,6 +96,135 @@ function createVisibleReplyApi({
       .replace(/[\u2011\u2013\u2014\u2015]/g, '-')
       .replace(/\u2026/g, '...')
       .replace(/\u00a0/g, ' ');
+  }
+
+  function normalizeVisibleReplyComparable(text = '') {
+    let out = repairCommonMojibake(String(text || ''));
+    out = stripThinkSpans(out);
+    const tagged = extractTaggedVisibleReply(out);
+    if (tagged) out = tagged;
+    out = takeAfterLastHorizontalRule(out);
+    out = takeAfterFinalCue(out);
+    out = stripReplyPrefix(stripWrappingCodeFence(out));
+    out = out
+      .replace(/\s*\[MOOD:\w+\]\s*/gi, ' ')
+      .replace(/(?:^|\n)\s*\*?\s*(?:draft(?:\s+\d+)?|final polish)\s*:\s*/gi, ' ')
+      .replace(/actually, let's make it more\s*["']?penny["']?\.?\s*/gi, ' ');
+    return out
+      .split(/\r?\n/)
+      .map((line) => normalizeMetaLead(line))
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  function hasVisibleCleanupArtifacts(raw = '') {
+    const text = String(raw || '');
+    const hasNormalizedMetaLead = String(text || '')
+      .split(/\r?\n/)
+      .some((line) => /^(thinking process|analyze the request|draft(?:\s+\d+)?|final polish)\b/i.test(normalizeMetaLead(line)));
+    if (hasNormalizedMetaLead) return true;
+    return /<\s*(?:think|redacted_reasoning|reasoning|final|answer|response)\b/i.test(text)
+      || /<\|channel\>\s*(?:thought|analysis)/i.test(text)
+      || /(?:^|\n)\s*(?:thinking process|analyze the request|draft(?:\s+\d+)?|final polish)\b/i.test(text)
+      || /actually, let's make it more/i.test(text)
+      || /```/.test(text)
+      || /^(?:penny|assistant)\s*:/im.test(text)
+      || /[“”‘’…—–]/.test(text);
+  }
+
+  function buildCleanupTransform(raw = '', reasonCode = VISIBLE_REPLY_REASON_CODES.EMPTY_INPUT, {
+    cleanupApplied = false,
+    materialChange = false,
+    reconstructedReply = false,
+    usedReasoningFallback = false,
+  } = {}) {
+    const text = String(raw || '');
+    const operations = [];
+    if (/<\s*(?:think|redacted_reasoning|reasoning)\b/i.test(text) || /<\|channel\>\s*(?:thought|analysis)/i.test(text)) {
+      operations.push('strip-internal-reasoning');
+    }
+    if (/<\s*(?:final|answer|response)\b/i.test(text)) operations.push('extract-visible-tag');
+    if (/(?:^|\n)(?:final answer|final response|assistant reply|visible reply|spoken reply)\s*:/i.test(text)) {
+      operations.push('extract-final-cue');
+    }
+    if (/```/.test(text)) operations.push('strip-code-fence');
+    if (/^(?:penny|assistant)\s*:/im.test(text)) operations.push('strip-speaker-prefix');
+    if (/(?:^|\n)\s*\*?\s*(?:thinking process|analyze the request|draft(?:\s+\d+)?|final polish)\b/i.test(text)) {
+      operations.push('drop-meta-lines');
+    }
+    if (/[â€œâ€â€˜â€™â€¦â€”â€“]|Ã/.test(text)) operations.push('repair-text-encoding');
+    if (reasonCode === VISIBLE_REPLY_REASON_CODES.SALVAGED_DRAFT_CANDIDATE) operations.push('salvage-draft-candidate');
+    if (reasonCode === VISIBLE_REPLY_REASON_CODES.SALVAGED_QUOTE_CANDIDATE) operations.push('salvage-quoted-reply');
+    if (usedReasoningFallback === true || reasonCode === VISIBLE_REPLY_REASON_CODES.RAW_REASONING_FALLBACK) {
+      operations.push('fallback-to-reasoning');
+    }
+    if (
+      reasonCode === VISIBLE_REPLY_REASON_CODES.CLEANUP_MOOD_TAGGED_REPLY
+      || reasonCode === VISIBLE_REPLY_REASON_CODES.CLEANUP_PLAIN_REPLY
+      || reasonCode === VISIBLE_REPLY_REASON_CODES.TAGGED_VISIBLE_REPLY
+    ) {
+      operations.push('retag-visible-reply');
+    }
+    let transformClass = 'pass-through';
+    if (reasonCode === VISIBLE_REPLY_REASON_CODES.RAW_REASONING_FALLBACK) transformClass = 'reasoning-fallback';
+    else if (
+      reasonCode === VISIBLE_REPLY_REASON_CODES.SALVAGED_DRAFT_CANDIDATE
+      || reasonCode === VISIBLE_REPLY_REASON_CODES.SALVAGED_QUOTE_CANDIDATE
+    ) transformClass = 'salvage-reconstruction';
+    else if (reasonCode === VISIBLE_REPLY_REASON_CODES.TAGGED_VISIBLE_REPLY) transformClass = 'tag-extract';
+    else if (cleanupApplied) transformClass = 'presentation-cleanup';
+    return {
+      class: transformClass,
+      scope: 'presentation-only',
+      semanticRepair: false,
+      materiality: reconstructedReply
+        ? 'reconstructed'
+        : (cleanupApplied
+          ? (materialChange ? 'material' : 'surface')
+          : 'none'),
+      idempotent: true,
+      expectedIdempotence: 'stable-once-cleaned',
+      operations: [...new Set(operations)],
+    };
+  }
+
+  function finalizeVisibleReplyDecision(raw = '', text = '', reasonCode = VISIBLE_REPLY_REASON_CODES.EMPTY_INPUT, {
+    usedReasoningFallback = false,
+  } = {}) {
+    const normalizedText = String(text || '').trim();
+    const reconstructedReply = usedReasoningFallback === true
+      || reasonCode === VISIBLE_REPLY_REASON_CODES.SALVAGED_DRAFT_CANDIDATE
+      || reasonCode === VISIBLE_REPLY_REASON_CODES.SALVAGED_QUOTE_CANDIDATE
+      || reasonCode === VISIBLE_REPLY_REASON_CODES.RAW_REASONING_FALLBACK;
+    const materialChange = reconstructedReply
+      || (
+        reasonCode !== VISIBLE_REPLY_REASON_CODES.EMPTY_INPUT
+        && normalizeVisibleReplyComparable(raw) !== normalizeVisibleReplyComparable(normalizedText)
+      );
+    const cleanupApplied = reconstructedReply
+      || (
+        reasonCode !== VISIBLE_REPLY_REASON_CODES.EMPTY_INPUT
+        && reasonCode !== VISIBLE_REPLY_REASON_CODES.TAGGED_VISIBLE_REPLY
+        && (materialChange || hasVisibleCleanupArtifacts(raw))
+      );
+    const usedFallback = usedReasoningFallback === true || reasonCode === VISIBLE_REPLY_REASON_CODES.RAW_REASONING_FALLBACK;
+    return {
+      text: normalizedText,
+      reasonCode,
+      cleanupApplied,
+      materialChange,
+      reconstructedReply,
+      usedReasoningFallback: usedFallback,
+      cleanupTransform: buildCleanupTransform(raw, reasonCode, {
+        cleanupApplied,
+        materialChange,
+        reconstructedReply,
+        usedReasoningFallback: usedFallback,
+      }),
+    };
   }
 
   function normalizeMetaLead(line = '') {
@@ -202,16 +336,12 @@ function createVisibleReplyApi({
     let t = stripThinkSpans(repairCommonMojibake(String(raw || '').trim()));
     t = t.replace(/^<\|channel\>\s*(?:thought|analysis)\s*/i, '').trim();
     if (!t) {
-      return {
-        text: '',
-        reasonCode: VISIBLE_REPLY_REASON_CODES.EMPTY_INPUT,
-      };
+      return finalizeVisibleReplyDecision(raw, '', VISIBLE_REPLY_REASON_CODES.EMPTY_INPUT);
     }
     if (ALLOW_RAW_REASONING_FALLBACK) {
-      return {
-        text: t,
-        reasonCode: VISIBLE_REPLY_REASON_CODES.RAW_REASONING_FALLBACK,
-      };
+      return finalizeVisibleReplyDecision(raw, t, VISIBLE_REPLY_REASON_CODES.RAW_REASONING_FALLBACK, {
+        usedReasoningFallback: true,
+      });
     }
     const tagged = extractTaggedVisibleReply(t);
     const sawTaggedVisibleReply = !!tagged;
@@ -247,10 +377,11 @@ function createVisibleReplyApi({
       if (!body) body = stripLeadingMetaLines(before);
       body = cleanDraftCandidate(body);
       const out = `${body}\n${moodTag}${afterMood ? `\n${afterMood}` : ''}`.trim();
-      return {
-        text: retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n')), lastMood[1] || ''),
+      return finalizeVisibleReplyDecision(
+        raw,
+        retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n')), lastMood[1] || ''),
         reasonCode,
-      };
+      );
     }
     const draftCandidates = collectDraftCandidates(t);
     const quoteCandidates = collectQuotedReplyCandidates(t);
@@ -272,10 +403,11 @@ function createVisibleReplyApi({
     }
     if (!out) out = stripLeadingMetaLines(t);
     out = cleanDraftCandidate(out);
-    return {
-      text: retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n'))),
+    return finalizeVisibleReplyDecision(
+      raw,
+      retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n'))),
       reasonCode,
-    };
+    );
   }
 
   function coercePennyVisibleReply(raw) {

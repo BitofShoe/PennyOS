@@ -135,3 +135,57 @@ test('LM Studio prompt builders respect latency-budget history and memory limits
   assert.ok(!toolSerialized.includes('m1-user'));
   assert.ok(!toolSerialized.includes('Quick voice examples:'));
 });
+
+test('LM Studio prompt builders drop conflicting recent transcript history for direct canon-authority questions', () => {
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const {
+    buildLmStudioPrompt,
+    buildLmStudioMessages,
+    buildLmStudioStatefulInput,
+  } = require('../server.js');
+
+  const messages = [
+    { role: 'user', content: 'Remember this exactly for later: my coding notebook stays on the right side of the keyboard.' },
+    { role: 'assistant', content: 'Right side. I have it.' },
+    { role: 'user', content: 'Tell me what you remember about my coding notebook.' },
+  ];
+  const memories = {
+    memories: [
+      { text: 'My coding notebook stays left of the keyboard', kind: 'personal', ts: Date.UTC(2026, 3, 17, 10, 0, 0) },
+    ],
+    lmStudioThread: {
+      id: 'thread-demo',
+      model: 'google/gemma-4-31b',
+    },
+  };
+
+  const prompt = buildLmStudioPrompt({
+    userText: 'Tell me what you remember about my coding notebook.',
+    messages,
+    memories,
+  });
+  const chatMessages = buildLmStudioMessages({
+    userText: 'Tell me what you remember about my coding notebook.',
+    messages,
+    memories,
+  });
+  const statefulInput = buildLmStudioStatefulInput({
+    userText: 'Tell me what you remember about my coding notebook.',
+    messages,
+    memories,
+    hasThread: true,
+  });
+
+  assert.match(prompt, /My coding notebook stays left of the keyboard/i);
+  assert.doesNotMatch(prompt, /right side of the keyboard/i);
+
+  const serializedMessages = JSON.stringify(chatMessages);
+  assert.match(serializedMessages, /My coding notebook stays left of the keyboard/i);
+  assert.doesNotMatch(serializedMessages, /Right side\. I have it\./i);
+  assert.doesNotMatch(serializedMessages, /right side of the keyboard/i);
+
+  assert.match(String(statefulInput), /My coding notebook stays left of the keyboard/i);
+  assert.match(prompt, /name the remembered thing instead of falling back to vague pronouns/i);
+  assert.equal(memories.lmStudioThread, null);
+});

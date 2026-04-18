@@ -1,6 +1,7 @@
 const {
   mergeMemoryItems,
   normalizeText,
+  isDirectMemoryAuthorityQuestion,
 } = require('./penny-memory');
 
 const CORRECTION_MARKERS = [
@@ -66,6 +67,7 @@ function createMemoryStateApi({
     const normalized = String(text).replace(/\s+/g, ' ').trim();
     const out = [];
     const timestamp = nowMs();
+    const explicitMemoryIntent = hasExplicitMemoryIntent(normalized);
     const propertyPatterns = [
       {
         pattern: /\bmy favorite ([a-z][a-z0-9' -]{1,40}?) is\b(.+)/i,
@@ -116,9 +118,11 @@ function createMemoryStateApi({
       const tail = normalizeText(match[1]).replace(/[.!?]+$/g, '');
       if (tail && tail.length >= 6 && tail.length <= 100) out.push({ text: `They tend to ${tail}`, kind: 'observation', ts: timestamp });
     }
-    if (/\b(remember|note this|don't forget)\b/i.test(normalized)) {
-      const cleaned = normalizeText(normalized.replace(/\b(remember|note this|don't forget|remember that|remember this)\b[:,]?/ig, ''));
-      if (cleaned && cleaned.length >= 4 && cleaned.length <= 200) out.push({ text: cleaned, kind: 'explicit', ts: timestamp });
+    if (explicitMemoryIntent && !isDirectMemoryAuthorityQuestion(normalized)) {
+      const cleaned = normalizeText(normalized.replace(/\b(remember this exactly|remember that|remember this|remember|note this|don't forget)\b[:,]?/ig, ''));
+      if (!matchedPropertyFact && cleaned && cleaned.length >= 4 && cleaned.length <= 200) {
+        out.push({ text: cleaned, kind: 'explicit', ts: timestamp });
+      }
     }
     return out;
   }
@@ -260,7 +264,7 @@ function createMemoryStateApi({
       ? [...messages].reverse().find((msg) => msg?.role === 'user' && String(msg.content || '').trim())?.content || ''
       : '';
     const provenance = buildCorrectionProvenance(runtimeMemory.memories, latestUserText);
-    const merged = mergeMemoryState(runtimeMemory, consolidated, { replaceMemories: false });
+    const merged = mergeMemoryState(runtimeMemory, consolidated, { replaceMemories: true });
     return {
       diskMemory,
       memory: merged,

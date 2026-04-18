@@ -24,11 +24,18 @@ const {
 
 test('coercePennyVisibleReply strips single-line draft scaffolding', () => {
   const raw = `*Draft:*\n    oh, right. you vanished like I'm not supposed to talk to you anymore? bold move, stranger.\n[MOOD:smug]`;
+  const decision = classifyVisibleReplyDecision(raw);
   assert.equal(
     coercePennyVisibleReply(raw),
     `oh, right. you vanished like I'm not supposed to talk to you anymore? bold move, stranger.\n[MOOD:smug]`,
   );
-  assert.equal(classifyVisibleReplyDecision(raw).reasonCode, VISIBLE_REPLY_REASON_CODES.CLEANUP_MOOD_TAGGED_REPLY);
+  assert.equal(decision.reasonCode, VISIBLE_REPLY_REASON_CODES.CLEANUP_MOOD_TAGGED_REPLY);
+  assert.equal(decision.cleanupApplied, true);
+  assert.equal(decision.materialChange, false);
+  assert.equal(decision.reconstructedReply, false);
+  assert.equal(decision.cleanupTransform.class, 'presentation-cleanup');
+  assert.equal(decision.cleanupTransform.materiality, 'surface');
+  assert.equal(decision.cleanupTransform.operations.includes('drop-meta-lines'), true);
 });
 
 test('coercePennyVisibleReply strips dangling channel-thought prefixes', () => {
@@ -49,11 +56,17 @@ test('coercePennyVisibleReply strips qwen polish-preface lines', () => {
 
 test('coercePennyVisibleReply salvages the last usable draft from thinking-process spills', () => {
   const raw = `Thinking Process:\n\n1. Analyze the Request:\n- user asked me to edit a file.\n\n*   *Draft 1:* Done. I put this in: "p.s. if you're late, I'm eating your damn pie. don't make me regret this." Now the file is four lines long. You better be on time.\n*   *Draft 2 (More Penny):* Look at that. I added a little threat to line three. Here it is: "p.s. if you're late, I'm eating your damn pie. don't make\n[MOOD:thinking]`;
+  const decision = classifyVisibleReplyDecision(raw);
   assert.equal(
     coercePennyVisibleReply(raw),
     `Done. I put this in: "p.s. if you're late, I'm eating your damn pie. don't make me regret this." Now the file is four lines long. You better be on time.\n[MOOD:thinking]`,
   );
-  assert.equal(classifyVisibleReplyDecision(raw).reasonCode, VISIBLE_REPLY_REASON_CODES.SALVAGED_DRAFT_CANDIDATE);
+  assert.equal(decision.reasonCode, VISIBLE_REPLY_REASON_CODES.SALVAGED_DRAFT_CANDIDATE);
+  assert.equal(decision.cleanupApplied, true);
+  assert.equal(decision.materialChange, true);
+  assert.equal(decision.reconstructedReply, true);
+  assert.equal(decision.cleanupTransform.class, 'salvage-reconstruction');
+  assert.equal(decision.cleanupTransform.operations.includes('salvage-draft-candidate'), true);
 });
 
 test('coercePennyVisibleReply can salvage quoted reply candidates from image-planning spill', () => {
@@ -87,6 +100,18 @@ test('classifyVisibleReplyDecision keeps tagged visible replies explicit', () =>
   const decision = classifyVisibleReplyDecision('<final>oh, fine. I see it.</final>');
   assert.equal(decision.text, 'oh, fine. I see it.\n[MOOD:calm]');
   assert.equal(decision.reasonCode, VISIBLE_REPLY_REASON_CODES.TAGGED_VISIBLE_REPLY);
+  assert.equal(decision.cleanupApplied, false);
+  assert.equal(decision.materialChange, false);
+  assert.equal(decision.reconstructedReply, false);
+});
+
+test('classifyVisibleReplyDecision treats plain direct replies as no meaningful cleanup', () => {
+  const decision = classifyVisibleReplyDecision('Visible reply only.\n[MOOD:smug]');
+  assert.equal(decision.text, 'Visible reply only.\n[MOOD:smug]');
+  assert.equal(decision.reasonCode, VISIBLE_REPLY_REASON_CODES.CLEANUP_MOOD_TAGGED_REPLY);
+  assert.equal(decision.cleanupApplied, false);
+  assert.equal(decision.materialChange, false);
+  assert.equal(decision.reconstructedReply, false);
 });
 
 test('textFromChatMessage keeps reasoning content out of the stored visible transcript', () => {

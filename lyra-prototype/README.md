@@ -37,7 +37,7 @@ Read these in order if you need the current truth:
   - a bounded research continuity ledger in `data/penny-memory-ledger.json`
   - the archive layer is additive and reviewable; it does not silently overwrite explicit facts
 - The archive layer can do bounded post-turn shadow vector prewarm for recent chat history, but only when explicitly enabled and only off the reply-latency path. It still shares the same process, embedding backend, and cache/store.
-- The backend memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, and bounded background-vectorization telemetry. The in-app panel surfaces a compact background-vectorization summary for day-to-day debugging.
+- The backend memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, bounded background-vectorization telemetry, compact prompt-slot composition, cleanup-transform class/materiality, approximate-path policy, and advisory-merge provenance summaries. The in-app panel surfaces these as compact debugging summaries instead of raw dumps.
 
 ## Project layout
 

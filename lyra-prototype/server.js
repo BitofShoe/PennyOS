@@ -6,10 +6,13 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { URL } = require('url');
+const { writeJsonFileAtomicSync } = require('./lib/penny-atomic-json');
 const {
   MEMORY_PROMPT_LIMIT,
   mergeMemoryItems,
   formatPromptMemories,
+  selectMemoriesForPrompt,
+  shouldPrioritizeCanonicalMemoryOverHistory,
 } = require('./lib/penny-memory');
 const {
   createMemoryStateApi,
@@ -331,7 +334,12 @@ function ensureMemoryStoreFile() {
       if (parsed && typeof parsed === 'object') initial = parsed;
     }
   } catch {}
-  fs.writeFileSync(MEMORY_FILE, JSON.stringify(initial, null, 2));
+  writeJsonFileAtomicSync({
+    fs,
+    path,
+    filePath: MEMORY_FILE,
+    value: initial,
+  });
 }
 function defaultMemoryRecord(sessionId = 'default') { return { sessionId, userName: '', memories: [], voiceOn: false, brainMode: 'local', lmStudioThread: null, lastRoute: null, updatedAt: new Date().toISOString() }; }
 function isLikelyTestSessionId(sessionId = '') { return /^(penny-durable-test|penny-controls-test|cmp-local-|smoke-shadow|ui-repro|style-pass-smoke|memory-pass-smoke|qa-|verify-)/i.test(String(sessionId)); }
@@ -368,7 +376,15 @@ const {
   normalizeBrainMode,
 });
 function readMemoryStore() { try { ensureMemoryStoreFile(); const raw = fs.readFileSync(MEMORY_FILE, 'utf8'); const parsed = JSON.parse(raw); return parsed && typeof parsed === 'object' ? parsed : defaultMemoryStore(); } catch { return defaultMemoryStore(); } }
-function writeMemoryStore(store) { ensureMemoryStoreFile(); fs.writeFileSync(MEMORY_FILE, JSON.stringify(store, null, 2)); }
+function writeMemoryStore(store) {
+  ensureMemoryStoreFile();
+  writeJsonFileAtomicSync({
+    fs,
+    path,
+    filePath: MEMORY_FILE,
+    value: store,
+  });
+}
 function getStoredMemory(sessionId = 'default') {
   const store = readMemoryStore();
   const record = store.sessions?.[sessionId];
@@ -441,16 +457,28 @@ async function buildRuntimeMemoryContext({
     retrieval,
     archiveContext: archive.archiveContext,
   });
+  const enrichedMemories = enrichMemoriesForPromptApi({
+    ...memories,
+    memoryBookContext: memoryBooks,
+  }, archive.archiveContext, {
+    epistemicCaution: epistemics,
+    archiveSynthesis: synthesis,
+    researchLedger,
+    researchLedgerPromptEnabled: PENNY_ENABLE_RESEARCH_LEDGER_PROMPT,
+  });
+  const promptComposition = buildPennyPromptContextBlocks({
+    memories: enrichedMemories,
+    userText,
+    lane,
+    mode: lane === 'shadow' ? 'shadow' : 'local',
+    attachmentType,
+    includeExamples: budget.includeExamples === true,
+    includeChatDirectives: true,
+    memoryLimit: budget.memoryPromptLimit,
+    fallbackMemory: '- Nothing stored yet.',
+  }).slotSummary;
   return {
-    memories: enrichMemoriesForPromptApi({
-      ...memories,
-      memoryBookContext: memoryBooks,
-    }, archive.archiveContext, {
-      epistemicCaution: epistemics,
-      archiveSynthesis: synthesis,
-      researchLedger,
-      researchLedgerPromptEnabled: PENNY_ENABLE_RESEARCH_LEDGER_PROMPT,
-    }),
+    memories: enrichedMemories,
     archiveContext: archive.archiveContext,
     memoryBooks,
     researchLedger,
@@ -459,6 +487,7 @@ async function buildRuntimeMemoryContext({
     semanticMemory: archive.semanticMemory,
     epistemics,
     synthesis,
+    promptComposition,
     latencyBudget: budget,
   };
 }
@@ -1175,6 +1204,7 @@ const {
   stripThinkSpans: stripThinkSpansApi,
   looksOnlyLikeCoT: looksOnlyLikeCoTApi,
   coercePennyVisibleReply: coercePennyVisibleReplyApi,
+  classifyVisibleReplyDecision: classifyVisibleReplyDecisionApi,
   collectLmStudioResponsesStrings: collectLmStudioResponsesStringsApi,
   extractPennyFromPlanningBlob: extractPennyFromPlanningBlobApi,
   extractPennyFromReasoning: extractPennyFromReasoningApi,
@@ -2103,13 +2133,18 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
   }
 }
 
-function buildLmStudioLeanSystemPrompt({ memories, latencyBudget = null }) {
+function buildLmStudioLeanSystemPrompt({ memories, userText = '', latencyBudget = null }) {
   const budget = latencyBudget && typeof latencyBudget === 'object'
     ? latencyBudget
     : resolveLatencyBudget({ lane: 'chat' });
+  const authorityOverride = shouldPrioritizeCanonicalMemoryOverHistory(
+    memories,
+    userText,
+    budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+  );
   const promptContext = buildPennyPromptContextBlocks({
     memories,
-    userText: '',
+    userText,
     lane: 'chat',
     mode: 'local',
     includeChatDirectives: true,
@@ -2133,6 +2168,7 @@ Never say "I remember you told me" or "since you mentioned" or "based on what I 
 Just know them the way a close person would. Let it color your responses without announcing it.
 If the wake state above contradicts the user's premise, correct the premise instead of smoothing it over.
 If the wake state marks archive hints as advisory or weak, treat them as hints instead of certainty.
+${authorityOverride ? 'If a direct memory question conflicts with older conversation details, treat the stable facts above as the truth source and treat the older conversation as stale. Answer the remembered fact plainly, and name the remembered thing instead of falling back to vague pronouns.\n' : ''}If a project, file, or tool claim has not been verified in this turn, say that plainly instead of bluffing.
 If a project, file, or tool claim has not been verified in this turn, say that plainly instead of bluffing.
 
 Output rules:
@@ -2305,19 +2341,49 @@ Stable facts outrank advisory hints. If the wake state is weak, contradictory, o
 
 End your reply with exactly one mood tag on its own line:
 [MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised] or [MOOD:flirty] or [MOOD:smug] or [MOOD:annoyed]
-Pick the mood that BEST matches the vibe of your reply. Use variety — rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange.`;
+Pick the mood that BEST matches the vibe of your reply. Use variety - rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange.`;
+}
+
+function shouldConstrainConversationHistoryForAuthority({
+  userText = '',
+  memories = {},
+  memoryLimit = MEMORY_PROMPT_LIMIT,
+} = {}) {
+  return shouldPrioritizeCanonicalMemoryOverHistory(memories, userText, memoryLimit);
+}
+
+function selectRecentConversationForPrompt({
+  messages = [],
+  userText = '',
+  memories = {},
+  recentHistoryCount = PENNY_CHAT_HISTORY_LIMIT,
+  memoryLimit = MEMORY_PROMPT_LIMIT,
+} = {}) {
+  if (shouldConstrainConversationHistoryForAuthority({
+    userText,
+    memories,
+    memoryLimit,
+  })) {
+    return [];
+  }
+  return (messages || []).slice(-(recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT));
 }
 
 function buildLmStudioPrompt({ userText, messages, memories, file, latencyBudget = null }) {
   const budget = latencyBudget && typeof latencyBudget === 'object'
     ? latencyBudget
     : resolveLatencyBudget({ userText, lane: 'chat', file });
-  const history = (messages || [])
-    .slice(-(budget.recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT))
+  const history = selectRecentConversationForPrompt({
+    messages,
+    userText,
+    memories,
+    recentHistoryCount: budget.recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT,
+    memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+  })
     .map(msg => `${msg.role === 'assistant' ? 'Penny' : 'User'}: ${String(msg.content || '').trim()}`)
     .join('\n');
   const latestInput = appendAttachmentContext(userText, file);
-  return `${buildLmStudioLeanSystemPrompt({ memories, latencyBudget: budget })}
+  return `${buildLmStudioLeanSystemPrompt({ memories, userText, latencyBudget: budget })}
 
 Recent conversation:
 ${history || '- none'}
@@ -2330,7 +2396,13 @@ function buildLmStudioMessages({ userText, messages, memories, image, file, late
   const budget = latencyBudget && typeof latencyBudget === 'object'
     ? latencyBudget
     : resolveLatencyBudget({ userText, lane: image || file ? 'tool' : 'chat', image, file });
-  const slice = (messages || []).slice(-(budget.recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT));
+  const slice = selectRecentConversationForPrompt({
+    messages,
+    userText,
+    memories,
+    recentHistoryCount: budget.recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT,
+    memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+  });
   let lastUserIdx = -1;
   for (let i = slice.length - 1; i >= 0; i--) {
     if (slice[i]?.role === 'user') {
@@ -2372,17 +2444,24 @@ function buildLmStudioMessages({ userText, messages, memories, image, file, late
     }
   }
   return [
-      { role: 'system', content: buildLmStudioLeanSystemPrompt({ memories, latencyBudget: budget }) },
+      { role: 'system', content: buildLmStudioLeanSystemPrompt({ memories, userText, latencyBudget: budget }) },
     ...recent,
   ];
 }
 
-function buildLmStudioStatefulSeedText({ userText, messages, file, latencyBudget = null }) {
+function buildLmStudioStatefulSeedText({ userText, messages, memories = {}, file, latencyBudget = null }) {
   const budget = latencyBudget && typeof latencyBudget === 'object'
     ? latencyBudget
     : resolveLatencyBudget({ userText, lane: file ? 'tool' : 'chat', file });
-  const prior = (messages || [])
-    .slice(-((budget.recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT) + 1), -1)
+  const priorSlice = selectRecentConversationForPrompt({
+    messages,
+    userText,
+    memories,
+    recentHistoryCount: (budget.recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT) + 1,
+    memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+  });
+  const prior = priorSlice
+    .slice(0, -1)
     .map((msg) => {
       const role = msg?.role === 'assistant' ? 'Penny' : 'User';
       const text = String(msg?.content || '').trim();
@@ -2399,6 +2478,14 @@ function buildLmStudioStatefulInput({ userText, messages, memories, image, file,
   const budget = latencyBudget && typeof latencyBudget === 'object'
     ? latencyBudget
     : resolveLatencyBudget({ userText, lane: image || file ? 'tool' : 'chat', image, file });
+  const authorityOverride = shouldConstrainConversationHistoryForAuthority({
+    userText,
+    memories,
+    memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+  });
+  if (authorityOverride) {
+    clearLmStudioThread(memories);
+  }
   const latestInput = appendAttachmentContext(userText, file);
   const memoryBlock = hasThread
     ? formatPromptMemories(memories, userText, budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT, '')
@@ -2407,7 +2494,7 @@ function buildLmStudioStatefulInput({ userText, messages, memories, image, file,
     ? memoryBlock
       ? `Relevant memory for this reply:\n${memoryBlock}\n\nUser message:\n${latestInput}`.trim()
       : latestInput
-    : buildLmStudioStatefulSeedText({ userText: latestInput, messages, file: null, latencyBudget: budget });
+    : buildLmStudioStatefulSeedText({ userText: latestInput, messages, memories, file: null, latencyBudget: budget });
   if (!image) return text;
   return [
     { type: 'message', content: text },
@@ -2463,6 +2550,7 @@ const lmStudioTransportApi = createLmStudioTransportApi({
   extractPennyFromPlanningBlob: extractPennyFromPlanningBlobApi,
   extractPennyFromReasoning: extractPennyFromReasoningApi,
   coercePennyVisibleReply: coercePennyVisibleReplyApi,
+  classifyVisibleReplyDecision: classifyVisibleReplyDecisionApi,
   textFromChatMessage: textFromChatMessageApi,
   textValueFromField: textValueFromFieldApi,
   collectTextParts: collectTextPartsApi,
@@ -2511,6 +2599,26 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
       });
   const laneRuntime = createLaneRuntime(resolvedLaneSelection.localLane);
   laneRuntime.performance = { latencyClass: budget.latencyClass };
+  laneRuntime.canonicalFactsPresent = selectMemoriesForPrompt(
+    memories,
+    userText,
+    budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+  ).length > 0;
+  laneRuntime.canonicalOverrideActive = shouldConstrainConversationHistoryForAuthority({
+    userText,
+    memories,
+    memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+  });
+  if (
+    resolvedLaneSelection.localLane === 'chat'
+    && shouldConstrainConversationHistoryForAuthority({
+      userText,
+      memories,
+      memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+    })
+  ) {
+    clearLmStudioThread(memories);
+  }
   if (!image && resolvedLaneSelection.directIntent) {
       const result = await runLmStudioDirectToolAssist({
         userText: toolUserText,
@@ -2634,6 +2742,16 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
       });
   const laneRuntime = createLaneRuntime(resolvedLaneSelection.localLane);
   laneRuntime.performance = { latencyClass: budget.latencyClass };
+  laneRuntime.canonicalFactsPresent = selectMemoriesForPrompt(
+    memories,
+    userText,
+    budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+  ).length > 0;
+  laneRuntime.canonicalOverrideActive = shouldConstrainConversationHistoryForAuthority({
+    userText,
+    memories,
+    memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+  });
   if (!image && resolvedLaneSelection.directIntent) {
       const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, latencyBudget: budget, intent: resolvedLaneSelection.directIntent, onToolEvent: onEvent, abortSignal });
       if (result.skipSemanticRender) {

@@ -103,6 +103,36 @@ function mergePerformanceTracker(tracker = {}, extra = null) {
   return tracker;
 }
 
+function bindClientDisconnectAbort(req, res, controller) {
+  if (!controller || typeof controller.abort !== 'function') {
+    return {
+      isClosed: () => false,
+      cleanup: () => {},
+    };
+  }
+
+  let clientClosed = false;
+  const markClosed = () => {
+    clientClosed = true;
+    try {
+      controller.abort();
+    } catch {}
+  };
+
+  req?.on?.('aborted', markClosed);
+  req?.on?.('close', markClosed);
+  res?.on?.('close', markClosed);
+
+  return {
+    isClosed: () => clientClosed,
+    cleanup: () => {
+      req?.removeListener?.('aborted', markClosed);
+      req?.removeListener?.('close', markClosed);
+      res?.removeListener?.('close', markClosed);
+    },
+  };
+}
+
 function buildTurnReadiness({
   requestedMode = 'local',
   selectedLane = 'chat',
@@ -296,7 +326,12 @@ function createPennyRouteHandlers(deps = {}) {
     toolRecords = [],
     retrieval = null,
     archiveContext = null,
+    researchLedgerContext = null,
     matchedBooks = [],
+    cleanup = null,
+    cleanupTransform = null,
+    canonicalFactsPresent = false,
+    canonicalOverrideActive = false,
     repair = null,
     mood = '',
     shadowError = '',
@@ -307,6 +342,8 @@ function createPennyRouteHandlers(deps = {}) {
     synthesis = null,
     performance = null,
     readiness = null,
+    promptComposition = null,
+    latencyBudget = null,
     researchLedgerPromptInjected = false,
     researchLedgerUpdate = null,
   }) {
@@ -329,7 +366,12 @@ function createPennyRouteHandlers(deps = {}) {
         toolRecords,
         retrieval,
         archiveContext,
+        researchLedgerContext,
         matchedBooks,
+        cleanup,
+        cleanupTransform,
+        canonicalFactsPresent,
+        canonicalOverrideActive,
         repair,
         mood,
         shadowError,
@@ -340,6 +382,8 @@ function createPennyRouteHandlers(deps = {}) {
         synthesis,
         performance,
         readiness,
+        promptComposition,
+        latencyBudget,
         researchLedgerPromptInjected,
         researchLedgerUpdate,
       }),
@@ -636,6 +680,8 @@ function createPennyRouteHandlers(deps = {}) {
             matchedBooks,
             epistemics,
             synthesis,
+            promptComposition: runtimeMemoryContext.promptComposition,
+            latencyBudget: runtimeMemoryContext.latencyBudget,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
           });
@@ -657,6 +703,8 @@ function createPennyRouteHandlers(deps = {}) {
             artifact,
             epistemics,
             synthesis,
+            promptComposition: runtimeMemoryContext.promptComposition,
+            latencyBudget: runtimeMemoryContext.latencyBudget,
           });
           sendJson(res, 200, {
             ok: true,
@@ -706,6 +754,8 @@ function createPennyRouteHandlers(deps = {}) {
             matchedBooks,
             epistemics,
             synthesis,
+            promptComposition: runtimeMemoryContext.promptComposition,
+            latencyBudget: runtimeMemoryContext.latencyBudget,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
           });
@@ -726,6 +776,8 @@ function createPennyRouteHandlers(deps = {}) {
             artifact,
             epistemics,
             synthesis,
+            promptComposition: runtimeMemoryContext.promptComposition,
+            latencyBudget: runtimeMemoryContext.latencyBudget,
           });
           sendJson(res, 200, {
             ok: true,
@@ -775,6 +827,8 @@ function createPennyRouteHandlers(deps = {}) {
             shadowError: error.message,
             epistemics,
             synthesis,
+            promptComposition: runtimeMemoryContext.promptComposition,
+            latencyBudget: runtimeMemoryContext.latencyBudget,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
           });
@@ -797,6 +851,8 @@ function createPennyRouteHandlers(deps = {}) {
             artifact,
             epistemics,
             synthesis,
+            promptComposition: runtimeMemoryContext.promptComposition,
+            latencyBudget: runtimeMemoryContext.latencyBudget,
           });
           sendJson(res, 200, {
             ok: true,
@@ -949,12 +1005,16 @@ function createPennyRouteHandlers(deps = {}) {
       let toolsUsed = [];
       let toolRecords = [];
       let repair = null;
+      let cleanup = null;
+      let cleanupTransform = null;
       let localLane = 'chat';
       let requestedModel = '';
       let resolvedModel = '';
       let executionPath = requestedMode === 'shadow' ? 'shadow' : 'llm-chat';
       let laneFallback = false;
       let modelUsed = requestedMode === 'shadow';
+      let canonicalFactsPresent = false;
+      let canonicalOverrideActive = false;
       const semanticMemoryReady = runtimeMemoryContext.semanticMemory?.ready === true;
       const semanticMemoryMode = runtimeMemoryContext.semanticMemory?.mode || 'disabled';
 
@@ -965,12 +1025,7 @@ function createPennyRouteHandlers(deps = {}) {
         if (req.socket && typeof req.socket.setTimeout === 'function') req.socket.setTimeout(0);
         const keepAlive = startEventStreamKeepAlive(res);
         const clientAbortController = new AbortController();
-        let clientClosed = false;
-        const onClose = () => {
-          clientClosed = true;
-          clientAbortController.abort();
-        };
-        req.on('close', onClose);
+        const clientDisconnect = bindClientDisconnectAbort(req, res, clientAbortController);
 
         try {
           sendEventStream(res, 'status', { stage: 'accepted', label: 'link open' });
@@ -999,7 +1054,7 @@ function createPennyRouteHandlers(deps = {}) {
                   laneSelection,
                   latencyBudget: runtimeMemoryContext.latencyBudget,
                   onEvent: (evt) => {
-                    if (clientClosed) return;
+                    if (clientDisconnect.isClosed()) return;
                     if (evt?.type === 'message.delta') {
                       if (!firstTokenSeen) {
                         firstTokenSeen = true;
@@ -1022,6 +1077,8 @@ function createPennyRouteHandlers(deps = {}) {
             toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
             toolRecords = Array.isArray(result.toolRecords) ? result.toolRecords : [];
             repair = result.repair && typeof result.repair === 'object' ? result.repair : null;
+            cleanup = result.cleanup && typeof result.cleanup === 'object' ? result.cleanup : null;
+            cleanupTransform = result.cleanupTransform && typeof result.cleanupTransform === 'object' ? result.cleanupTransform : null;
             epistemics = result.epistemics || epistemics;
             synthesis = result.synthesis || synthesis;
             backend = toolsUsed.length ? 'local-lmstudio-tools' : 'local-lmstudio';
@@ -1031,6 +1088,8 @@ function createPennyRouteHandlers(deps = {}) {
             executionPath = result.executionPath || (localLane === 'tool' ? 'deterministic-tool' : 'llm-chat');
             laneFallback = result.laneFallback === true;
             modelUsed = result.modelUsed !== false;
+            canonicalFactsPresent = result.canonicalFactsPresent === true;
+            canonicalOverrideActive = result.canonicalOverrideActive === true;
             if (modelUsed) {
               recordMeasuredStage(performanceTracker, 'modelRoundTrip', modelRoundTripStartedAt, {
                 source: 'lmstudio-route',
@@ -1077,11 +1136,11 @@ function createPennyRouteHandlers(deps = {}) {
           }
 
           text = retagAssistantReply(text, extractReplyMoodTag(text) || sessionState.lastMood);
-          if (requestedMode === 'local' && image && !clientClosed) {
+          if (requestedMode === 'local' && image && !clientDisconnect.isClosed()) {
             sendEventStream(res, 'status', { stage: 'image.reply.ready', label: 'replying' });
             sendEventStream(res, 'message.delta', { content: text, text });
           }
-          if (requestedMode === 'shadow' && !clientClosed) {
+          if (requestedMode === 'shadow' && !clientDisconnect.isClosed()) {
             sendEventStream(res, 'message.delta', { content: text, text });
           }
 
@@ -1127,11 +1186,17 @@ function createPennyRouteHandlers(deps = {}) {
             archiveContext: runtimeMemoryContext.archiveContext,
             researchLedgerContext: ledgerState.researchLedgerContext,
             matchedBooks,
+            cleanup,
+            cleanupTransform,
+            canonicalFactsPresent,
+            canonicalOverrideActive,
             repair,
             epistemics,
             synthesis,
             performance,
             readiness,
+            promptComposition: runtimeMemoryContext.promptComposition,
+            latencyBudget: runtimeMemoryContext.latencyBudget,
             researchLedgerPromptInjected,
             researchLedgerUpdate: ledgerState.researchLedgerUpdate,
             shadowEnabled: OPENCLAW_ENABLED === true,
@@ -1158,6 +1223,10 @@ function createPennyRouteHandlers(deps = {}) {
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
             matchedBooks,
+            cleanup,
+            cleanupTransform,
+            canonicalFactsPresent,
+            canonicalOverrideActive,
             repair,
             mood: sessionState.lastMood,
             shadowError,
@@ -1167,6 +1236,8 @@ function createPennyRouteHandlers(deps = {}) {
             synthesis,
             performance,
             readiness,
+            promptComposition: runtimeMemoryContext.promptComposition,
+            latencyBudget: runtimeMemoryContext.latencyBudget,
             researchLedgerPromptInjected,
             researchLedgerUpdate: ledgerState.researchLedgerUpdate,
           });
@@ -1180,7 +1251,7 @@ function createPennyRouteHandlers(deps = {}) {
             provenance: turnProvenance,
             reviewCandidates: turnReviewCandidates,
           });
-          if (!clientClosed) {
+          if (!clientDisconnect.isClosed()) {
             sendEventStream(res, 'done', {
               text,
               memory: routedMemory,
@@ -1211,7 +1282,7 @@ function createPennyRouteHandlers(deps = {}) {
           res.end();
           return true;
         } catch (error) {
-          if (!clientClosed) {
+          if (!clientDisconnect.isClosed()) {
             sendEventStream(res, 'error', {
               error: requestedMode === 'local' ? 'Local LM Studio brain failed.' : 'Penny chat route failed.',
               detail: requestedMode === 'local'
@@ -1235,17 +1306,12 @@ function createPennyRouteHandlers(deps = {}) {
           return true;
         } finally {
           clearInterval(keepAlive);
-          req.removeListener('close', onClose);
+          clientDisconnect.cleanup();
         }
       }
 
       const clientAbortController = new AbortController();
-      let clientClosed = false;
-      const onClose = () => {
-        clientClosed = true;
-        clientAbortController.abort();
-      };
-      req.on('close', onClose);
+      const clientDisconnect = bindClientDisconnectAbort(req, res, clientAbortController);
       try {
         if (requestedMode === 'local') {
           try {
@@ -1261,11 +1327,13 @@ function createPennyRouteHandlers(deps = {}) {
               latencyBudget: runtimeMemoryContext.latencyBudget,
             });
             mergePerformanceTracker(performanceTracker, result?.performance);
-            if (clientClosed) return true;
+            if (clientDisconnect.isClosed()) return true;
             text = result.text;
             toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
             toolRecords = Array.isArray(result.toolRecords) ? result.toolRecords : [];
             repair = result.repair && typeof result.repair === 'object' ? result.repair : null;
+            cleanup = result.cleanup && typeof result.cleanup === 'object' ? result.cleanup : null;
+            cleanupTransform = result.cleanupTransform && typeof result.cleanupTransform === 'object' ? result.cleanupTransform : null;
             epistemics = result.epistemics || epistemics;
             synthesis = result.synthesis || synthesis;
             backend = toolsUsed.length ? 'local-lmstudio-tools' : 'local-lmstudio';
@@ -1275,6 +1343,8 @@ function createPennyRouteHandlers(deps = {}) {
             executionPath = result.executionPath || (localLane === 'tool' ? 'deterministic-tool' : 'llm-chat');
             laneFallback = result.laneFallback === true;
             modelUsed = result.modelUsed !== false;
+            canonicalFactsPresent = result.canonicalFactsPresent === true;
+            canonicalOverrideActive = result.canonicalOverrideActive === true;
             if (modelUsed) {
               recordMeasuredStage(performanceTracker, 'modelRoundTrip', modelRoundTripStartedAt, {
                 source: 'lmstudio-route',
@@ -1290,7 +1360,7 @@ function createPennyRouteHandlers(deps = {}) {
               });
             }
           } catch (error) {
-            if (clientClosed) return true;
+            if (clientDisconnect.isClosed()) return true;
             sendJson(res, 503, {
               error: 'Local LM Studio brain failed.',
               detail: describeLocalBrainFailure(error, { hasImage: !!image }),
@@ -1310,7 +1380,7 @@ function createPennyRouteHandlers(deps = {}) {
             return true;
           }
         } else if (!OPENCLAW_ENABLED) {
-          if (clientClosed) return true;
+          if (clientDisconnect.isClosed()) return true;
           sendJson(res, 503, {
             error: 'Shadow brain requested but not enabled on the server.',
             meta: {
@@ -1336,12 +1406,12 @@ function createPennyRouteHandlers(deps = {}) {
               transport: 'openclaw-shadow',
               note: 'Shadow runtime completed the turn.',
             });
-            if (clientClosed) return true;
+            if (clientDisconnect.isClosed()) return true;
             backend = 'openclaw-shadow';
             executionPath = 'shadow';
             modelUsed = true;
           } catch (error) {
-            if (clientClosed) return true;
+            if (clientDisconnect.isClosed()) return true;
             sendJson(res, 503, {
               error: 'Shadow brain failed, so the reply was blocked instead of silently degrading.',
               detail: error.message,
@@ -1357,7 +1427,7 @@ function createPennyRouteHandlers(deps = {}) {
           }
         }
       } finally {
-        req.removeListener('close', onClose);
+        clientDisconnect.cleanup();
       }
 
       text = retagAssistantReply(text, extractReplyMoodTag(text) || sessionState.lastMood);
@@ -1403,11 +1473,17 @@ function createPennyRouteHandlers(deps = {}) {
         archiveContext: runtimeMemoryContext.archiveContext,
         researchLedgerContext: ledgerState.researchLedgerContext,
         matchedBooks,
+        cleanup,
+        cleanupTransform,
+        canonicalFactsPresent,
+        canonicalOverrideActive,
         repair,
         epistemics,
         synthesis,
         performance,
         readiness,
+        promptComposition: runtimeMemoryContext.promptComposition,
+        latencyBudget: runtimeMemoryContext.latencyBudget,
         researchLedgerPromptInjected,
         researchLedgerUpdate: ledgerState.researchLedgerUpdate,
         shadowEnabled: OPENCLAW_ENABLED === true,
@@ -1435,6 +1511,10 @@ function createPennyRouteHandlers(deps = {}) {
         retrieval: runtimeMemoryContext.retrieval,
         archiveContext: runtimeMemoryContext.archiveContext,
         matchedBooks,
+        cleanup,
+        cleanupTransform,
+        canonicalFactsPresent,
+        canonicalOverrideActive,
         repair,
         mood: sessionState.lastMood,
         shadowError,
@@ -1444,6 +1524,8 @@ function createPennyRouteHandlers(deps = {}) {
         synthesis,
         performance,
         readiness,
+        promptComposition: runtimeMemoryContext.promptComposition,
+        latencyBudget: runtimeMemoryContext.latencyBudget,
         researchLedgerPromptInjected,
         researchLedgerUpdate: ledgerState.researchLedgerUpdate,
       });
@@ -1540,5 +1622,6 @@ function createPennyRouteHandlers(deps = {}) {
 }
 
 module.exports = {
+  bindClientDisconnectAbort,
   createPennyRouteHandlers,
 };

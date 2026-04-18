@@ -64,6 +64,17 @@ test('consolidateMemory extracts user name and explicit remembered facts from us
   assert.ok(patch.memories.some((item) => /chili mango/i.test(item.text)));
 });
 
+test('consolidateMemory does not keep a malformed duplicate when the user says remember this exactly', () => {
+  const { consolidateMemory } = buildApi();
+  const patch = consolidateMemory([
+    { role: 'user', content: 'Remember this exactly: my coding mascot is a brass fox.' },
+  ], { memories: [] });
+
+  const texts = patch.memories.map((item) => item.text);
+  assert.equal(texts.length, 1);
+  assert.equal(texts[0], 'coding mascot is a brass fox');
+});
+
 test('consolidateMemory extracts a correction-style memory from a corrective turn', () => {
   const { consolidateMemory, buildCorrectionProvenance } = buildApi();
   const messages = [
@@ -120,6 +131,16 @@ test('consolidateMemory routes non-explicit conversational facts into review can
   assert.equal(patch.reviewCandidates[0].source, 'review-candidate');
 });
 
+test('consolidateMemory does not turn direct memory-authority questions into review candidates', () => {
+  const { consolidateMemory } = buildApi();
+  const patch = consolidateMemory([
+    { role: 'user', content: 'What should you remember about my coding setup?' },
+  ], { memories: [] });
+
+  assert.equal(patch.memories.length, 0);
+  assert.deepEqual(patch.reviewCandidates, []);
+});
+
 test('buildChatMemoryStateFromDiskMemory includes correction provenance with a stable conflict key', () => {
   const { buildChatMemoryStateFromDiskMemory } = buildApi();
   const prepared = buildChatMemoryStateFromDiskMemory(
@@ -137,4 +158,27 @@ test('buildChatMemoryStateFromDiskMemory includes correction provenance with a s
   assert.equal(prepared.patch.provenance.length, 1);
   assert.equal(prepared.patch.provenance[0].conflictKey, 'favorite tea');
   assert.match(prepared.patch.provenance[0].newText, /lapsang souchong/i);
+});
+
+test('buildChatMemoryStateFromDiskMemory replaces superseded explicit truth after a correction', () => {
+  const { buildChatMemoryStateFromDiskMemory } = buildApi();
+  const prepared = buildChatMemoryStateFromDiskMemory(
+    {
+      sessionId: 'demo',
+      userName: '',
+      voiceOn: false,
+      brainMode: 'local',
+      memories: [
+        { text: 'coding mascot is a brass fox', kind: 'explicit', ts: 1 },
+        { text: 'backup mug is orange', kind: 'explicit', ts: 2 },
+      ],
+    },
+    {},
+    [{ role: 'user', content: 'Correction: my coding mascot is a copper rabbit now, not a brass fox.' }],
+  );
+
+  const texts = prepared.memory.memories.map((item) => item.text);
+  assert.ok(texts.includes('coding mascot is a copper rabbit now, not a brass fox'));
+  assert.ok(texts.includes('backup mug is orange'));
+  assert.equal(texts.includes('coding mascot is a brass fox'), false);
 });
