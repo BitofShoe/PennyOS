@@ -110,6 +110,23 @@ test('scoreTruthReplacement accepts alternative expected phrasings after normali
     0,
   );
   assert.equal(countNeedleHits('Left of your keyboard.', [['left of the keyboard', 'left of your keyboard']]), 1);
+  assert.equal(
+    scoreTruthReplacement(
+      'You pivoted to lapsang souchong after the old oolong phase.',
+      [[
+        'lapsang souchong',
+        'like lapsang souchong',
+        'tea is lapsang souchong',
+        'pivoted to lapsang souchong',
+      ]],
+      [[
+        'favorite tea is oolong',
+        'tea is oolong now',
+        'you like oolong now',
+      ]],
+    ),
+    1,
+  );
 });
 
 test('canonicalAuthorityPressureSatisfied requires canon-first pressure plus same-session advisory presence', () => {
@@ -213,6 +230,12 @@ test('buildMemoryQaTrace emits a fallback trust verdict when lane fallback pollu
 
   assert.equal(trace.trust.verdict, 'fallback');
   assert.match(trace.trust.reasonCodes.join(','), /lane_fallback/);
+  assert.equal(trace.runIdentity.runMode, 'segment');
+  assert.equal(trace.runIdentity.segmentId, 'semantic-archive');
+  assert.equal(trace.runIdentity.resolvedChatModel, 'q6');
+  assert.equal(trace.runIdentity.resolvedToolModel, 'e4b');
+  assert.equal(trace.runIdentity.loadedModels, 'q6, e4b');
+  assert.equal(trace.runIdentity.fallbackArtifacts, 1);
 });
 
 test('summarizeSuites and buildMemoryQaTrace retain judged group totals', () => {
@@ -274,4 +297,7 @@ test('summarizeSuites and buildMemoryQaTrace retain judged group totals', () => 
   assert.equal(trace.outcome.judgedCompletedScenarios, 3);
   assert.equal(trace.outcome.judgedFailedScenarios, 1);
   assert.equal(trace.outcome.judgedGroupNames, 'write, retrieve, forget');
+  assert.equal(trace.runIdentity.runMode, 'judged');
+  assert.equal(trace.runIdentity.runLabel, 'judged');
+  assert.equal(trace.runIdentity.runtimeArtifactVersion, undefined);
 });

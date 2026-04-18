@@ -586,10 +586,15 @@ function renderResearchLedger(ledger = {}, escapeHtmlFn = escapeHtml) {
     const followUp = Array.isArray(item?.openFollowUps) && item.openFollowUps.length ? item.openFollowUps[0] : '';
     const detail = item?.summary || item?.conclusion || item?.question || '';
     const evidenceSummary = summarizeEvidenceRefs(item?.evidenceRefs);
+    const summaryEvidenceSummary = summarizeEvidenceRefs(item?.summaryEvidenceRefs);
     const identitySummary = [
       identity.kind ? `kind ${identity.kind}` : '',
       identity.anchorRef ? `${identity.anchorType || 'anchor'}: ${identity.anchorRef}` : '',
       identity.scopeLabel ? `scope ${identity.scopeLabel}` : '',
+    ].filter(Boolean).join(' Â· ');
+    const truthSummary = [
+      item?.sourceClass ? `source ${item.sourceClass}` : '',
+      item?.summaryClass ? `summary ${item.summaryClass}` : '',
     ].filter(Boolean).join(' Â· ');
     const sourceSummary = [
       Array.isArray(item?.sourceSessionIds) && item.sourceSessionIds.length ? `sessions ${item.sourceSessionIds.join(', ')}` : '',
@@ -605,7 +610,9 @@ function renderResearchLedger(ledger = {}, escapeHtmlFn = escapeHtml) {
           <small>${escapeHtmlFn(`${item?.status || 'advisory'}${evidenceCount ? ` · evidence ${evidenceCount}` : ''}${followUp ? ` · ${followUp}` : ''}`)}</small>
           ${detail ? `<small>${escapeHtmlFn(detail)}</small>` : ''}
           ${identitySummary ? `<small>${escapeHtmlFn(identitySummary)}</small>` : ''}
+          ${truthSummary ? `<small>${escapeHtmlFn(truthSummary)}</small>` : ''}
           ${evidenceSummary ? `<small>${escapeHtmlFn(`Evidence refs: ${evidenceSummary}`)}</small>` : ''}
+          ${summaryEvidenceSummary ? `<small>${escapeHtmlFn(`Summary refs: ${summaryEvidenceSummary}`)}</small>` : ''}
           ${sourceSummary ? `<small>${escapeHtmlFn(`Source trail: ${sourceSummary}`)}</small>` : ''}
         </div>
       </div>

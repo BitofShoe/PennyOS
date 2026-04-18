@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
 const { writeJsonFileAtomicSync } = require('./penny-atomic-json');
 
-const LEDGER_SCHEMA_VERSION = 2;
+const LEDGER_SCHEMA_VERSION = 3;
 const LEDGER_PROMPT_TOPIC_LIMIT = 2;
 const LEDGER_INSPECTOR_TOPIC_LIMIT = 8;
 const LEDGER_EVIDENCE_LIMIT = 6;
@@ -125,6 +125,16 @@ const LEDGER_IDENTITY_KINDS = new Set([
   'anchored-question',
   'contradiction',
 ]);
+const LEDGER_SOURCE_CLASSES = new Set([
+  'verified-evidence',
+  'question-followup',
+  'contradiction',
+]);
+const LEDGER_SUMMARY_CLASSES = new Set([
+  'evidence-tight',
+  'question-carryover',
+  'contradiction-provenance',
+]);
 
 function stableIdentityHash(value = '') {
   return crypto.createHash('sha1').update(String(value || ''), 'utf8').digest('hex').slice(0, 10);
@@ -217,6 +227,160 @@ function normalizeAnchorType(value = '', fallback = 'query') {
   const text = String(value || '').trim();
   if (['project-path', 'web-url', 'query', 'contradiction'].includes(text)) return text;
   return fallback;
+}
+
+function normalizeLedgerSourceClass(value = '', fallback = 'question-followup') {
+  const text = String(value || '').trim();
+  if (LEDGER_SOURCE_CLASSES.has(text)) return text;
+  return fallback;
+}
+
+function normalizeLedgerSummaryClass(value = '', fallback = 'question-carryover') {
+  const text = String(value || '').trim();
+  if (LEDGER_SUMMARY_CLASSES.has(text)) return text;
+  return fallback;
+}
+
+function normalizeSummaryEvidenceRefs(values = [], limit = 3) {
+  return (Array.isArray(values) ? values : [])
+    .map(normalizeEvidenceRef)
+    .filter(Boolean)
+    .slice(0, Math.max(1, Number(limit || 0) || 3));
+}
+
+function verifiedEvidenceRefs(evidenceRefs = []) {
+  return (Array.isArray(evidenceRefs) ? evidenceRefs : [])
+    .map(normalizeEvidenceRef)
+    .filter(Boolean)
+    .filter((item) => String(item?.status || '').trim().toLowerCase() === 'verified')
+    .filter((item) => String(item?.type || '').trim().toLowerCase() !== 'query');
+}
+
+function buildContradictionSummary(contradictions = []) {
+  const items = (Array.isArray(contradictions) ? contradictions : [])
+    .map(normalizeContradiction)
+    .filter(Boolean);
+  const latest = items.length ? items[items.length - 1] : null;
+  if (!latest) return '';
+  const newText = trimText(latest.newText || '', 220);
+  const oldText = trimText(latest.oldText || '', 220);
+  const conflictKey = trimText(latest.conflictKey || '', 120);
+  if (newText && oldText) return trimText(`correction: ${newText} (replaces: ${oldText})`, 320);
+  if (newText) return trimText(`correction: ${newText}`, 320);
+  if (oldText) return trimText(`correction replaces: ${oldText}`, 320);
+  if (conflictKey) return trimText(`correction tracked for ${conflictKey}`, 320);
+  return '';
+}
+
+function buildEvidenceTightSummary(evidenceRefs = []) {
+  const verified = verifiedEvidenceRefs(evidenceRefs).slice().reverse();
+  for (const item of verified) {
+    const ref = trimText(item.ref || '', 140);
+    const label = trimText(item.label || '', 140);
+    const note = trimText(item.note || '', 220);
+    if (note && ref) {
+      return {
+        conclusion: trimText(`verified in ${ref}: ${note}`, 320),
+        summaryEvidenceRefs: [item],
+      };
+    }
+    if (note && label) {
+      return {
+        conclusion: trimText(`verified via ${label}: ${note}`, 320),
+        summaryEvidenceRefs: [item],
+      };
+    }
+    if (note) {
+      return {
+        conclusion: trimText(`verified evidence: ${note}`, 320),
+        summaryEvidenceRefs: [item],
+      };
+    }
+    if (ref && label && ref.toLowerCase() !== label.toLowerCase()) {
+      return {
+        conclusion: trimText(`verified via ${label} (${ref})`, 320),
+        summaryEvidenceRefs: [item],
+      };
+    }
+    if (ref) {
+      return {
+        conclusion: trimText(`verified in ${ref}`, 320),
+        summaryEvidenceRefs: [item],
+      };
+    }
+  }
+  return {
+    conclusion: '',
+    summaryEvidenceRefs: [],
+  };
+}
+
+function deriveLedgerTruthSummary({
+  raw = null,
+  evidenceRefs = [],
+  contradictions = [],
+} = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const normalizedContradictions = (Array.isArray(contradictions) ? contradictions : [])
+    .map(normalizeContradiction)
+    .filter(Boolean);
+  if (normalizedContradictions.length) {
+    return {
+      sourceClass: 'contradiction',
+      summaryClass: 'contradiction-provenance',
+      summaryEvidenceRefs: [],
+      conclusion: buildContradictionSummary(normalizedContradictions),
+    };
+  }
+  const evidenceTight = buildEvidenceTightSummary(evidenceRefs);
+  if (evidenceTight.conclusion) {
+    return {
+      sourceClass: 'verified-evidence',
+      summaryClass: 'evidence-tight',
+      summaryEvidenceRefs: normalizeSummaryEvidenceRefs(evidenceTight.summaryEvidenceRefs, 3),
+      conclusion: evidenceTight.conclusion,
+    };
+  }
+  if (verifiedEvidenceRefs(evidenceRefs).length) {
+    return {
+      sourceClass: 'verified-evidence',
+      summaryClass: 'question-carryover',
+      summaryEvidenceRefs: [],
+      conclusion: '',
+    };
+  }
+  const preservedSummaryClass = normalizeLedgerSummaryClass(value.summaryClass, '');
+  const preservedSourceClass = normalizeLedgerSourceClass(value.sourceClass, '');
+  const preservedSummaryEvidenceRefs = normalizeSummaryEvidenceRefs(value.summaryEvidenceRefs, 3);
+  const preservedConclusion = trimText(value.conclusion || '', 320);
+  if (preservedSummaryClass === 'evidence-tight' && preservedConclusion && preservedSummaryEvidenceRefs.length) {
+    return {
+      sourceClass: preservedSourceClass || 'verified-evidence',
+      summaryClass: 'evidence-tight',
+      summaryEvidenceRefs: preservedSummaryEvidenceRefs,
+      conclusion: preservedConclusion,
+    };
+  }
+  return {
+    sourceClass: 'question-followup',
+    summaryClass: 'question-carryover',
+    summaryEvidenceRefs: [],
+    conclusion: '',
+  };
+}
+
+function determineLedgerStatus({
+  evidenceRefs = [],
+  contradictions = [],
+  openFollowUps = [],
+  summaryClass = '',
+} = {}) {
+  if (openFollowUps.length) return 'open';
+  if (contradictions.length) return 'provisional';
+  if (!verifiedEvidenceRefs(evidenceRefs).length) return 'provisional';
+  return normalizeLedgerSummaryClass(summaryClass, '') === 'evidence-tight'
+    ? 'settled'
+    : 'provisional';
 }
 
 function buildScopeTokens(userText = '', anchorTokens = []) {
@@ -335,7 +499,7 @@ function buildLedgerTopicId(identity = {}) {
   if (String(identity?.scopeKey || '').trim().toLowerCase() === 'general') {
     return `${prefix}-${anchorSlug}`;
   }
-  const scopeSlug = slugify(identity?.scopeLabel || identity?.scopeKey || 'scope', 'scope').slice(0, 42);
+  const scopeSlug = slugify(identity?.scopeKey || identity?.scopeLabel || 'scope', 'scope').slice(0, 42);
   const scopeHash = stableIdentityHash([
     identity?.kind || '',
     identity?.anchorType || '',
@@ -409,8 +573,10 @@ function normalizeLedgerEntry(raw = {}) {
     .map(normalizeContradiction)
     .filter(Boolean)
     .slice(0, LEDGER_CONTRADICTION_LIMIT);
+  const question = trimText(raw.question || '', 260);
+  const openFollowUps = appendUniqueStrings([], raw.openFollowUps || [], LEDGER_FOLLOW_UP_LIMIT);
   const identity = buildLedgerIdentity({
-    userText: trimText(raw.question || '', 260),
+    userText: question,
     topicId: trimText(raw.topicId || '', 140),
     topicLabel: trimText(raw.topicLabel || '', 180),
     evidenceRefs,
@@ -420,18 +586,29 @@ function normalizeLedgerEntry(raw = {}) {
   const topicId = buildLedgerTopicId(identity);
   const topicLabel = trimText(raw.topicLabel || buildLedgerTopicLabel(identity), 180) || buildLedgerTopicLabel(identity);
   if (!topicId || !topicLabel) return null;
-  const status = ['open', 'provisional', 'settled'].includes(String(raw.status || '').trim())
-    ? String(raw.status || '').trim()
-    : 'provisional';
+  const truthSummary = deriveLedgerTruthSummary({
+    raw,
+    evidenceRefs,
+    contradictions,
+  });
+  const status = determineLedgerStatus({
+    evidenceRefs,
+    contradictions,
+    openFollowUps,
+    summaryClass: truthSummary.summaryClass,
+  });
   return {
     topicId,
     topicLabel,
     identity,
-    question: trimText(raw.question || '', 260),
+    question,
     status,
-    conclusion: trimText(raw.conclusion || '', 320),
+    sourceClass: truthSummary.sourceClass,
+    summaryClass: truthSummary.summaryClass,
+    summaryEvidenceRefs: truthSummary.summaryEvidenceRefs,
+    conclusion: truthSummary.conclusion,
     evidenceRefs,
-    openFollowUps: appendUniqueStrings([], raw.openFollowUps || [], LEDGER_FOLLOW_UP_LIMIT),
+    openFollowUps,
     contradictions,
     lastTouchedAt: trimIso(raw.lastTouchedAt, ''),
     sourceSessionIds: appendUniqueStrings([], raw.sourceSessionIds || [], LEDGER_SESSION_ID_LIMIT),
@@ -554,11 +731,8 @@ function createResearchLedgerApi({
     return appendUniqueStrings([], followUps, LEDGER_FOLLOW_UP_LIMIT);
   }
 
-  function determineStatus({ evidenceRefs = [], contradictions = [], openFollowUps = [] } = {}) {
-    if (openFollowUps.length) return 'open';
-    if (contradictions.length) return 'provisional';
-    if (evidenceRefs.some((item) => item?.type === 'query')) return 'provisional';
-    return evidenceRefs.length ? 'settled' : 'provisional';
+  function determineStatus(options = {}) {
+    return determineLedgerStatus(options);
   }
 
   function topicScore(topic = {}, sessionId = 'default', queryTokens = new Set()) {
@@ -583,7 +757,7 @@ function createResearchLedgerApi({
     if (topic.status === 'open' && followUp) {
       return `open follow-up - ${followUp}`;
     }
-    if (topic.conclusion) {
+    if (topic.summaryClass === 'evidence-tight' && topic.conclusion) {
       return topic.conclusion;
     }
     if (topic.question) {
@@ -634,6 +808,9 @@ function createResearchLedgerApi({
         topicLabel: topic.topicLabel,
         identity: topic.identity,
         status: topic.status,
+        sourceClass: topic.sourceClass,
+        summaryClass: topic.summaryClass,
+        summaryEvidenceRefs: normalizeSummaryEvidenceRefs(topic.summaryEvidenceRefs, 3),
         summary: summarizeTopicForPrompt(topic),
         openFollowUps: appendUniqueStrings([], topic.openFollowUps || [], 2),
         contradictions: (topic.contradictions || []).map(normalizeContradiction).filter(Boolean).slice(0, 2),
@@ -726,7 +903,6 @@ function createResearchLedgerApi({
         contradictions: mergedContradictions,
         openFollowUps: mergedOpenFollowUps,
       }),
-      conclusion: cleanAssistantText || existing?.conclusion || '',
       evidenceRefs: [
         ...(existing?.evidenceRefs || []),
         ...evidenceRefs,

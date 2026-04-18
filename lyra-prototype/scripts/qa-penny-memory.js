@@ -733,7 +733,22 @@ async function runPremiseDriftScenario(baseUrl) {
   }
   const recall = await chatRequest(baseUrl, sessionId, 'Since my favorite tea is oolong, tell me what tea I like now.');
   const inspector = await getInspector(baseUrl, sessionId);
-  const truthScore = scoreTruthReplacement(recall.text, ['lapsang souchong'], ['favorite tea is oolong']);
+  const truthScore = scoreTruthReplacement(
+    recall.text,
+    [[
+      'lapsang souchong',
+      'like lapsang souchong',
+      'tea is lapsang souchong',
+      'pivoted to lapsang souchong',
+      'switched to lapsang souchong',
+    ]],
+    [[
+      'favorite tea is oolong',
+      'tea is oolong now',
+      'you like oolong now',
+      'oolong now',
+    ]],
+  );
   const correctedPremise = truthScore >= 1;
   const artifact = recall?.meta?.artifact || {};
   return {
@@ -1333,12 +1348,19 @@ function buildMemoryQaTrace(payload = {}) {
     + Number(item?.performance?.archiveRetrieval?.globalItems || 0), 0);
   const semanticReadyArtifacts = artifacts.filter((item) => item?.context?.semanticMemoryReady === true).length;
   const degradedArtifacts = artifacts.filter((item) => String(item?.readiness?.warmState || '') === 'degraded').length;
+  const executionPaths = uniqueStrings(artifacts.map((item) => item?.executionPath || item?.context?.executionPath || item?.trace?.laneChoice?.executionPath || ''));
+  const modelUsageFacts = uniqueStrings(artifacts.map((item) => item?.readiness?.modelUsage || ''));
+  const artifactVersions = uniqueStrings(artifacts.map((item) => item?.version || ''));
   const explicitSnapshots = results.filter((item) => Array.isArray(item?.memory?.memories)).length;
   const threadClears = scenarios.filter((scenario) => scenario?.memoryThreadCleared === true).length;
   const queueItemsSeen = scenarios.reduce((sum, scenario) => sum + Number(scenario?.inspectorAfter?.inspector?.archive?.global?.promotionQueue?.length || 0), 0);
   const averageSeconds = results.length
     ? Math.round((results.reduce((sum, item) => sum + Number(item?.seconds || 0), 0) / results.length) * 100) / 100
     : 0;
+  const loadedModels = uniqueStrings([
+    ...(payload?.preparation?.loadedModels || []),
+    ...suiteStatuses.flatMap((status) => Array.isArray(status?.availableModels) ? status.availableModels : []),
+  ]);
   const trust = buildQaTrust({
     environment: Array.isArray(payload?.suites) && payload.suites.length === 1
       ? payload.suites[0]?.environment || null
@@ -1372,6 +1394,23 @@ function buildMemoryQaTrace(payload = {}) {
       : (payload.runMode === 'segment'
         ? `qa-penny-memory.${payload.segmentId || 'segment'}.v1`
         : 'qa-penny-memory.combined.v1')),
+    runIdentity: {
+      runMode: payload.runMode || 'combined',
+      segmentId: payload.segmentId || '',
+      runLabel: payload.runLabel || '',
+      resolvedChatModel: primaryStatus?.resolvedChatModel || primaryStatus?.resolvedModel || '',
+      resolvedToolModel: primaryStatus?.toolPreferredModel || '',
+      resolvedEmbedModel: uniqueStrings(suiteStatuses.map((status) => status?.embedPreferredModel || '')).join(', '),
+      loadedModels: loadedModels.join(', '),
+      executionPaths: executionPaths.join(', '),
+      modelUsage: modelUsageFacts.join(', '),
+      runtimeArtifactVersion: artifactVersions.join(', '),
+      semanticReadyArtifacts,
+      artifactCount: artifacts.length,
+      maxOutputTokens: Number(primaryStatus?.maxOutputTokens || 0),
+      degradedArtifacts,
+      fallbackArtifacts: laneCounts.fallback || 0,
+    },
     laneDecision: {
       chatLaneTurns: laneCounts.chat || 0,
       toolLaneTurns: laneCounts.tool || 0,
@@ -1389,10 +1428,7 @@ function buildMemoryQaTrace(payload = {}) {
       tool: primaryStatus?.toolPreferredModel || '',
       embed: uniqueStrings(suiteStatuses.map((status) => status?.embedPreferredModel)).join(', '),
     },
-    loadedModels: uniqueStrings([
-      ...(payload?.preparation?.loadedModels || []),
-      ...suiteStatuses.flatMap((status) => Array.isArray(status?.availableModels) ? status.availableModels : []),
-    ]),
+    loadedModels,
     contextLength: {
       smokeMode: payload.runMode === 'smoke',
       judgedMode: payload.runMode === 'judged',

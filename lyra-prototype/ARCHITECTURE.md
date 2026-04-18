@@ -162,7 +162,7 @@ Hybrid archive overlay:
   - embedding cache used for semantic archive retrieval when a local embed model is available
   - bounded background-vectorization status for default-on post-turn shadow prewarm work that can still be disabled by env
 - `data/penny-memory-ledger.json`
-  - bounded research continuity topics with evidence refs, contradictions, open follow-ups, source session/turn identity, and additive question-scoped identity (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`)
+  - bounded research continuity topics with evidence refs, contradictions, open follow-ups, source session/turn identity, additive question-scoped identity (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`), and truth metadata (`sourceClass`, `summaryClass`, `summaryEvidenceRefs`)
   - advisory only; this does not mutate canonical explicit memory by itself
 
 Current archive-policy behavior:
@@ -246,8 +246,10 @@ Penny now has an explicit research continuity layer in `lib/penny-research-ledge
 
 - qualifying tool/research turns can update a bounded advisory ledger
 - topic identity is now question-scoped, so one file or repo anchor can hold multiple bounded topics without collapsing into one ledger row
+- settled non-contradiction topics require verified non-`query` evidence plus an evidence-tight summary; otherwise the topic stays provisional and the durable `conclusion` stays empty
+- raw assistant synthesis is not persisted as a durable anchored-topic conclusion; prompt context falls back through open follow-up, evidence-tight conclusion, question, then topic label
 - prompt assembly can surface a small number of open/provisional topics as wake context, preferring direct anchor-plus-scope overlap over adjacent same-file topics
-- the memory inspector can render those topics with evidence refs plus the additive anchor/scope identity summary
+- the memory inspector can render those topics with evidence refs, summary-evidence refs, truth/source class, and the additive anchor/scope identity summary
 
 The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
 
@@ -261,6 +263,7 @@ The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
 - explicit approximate-path policy metadata from the latency budget and runtime fallback state
 - advisory-merge summaries that distinguish lossy merge pressure from canonical memory authority
 - a bounded session `recentAuditTrail` that freezes compact prompt-time/runtime-turn truth before post-turn ledger mutation and keeps `lastRetrieval` summary fields aligned with the newest slice
+- headline summary text and wake-hierarchy prose derived from rendered `promptTruth`, so zero-rendered advisory channels are described as held back or not rendered instead of sounding like silent support
 
 Important receipt rule:
 
@@ -268,6 +271,7 @@ Important receipt rule:
 - `researchLedgerPromptInjected` now means the ledger was actually rendered into the prompt
 - post-reply ledger mutation stays in `researchLedgerUpdate` instead of being backfilled into prompt-use receipts
 - direct canon-authority questions share one detector across latency policy, prompt/history suppression, and memory-state writes
+- that detector now covers broader personal recall shapes such as preference, attribute, and location questions, but it is still gated by question phrasing, possessive framing, and explicit-memory overlap so repo questions do not bleed into canon recall
 
 This is meant to improve auditability, not to create a new autonomous memory system.
 
@@ -286,13 +290,13 @@ This is useful, but it is also a latency multiplier and should be used selective
 The QA/eval harnesses now share three small helper layers:
 
 - `lib/penny-qa-trace.js`
-  - normalized replayable trace envelopes for QA/eval runs
+  - normalized replayable trace envelopes for QA/eval runs, including a compact `runIdentity` canary for resolved models, loaded models, execution-path facts, semantic readiness, runtime-artifact version, and degraded/fallback counters
 - `lib/penny-qa-validity.js`
   - environment/readiness validation so harnesses can mark runs invalid or degraded for machine reasons instead of blaming Penny
 - `lib/penny-qa-trust.js`
   - normalized trust/verdict summaries such as `pass`, `invalid`, `ambiguous`, `fallback`, and `degraded`
 - `scripts/qa-penny-memory.js`
-  - combined segmented memory QA plus a judged `write / retrieve / forget` mode
+  - combined segmented memory QA plus a judged `write / retrieve / forget` mode, with semantic replacement grading for premise-correction cases so wording noise does not create fake regressions
 - `scripts/eval-penny-ledger-compare.js`
   - comparative ledger-prompt harness for bounded research/memory prompt strategies
 

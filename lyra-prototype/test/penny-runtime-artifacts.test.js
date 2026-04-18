@@ -364,4 +364,61 @@ test('buildRuntimeArtifact records cleanup and authority-pressure summaries sepa
   assert.equal(artifact.modelAdvisory.approximatePath.reasons.includes('semantic-query-held-back'), true);
   assert.equal(artifact.modelAdvisory.advisoryMerge.advisoryItems, 0);
   assert.equal(artifact.modelAdvisory.advisoryMerge.sameSessionItems, 0);
+  assert.equal(artifact.summary.text, 'Chat lane reply with advisory context held back canon-first.');
+  assert.match(artifact.trace.wakeHierarchy[1].detail, /selected but held back \(canon priority suppression\)/i);
+  assert.match(artifact.trace.wakeHierarchy[4].detail, /selected but held back \(canon priority suppression\)/i);
+  assert.equal(artifact.trace.ongoingInvestigations[0].status, 'held-back');
+});
+
+test('buildRuntimeArtifact does not claim additive archive support when no advisory context rendered', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'demo-session',
+    requestedMode: 'local',
+    selectedLane: 'chat',
+    backend: 'local-lmstudio',
+    executionPath: 'llm-chat',
+    promptTruth: {
+      canonicalFactsPresent: true,
+      canonicalOverrideActive: false,
+      channels: {
+        stableFacts: {
+          candidateCount: 1,
+          renderedCount: 1,
+          candidateSourceIds: ['memory:tea'],
+          renderedSourceIds: ['memory:tea'],
+        },
+        memoryBooks: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        sessionArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        globalArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        researchLedger: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+      },
+    },
+    readiness: {
+      chatModelReady: true,
+      toolModelReady: true,
+      embeddingReady: true,
+      fallbackActive: false,
+      modelUsage: 'used',
+      warmState: 'warm',
+      checkedAt: '2026-04-16T12:00:00.000Z',
+      cacheAgeMs: 0,
+      cacheExpiresAt: '',
+      cacheHit: false,
+    },
+    performance: {
+      latencyClass: 'casual-companion',
+      request: { available: true },
+      promptAssembly: { available: true },
+      archiveRetrieval: { available: true },
+      semanticRender: { available: false, attempted: false, used: false },
+      modelResolution: { available: true },
+      semanticProbe: { available: true },
+      firstToken: { available: true },
+      modelRoundTrip: { available: true, durationMs: 100, transport: 'local-lmstudio' },
+    },
+  });
+
+  assert.equal(artifact.summary.text, 'Chat lane reply without rendered advisory context.');
+  assert.equal(artifact.trace.wakeHierarchy[1].detail, 'No session archive hits were selected for this turn.');
+  assert.equal(artifact.trace.wakeHierarchy[4].detail, 'No ongoing investigation topics were active for this turn.');
 });

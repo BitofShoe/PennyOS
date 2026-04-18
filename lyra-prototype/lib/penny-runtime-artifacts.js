@@ -663,6 +663,18 @@ function promptTruthCandidateSourceIds(promptTruth = null, channel = '') {
   return uniqueStrings(promptTruthChannel(promptTruth, channel).candidateSourceIds || [], 12);
 }
 
+function promptTruthRenderedCount(promptTruth = null, channel = '') {
+  return Math.max(0, Number(promptTruthChannel(promptTruth, channel).renderedCount || 0));
+}
+
+function promptTruthCandidateCount(promptTruth = null, channel = '') {
+  return Math.max(0, Number(promptTruthChannel(promptTruth, channel).candidateCount || 0));
+}
+
+function promptTruthHeldBackReason(promptTruth = null, channel = '') {
+  return String(promptTruthChannel(promptTruth, channel).heldBackReason || '').trim();
+}
+
 function hasPromptTruthReceipt(promptTruth = null) {
   const normalized = normalizePromptTruth(promptTruth);
   if (normalized.canonicalFactsPresent === true || normalized.canonicalOverrideActive === true) return true;
@@ -673,6 +685,114 @@ function hasPromptTruthReceipt(promptTruth = null) {
     || (Array.isArray(channel?.renderedSourceIds) && channel.renderedSourceIds.length > 0)
     || !!String(channel?.heldBackReason || '').trim()
   ));
+}
+
+function formatCountLabel(count = 0, singular = 'item', plural = 'items') {
+  const safeCount = Math.max(0, Number(count || 0));
+  return `${safeCount} ${safeCount === 1 ? singular : plural}`;
+}
+
+function formatHeldBackReason(value = '') {
+  return trimText(String(value || '').replace(/[-_]+/g, ' '), 120);
+}
+
+function describePromptTruthLayer({
+  renderedCount = 0,
+  candidateCount = 0,
+  heldBackReason = '',
+  singular = 'item',
+  plural = 'items',
+  emptyText = 'No advisory context was selected for this turn.',
+} = {}) {
+  const safeRenderedCount = Math.max(0, Number(renderedCount || 0));
+  const safeCandidateCount = Math.max(0, Number(candidateCount || 0));
+  const reason = formatHeldBackReason(heldBackReason);
+  if (safeRenderedCount > 0) {
+    return {
+      detail: `${formatCountLabel(safeRenderedCount, singular, plural)} ${safeRenderedCount === 1 ? 'was' : 'were'} rendered into the prompt.`,
+      status: 'present',
+      count: safeRenderedCount,
+    };
+  }
+  if (safeCandidateCount > 0 && reason) {
+    return {
+      detail: `${formatCountLabel(safeCandidateCount, singular, plural)} ${safeCandidateCount === 1 ? 'was' : 'were'} selected but held back (${reason}).`,
+      status: 'held-back',
+      count: safeCandidateCount,
+    };
+  }
+  if (safeCandidateCount > 0) {
+    return {
+      detail: `${formatCountLabel(safeCandidateCount, singular, plural)} ${safeCandidateCount === 1 ? 'was' : 'were'} selected but not rendered into the prompt.`,
+      status: 'candidate-only',
+      count: safeCandidateCount,
+    };
+  }
+  return {
+    detail: emptyText,
+    status: 'empty',
+    count: 0,
+  };
+}
+
+function advisoryPromptTruthChannels() {
+  return ['memoryBooks', 'sessionArchive', 'globalArchive', 'researchLedger'];
+}
+
+function promptTruthAdvisoryRenderedCount(promptTruth = null) {
+  return advisoryPromptTruthChannels()
+    .reduce((sum, channel) => sum + promptTruthRenderedCount(promptTruth, channel), 0);
+}
+
+function promptTruthAdvisoryCandidateCount(promptTruth = null) {
+  return advisoryPromptTruthChannels()
+    .reduce((sum, channel) => sum + promptTruthCandidateCount(promptTruth, channel), 0);
+}
+
+function promptTruthHeldBackChannels(promptTruth = null) {
+  return advisoryPromptTruthChannels()
+    .map((channel) => ({
+      channel,
+      reason: promptTruthHeldBackReason(promptTruth, channel),
+      candidateCount: promptTruthCandidateCount(promptTruth, channel),
+      renderedCount: promptTruthRenderedCount(promptTruth, channel),
+    }))
+    .filter((item) => item.candidateCount > 0 && item.renderedCount === 0 && item.reason);
+}
+
+function buildLaneAdvisorySummaryText({
+  requestedMode = 'local',
+  selectedLane = 'chat',
+  executionPath = '',
+  readiness = null,
+  toolEvidenceCount = 0,
+  promptTruth = null,
+} = {}) {
+  if (toolEvidenceCount > 0) {
+    return `Tool lane reply with ${toolEvidenceCount} verified evidence item${toolEvidenceCount === 1 ? '' : 's'}.`;
+  }
+  if (executionPath === 'deterministic-tool' || readiness?.modelUsage === 'not-used') {
+    return 'Deterministic tool reply without model generation.';
+  }
+  const laneLabel = requestedMode === 'shadow'
+    ? 'Shadow lane'
+    : (selectedLane === 'tool' ? 'Tool lane' : 'Chat lane');
+  const renderedCount = promptTruthAdvisoryRenderedCount(promptTruth);
+  if (renderedCount > 0) {
+    return `${laneLabel} reply with ${renderedCount} rendered advisory context item${renderedCount === 1 ? '' : 's'}.`;
+  }
+  const heldBackChannels = promptTruthHeldBackChannels(promptTruth);
+  if (heldBackChannels.length) {
+    const canonOnly = heldBackChannels.every((item) => item.reason === 'canon-priority-suppression');
+    return canonOnly
+      ? `${laneLabel} reply with advisory context held back canon-first.`
+      : `${laneLabel} reply with advisory context held back by policy.`;
+  }
+  const candidateCount = promptTruthAdvisoryCandidateCount(promptTruth);
+  if (candidateCount > 0) {
+    return `${laneLabel} reply without rendered advisory context.`;
+  }
+  return `${laneLabel} reply without rendered advisory context.`;
 }
 
 function buildAuthorityPressure({
@@ -1063,6 +1183,7 @@ function buildRuntimeTraceState({
   retrieval = null,
   archiveContext = null,
   researchLedgerContext = null,
+  promptTruth = null,
 } = {}) {
   const toolEvidence = Array.isArray(toolState?.evidence) ? toolState.evidence : [];
   const activeContradictions = Array.isArray(archiveContext?.activeContradictions)
@@ -1070,7 +1191,34 @@ function buildRuntimeTraceState({
     : (Array.isArray(retrieval?.provenance) ? retrieval.provenance : []);
   const openQuestions = Array.isArray(archiveContext?.openLoops) ? archiveContext.openLoops : [];
   const ongoingInvestigations = Array.isArray(researchLedgerContext?.topics) ? researchLedgerContext.topics : [];
-  const sessionCount = Array.isArray(retrieval?.session) ? retrieval.session.length : 0;
+  const promptTruthAvailable = hasPromptTruthReceipt(promptTruth);
+  const sessionLayer = describePromptTruthLayer({
+    renderedCount: promptTruthAvailable
+      ? promptTruthRenderedCount(promptTruth, 'sessionArchive')
+      : (Array.isArray(retrieval?.session) ? retrieval.session.length : 0),
+    candidateCount: promptTruthAvailable
+      ? promptTruthCandidateCount(promptTruth, 'sessionArchive')
+      : (Array.isArray(retrieval?.session) ? retrieval.session.length : 0),
+    heldBackReason: promptTruthAvailable ? promptTruthHeldBackReason(promptTruth, 'sessionArchive') : '',
+    singular: 'session recall hit',
+    plural: 'session recall hits',
+    emptyText: 'No session archive hits were selected for this turn.',
+  });
+  const ledgerLayer = describePromptTruthLayer({
+    renderedCount: promptTruthAvailable
+      ? promptTruthRenderedCount(promptTruth, 'researchLedger')
+      : ongoingInvestigations.length,
+    candidateCount: promptTruthAvailable
+      ? promptTruthCandidateCount(promptTruth, 'researchLedger')
+      : ongoingInvestigations.length,
+    heldBackReason: promptTruthAvailable ? promptTruthHeldBackReason(promptTruth, 'researchLedger') : '',
+    singular: 'research continuity topic',
+    plural: 'research continuity topics',
+    emptyText: 'No ongoing investigation topics were active for this turn.',
+  });
+  const renderedLedgerIds = new Set(promptTruthRenderedSourceIds(promptTruth, 'researchLedger'));
+  const candidateLedgerIds = new Set(promptTruthCandidateSourceIds(promptTruth, 'researchLedger'));
+  const ledgerHoldBackReason = promptTruthHeldBackReason(promptTruth, 'researchLedger');
   const injectedCount = retrievalTrace.filter((item) => item?.injected !== false).length;
   const rejectedCount = retrievalTrace.filter((item) => item?.injected === false).length;
   const channelCount = new Set(retrievalTrace.map((item) => String(item?.channel || '').trim()).filter(Boolean)).size;
@@ -1136,11 +1284,9 @@ function buildRuntimeTraceState({
       {
         layer: 'active-session',
         label: 'Active session context',
-        detail: sessionCount
-          ? `${sessionCount} session recall hit(s) were available to support the reply.`
-          : 'No session archive hits were selected for this turn.',
-        status: sessionCount ? 'present' : 'empty',
-        count: sessionCount,
+        detail: sessionLayer.detail,
+        status: sessionLayer.status,
+        count: sessionLayer.count,
       },
       {
         layer: 'contradictions',
@@ -1163,11 +1309,9 @@ function buildRuntimeTraceState({
       {
         layer: 'ongoing-investigations',
         label: 'Ongoing investigations',
-        detail: ongoingInvestigations.length
-          ? `${ongoingInvestigations.length} research continuity topic(s) were available as advisory wake context.`
-          : 'No ongoing investigation topics were active for this turn.',
-        status: ongoingInvestigations.length ? 'present' : 'clear',
-        count: ongoingInvestigations.length,
+        detail: ledgerLayer.detail,
+        status: ledgerLayer.status === 'empty' ? 'clear' : ledgerLayer.status,
+        count: ledgerLayer.count,
       },
       {
         layer: 'advisory-retrieval',
@@ -1198,7 +1342,11 @@ function buildRuntimeTraceState({
       layer: 'research-ledger',
       label: trimText(item?.topicLabel || item?.topicId || 'investigation', 140),
       detail: trimText(item?.summary || item?.conclusion || item?.question || '', 220),
-      status: String(item?.status || 'advisory').trim() || 'advisory',
+      status: renderedLedgerIds.has(String(item?.topicId || '').trim())
+        ? (String(item?.status || 'advisory').trim() || 'advisory')
+        : (candidateLedgerIds.has(String(item?.topicId || '').trim()) && ledgerHoldBackReason
+          ? 'held-back'
+          : (String(item?.status || 'advisory').trim() || 'advisory')),
       count: Array.isArray(item?.openFollowUps) ? item.openFollowUps.length : 0,
     })),
     evidenceAccepted,
@@ -1357,6 +1505,7 @@ function buildRuntimeArtifact({
     retrieval,
     archiveContext,
     researchLedgerContext,
+    promptTruth: normalizedPromptTruth,
   });
   const provenance = buildArtifactProvenance({
     retrievalTrace,
@@ -1384,15 +1533,14 @@ function buildRuntimeArtifact({
     },
     summary: {
       label: kind,
-      text: toolState.evidence.length
-        ? `Tool lane reply with ${toolState.evidence.length} verified evidence item${toolState.evidence.length === 1 ? '' : 's'}.`
-        : normalizedExecutionPath === 'deterministic-tool' || readiness?.modelUsage === 'not-used'
-          ? 'Deterministic tool reply without model generation.'
-        : requestedMode === 'shadow'
-          ? 'Shadow lane reply with additive archive context.'
-          : selectedLane === 'tool'
-            ? 'Tool lane reply without verified evidence.'
-            : 'Chat lane reply with additive archive context.',
+      text: buildLaneAdvisorySummaryText({
+        requestedMode,
+        selectedLane,
+        executionPath: normalizedExecutionPath,
+        readiness,
+        toolEvidenceCount: toolState.evidence.length,
+        promptTruth: normalizedPromptTruth,
+      }),
       backend,
     },
     context: {

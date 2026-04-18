@@ -159,8 +159,11 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
               scopeLabel: 'vitest migration',
             },
             status: 'open',
+            sourceClass: 'verified-evidence',
+            summaryClass: 'question-carryover',
             summary: 'open follow-up - verify the vitest migration.',
             evidenceRefs: [{ ref: 'package.json' }],
+            summaryEvidenceRefs: [{ ref: 'package.json' }],
             openFollowUps: ['verify the vitest migration'],
             sourceSessionIds: ['qa-ledger'],
             sourceTurnIds: ['qa-ledger:turn-1'],
@@ -510,8 +513,11 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
                 scopeLabel: 'vitest migration',
               },
               status: 'open',
+              sourceClass: 'verified-evidence',
+              summaryClass: 'question-carryover',
               summary: 'open follow-up - verify the vitest migration.',
               evidenceRefs: [{ ref: 'package.json' }],
+              summaryEvidenceRefs: [{ ref: 'package.json' }],
               openFollowUps: ['verify the vitest migration'],
               sourceSessionIds: ['qa-ledger'],
               sourceTurnIds: ['qa-ledger:turn-1'],
@@ -739,6 +745,9 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /episodes episode-1/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /turns qa-ledger:turn-1/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Evidence refs: package\.json/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /source verified-evidence/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /summary question-carryover/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Summary refs: package\.json/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Wake hierarchy/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Retrieval channels: 2/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Evidence accepted: 2/);
@@ -875,6 +884,8 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
               topicId: 'path-package-json',
               topicLabel: 'package.json',
               status: 'open',
+              sourceClass: 'question-followup',
+              summaryClass: 'question-carryover',
               summary: 'open follow-up - verify whether the Vitest migration is still pending.',
             },
           ],

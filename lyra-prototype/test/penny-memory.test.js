@@ -7,6 +7,7 @@ const {
   formatPromptMemories,
   buildPromptTruth,
   injectRelevantMemoryContext,
+  isCanonicalMemoryQuestion,
 } = require('../lib/penny-memory');
 
 test('mergeMemoryItems deduplicates normalized text and drops junk', () => {
@@ -382,6 +383,49 @@ test('formatPromptMemories treats natural identity authority questions as canon-
   assert.doesNotMatch(out, /Wake state - active session context:/i);
   assert.doesNotMatch(out, /Wake state - ongoing investigations \(advisory\):/i);
   assert.doesNotMatch(out, /Wake state - retrieval hints \(advisory\):/i);
+});
+
+test('formatPromptMemories treats natural attribute authority questions as canon-first when explicit facts exist', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const out = formatPromptMemories({
+    memories: [
+      { text: 'My backup mug is orange', kind: 'personal', ts: now },
+    ],
+    archiveContext: {
+      semanticReady: true,
+      reasonCode: 'semantic_query',
+      session: [
+        { text: 'My backup mug was blue.', sourceLabel: 'archive-session' },
+      ],
+      global: [
+        { text: 'Older notes still mention a blue mug.', sourceLabel: 'archive-global' },
+      ],
+    },
+  }, 'What color is my backup mug?', 3, '- Nothing yet.', now);
+
+  assert.match(out, /canon priority:/i);
+  assert.match(out, /My backup mug is orange/i);
+  assert.doesNotMatch(out, /Wake state - active session context:/i);
+  assert.doesNotMatch(out, /Wake state - retrieval hints \(advisory\):/i);
+});
+
+test('canonical memory detection stays off for repo-shaped possessive questions without explicit-memory overlap', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const memories = {
+    memories: [
+      { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: now },
+    ],
+    archiveContext: {
+      session: [
+        { text: 'package.json still pins Node 22.', sourceLabel: 'archive-session' },
+      ],
+    },
+  };
+  const question = 'What is my package.json again?';
+  const out = formatPromptMemories(memories, question, 3, '- Nothing yet.', now);
+
+  assert.equal(isCanonicalMemoryQuestion(question, memories, 3, now), false);
+  assert.match(out, /Wake state - active session context:/i);
 });
 
 test('formatPromptMemories inserts ongoing investigations after contradictions and before retrieval hints', () => {

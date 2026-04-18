@@ -38,6 +38,17 @@ function readPackageJsonToolRecord(note = '"test": "node --test test/*.test.js"'
   };
 }
 
+function gitStatusToolRecord() {
+  return {
+    name: 'get_git_status',
+    result: {
+      ok: true,
+      label: 'git status',
+      data: {},
+    },
+  };
+}
+
 test('research ledger ignores casual chat without verified evidence', () => {
   const { api, cleanup } = buildApi();
   try {
@@ -121,6 +132,95 @@ test('research ledger revisits the same anchored question by merging into one sc
     assert.equal(topics.length, 1);
     assert.equal(first.topic.topicId, second.topic.topicId);
     assert.deepEqual(topics[0].sourceSessionIds.sort(), ['other-session', 'qa-ledger']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('research ledger lexical reorders of the same anchored question merge into one scoped topic', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    const phrasings = [
+      'Does package.json keep node 22 engines pin?',
+      'Does package.json keep engines node 22 pin?',
+      'Does package.json keep 22 node engines pin?',
+      'Does package.json keep pin node 22 engines?',
+    ];
+    const results = phrasings.map((userText) => api.updateResearchLedgerFromTurn({
+      sessionId: 'qa-ledger',
+      userText,
+      assistantText: 'package.json still pins Node 22 in engines.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [readPackageJsonToolRecord('"engines": { "node": "22.x" }')],
+    }));
+
+    const store = api.readLedgerStore();
+    const topicIds = [...new Set(results.map((item) => item?.topic?.topicId).filter(Boolean))];
+
+    assert.equal(results.every((item) => item.updated === true), true);
+    assert.equal(Object.keys(store.topics).length, 1);
+    assert.equal(topicIds.length, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('research ledger stores evidence-tight conclusions instead of raw broader assistant synthesis', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    const result = api.updateResearchLedgerFromTurn({
+      sessionId: 'qa-ledger',
+      userText: 'Does package.json pin Node 22, and does that prove the repo is modern?',
+      assistantText: 'package.json pins Node 22, so yes, the repo is modern.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [readPackageJsonToolRecord('"engines": { "node": "22.x" }')],
+    });
+
+    const promptContext = api.getPromptContext({
+      sessionId: 'qa-ledger',
+      userText: 'What did we verify in package.json?',
+    });
+
+    assert.equal(result.updated, true);
+    assert.equal(result.topic.status, 'settled');
+    assert.equal(result.topic.sourceClass, 'verified-evidence');
+    assert.equal(result.topic.summaryClass, 'evidence-tight');
+    assert.equal(result.topic.summaryEvidenceRefs.length, 1);
+    assert.match(result.topic.conclusion, /verified in package\.json/i);
+    assert.match(result.topic.conclusion, /22\.x/i);
+    assert.doesNotMatch(result.topic.conclusion, /repo is modern/i);
+    assert.equal(promptContext.topics[0].summary, result.topic.conclusion);
+  } finally {
+    cleanup();
+  }
+});
+
+test('research ledger keeps verified evidence provisional when no evidence-tight summary can be formed', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    const result = api.updateResearchLedgerFromTurn({
+      sessionId: 'qa-ledger',
+      userText: 'Does git status prove the repo is clean and ready to ship?',
+      assistantText: 'git status is clean, so yes, the repo is ready to ship.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolRecords: [gitStatusToolRecord()],
+    });
+
+    const promptContext = api.getPromptContext({
+      sessionId: 'qa-ledger',
+      userText: 'What are we still checking about git status?',
+    });
+
+    assert.equal(result.updated, true);
+    assert.equal(result.topic.status, 'provisional');
+    assert.equal(result.topic.sourceClass, 'verified-evidence');
+    assert.equal(result.topic.summaryClass, 'question-carryover');
+    assert.equal(result.topic.conclusion, '');
+    assert.deepEqual(result.topic.summaryEvidenceRefs, []);
+    assert.equal(promptContext.topics[0].summary, result.topic.question);
   } finally {
     cleanup();
   }
@@ -250,6 +350,8 @@ test('research ledger contradiction topics keep their own identity path and purg
     assert.equal(contradiction.updated, true);
     assert.equal(contradiction.topic.identity.kind, 'contradiction');
     assert.match(contradiction.topic.topicId, /^contradiction-/);
+    assert.equal(contradiction.topic.sourceClass, 'contradiction');
+    assert.equal(contradiction.topic.summaryClass, 'contradiction-provenance');
 
     const purge = api.purgeResearchLedger({
       sessionId: 'memory-demo',

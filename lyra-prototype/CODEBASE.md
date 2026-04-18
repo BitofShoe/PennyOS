@@ -233,7 +233,7 @@ Hybrid archive runtime store for episodic recall, summaries, patterns, the promo
 - `penny-memory-embeddings.json`
 Embedding cache for semantic archive retrieval when a local embedding model is available, plus bounded default-on background-vectorization telemetry that can still be disabled by env.
 - `penny-memory-ledger.json`
-Research continuity ledger for bounded advisory topics, evidence refs, open follow-ups, and additive question-scoped identity (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`).
+Research continuity ledger for bounded advisory topics, evidence refs, open follow-ups, additive question-scoped identity (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`), and truth metadata (`sourceClass`, `summaryClass`, `summaryEvidenceRefs`).
 - various QA/eval memory files
 Disposable artifacts from benchmarking or smoke tests.
 
@@ -363,6 +363,7 @@ Likely modules you will touch:
 - shared packet normalization in `lib/penny-knowledge-contracts.js`
 - prompt-slot registry and composition summaries in `lib/penny-prompt-stack.js`
 - prompt-truth receipt generation in `lib/penny-memory.js` and `lib/penny-prompt-stack.js`
+- research-ledger identity/settled-state rules in `lib/penny-research-ledger.js`
 - route assembly in `lib/penny-route-handlers.js`
 - combined inspector construction in `server.js` / `lib/penny-runtime-artifacts.js`
 - QA trace/trust helpers in `lib/penny-qa-trace.js` and `lib/penny-qa-trust.js`
@@ -378,6 +379,7 @@ Start here:
 Memory inspector note:
 
 - the debug Memory tab now shows canonical explicit memory plus archive inspector data, runtime artifacts, trace provenance, research continuity topics, recency protection, prompt-slot composition, prompt-truth receipts, cleanup-transform metadata, approximate-path policy, and advisory-merge summaries
+- research-ledger rows now expose anchor/scope identity plus `sourceClass`, `summaryClass`, and `summaryEvidenceRefs`
 - archive review/purge actions still live in `public/js/penny-app.js`, while rendering logic now lives in `public/js/penny-memory-panel.mjs`
 - `public/js/penny-storage.js` still sends only explicit browser memory settings to the server; archive state is not browser-owned
 - `public/js/penny-ambient-chrome.mjs` owns lightweight vessel chrome and composer niceties; keep that behavior out of `penny-app.js`
@@ -397,6 +399,8 @@ Start here:
 - `lib/penny-qa-validity.js`
 - `lib/penny-qa-trust.js`
 - `PENNY_MODEL_EVAL.md`
+
+`scripts/qa-penny-memory.js` now also carries semantic-correction grading plus `runIdentity` harness canaries; treat those traces as first-pass environment drift checks, not as a new benchmark platform.
 
 ### Change shadow/OpenClaw behavior
 

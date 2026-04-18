@@ -19,7 +19,7 @@ const MEMORY_STOPWORDS = new Set([
 ]);
 
 const QUESTION_LIKE_PATTERN = /\?|\b(what|which|who|where|when|why|how|do you|did you|did i|tell me)\b/i;
-const CANONICAL_MEMORY_ANCHOR_PATTERN = /\b(?:tea|drink|pet|mascot|name|birthday|pronouns?|notebook|setup|keyboard)\b/i;
+const PROJECT_SURFACE_PATTERN = /\b(?:package\.json|readme(?:\.md)?|server\.js|codebase\.md|architecture\.md|repo(?:sitory)?|branch|commit|git|file|path|url|folder|directory)\b/i;
 const DIRECT_MEMORY_AUTHORITY_PATTERNS = [
   /\bwhat should you remember\b/,
   /\bwhat do you remember\b/,
@@ -30,10 +30,13 @@ const DIRECT_MEMORY_AUTHORITY_PATTERNS = [
   /\bdo you remember where\b/,
   /\bwhere is my\b/,
   /\bwhat do you know about my\b/,
+  /\bwhat\s+(?:color|colour|kind|type)\s+(?:is|was|were)\s+my\b/,
 ];
 const CANONICAL_MEMORY_QUESTION_PATTERNS = [
-  /\bwhat\b.*\bdo i\b.*\blike\b/,
-  /\bwhat\b.*\bmy\b.*\b(?:name|pronouns?|birthday|setup|mascot|notebook)\b/,
+  /\bwhat\b.*\bdo i\b.*\blike\b(?:.*\bagain\b)?/,
+  /\bwhat\s+(?:color|colour|kind|type)\s+(?:is|was|were)\s+my\b/,
+  /\bwhat(?:'s| is| are| was| were)\s+my\b.+\bagain\b/,
+  /\bwhat(?:'s| is| are| was| were)\s+my\b.+\bnow\b/,
 ];
 const PROMPT_TRUTH_HOLDBACK_REASONS = Object.freeze({
   CANON_PRIORITY: 'canon-priority-suppression',
@@ -143,6 +146,13 @@ function tokenizeMemoryText(text = '') {
   return [...new Set(matches.filter((token) => !MEMORY_STOPWORDS.has(token)))];
 }
 
+function hasExplicitMemoryOverlap(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, now = Date.now()) {
+  const queryTokens = new Set(tokenizeMemoryText(userText));
+  if (!queryTokens.size) return false;
+  const selected = selectMemoriesForPrompt(memories, userText, limit, now);
+  return selected.some((item) => tokenizeMemoryText(item?.text || '').some((token) => queryTokens.has(token)));
+}
+
 function scoreMemoryForPrompt(item, queryTokens = new Set(), now = Date.now()) {
   const baseScore = MEMORY_KIND_SCORES[item?.kind] || 2;
   const itemTokens = tokenizeMemoryText(item?.text || '');
@@ -210,22 +220,28 @@ function isQuestionLike(userText = '') {
   return QUESTION_LIKE_PATTERN.test(String(userText || '').trim());
 }
 
-function isCanonicalMemoryQuestion(userText = '') {
+function isCanonicalMemoryQuestion(userText = '', memories = null, limit = MEMORY_PROMPT_LIMIT, now = Date.now()) {
   const normalized = normalizeText(userText || '').toLowerCase();
   if (!normalized) return false;
-  if (DIRECT_MEMORY_AUTHORITY_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
-  if (!isQuestionLike(normalized)) return false;
-  if (!CANONICAL_MEMORY_ANCHOR_PATTERN.test(normalized)) return false;
-  return CANONICAL_MEMORY_QUESTION_PATTERNS.some((pattern) => pattern.test(normalized));
+  const directAuthorityMatch = DIRECT_MEMORY_AUTHORITY_PATTERNS.some((pattern) => pattern.test(normalized));
+  const naturalRecallMatch = isQuestionLike(normalized)
+    && CANONICAL_MEMORY_QUESTION_PATTERNS.some((pattern) => pattern.test(normalized));
+  if (!directAuthorityMatch && !naturalRecallMatch) return false;
+  const explicitOverlap = memories && typeof memories === 'object'
+    ? hasExplicitMemoryOverlap(memories, userText, limit, now)
+    : false;
+  if (PROJECT_SURFACE_PATTERN.test(normalized) && !explicitOverlap) return false;
+  if (!memories || typeof memories !== 'object') return true;
+  if (directAuthorityMatch) return explicitOverlap || naturalRecallMatch;
+  return naturalRecallMatch && explicitOverlap;
 }
 
-function isDirectMemoryAuthorityQuestion(userText = '') {
-  return isCanonicalMemoryQuestion(userText);
+function isDirectMemoryAuthorityQuestion(userText = '', memories = null, limit = MEMORY_PROMPT_LIMIT, now = Date.now()) {
+  return isCanonicalMemoryQuestion(userText, memories, limit, now);
 }
 
 function shouldPrioritizeCanonicalMemoryOverHistory(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, now = Date.now()) {
-  if (!isCanonicalMemoryQuestion(userText)) return false;
-  return selectMemoriesForPrompt(memories, userText, limit, now).length > 0;
+  return isCanonicalMemoryQuestion(userText, memories, limit, now);
 }
 
 function stablePromptTruthSourceId(prefix = 'source', text = '') {
@@ -327,7 +343,7 @@ function buildPromptMemoryContext(memories = {}, userText = '', limit = MEMORY_P
   const semanticReady = archiveContext?.semanticReady === true;
   const semanticDowngrade = archiveContext?.semanticDowngrade === true;
   const semanticDowngradeReason = normalizeText(archiveContext?.semanticDowngradeReason || '').replace(/-/g, ' ');
-  const directMemoryAuthorityQuestion = isCanonicalMemoryQuestion(userText);
+  const directMemoryAuthorityQuestion = shouldPrioritizeCanonicalMemoryOverHistory(memories, userText, limit, now);
   const archiveAdvisoryContentPresent = Boolean(
     (archiveSynthesis?.generated && archiveSynthesis.summary)
     || globalArchive.some((item) => normalizeText(item?.text || '')),
