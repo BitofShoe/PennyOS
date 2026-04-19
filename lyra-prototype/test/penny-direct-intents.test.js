@@ -56,6 +56,11 @@ test('extractExplicitProjectPath keeps plain unquoted repo paths conservative', 
   assert.equal(path, 'public/app.js');
 });
 
+test('extractExplicitProjectPath handles unquoted paths with spaces and apostrophes', () => {
+  const path = extractExplicitProjectPath("Open Penny's Playground/penny-qa-freewrite.md and add one note in your own voice.");
+  assert.equal(path, "Penny's Playground/penny-qa-freewrite.md");
+});
+
 test('resolveDirectToolIntent fixes the quoted-search plus unquoted-path regression', () => {
   const intent = resolveDirectToolIntent('Search for "Shadow failed" in public/app.js. Do not edit anything. Just tell me the current note string and whether you changed or verified anything.');
   assert.ok(intent);
@@ -65,14 +70,23 @@ test('resolveDirectToolIntent fixes the quoted-search plus unquoted-path regress
   assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
 });
 
-test('resolveDirectToolIntent leaves open-ended creative file edits for the full tool loop', () => {
+test('resolveDirectToolIntent upgrades explicit-path creative edits into bounded direct intents', () => {
   const intent = resolveDirectToolIntent("You can do whatever you want in the Penny's Playground folder. Open `Penny's Playground/Penny's Very Own Paper (bot languege version).md` and add one short note in your own voice. Pick the wording yourself.");
-  assert.equal(intent, null);
+  assert.ok(intent);
+  assert.equal(intent.kind, 'open_ended_sequence');
+  assert.equal(intent.mode, 'direct_open_ended_append');
+  assert.equal(intent.path, "Penny's Playground/Penny's Very Own Paper (bot languege version).md");
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.DIRECT_OPEN_ENDED_EDIT);
 });
 
 test('shouldForceLocalToolLoop catches explicit-path creative edits', () => {
   const force = shouldForceLocalToolLoop("Open `Penny's Playground/Penny's Very Own Paper (bot languege version).md` and add a short paragraph in your own voice. Pick the wording yourself.");
   assert.equal(force, true);
+});
+
+test('resolveDirectToolIntent still leaves folder-only self-named creative edits on the full tool loop', () => {
+  const intent = resolveDirectToolIntent("Inside Penny's Playground, create one new markdown file, choose the filename yourself, and write one short paragraph in your own Penny voice.");
+  assert.equal(intent, null);
 });
 
 test('shouldForceLocalToolLoop stays off for explicit-path read requests', () => {
@@ -83,9 +97,17 @@ test('shouldForceLocalToolLoop stays off for explicit-path read requests', () =>
 test('resolveDirectToolIntent still keeps explicit read requests on the direct path', () => {
   const intent = resolveDirectToolIntent("Open `Penny's Playground/Penny's Very Own Paper (bot languege version).md` and tell me what it says.");
   assert.ok(intent);
-  assert.match(intent.name, /^read_project_file/);
+  assert.equal(intent.name, 'read_project_file');
   assert.equal(intent.args.path, "Penny's Playground/Penny's Very Own Paper (bot languege version).md");
-  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_READ);
+});
+
+test('resolveDirectToolIntent keeps apostrophe-heavy long-file summary requests on full-file reads', () => {
+  const intent = resolveDirectToolIntent("Read Penny's Playground/PENNY'S_BRAIN.md and tell me the three most important ideas in plain English.");
+  assert.ok(intent);
+  assert.equal(intent.name, 'read_project_file');
+  assert.equal(intent.args.path, "Penny's Playground/PENNY'S_BRAIN.md");
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_READ);
 });
 
 test('resolveDirectToolIntent upgrades focused file questions into targeted reads', () => {

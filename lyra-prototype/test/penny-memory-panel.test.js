@@ -988,6 +988,38 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
         context: { backend: 'local-lmstudio-tools', requestedModel: 'google/gemma-4-e4b', resolvedModel: '', executionPath: 'deterministic-tool', semanticMemoryReady: true, semanticMemoryMode: 'semantic', usedFallback: false, laneFallback: false, shadowEnabled: false },
         evidence: [{ type: 'tool', source: 'verified-tool', label: 'read_project_file', text: 'README.md', target: 'README.md' }],
         artifacts: [],
+        toolOutcome: {
+          writeIntentRequired: true,
+          writeIntentSatisfied: false,
+          confirmedWriteCount: 0,
+          failureReason: 'write-required-unmet',
+          debug: {
+            manualFallback: {
+              used: true,
+              reasonCode: 'tool_loop_missing_workspace_write',
+              reason: 'Tool loop required a confirmed workspace write before final reply.',
+              lastPlannerStatus: 'final-before-write',
+              lastDecisionKind: 'final',
+              lastDecisionTool: '',
+              lastDecisionError: '',
+              lastAssistantText: 'i already handled it.',
+              invalidReplyCount: 0,
+              emptyReplyCount: 0,
+            },
+            writeRescue: {
+              attempted: true,
+              phase: 'manual',
+              status: 'non-tool-decision',
+              responseStatusCode: 200,
+              decisionKind: 'final',
+              tool: '',
+              argsPath: 'tmp/qwen-dual-lane-sandbox.md',
+              parseError: '',
+              assistantText: 'still not a write',
+              responseBody: '',
+            },
+          },
+        },
         trace: {
           laneChoice: {
             requestedMode: 'local',
@@ -1101,4 +1133,6 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
   assert.match(els.memoryInspectorPanel.innerHTML, /Trace reasoning: <strong>verifier-first/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>held back/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Ledger update <strong>applied/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /manual fallback final-before-write/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /rescue manual non-tool-decision/i);
 });

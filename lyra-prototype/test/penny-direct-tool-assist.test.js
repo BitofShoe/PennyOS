@@ -42,6 +42,9 @@ function buildDirectIntentApi() {
 function buildDirectToolAssistApi(overrides = {}) {
   const directIntentApi = buildDirectIntentApi();
   let lmAssistCalls = 0;
+  let draftCalls = 0;
+  const runLmStudioToolContextAnswer = overrides.runLmStudioToolContextAnswer || (async () => 'lm assist fallback\n[MOOD:thinking]');
+  const draftOpenEndedWriteText = overrides.draftOpenEndedWriteText || (async () => 'soft little menace');
   const api = createDirectToolAssistApi({
     executePennyTool: overrides.executePennyTool || (async () => ({ ok: true, label: 'ok', data: {} })),
     executeDirectProjectInspectIntent: overrides.executeDirectProjectInspectIntent || (async () => ({
@@ -49,10 +52,14 @@ function buildDirectToolAssistApi(overrides = {}) {
       results: [],
       fallbackText: 'inspect fallback\n[MOOD:thinking]',
     })),
-    runLmStudioToolContextAnswer: overrides.runLmStudioToolContextAnswer || (async () => {
+    runLmStudioToolContextAnswer: async (...args) => {
       lmAssistCalls += 1;
-      return 'lm assist fallback\n[MOOD:thinking]';
-    }),
+      return runLmStudioToolContextAnswer(...args);
+    },
+    draftOpenEndedWriteText: async (...args) => {
+      draftCalls += 1;
+      return draftOpenEndedWriteText(...args);
+    },
     composeDirectRuntimeReply: directIntentApi.composeDirectRuntimeReply,
     composeDirectSyntaxReply: directIntentApi.composeDirectSyntaxReply,
     composeDirectGitStatusReply: directIntentApi.composeDirectGitStatusReply,
@@ -77,6 +84,7 @@ function buildDirectToolAssistApi(overrides = {}) {
   return {
     ...api,
     getLmAssistCalls: () => lmAssistCalls,
+    getDraftCalls: () => draftCalls,
   };
 }
 
@@ -291,4 +299,57 @@ test('runDirectToolAssist keeps definition questions honest when the file only m
   assert.equal(result.skipSemanticRender, true);
   assert.match(result.text, /does not appear to define MEMORY_PROMPT_LIMIT there/i);
   assert.equal(getLmAssistCalls(), 0);
+});
+
+test('runDirectToolAssist drafts explicit-path creative edits before deterministic write tools', async () => {
+  const calls = [];
+  const { runDirectToolAssist, getLmAssistCalls, getDraftCalls } = buildDirectToolAssistApi({
+    draftOpenEndedWriteText: async () => {
+      return 'I left a bright little note here because clean slates deserve witnesses.';
+    },
+    executePennyTool: async (name, args = {}) => {
+      calls.push({ name, args });
+      if (name === 'insert_in_project_file') {
+        return {
+          ok: true,
+          label: `inserted text into ${args.path || 'file'}`,
+          data: {
+            path: args.path || '',
+            inserted: 1,
+            textPreview: args.text,
+          },
+        };
+      }
+      if (name === 'get_git_status') {
+        return {
+          ok: true,
+          label: 'checked git status',
+          data: { ok: true, status: "M Penny's Playground/penny-qa-freewrite.md" },
+        };
+      }
+      throw new Error(`Unexpected tool ${name}`);
+    },
+  });
+
+  const result = await runDirectToolAssist({
+    userText: "Open `Penny's Playground/penny-qa-freewrite.md` and add 2-4 sentences in your own Penny voice. I am not giving you a topic on purpose. You can write whatever you want there. Then tell me exactly what you changed.",
+    messages: [],
+    memories: {},
+    intent: {
+      kind: 'open_ended_sequence',
+      mode: 'direct_open_ended_append',
+      path: "Penny's Playground/penny-qa-freewrite.md",
+    },
+  });
+
+  assert.equal(result.modelUsed, true);
+  assert.equal(getDraftCalls(), 1);
+  assert.equal(getLmAssistCalls(), 0);
+  assert.equal(result.skipSemanticRender, true);
+  assert.equal(result.toolOutcome.writeIntentRequired, true);
+  assert.equal(result.toolOutcome.writeIntentSatisfied, true);
+  assert.equal(result.toolOutcome.confirmedWriteCount, 1);
+  assert.deepEqual(calls.map((entry) => entry.name), ['insert_in_project_file', 'get_git_status']);
+  assert.match(result.text, /bright little note/i);
+  assert.match(result.text, /Penny's Playground\/penny-qa-freewrite\.md/i);
 });

@@ -18,6 +18,7 @@
  * @property {Object|null} [researchLedgerUpdate]
  * @property {Object|null} [promptTruth]
  * @property {Array<Object>} [toolsUsed]
+ * @property {Object|null} [toolOutcome]
  * @property {Object|null} [repair]
  * @property {Object} [artifact]
  * @property {Object} [performance]
@@ -270,6 +271,7 @@ function createPennyRouteHandlers(deps = {}) {
     researchLedgerPromptInjected = false,
     researchLedgerUpdate = null,
     toolsUsed = [],
+    toolOutcome = null,
     repair = null,
     artifact = null,
     performance = null,
@@ -297,6 +299,7 @@ function createPennyRouteHandlers(deps = {}) {
       researchLedgerUpdate,
       promptTruth,
       toolsUsed,
+      toolOutcome,
     };
     if (repair && typeof repair === 'object') meta.repair = repair;
     if (artifact && typeof artifact === 'object') meta.artifact = artifact;
@@ -326,6 +329,7 @@ function createPennyRouteHandlers(deps = {}) {
     semanticMemoryReady = false,
     semanticMemoryMode = 'disabled',
     toolsUsed = [],
+    toolOutcome = null,
     toolRecords = [],
     retrieval = null,
     archiveContext = null,
@@ -367,6 +371,7 @@ function createPennyRouteHandlers(deps = {}) {
         semanticMemoryReady,
         semanticMemoryMode,
         toolsUsed,
+        toolOutcome,
         toolRecords,
         retrieval,
         archiveContext,
@@ -510,6 +515,7 @@ function createPennyRouteHandlers(deps = {}) {
     localLane,
     userText,
     assistantText,
+    toolOutcome = null,
     toolRecords,
     provenance,
     backend,
@@ -522,12 +528,21 @@ function createPennyRouteHandlers(deps = {}) {
         topic: null,
       };
     }
+    if (toolOutcome?.writeIntentRequired === true && toolOutcome?.writeIntentSatisfied === false) {
+      return {
+        status: 'skipped',
+        reason: String(toolOutcome.failureReason || 'write-required-unmet').trim() || 'write-required-unmet',
+        context: null,
+        topic: null,
+      };
+    }
     return scheduleResearchLedgerUpdate?.({
       sessionId,
       userText,
       assistantText,
       selectedLane: localLane,
       backend,
+      toolOutcome,
       toolRecords,
       provenance,
     }) || {
@@ -545,6 +560,7 @@ function createPennyRouteHandlers(deps = {}) {
     localLane = 'chat',
     userText = '',
     assistantText = '',
+    toolOutcome = null,
     toolRecords = [],
     provenance = [],
     backend = '',
@@ -555,6 +571,7 @@ function createPennyRouteHandlers(deps = {}) {
       localLane,
       userText,
       assistantText,
+      toolOutcome,
       toolRecords,
       provenance,
       backend,
@@ -1103,6 +1120,7 @@ function createPennyRouteHandlers(deps = {}) {
       let shadowError = '';
       let toolsUsed = [];
       let toolRecords = [];
+      let toolOutcome = null;
       let repair = null;
       let cleanup = null;
       let cleanupTransform = null;
@@ -1175,6 +1193,7 @@ function createPennyRouteHandlers(deps = {}) {
             text = result.text;
             toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
             toolRecords = Array.isArray(result.toolRecords) ? result.toolRecords : [];
+            toolOutcome = result.toolOutcome && typeof result.toolOutcome === 'object' ? result.toolOutcome : null;
             repair = result.repair && typeof result.repair === 'object' ? result.repair : null;
             cleanup = result.cleanup && typeof result.cleanup === 'object' ? result.cleanup : null;
             cleanupTransform = result.cleanupTransform && typeof result.cleanupTransform === 'object' ? result.cleanupTransform : null;
@@ -1252,6 +1271,7 @@ function createPennyRouteHandlers(deps = {}) {
             localLane,
             userText,
             assistantText: text,
+            toolOutcome,
             toolRecords,
             provenance: turnProvenance,
             backend,
@@ -1280,6 +1300,7 @@ function createPennyRouteHandlers(deps = {}) {
             semanticMemoryReady,
             semanticMemoryMode,
             toolsUsed,
+            toolOutcome,
             toolRecords,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
@@ -1319,6 +1340,7 @@ function createPennyRouteHandlers(deps = {}) {
             semanticMemoryReady,
             semanticMemoryMode,
             toolsUsed,
+            toolOutcome,
             toolRecords,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
@@ -1378,6 +1400,7 @@ function createPennyRouteHandlers(deps = {}) {
                 researchLedgerPromptInjected,
                 researchLedgerUpdate: ledgerState.researchLedgerUpdate,
                 toolsUsed,
+                toolOutcome,
                 repair,
                 artifact,
                 performance,
@@ -1438,6 +1461,7 @@ function createPennyRouteHandlers(deps = {}) {
             text = result.text;
             toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
             toolRecords = Array.isArray(result.toolRecords) ? result.toolRecords : [];
+            toolOutcome = result.toolOutcome && typeof result.toolOutcome === 'object' ? result.toolOutcome : null;
             repair = result.repair && typeof result.repair === 'object' ? result.repair : null;
             cleanup = result.cleanup && typeof result.cleanup === 'object' ? result.cleanup : null;
             cleanupTransform = result.cleanupTransform && typeof result.cleanupTransform === 'object' ? result.cleanupTransform : null;
@@ -1547,6 +1571,7 @@ function createPennyRouteHandlers(deps = {}) {
         localLane,
         userText,
         assistantText: text,
+        toolOutcome,
         toolRecords,
         provenance: turnProvenance,
         backend,
@@ -1575,6 +1600,7 @@ function createPennyRouteHandlers(deps = {}) {
         semanticMemoryReady,
         semanticMemoryMode,
         toolsUsed,
+        toolOutcome,
         toolRecords,
         retrieval: runtimeMemoryContext.retrieval,
         archiveContext: runtimeMemoryContext.archiveContext,
@@ -1615,6 +1641,7 @@ function createPennyRouteHandlers(deps = {}) {
         semanticMemoryReady,
         semanticMemoryMode,
         toolsUsed,
+        toolOutcome,
         toolRecords,
         retrieval: runtimeMemoryContext.retrieval,
         archiveContext: runtimeMemoryContext.archiveContext,
@@ -1673,6 +1700,7 @@ function createPennyRouteHandlers(deps = {}) {
           researchLedgerPromptInjected,
           researchLedgerUpdate: ledgerState.researchLedgerUpdate,
           toolsUsed,
+          toolOutcome,
           repair,
           artifact,
           performance,

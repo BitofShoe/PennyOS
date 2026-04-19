@@ -248,6 +248,7 @@ Penny now has an explicit research continuity layer in `lib/penny-research-ledge
 - topic identity is now question-scoped, so one file or repo anchor can hold multiple bounded topics without collapsing into one ledger row
 - settled non-contradiction topics require verified non-`query` evidence plus an evidence-tight summary; otherwise the topic stays provisional and the durable `conclusion` stays empty
 - raw assistant synthesis is not persisted as a durable anchored-topic conclusion; prompt context falls back through open follow-up, evidence-tight conclusion, question, then topic label
+- generic authored write turns do not auto-create research continuity just because a workspace write and `git status` happened; successful writes now need genuinely research-shaped intent plus anchored verified read evidence before the ledger treats them as continuity-worthy
 - prompt assembly can surface a small number of open/provisional topics as wake context, preferring direct anchor-plus-scope overlap over adjacent same-file topics
 - the memory inspector can render those topics with evidence refs, summary-evidence refs, truth/source class, and the additive anchor/scope identity summary
 

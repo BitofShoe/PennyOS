@@ -25,6 +25,7 @@ const READ_ONLY_VERIFIED_TOOLS = new Set([
 ]);
 
 const RESEARCH_CONTEXT_RE = /\b(research|investigat|inspect|check|verify|compare|artifact|qa|test|runtime|memory|tool|repo|file|branch|commit|diff|log|readme|package\.json)\b/i;
+const RESEARCH_SHAPED_WRITE_RE = /\b(research|investigat|inspect|check|verify|compare|artifact|qa|test|runtime|memory|bug|issue|error|regression|debug|diagnos|broken|failing|failure|audit|prove)\b/i;
 const OPEN_FOLLOW_UP_RE = /\b(need to check|needs to check|need to verify|needs to verify|would need to|follow up|follow-up|open question|not yet|unclear|unknown|worth checking|should verify|should check)\b/i;
 const CAUSAL_CHAT_RE = /\b(flirty|kiss|cute|stay and talk|dangerous|banter|soft|softness|tease|mock me|be with me)\b/i;
 const GENERIC_PROMPT_QUERY_TOKENS = new Set([
@@ -731,6 +732,22 @@ function createResearchLedgerApi({
     return appendUniqueStrings([], followUps, LEDGER_FOLLOW_UP_LIMIT);
   }
 
+  function hasAnchoredResearchEvidence(evidenceRefs = []) {
+    return verifiedEvidenceRefs(evidenceRefs)
+      .some((item) => ['project-path', 'web-url'].includes(String(item?.type || '').trim().toLowerCase()) && trimText(item?.ref || '', 220));
+  }
+
+  function isResearchShapedWriteTurn({
+    userText = '',
+    assistantText = '',
+    evidenceRefs = [],
+    contradictions = [],
+  } = {}) {
+    if (Array.isArray(contradictions) && contradictions.length) return true;
+    if (!hasAnchoredResearchEvidence(evidenceRefs)) return false;
+    return RESEARCH_SHAPED_WRITE_RE.test(`${trimText(userText, 260)} ${trimText(assistantText, 320)}`);
+  }
+
   function determineStatus(options = {}) {
     return determineLedgerStatus(options);
   }
@@ -851,6 +868,7 @@ function createResearchLedgerApi({
     assistantText = '',
     selectedLane = 'chat',
     backend = '',
+    toolOutcome = null,
     toolRecords = [],
     provenance = [],
   } = {}) {
@@ -868,9 +886,27 @@ function createResearchLedgerApi({
     });
     const hasResearchContext = RESEARCH_CONTEXT_RE.test(`${cleanUserText} ${cleanAssistantText}`);
     const looksCasual = !evidenceRefs.length && CAUSAL_CHAT_RE.test(`${cleanUserText} ${cleanAssistantText}`);
+    const writeIntentRequired = toolOutcome?.writeIntentRequired === true;
+    const writeIntentSatisfied = writeIntentRequired
+      ? toolOutcome?.writeIntentSatisfied === true
+      : false;
 
     if (looksCasual) {
       return { updated: false, reason: 'casual-chat' };
+    }
+    if (writeIntentRequired && !writeIntentSatisfied) {
+      return {
+        updated: false,
+        reason: trimText(toolOutcome?.failureReason || '', 80) || 'write-required-unmet',
+      };
+    }
+    if (writeIntentSatisfied && !isResearchShapedWriteTurn({
+      userText: cleanUserText,
+      assistantText: cleanAssistantText,
+      evidenceRefs,
+      contradictions,
+    })) {
+      return { updated: false, reason: 'generic-write-turn' };
     }
     if (!evidenceRefs.length && !contradictions.length && !(openFollowUps.length && hasResearchContext)) {
       return { updated: false, reason: 'non-qualifying-turn' };

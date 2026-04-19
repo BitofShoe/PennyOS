@@ -529,6 +529,7 @@ function scheduleResearchLedgerUpdate({
   assistantText = '',
   selectedLane = 'chat',
   backend = '',
+  toolOutcome = null,
   toolRecords = [],
   provenance = [],
 } = {}) {
@@ -553,6 +554,7 @@ function scheduleResearchLedgerUpdate({
       assistantText: cleanAssistantText,
       selectedLane,
       backend,
+      toolOutcome,
       toolRecords,
       provenance,
     });
@@ -813,6 +815,7 @@ const {
   executePennyTool,
   executeDirectProjectInspectIntent,
   runLmStudioToolContextAnswer: (...args) => runLmStudioToolContextAnswerApi(...args),
+  draftOpenEndedWriteText: (...args) => draftOpenEndedWriteTextApi(...args),
   composeDirectRuntimeReply,
   composeDirectSyntaxReply,
   composeDirectGitStatusReply,
@@ -1905,7 +1908,21 @@ async function renderSemanticReplyAsPenny({
   }, activeLaneRuntime);
 }
 
-async function maybeRenderHardTurnReply({ userText, messages, memories, file, text, toolsUsed = [], toolRecords = [], onToolEvent, abortSignal, laneRuntime, latencyBudget = null }) {
+async function maybeRenderHardTurnReply({
+  userText,
+  messages,
+  memories,
+  file,
+  text,
+  toolsUsed = [],
+  toolRecords = [],
+  toolOutcome = null,
+  skipSemanticRender = false,
+  onToolEvent,
+  abortSignal,
+  laneRuntime,
+  latencyBudget = null,
+}) {
   const cleanedText = cleanDraftForSemanticRender(text) || String(text || '').trim();
   const fallbackText = composeToolRecordFallback(toolRecords);
   const activeContradictions = collectActiveContradictions(memories);
@@ -1947,12 +1964,13 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
     if (looksLikeWeakToolReply(cleaned, toolRecords) && fallbackText) return fallbackText;
     return cleaned || fallbackText;
   };
-  if (budget.allowSemanticRender !== true || !shouldUseSemanticRender({ file, toolRecords, draftText: cleanedText })) {
+  if (skipSemanticRender === true || budget.allowSemanticRender !== true || !shouldUseSemanticRender({ file, toolRecords, draftText: cleanedText })) {
     const modelUsed = laneRuntime?.modelUsed === true;
     return {
       text: coerceFinalizedText(cleanedText),
       toolsUsed,
       toolRecords,
+      toolOutcome,
       repair: null,
       epistemics: hardTurnEpistemics,
       synthesis: hardTurnSynthesis,
@@ -2009,6 +2027,7 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
         text: firstPassText,
         toolsUsed,
         toolRecords,
+        toolOutcome,
         epistemics: hardTurnEpistemics,
         synthesis: hardTurnSynthesis,
         modelUsed: laneRuntime?.modelUsed === true,
@@ -2057,6 +2076,7 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
           text: repairedText,
           toolsUsed,
           toolRecords,
+          toolOutcome,
           epistemics: hardTurnEpistemics,
           synthesis: hardTurnSynthesis,
           modelUsed: laneRuntime?.modelUsed === true,
@@ -2074,6 +2094,7 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
         text: firstPassText,
         toolsUsed,
         toolRecords,
+        toolOutcome,
         epistemics: hardTurnEpistemics,
         synthesis: hardTurnSynthesis,
         repair: normalizeRepairInfo({
@@ -2099,6 +2120,7 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
         text: firstPassText,
         toolsUsed,
         toolRecords,
+        toolOutcome,
         epistemics: hardTurnEpistemics,
         synthesis: hardTurnSynthesis,
         modelUsed: laneRuntime?.modelUsed === true,
@@ -2127,6 +2149,7 @@ async function maybeRenderHardTurnReply({ userText, messages, memories, file, te
       text: coerceFinalizedText(cleanedText),
       toolsUsed,
       toolRecords,
+      toolOutcome,
       repair: null,
       epistemics: hardTurnEpistemics,
       synthesis: hardTurnSynthesis,
@@ -2528,6 +2551,7 @@ const lmStudioToolLoopApi = createLmStudioToolLoopApi({
   TOOL_DIRECT_HISTORY_LIMIT,
 });
 const {
+  draftOpenEndedWriteText: draftOpenEndedWriteTextApi,
   runLmStudioToolContextAnswer: runLmStudioToolContextAnswerApi,
   runLmStudioToolLoop: runLmStudioToolLoopApiRunner,
   shouldFallbackToManualToolLoop: shouldFallbackToManualToolLoopApi,
@@ -2632,10 +2656,17 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         intent: resolvedLaneSelection.directIntent,
         onToolEvent,
         abortSignal,
+        laneRuntime,
       });
+      if (result.modelUsed === true) {
+        laneRuntime.modelUsed = true;
+        laneRuntime.executionPath = 'llm-tool-loop';
+      }
       if (result.skipSemanticRender) {
-        laneRuntime.modelUsed = false;
-        laneRuntime.executionPath = 'deterministic-tool';
+        if (laneRuntime.modelUsed !== true) {
+          laneRuntime.modelUsed = false;
+          laneRuntime.executionPath = 'deterministic-tool';
+        }
         const directEpistemics = buildPostToolEpistemicCaution({
           previous: memories?.epistemicCaution,
           enabled: PENNY_ENABLE_EPISTEMIC_CAUTION,
@@ -2657,6 +2688,7 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
           text: cleanDraftForSemanticRender(result.text) || String(result.text || '').trim(),
           toolsUsed: result.toolsUsed,
           toolRecords: result.toolRecords,
+          toolOutcome: result.toolOutcome,
           epistemics: directEpistemics,
           synthesis: normalizeArchiveSynthesis(memories?.archiveSynthesis),
           ...laneRuntime,
@@ -2670,6 +2702,8 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         text: result.text,
         toolsUsed: result.toolsUsed,
         toolRecords: result.toolRecords,
+        toolOutcome: result.toolOutcome,
+        skipSemanticRender: result.skipSemanticRender === true,
         onToolEvent,
         abortSignal,
         laneRuntime,
@@ -2690,6 +2724,8 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         text: result.text,
         toolsUsed: result.toolsUsed,
         toolRecords: result.toolRecords,
+        toolOutcome: result.toolOutcome,
+        skipSemanticRender: result.skipSemanticRender === true,
         onToolEvent,
         abortSignal,
         laneRuntime,
@@ -2700,7 +2736,34 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
       if (!shouldFallbackToManualToolLoopApi(error)) throw error;
       laneRuntime.modelUsed = true;
       laneRuntime.executionPath = 'llm-tool-loop';
-      const result = await runLmStudioManualToolLoopApiRunner({ userText: toolUserText, messages, memories, abortSignal, laneRuntime, latencyBudget: budget });
+      const fallbackDebug = error?.toolOutcomeDebug && typeof error.toolOutcomeDebug === 'object'
+        ? {
+            ...error.toolOutcomeDebug,
+            manualFallback: {
+              ...(error.toolOutcomeDebug.manualFallback && typeof error.toolOutcomeDebug.manualFallback === 'object'
+                ? error.toolOutcomeDebug.manualFallback
+                : {}),
+              used: true,
+              reasonCode: String(error?.code || 'tool-loop-fallback').trim(),
+              reason: String(error?.message || '').trim(),
+            },
+          }
+        : {
+            manualFallback: {
+              used: true,
+              reasonCode: String(error?.code || 'tool-loop-fallback').trim(),
+              reason: String(error?.message || '').trim(),
+            },
+          };
+      const result = await runLmStudioManualToolLoopApiRunner({
+        userText: toolUserText,
+        messages,
+        memories,
+        abortSignal,
+        laneRuntime,
+        latencyBudget: budget,
+        fallbackDebug,
+      });
       const finalized = await maybeRenderHardTurnReply({
         userText,
         messages,
@@ -2709,6 +2772,8 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         text: result.text,
         toolsUsed: result.toolsUsed,
         toolRecords: result.toolRecords,
+        toolOutcome: result.toolOutcome,
+        skipSemanticRender: result.skipSemanticRender === true,
         onToolEvent,
         abortSignal,
         laneRuntime,
@@ -2758,10 +2823,16 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
     memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
   });
   if (!image && resolvedLaneSelection.directIntent) {
-      const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, latencyBudget: budget, intent: resolvedLaneSelection.directIntent, onToolEvent: onEvent, abortSignal });
+      const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, latencyBudget: budget, intent: resolvedLaneSelection.directIntent, onToolEvent: onEvent, abortSignal, laneRuntime });
+      if (result.modelUsed === true) {
+        laneRuntime.modelUsed = true;
+        laneRuntime.executionPath = 'llm-tool-loop';
+      }
       if (result.skipSemanticRender) {
-        laneRuntime.modelUsed = false;
-        laneRuntime.executionPath = 'deterministic-tool';
+        if (laneRuntime.modelUsed !== true) {
+          laneRuntime.modelUsed = false;
+          laneRuntime.executionPath = 'deterministic-tool';
+        }
         const directText = cleanDraftForSemanticRender(result.text) || String(result.text || '').trim();
         const directEpistemics = buildPostToolEpistemicCaution({
           previous: memories?.epistemicCaution,
@@ -2785,6 +2856,7 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
           text: directText,
           toolsUsed: result.toolsUsed,
           toolRecords: result.toolRecords,
+          toolOutcome: result.toolOutcome,
           epistemics: directEpistemics,
           synthesis: normalizeArchiveSynthesis(memories?.archiveSynthesis),
           ...laneRuntime,
@@ -2798,6 +2870,8 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
         text: result.text,
         toolsUsed: result.toolsUsed,
         toolRecords: result.toolRecords,
+        toolOutcome: result.toolOutcome,
+        skipSemanticRender: result.skipSemanticRender === true,
         onToolEvent: onEvent,
         abortSignal,
         laneRuntime,
@@ -2827,6 +2901,8 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
       text: result.text,
       toolsUsed: result.toolsUsed,
       toolRecords: result.toolRecords,
+      toolOutcome: result.toolOutcome,
+      skipSemanticRender: result.skipSemanticRender === true,
       onToolEvent: onEvent,
       abortSignal,
       laneRuntime,

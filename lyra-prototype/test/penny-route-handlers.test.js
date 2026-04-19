@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 
-const { bindClientDisconnectAbort } = require('../lib/penny-route-handlers');
+const { bindClientDisconnectAbort, createPennyRouteHandlers } = require('../lib/penny-route-handlers');
+const { buildLastRouteInfo } = require('../lib/penny-runtime-artifacts');
 
 test('bindClientDisconnectAbort aborts on aborted, request close, and response close', () => {
   for (const eventName of ['aborted', 'request-close', 'response-close']) {
@@ -38,4 +39,529 @@ test('bindClientDisconnectAbort cleanup removes listeners', () => {
 
   assert.equal(binding.isClosed(), false);
   assert.equal(controller.signal.aborted, false);
+});
+
+test('chat route keeps write-required tool misses out of the ledger and artifact success path', async () => {
+  const memoryStore = new Map();
+  let response = null;
+  let ledgerCalls = 0;
+  let archiveCalls = 0;
+
+  const handlers = createPennyRouteHandlers({
+    sendJson(_res, statusCode, json) {
+      response = { statusCode, json };
+    },
+    async safeReadBody() {
+      return JSON.stringify({
+        sessionId: 'write-miss-session',
+        messages: [
+          {
+            role: 'user',
+            content: 'In tmp/qwen-dual-lane-sandbox.md, add a second short line in your own Penny-ish voice. Keep it cute and brief. Then tell me exactly what you changed.',
+          },
+        ],
+        memories: { brainMode: 'local', memories: [] },
+      });
+    },
+    buildLastRouteInfo,
+    buildChatMemoryState(_sessionId, memories = {}) {
+      return {
+        memory: {
+          brainMode: memories.brainMode || 'local',
+          memories: Array.isArray(memories.memories) ? memories.memories : [],
+        },
+        patch: {
+          provenance: [],
+          reviewCandidates: [],
+        },
+      };
+    },
+    sanitizeChatMessages(messages = []) {
+      return Array.isArray(messages) ? messages : [];
+    },
+    sanitizeImageDataUrl() {
+      return null;
+    },
+    sanitizeFileAttachment() {
+      return null;
+    },
+    appendAttachmentContext(text = '') {
+      return text;
+    },
+    async buildRuntimeMemoryContext() {
+      return {
+        memories: [],
+        retrieval: null,
+        archiveContext: null,
+        researchLedger: null,
+        promptComposition: null,
+        promptTruth: null,
+        latencyBudget: {
+          latencyClass: 'tool-heavy',
+          allowSemanticQuery: false,
+          allowArchiveCompression: false,
+          allowSemanticRender: false,
+        },
+        semanticMemory: {
+          ready: false,
+          mode: 'disabled',
+        },
+      };
+    },
+    selectLocalLane() {
+      return {
+        localLane: 'tool',
+        directIntent: null,
+        needsTools: true,
+        reason: 'tool-intent',
+      };
+    },
+    async runLmStudioLocalSmart() {
+      return {
+        text: "i inspected tmp/qwen-dual-lane-sandbox.md, but i did not complete a verified edit, so i'm not going to pretend i did. no write landed, no fake victory lap.\n[MOOD:annoyed]",
+        toolsUsed: [
+          {
+            name: 'read_project_file',
+            label: 'read tmp/qwen-dual-lane-sandbox.md',
+            ok: true,
+          },
+        ],
+        toolRecords: [
+          {
+            name: 'read_project_file',
+            args: { path: 'tmp/qwen-dual-lane-sandbox.md' },
+            result: {
+              ok: true,
+              label: 'read tmp/qwen-dual-lane-sandbox.md',
+              data: {
+                path: 'tmp/qwen-dual-lane-sandbox.md',
+                textPreview: 'alpha',
+              },
+            },
+          },
+        ],
+        toolOutcome: {
+          writeIntentRequired: true,
+          writeIntentSatisfied: false,
+          confirmedWriteCount: 0,
+          failureReason: 'write-required-unmet',
+          debug: {
+            manualFallback: {
+              used: true,
+              reasonCode: 'tool_loop_missing_workspace_write',
+              reason: 'Tool loop required a confirmed workspace write before final reply.',
+              lastPlannerStatus: 'final-before-write',
+              lastDecisionKind: 'final',
+              lastDecisionTool: '',
+              lastDecisionError: '',
+              lastAssistantText: 'i already handled it.',
+              invalidReplyCount: 0,
+              emptyReplyCount: 0,
+            },
+            writeRescue: {
+              attempted: true,
+              phase: 'manual',
+              status: 'non-tool-decision',
+              responseStatusCode: 200,
+              decisionKind: 'final',
+              tool: '',
+              argsPath: 'tmp/qwen-dual-lane-sandbox.md',
+              parseError: '',
+              assistantText: 'still not a write',
+              responseBody: '',
+            },
+          },
+        },
+        localLane: 'tool',
+        requestedModel: 'qwen/qwen3.6-35b-a3b',
+        resolvedModel: 'qwen/qwen3.6-35b-a3b',
+        executionPath: 'llm-tool-loop',
+        laneFallback: false,
+        modelUsed: true,
+        canonicalFactsPresent: false,
+        canonicalOverrideActive: false,
+      };
+    },
+    async streamLmStudioLocalSmart() {
+      throw new Error('stream path should not be used in this test');
+    },
+    scheduleResearchLedgerUpdate() {
+      ledgerCalls += 1;
+      return {
+        status: 'applied',
+        reason: 'should-not-run',
+      };
+    },
+    scheduleArchiveConsolidation() {
+      archiveCalls += 1;
+    },
+    saveStoredMemory(sessionId, memory) {
+      memoryStore.set(sessionId, memory);
+      return memory;
+    },
+    getStoredMemory(sessionId) {
+      return {
+        memory: memoryStore.get(sessionId) || { memories: [] },
+      };
+    },
+    mergeMemoryItems(items = []) {
+      return items;
+    },
+    mergeMemoryState(existing = {}, patch = {}) {
+      return { ...existing, ...patch };
+    },
+    reviewPromotion() {
+      return null;
+    },
+    purgeArchiveMemory() {
+      return null;
+    },
+    purgeResearchLedger() {
+      return null;
+    },
+    buildCombinedMemoryInspector() {
+      return {};
+    },
+    buildPennyReply() {
+      return '';
+    },
+    runOpenClawShadow() {
+      return '';
+    },
+    retagAssistantReply(text = '') {
+      return text;
+    },
+    extractReplyMoodTag() {
+      return 'annoyed';
+    },
+    pickMood() {
+      return 'annoyed';
+    },
+    stripReplyMoodTags(text = '') {
+      return String(text || '').replace(/\s*\[MOOD:[^\]]+\]\s*/gi, '').trim();
+    },
+    beginEventStream() {},
+    sendEventStream() {},
+    startEventStreamKeepAlive() {
+      return null;
+    },
+    describeLocalBrainFailure(error) {
+      return String(error?.message || error || 'local failure');
+    },
+    getLmStudioConnectionStatus() {
+      return {};
+    },
+    getSemanticMemoryStatus() {
+      return {};
+    },
+    setRuntimePreferredChatModel() {},
+    getRuntimePreferredChatModel() {
+      return '';
+    },
+    sessionState: {
+      turns: 0,
+      lastMood: 'calm',
+      memory: [],
+    },
+    constants: {
+      OPENCLAW_ENABLED: false,
+      OPENCLAW_TIMEOUT_MS: 0,
+      PENNY_LMSTUDIO_EMBED_MODEL: 'text-embedding-nomic-embed-text-v1.5',
+      LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+      LMSTUDIO_NATIVE_BASE: 'http://127.0.0.1:1234/api/v1',
+      LMSTUDIO_MODEL: 'qwen/qwen3.6-35b-a3b',
+      LOCAL_LLM_TRANSPORT: 'chat-completions',
+      RESPONSES_THEN_CHAT_FALLBACK: false,
+      LMSTUDIO_MAX_OUTPUT_TOKENS: 1024,
+      MEMORY_FILE: 'data/penny-memory.json',
+      MEMORY_ARCHIVE_FILE: 'data/penny-memory-archive.json',
+      MEMORY_EMBEDDINGS_FILE: 'data/penny-memory-embeddings.json',
+      WEB_SEARCH_ENABLED: true,
+    },
+  });
+
+  const handled = await handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/chat'),
+  });
+
+  assert.equal(handled, true);
+  assert.ok(response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.meta.researchLedgerUpdate.status, 'skipped');
+  assert.equal(response.json.meta.researchLedgerUpdate.reason, 'write-required-unmet');
+  assert.equal(response.json.meta.toolOutcome.writeIntentRequired, true);
+  assert.equal(response.json.meta.toolOutcome.writeIntentSatisfied, false);
+  assert.equal(response.json.meta.toolOutcome.debug.manualFallback.used, true);
+  assert.equal(response.json.meta.toolOutcome.debug.writeRescue.status, 'non-tool-decision');
+  assert.equal(response.json.meta.artifact.authority.reply, 'write-required-unmet');
+  assert.equal(response.json.meta.artifact.authority.toolClaims, 'write-unverified');
+  assert.equal(
+    response.json.meta.artifact.summary.text,
+    'Verifier-first turn did not complete a verified edit (write required unmet).',
+  );
+  assert.equal(response.json.meta.artifact.sideEffects.some((item) => item.type === 'file-write' && item.status === 'missing'), true);
+  assert.equal(response.json.meta.artifact.toolOutcome.writeIntentSatisfied, false);
+  assert.equal(ledgerCalls, 0);
+  assert.equal(archiveCalls, 0);
+
+  const saved = memoryStore.get('write-miss-session');
+  assert.ok(saved);
+  assert.equal(saved.lastRoute.researchLedgerUpdate.status, 'skipped');
+  assert.equal(saved.lastRoute.toolOutcome.writeIntentSatisfied, false);
+  assert.equal(saved.lastRoute.toolOutcome.debug.manualFallback.used, true);
+  assert.equal(saved.lastRoute.artifact.authority.reply, 'write-required-unmet');
+});
+
+test('chat route threads successful write intent into ledger scheduling so generic authored writes can be skipped honestly', async () => {
+  const memoryStore = new Map();
+  let response = null;
+  let archiveCalls = 0;
+  let capturedLedgerArgs = null;
+
+  const handlers = createPennyRouteHandlers({
+    sendJson(_res, statusCode, json) {
+      response = { statusCode, json };
+    },
+    async safeReadBody() {
+      return JSON.stringify({
+        sessionId: 'generic-write-session',
+        messages: [
+          {
+            role: 'user',
+            content: "Open Penny's Playground/penny-qa-freewrite.md and add 2-4 sentences in your own Penny voice. I am not giving you a topic on purpose. You can write whatever you want there. Then tell me exactly what you changed.",
+          },
+        ],
+        memories: { brainMode: 'local', memories: [] },
+      });
+    },
+    buildLastRouteInfo,
+    buildChatMemoryState(_sessionId, memories = {}) {
+      return {
+        memory: {
+          brainMode: memories.brainMode || 'local',
+          memories: Array.isArray(memories.memories) ? memories.memories : [],
+        },
+        patch: {
+          provenance: [],
+          reviewCandidates: [],
+        },
+      };
+    },
+    sanitizeChatMessages(messages = []) {
+      return Array.isArray(messages) ? messages : [];
+    },
+    sanitizeImageDataUrl() {
+      return null;
+    },
+    sanitizeFileAttachment() {
+      return null;
+    },
+    appendAttachmentContext(text = '') {
+      return text;
+    },
+    async buildRuntimeMemoryContext() {
+      return {
+        memories: [],
+        retrieval: null,
+        archiveContext: null,
+        researchLedger: null,
+        promptComposition: null,
+        promptTruth: null,
+        latencyBudget: {
+          latencyClass: 'tool-heavy',
+          allowSemanticQuery: false,
+          allowArchiveCompression: false,
+          allowSemanticRender: false,
+        },
+        semanticMemory: {
+          ready: false,
+          mode: 'disabled',
+        },
+      };
+    },
+    selectLocalLane() {
+      return {
+        localLane: 'tool',
+        directIntent: null,
+        needsTools: true,
+        reason: 'tool-intent',
+      };
+    },
+    async runLmStudioLocalSmart() {
+      return {
+        text: "i added three soft sentences to Penny's Playground/penny-qa-freewrite.md and left the rest of the file alone.\n[MOOD:happy]",
+        toolsUsed: [
+          {
+            name: 'insert_in_project_file',
+            label: "insert Penny's Playground/penny-qa-freewrite.md",
+            ok: true,
+          },
+          {
+            name: 'get_git_status',
+            label: 'git status',
+            ok: true,
+          },
+        ],
+        toolRecords: [
+          {
+            name: 'insert_in_project_file',
+            args: { path: "Penny's Playground/penny-qa-freewrite.md" },
+            result: {
+              ok: true,
+              label: "insert Penny's Playground/penny-qa-freewrite.md",
+              data: {
+                path: "Penny's Playground/penny-qa-freewrite.md",
+              },
+            },
+          },
+          {
+            name: 'get_git_status',
+            args: {},
+            result: {
+              ok: true,
+              label: 'git status',
+              data: {},
+            },
+          },
+        ],
+        toolOutcome: {
+          writeIntentRequired: true,
+          writeIntentSatisfied: true,
+          confirmedWriteCount: 1,
+          failureReason: '',
+        },
+        localLane: 'tool',
+        requestedModel: 'qwen/qwen3.6-35b-a3b',
+        resolvedModel: 'qwen/qwen3.6-35b-a3b',
+        executionPath: 'llm-tool-loop',
+        laneFallback: false,
+        modelUsed: true,
+        canonicalFactsPresent: false,
+        canonicalOverrideActive: false,
+      };
+    },
+    async streamLmStudioLocalSmart() {
+      throw new Error('stream path should not be used in this test');
+    },
+    scheduleResearchLedgerUpdate(args = {}) {
+      capturedLedgerArgs = args;
+      return {
+        status: 'skipped',
+        reason: 'generic-write-turn',
+        context: null,
+        topic: null,
+      };
+    },
+    scheduleArchiveConsolidation() {
+      archiveCalls += 1;
+    },
+    saveStoredMemory(sessionId, memory) {
+      memoryStore.set(sessionId, memory);
+      return memory;
+    },
+    getStoredMemory(sessionId) {
+      return {
+        memory: memoryStore.get(sessionId) || { memories: [] },
+      };
+    },
+    mergeMemoryItems(items = []) {
+      return items;
+    },
+    mergeMemoryState(existing = {}, patch = {}) {
+      return { ...existing, ...patch };
+    },
+    reviewPromotion() {
+      return null;
+    },
+    purgeArchiveMemory() {
+      return null;
+    },
+    purgeResearchLedger() {
+      return null;
+    },
+    buildCombinedMemoryInspector() {
+      return {};
+    },
+    buildPennyReply() {
+      return '';
+    },
+    runOpenClawShadow() {
+      return '';
+    },
+    retagAssistantReply(text = '') {
+      return text;
+    },
+    extractReplyMoodTag() {
+      return 'happy';
+    },
+    pickMood() {
+      return 'happy';
+    },
+    stripReplyMoodTags(text = '') {
+      return String(text || '').replace(/\s*\[MOOD:[^\]]+\]\s*/gi, '').trim();
+    },
+    beginEventStream() {},
+    sendEventStream() {},
+    startEventStreamKeepAlive() {
+      return null;
+    },
+    describeLocalBrainFailure(error) {
+      return String(error?.message || error || 'local failure');
+    },
+    getLmStudioConnectionStatus() {
+      return {};
+    },
+    getSemanticMemoryStatus() {
+      return {};
+    },
+    setRuntimePreferredChatModel() {},
+    getRuntimePreferredChatModel() {
+      return '';
+    },
+    sessionState: {
+      turns: 0,
+      lastMood: 'calm',
+      memory: [],
+    },
+    constants: {
+      OPENCLAW_ENABLED: false,
+      OPENCLAW_TIMEOUT_MS: 0,
+      PENNY_LMSTUDIO_EMBED_MODEL: 'text-embedding-nomic-embed-text-v1.5',
+      LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+      LMSTUDIO_NATIVE_BASE: 'http://127.0.0.1:1234/api/v1',
+      LMSTUDIO_MODEL: 'qwen/qwen3.6-35b-a3b',
+      LOCAL_LLM_TRANSPORT: 'chat-completions',
+      RESPONSES_THEN_CHAT_FALLBACK: false,
+      LMSTUDIO_MAX_OUTPUT_TOKENS: 1024,
+      MEMORY_FILE: 'data/penny-memory.json',
+      MEMORY_ARCHIVE_FILE: 'data/penny-memory-archive.json',
+      MEMORY_EMBEDDINGS_FILE: 'data/penny-memory-embeddings.json',
+      WEB_SEARCH_ENABLED: true,
+    },
+  });
+
+  const handled = await handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/chat'),
+  });
+
+  assert.equal(handled, true);
+  assert.ok(response);
+  assert.equal(response.statusCode, 200);
+  assert.ok(capturedLedgerArgs);
+  assert.equal(capturedLedgerArgs.toolOutcome.writeIntentRequired, true);
+  assert.equal(capturedLedgerArgs.toolOutcome.writeIntentSatisfied, true);
+  assert.equal(response.json.meta.researchLedgerUpdate.status, 'skipped');
+  assert.equal(response.json.meta.researchLedgerUpdate.reason, 'generic-write-turn');
+  assert.equal(response.json.meta.toolOutcome.writeIntentSatisfied, true);
+  assert.equal(response.json.meta.artifact.authority.reply, 'verified-tool-evidence');
+  assert.equal(archiveCalls, 0);
+
+  const saved = memoryStore.get('generic-write-session');
+  assert.ok(saved);
+  assert.equal(saved.lastRoute.researchLedgerUpdate.reason, 'generic-write-turn');
+  assert.equal(saved.lastRoute.toolOutcome.writeIntentSatisfied, true);
 });

@@ -241,6 +241,102 @@ test('buildRuntimeArtifact preserves deterministic-tool truth without faking mod
   assert.equal(artifact.provenance.retrieval[0].sourceLabel, 'package.json');
 });
 
+test('buildRuntimeArtifact marks write-required tool misses as failed edits instead of verified success', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'demo-write-miss',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'llm-tool-loop',
+    requestedModel: 'qwen/qwen3.6-35b-a3b',
+    resolvedModel: 'qwen/qwen3.6-35b-a3b',
+    toolsUsed: [
+      { name: 'read_project_file', label: 'read tmp/qwen-dual-lane-sandbox.md', ok: true },
+    ],
+    toolRecords: [
+      {
+        name: 'read_project_file',
+        args: { path: 'tmp/qwen-dual-lane-sandbox.md' },
+        result: {
+          ok: true,
+          label: 'read tmp/qwen-dual-lane-sandbox.md',
+          data: {
+            path: 'tmp/qwen-dual-lane-sandbox.md',
+            textPreview: 'alpha',
+          },
+        },
+      },
+    ],
+    toolOutcome: {
+      writeIntentRequired: true,
+      writeIntentSatisfied: false,
+      confirmedWriteCount: 0,
+      failureReason: 'write-required-unmet',
+      debug: {
+        manualFallback: {
+          used: true,
+          reasonCode: 'tool_loop_missing_workspace_write',
+          reason: 'Tool loop required a confirmed workspace write before final reply.',
+          lastPlannerStatus: 'final-before-write',
+          lastDecisionKind: 'final',
+          lastDecisionTool: '',
+          lastDecisionError: '',
+          lastAssistantText: 'i already handled it.',
+          invalidReplyCount: 0,
+          emptyReplyCount: 0,
+        },
+        writeRescue: {
+          attempted: true,
+          phase: 'manual',
+          status: 'non-tool-decision',
+          responseStatusCode: 200,
+          decisionKind: 'final',
+          tool: '',
+          argsPath: 'tmp/qwen-dual-lane-sandbox.md',
+          parseError: '',
+          assistantText: 'still not a write',
+          responseBody: '',
+        },
+      },
+    },
+    readiness: {
+      chatModelReady: true,
+      toolModelReady: true,
+      embeddingReady: false,
+      fallbackActive: false,
+      modelUsage: 'used',
+      warmState: 'warm',
+      checkedAt: '2026-04-18T18:00:00.000Z',
+      cacheAgeMs: 0,
+      cacheExpiresAt: '',
+      cacheHit: false,
+    },
+    performance: {
+      latencyClass: 'tool-heavy',
+      request: { available: true },
+      promptAssembly: { available: true },
+      archiveRetrieval: { available: true },
+      semanticRender: { available: false, attempted: false, used: false },
+      modelResolution: { available: true },
+      semanticProbe: { available: true },
+      firstToken: { available: false },
+      modelRoundTrip: { available: true, durationMs: 82724, transport: 'local-lmstudio' },
+    },
+  });
+
+  assert.equal(artifact.authority.reply, 'write-required-unmet');
+  assert.equal(artifact.authority.toolClaims, 'write-unverified');
+  assert.equal(artifact.toolOutcome.writeIntentRequired, true);
+  assert.equal(artifact.toolOutcome.writeIntentSatisfied, false);
+  assert.equal(artifact.toolOutcome.debug.manualFallback.used, true);
+  assert.equal(artifact.toolOutcome.debug.writeRescue.status, 'non-tool-decision');
+  assert.equal(artifact.summary.text, 'Verifier-first turn did not complete a verified edit (write required unmet).');
+  assert.equal(artifact.reasonCodes.includes('write-required-unmet'), true);
+  assert.equal(artifact.sideEffects.some((item) => item.type === 'file-write' && item.status === 'missing'), true);
+  assert.equal(artifact.trace.evidenceRejected.some((item) => item.status === 'write-unverified'), true);
+  assert.equal(artifact.trace.evidenceRejected.some((item) => /Rescue manual ended as non-tool-decision/i.test(item.detail || '')), true);
+});
+
 test('buildRuntimeArtifact records cleanup and authority-pressure summaries separately from repair', () => {
     const artifact = buildRuntimeArtifact({
       sessionId: 'demo-session',

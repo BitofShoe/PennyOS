@@ -49,6 +49,23 @@ function gitStatusToolRecord() {
   };
 }
 
+function insertInProjectFileToolRecord(targetPath = 'README.md') {
+  return {
+    name: 'insert_in_project_file',
+    args: {
+      path: targetPath,
+      text: 'placeholder',
+    },
+    result: {
+      ok: true,
+      label: `insert ${targetPath}`,
+      data: {
+        path: targetPath,
+      },
+    },
+  };
+}
+
 test('research ledger ignores casual chat without verified evidence', () => {
   const { api, cleanup } = buildApi();
   try {
@@ -221,6 +238,65 @@ test('research ledger keeps verified evidence provisional when no evidence-tight
     assert.equal(result.topic.conclusion, '');
     assert.deepEqual(result.topic.summaryEvidenceRefs, []);
     assert.equal(promptContext.topics[0].summary, result.topic.question);
+  } finally {
+    cleanup();
+  }
+});
+
+test('research ledger skips generic authored write turns even when git status verifies the workspace changed', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    const result = api.updateResearchLedgerFromTurn({
+      sessionId: 'playground-write',
+      userText: "Open Penny's Playground/penny-qa-freewrite.md and add 2-4 sentences in your own Penny voice. I am not giving you a topic on purpose. You can write whatever you want there. Then tell me exactly what you changed.",
+      assistantText: "I added three soft sentences about the blank page and told you exactly what I changed in Penny's Playground/penny-qa-freewrite.md.",
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolOutcome: {
+        writeIntentRequired: true,
+        writeIntentSatisfied: true,
+        confirmedWriteCount: 1,
+      },
+      toolRecords: [
+        insertInProjectFileToolRecord("Penny's Playground/penny-qa-freewrite.md"),
+        gitStatusToolRecord(),
+      ],
+    });
+
+    assert.equal(result.updated, false);
+    assert.equal(result.reason, 'generic-write-turn');
+    assert.equal(Object.keys(api.readLedgerStore().topics).length, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test('research ledger still keeps research-shaped write turns when anchored evidence was actually verified', () => {
+  const { api, cleanup } = buildApi();
+  try {
+    const result = api.updateResearchLedgerFromTurn({
+      sessionId: 'qa-ledger',
+      userText: 'Inspect package.json, verify the npm test script, then update README.md with a one-line note about what you verified.',
+      assistantText: 'I checked package.json, verified the npm test script is node --test test/*.test.js, and added a short README note about it.',
+      selectedLane: 'tool',
+      backend: 'local-lmstudio-tools',
+      toolOutcome: {
+        writeIntentRequired: true,
+        writeIntentSatisfied: true,
+        confirmedWriteCount: 1,
+      },
+      toolRecords: [
+        readPackageJsonToolRecord(),
+        insertInProjectFileToolRecord('README.md'),
+        gitStatusToolRecord(),
+      ],
+    });
+
+    assert.equal(result.updated, true);
+    assert.equal(result.topic.identity.anchorRef, 'package.json');
+    assert.equal(result.topic.sourceClass, 'verified-evidence');
+    assert.equal(result.topic.summaryClass, 'evidence-tight');
+    assert.match(result.topic.conclusion, /verified in package\.json/i);
   } finally {
     cleanup();
   }

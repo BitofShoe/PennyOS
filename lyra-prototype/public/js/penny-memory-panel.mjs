@@ -259,6 +259,14 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     : {};
   const performance = artifact.performance && typeof artifact.performance === 'object' ? artifact.performance : {};
   const readiness = artifact.readiness && typeof artifact.readiness === 'object' ? artifact.readiness : {};
+  const toolOutcome = artifact.toolOutcome && typeof artifact.toolOutcome === 'object' ? artifact.toolOutcome : {};
+  const toolDebug = toolOutcome.debug && typeof toolOutcome.debug === 'object' ? toolOutcome.debug : {};
+  const manualFallbackDebug = toolDebug.manualFallback && typeof toolDebug.manualFallback === 'object'
+    ? toolDebug.manualFallback
+    : {};
+  const writeRescueDebug = toolDebug.writeRescue && typeof toolDebug.writeRescue === 'object'
+    ? toolDebug.writeRescue
+    : {};
   const executionPath = String(artifact.executionPath || artifact.context?.executionPath || '').trim() || 'llm-chat';
   const researchLedgerUpdate = artifact.researchLedgerUpdate && typeof artifact.researchLedgerUpdate === 'object'
     ? artifact.researchLedgerUpdate
@@ -335,6 +343,21 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   if (Array.isArray(reasoningPolicy.reasonCodes) && reasoningPolicy.reasonCodes.length) {
     reasoningBits.push(reasoningPolicy.reasonCodes.slice(0, 4).join(', '));
   }
+  const toolDebugBits = [];
+  if (manualFallbackDebug.used === true) {
+    toolDebugBits.push(`manual fallback ${manualFallbackDebug.lastPlannerStatus || 'used'}`);
+    if (manualFallbackDebug.reasonCode) toolDebugBits.push(`reason ${manualFallbackDebug.reasonCode}`);
+    if (manualFallbackDebug.lastDecisionTool) toolDebugBits.push(`last tool ${manualFallbackDebug.lastDecisionTool}`);
+    if (manualFallbackDebug.lastDecisionError) toolDebugBits.push(manualFallbackDebug.lastDecisionError);
+    if (manualFallbackDebug.lastAssistantText) toolDebugBits.push(`planner "${manualFallbackDebug.lastAssistantText}"`);
+  }
+  if (writeRescueDebug.attempted === true) {
+    toolDebugBits.push(`rescue ${writeRescueDebug.phase || 'write-rescue'} ${writeRescueDebug.status || 'attempted'}`);
+    if (writeRescueDebug.tool) toolDebugBits.push(`tool ${writeRescueDebug.tool}`);
+    if (writeRescueDebug.argsPath) toolDebugBits.push(`path ${writeRescueDebug.argsPath}`);
+    if (writeRescueDebug.parseError) toolDebugBits.push(writeRescueDebug.parseError);
+    if (writeRescueDebug.assistantText) toolDebugBits.push(`reply "${writeRescueDebug.assistantText}"`);
+  }
   const advisoryMergeBits = [];
   if (Array.isArray(advisoryMerge.mergeBasis) && advisoryMerge.mergeBasis.length) {
     advisoryMergeBits.push(`basis ${advisoryMerge.mergeBasis.slice(0, 3).join(', ')}`);
@@ -355,6 +378,9 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
         <small>${escapeHtmlFn(reasonCodes.join(', ') || 'No reason codes recorded.')}</small>
       </div>
     </div>
+    ${(manualFallbackDebug.used === true || writeRescueDebug.attempted === true)
+      ? `<div class="list-item"><div class="memory-copy">Write debug: <strong>${escapeHtmlFn(toolOutcome.failureReason || 'observed')}</strong><small>${escapeHtmlFn(toolDebugBits.join(' | ') || 'No write-debug details were recorded.')}</small></div></div>`
+      : ''}
     <div class="list-item">
       <div class="memory-copy">
         Visible reply cleanup: <strong>${escapeHtmlFn(cleanupSummary)}</strong>

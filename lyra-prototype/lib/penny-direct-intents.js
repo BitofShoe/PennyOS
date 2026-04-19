@@ -1,5 +1,5 @@
 /**
- * @typedef {'direct_write_instruction' | 'direct_replace_instruction' | 'direct_append_instruction' | 'syntax_check_request' | 'git_diff_request' | 'web_page_request' | 'web_result_inspection_request' | 'web_search_request' | 'project_file_focus_read' | 'project_file_read_request' | 'project_path_discovery' | 'project_symbol_inspect' | 'project_text_search' | 'runtime_status_request' | 'git_status_request' | 'recent_logs_request'} DirectIntentReasonCode
+ * @typedef {'direct_write_instruction' | 'direct_replace_instruction' | 'direct_append_instruction' | 'direct_open_ended_edit_instruction' | 'syntax_check_request' | 'git_diff_request' | 'web_page_request' | 'web_result_inspection_request' | 'web_search_request' | 'project_file_focus_read' | 'project_file_read_request' | 'project_path_discovery' | 'project_symbol_inspect' | 'project_text_search' | 'runtime_status_request' | 'git_status_request' | 'recent_logs_request'} DirectIntentReasonCode
  *
  * @typedef {Object} DirectIntentResolution
  * @property {string} name
@@ -14,6 +14,7 @@ const DIRECT_INTENT_REASON_CODES = Object.freeze({
   DIRECT_WRITE: 'direct_write_instruction',
   DIRECT_REPLACE: 'direct_replace_instruction',
   DIRECT_APPEND: 'direct_append_instruction',
+  DIRECT_OPEN_ENDED_EDIT: 'direct_open_ended_edit_instruction',
   SYNTAX_CHECK: 'syntax_check_request',
   GIT_DIFF: 'git_diff_request',
   WEB_PAGE: 'web_page_request',
@@ -71,6 +72,11 @@ function createDirectIntentApi({
     new RegExp("\"([^\"\\n]+\\.(?:" + PROJECT_PATH_EXTENSIONS + "))\"", 'i'),
     new RegExp("'([^'\\n]+\\.(?:" + PROJECT_PATH_EXTENSIONS + "))'", 'i'),
   ];
+  const RELAXED_UNQUOTED_PROJECT_PATH_PATTERN = new RegExp(
+    "(?:^|[\\s`\"(])((?!(?:open|read|inspect|check|show|search|find|look|inside|into|in|from|tell|please|add|append|write|rewrite|update|change)\\b)(?:[a-z0-9_.'()\\-]+(?: [a-z0-9_.'()\\-]+)*[\\\\/])+[a-z0-9_.'()\\-]+(?: [a-z0-9_.'()\\-]+)*\\.(?:"
+      + PROJECT_PATH_EXTENSIONS + "))(?=$|[\\s`\")?!,:;.])",
+    'i',
+  );
   const UNQUOTED_PROJECT_PATH_PATTERN = new RegExp(
     "(?:^|[\\s`\"'(])([a-z0-9_./\\\\-]+\\.(?:" + PROJECT_PATH_EXTENSIONS + "))(?=$|[\\s`\"')?!,:;.])",
     'i',
@@ -83,6 +89,8 @@ function createDirectIntentApi({
       const candidate = String(match?.[1] || '').trim();
       if (candidate) return candidate;
     }
+    const relaxedMatch = raw.match(RELAXED_UNQUOTED_PROJECT_PATH_PATTERN);
+    if (relaxedMatch?.[1]) return relaxedMatch[1].trim().replace(/\\/g, '/');
     const match = raw.match(UNQUOTED_PROJECT_PATH_PATTERN);
     return match ? match[1].trim().replace(/\\/g, '/') : '';
   }
@@ -188,7 +196,7 @@ function createDirectIntentApi({
     return /\b(official|docs|documentation)\b/.test(lower);
   }
 
-  function extractDirectSearchQuery(text = '') {
+  function extractDirectSearchQuery(text = '', explicitPath = '') {
     const raw = String(text || '');
     const lower = raw.toLowerCase();
     const exactPatterns = [/`([^`\n]{2,120})`/, /"([^"\n]{2,120})"/, /'([^'\n]{2,120})'/];
@@ -196,10 +204,25 @@ function createDirectIntentApi({
       const match = raw.match(pattern);
       const candidate = String(match?.[1] || '').trim();
       if (!candidate || extractExplicitProjectPath(candidate)) continue;
+      if (candidate.includes('/') || candidate.includes('\\')) {
+        const explicitLower = String(explicitPath || '').trim().toLowerCase();
+        if (explicitLower && explicitLower.includes(candidate.toLowerCase())) continue;
+        const start = Number.isFinite(match?.index) ? match.index : -1;
+        const end = start >= 0 ? start + String(match?.[0] || '').length : -1;
+        const before = start > 0 ? raw[start - 1] : '';
+        const after = end >= 0 && end < raw.length ? raw[end] : '';
+        if (/[a-z0-9_./\\-]/i.test(before) || /[a-z0-9_./\\-]/i.test(after)) continue;
+      }
       return candidate;
     }
     const underscored = raw.match(/\b([a-z][a-z0-9]*_[a-z0-9_]+)\b/i);
-    if (underscored?.[1]) return underscored[1];
+    if (underscored?.[1]) {
+      const candidate = String(underscored[1] || '').trim();
+      const explicitLower = String(explicitPath || '').trim().toLowerCase();
+      if (!(explicitLower && explicitLower.includes(candidate.toLowerCase()))) {
+        return candidate;
+      }
+    }
     if (/\bgit diff\b/i.test(lower)) return 'git diff';
     if (/\bgit status\b/i.test(lower)) return 'git status';
     return '';
@@ -287,6 +310,14 @@ function createDirectIntentApi({
     return editVerb && creativeCue;
   }
 
+  function classifyOpenEndedProjectEditMode(text = '') {
+    const lower = String(text || '').toLowerCase();
+    if (/\b(rewrite|overwrite|replace the contents|replace contents|full rewrite|full file|create)\b/.test(lower)) {
+      return 'direct_open_ended_write';
+    }
+    return 'direct_open_ended_append';
+  }
+
   function classifyLineLevelFileQuestion(text = '') {
     const lower = String(text || '').toLowerCase();
     if (!lower) return '';
@@ -367,7 +398,11 @@ function createDirectIntentApi({
       return withReasonCode({ name: 'search_web', args: { query: webQuery, limit: 5 } }, DIRECT_INTENT_REASON_CODES.WEB_SEARCH);
     }
     if (explicitPath && looksLikeOpenEndedProjectEdit(text)) {
-      return null;
+      return withReasonCode({
+        kind: 'open_ended_sequence',
+        mode: classifyOpenEndedProjectEditMode(text),
+        path: explicitPath,
+      }, DIRECT_INTENT_REASON_CODES.DIRECT_OPEN_ENDED_EDIT);
     }
     const naturalProjectRead = inferNaturalProjectReadTarget(text, explicitPath);
     if (naturalProjectRead) {
@@ -381,7 +416,7 @@ function createDirectIntentApi({
         },
       }, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
     }
-    const searchQuery = extractDirectSearchQuery(text);
+    const searchQuery = extractDirectSearchQuery(text, explicitPath);
     const lineQuestionType = explicitPath ? classifyLineLevelFileQuestion(text) : '';
     if (explicitPath && searchQuery && lineQuestionType) {
       return withReasonCode({
@@ -396,7 +431,7 @@ function createDirectIntentApi({
       }, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
     }
     if (explicitPath && /\b(read|open|show|inspect|explain|summarize|check|look at|walk through|search|find|grep|look for)\b/i.test(lower)) {
-      const symbolQuery = extractDirectSearchQuery(text) || extractDirectReadFocusQuery(text, explicitPath);
+      const symbolQuery = extractDirectSearchQuery(text, explicitPath) || extractDirectReadFocusQuery(text, explicitPath);
       if (symbolQuery && !/^(git diff|git status)$/i.test(symbolQuery) && !extractExplicitProjectPath(symbolQuery)) {
         return withReasonCode({
           name: 'read_project_file_around_match',

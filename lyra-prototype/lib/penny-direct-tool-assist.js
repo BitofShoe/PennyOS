@@ -2,6 +2,7 @@ function createDirectToolAssistApi({
   executePennyTool,
   executeDirectProjectInspectIntent,
   runLmStudioToolContextAnswer,
+  draftOpenEndedWriteText,
   composeDirectRuntimeReply,
   composeDirectSyntaxReply,
   composeDirectGitStatusReply,
@@ -24,6 +25,9 @@ function createDirectToolAssistApi({
   }
   if (typeof runLmStudioToolContextAnswer !== 'function') {
     throw new TypeError('createDirectToolAssistApi requires runLmStudioToolContextAnswer');
+  }
+  if (typeof draftOpenEndedWriteText !== 'function') {
+    throw new TypeError('createDirectToolAssistApi requires draftOpenEndedWriteText');
   }
   if (typeof composeDirectRuntimeReply !== 'function'
     || typeof composeDirectSyntaxReply !== 'function'
@@ -118,9 +122,14 @@ function createDirectToolAssistApi({
   }
 
   function composeDirectEditReply(intent = {}, sequence = {}) {
-    const primaryName = intent.mode === 'direct_replace'
+    const normalizedMode = intent.mode === 'direct_open_ended_append'
+      ? 'direct_append'
+      : intent.mode === 'direct_open_ended_write'
+        ? 'direct_write'
+        : intent.mode;
+    const primaryName = normalizedMode === 'direct_replace'
       ? 'replace_in_project_file'
-      : intent.mode === 'direct_append'
+      : normalizedMode === 'direct_append'
         ? 'insert_in_project_file'
         : 'write_project_file';
     const primary = (sequence.results || []).find((item) => item.name === primaryName);
@@ -131,10 +140,10 @@ function createDirectToolAssistApi({
 
     const pathLabel = primary.result.data?.path || intent.path || 'that file';
     const lines = [];
-    if (intent.mode === 'direct_replace') {
+    if (normalizedMode === 'direct_replace') {
       const replaced = Number(primary.result.data?.replaced || 0);
       lines.push(`${pathLabel} is updated. i replaced ${replaced} match${replaced === 1 ? '' : 'es'}.`);
-    } else if (intent.mode === 'direct_append') {
+    } else if (normalizedMode === 'direct_append') {
       lines.push(`${pathLabel} has the new line in place.`);
     } else {
       const action = primary.result.data?.action === 'created' ? 'created' : 'updated';
@@ -157,13 +166,71 @@ function createDirectToolAssistApi({
     return `${lines.join(' ')}\n[MOOD:smug]`;
   }
 
-  async function runDirectToolAssist({ userText, messages, memories, intent, onToolEvent, abortSignal }) {
+  function buildOpenEndedEditSequence(intent = {}, draftedText = '') {
+    const pathLabel = String(intent.path || '').trim();
+    const primary = intent.mode === 'direct_open_ended_write'
+      ? { name: 'write_project_file', args: { path: pathLabel, content: draftedText } }
+      : {
+          name: 'insert_in_project_file',
+          args: {
+            path: pathLabel,
+            text: draftedText,
+            position: 'end',
+            lineAware: true,
+          },
+        };
+    const steps = [primary];
+    if (/\.(?:js|cjs|mjs)$/i.test(pathLabel)) {
+      steps.push({ name: 'run_node_check', args: { path: pathLabel } });
+    }
+    steps.push({ name: 'get_git_status', args: {} });
+    return steps;
+  }
+
+  function buildSequenceToolOutcome(intent = {}, sequence = {}) {
+    const writeToolNames = new Set(['write_project_file', 'replace_in_project_file', 'insert_in_project_file']);
+    const records = Array.isArray(sequence.results) ? sequence.results : [];
+    const confirmedWriteCount = records.filter((record) => writeToolNames.has(String(record?.name || '').trim()) && record?.result?.ok).length;
+    const writeIntentRequired = intent?.kind === 'sequence' || intent?.kind === 'open_ended_sequence';
+    return {
+      writeIntentRequired,
+      writeIntentSatisfied: writeIntentRequired ? confirmedWriteCount > 0 : true,
+      confirmedWriteCount,
+      failureReason: writeIntentRequired && confirmedWriteCount < 1 ? 'write-required-unmet' : '',
+      debug: null,
+    };
+  }
+
+  async function runDirectToolAssist({ userText, messages, memories, intent, onToolEvent, abortSignal, laneRuntime = null }) {
     if (intent?.kind === 'sequence') {
       const sequence = await executeDirectToolSequence(intent, onToolEvent);
       return {
         text: composeDirectEditReply(intent, sequence),
         toolsUsed: sequence.toolsUsed,
         toolRecords: sequence.results,
+        toolOutcome: buildSequenceToolOutcome(intent, sequence),
+      };
+    }
+    if (intent?.kind === 'open_ended_sequence') {
+      const draftedText = await draftOpenEndedWriteText({
+        userText,
+        messages,
+        memories,
+        path: intent.path,
+        mode: intent.mode,
+        abortSignal,
+        laneRuntime,
+      });
+      const sequence = await executeDirectToolSequence({
+        steps: buildOpenEndedEditSequence(intent, draftedText),
+      }, onToolEvent);
+      return {
+        text: composeToolRecordFallback(sequence.results) || composeDirectEditReply(intent, sequence),
+        toolsUsed: sequence.toolsUsed,
+        toolRecords: sequence.results,
+        toolOutcome: buildSequenceToolOutcome(intent, sequence),
+        modelUsed: true,
+        skipSemanticRender: true,
       };
     }
     if (intent?.name === 'inspect_project_symbol') {

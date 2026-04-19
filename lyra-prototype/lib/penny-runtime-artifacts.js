@@ -117,6 +117,69 @@ function normalizeResearchLedgerUpdate(raw = {}, defaults = {}) {
   };
 }
 
+function normalizeToolOutcomeDebug(raw = {}, defaults = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const manualFallbackRaw = value.manualFallback && typeof value.manualFallback === 'object'
+    ? value.manualFallback
+    : (fallback.manualFallback && typeof fallback.manualFallback === 'object' ? fallback.manualFallback : {});
+  const writeRescueRaw = value.writeRescue && typeof value.writeRescue === 'object'
+    ? value.writeRescue
+    : (fallback.writeRescue && typeof fallback.writeRescue === 'object' ? fallback.writeRescue : {});
+  return {
+    manualFallback: {
+      used: manualFallbackRaw.used === true,
+      reasonCode: trimText(manualFallbackRaw.reasonCode || '', 120),
+      reason: trimText(manualFallbackRaw.reason || '', 180),
+      lastPlannerStatus: trimText(manualFallbackRaw.lastPlannerStatus || '', 80),
+      lastDecisionKind: trimText(manualFallbackRaw.lastDecisionKind || '', 40),
+      lastDecisionTool: trimText(manualFallbackRaw.lastDecisionTool || '', 120),
+      lastDecisionError: trimText(manualFallbackRaw.lastDecisionError || '', 180),
+      lastAssistantText: trimText(manualFallbackRaw.lastAssistantText || '', 240),
+      invalidReplyCount: normalizeNonNegativeNumber(manualFallbackRaw.invalidReplyCount, 0),
+      emptyReplyCount: normalizeNonNegativeNumber(manualFallbackRaw.emptyReplyCount, 0),
+    },
+    writeRescue: {
+      attempted: writeRescueRaw.attempted === true,
+      phase: trimText(writeRescueRaw.phase || '', 40),
+      status: trimText(writeRescueRaw.status || '', 80),
+      responseStatusCode: normalizeNonNegativeNumber(writeRescueRaw.responseStatusCode, 0),
+      decisionKind: trimText(writeRescueRaw.decisionKind || '', 40),
+      tool: trimText(writeRescueRaw.tool || '', 120),
+      argsPath: trimText(writeRescueRaw.argsPath || '', 220),
+      parseError: trimText(writeRescueRaw.parseError || '', 180),
+      assistantText: trimText(writeRescueRaw.assistantText || '', 240),
+      responseBody: trimText(writeRescueRaw.responseBody || '', 240),
+    },
+  };
+}
+
+function normalizeToolOutcome(raw = {}, defaults = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const writeIntentRequired = value.writeIntentRequired === true || fallback.writeIntentRequired === true;
+  const confirmedWriteCount = normalizeNonNegativeNumber(
+    value.confirmedWriteCount,
+    fallback.confirmedWriteCount || 0,
+  );
+  const writeIntentSatisfied = writeIntentRequired
+    ? (value.writeIntentSatisfied === true || fallback.writeIntentSatisfied === true)
+    : true;
+  const debug = normalizeToolOutcomeDebug(value.debug, fallback.debug);
+  const debugActive = debug.manualFallback.used === true
+    || debug.writeRescue.attempted === true
+    || debug.manualFallback.invalidReplyCount > 0
+    || debug.manualFallback.emptyReplyCount > 0
+    || !!String(debug.manualFallback.lastPlannerStatus || '').trim();
+  return {
+    writeIntentRequired,
+    writeIntentSatisfied,
+    confirmedWriteCount,
+    failureReason: trimText(value.failureReason || fallback.failureReason || '', 120),
+    debug: debugActive ? debug : null,
+  };
+}
+
 function normalizePerformance(value = {}, defaults = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
@@ -874,8 +937,10 @@ function buildLaneAdvisorySummaryText({
   toolEvidenceCount = 0,
   promptTruth = null,
   reasoningPolicy = null,
+  toolOutcome = null,
 } = {}) {
   const policy = normalizeReasoningPolicy(reasoningPolicy);
+  const normalizedToolOutcome = normalizeToolOutcome(toolOutcome);
   const modeLabel = policy.mode === 'deliberate'
     ? 'Deliberate recall turn'
     : policy.mode === 'verifier-first'
@@ -883,6 +948,11 @@ function buildLaneAdvisorySummaryText({
       : policy.mode === 'attachment-bounded'
         ? 'Attachment-bounded turn'
         : 'Minimal ordinary turn';
+  if (normalizedToolOutcome.writeIntentRequired === true && normalizedToolOutcome.writeIntentSatisfied === false) {
+    return normalizedToolOutcome.failureReason
+      ? `${modeLabel} did not complete a verified edit (${formatHeldBackReason(normalizedToolOutcome.failureReason)}).`
+      : `${modeLabel} did not complete a verified edit.`;
+  }
   if (toolEvidenceCount > 0) {
     return policy.shortCircuitApplied && policy.shortCircuitReason
       ? `${modeLabel} with ${toolEvidenceCount} verified evidence item${toolEvidenceCount === 1 ? '' : 's'}; short-circuited before extra model reasoning (${policy.shortCircuitReason}).`
@@ -1246,6 +1316,15 @@ function buildToolArtifactState(toolRecords = [], toolsUsed = []) {
   };
 }
 
+function primaryToolArtifactPath(toolState = null) {
+  const artifacts = Array.isArray(toolState?.artifacts) ? toolState.artifacts : [];
+  const projectPath = artifacts.find((item) => String(item?.type || '').trim() === 'project-path');
+  if (projectPath?.value) return String(projectPath.value).trim();
+  const evidence = Array.isArray(toolState?.evidence) ? toolState.evidence : [];
+  const toolEvidence = evidence.find((item) => String(item?.target || '').trim());
+  return String(toolEvidence?.target || '').trim();
+}
+
 function buildRetrievalArtifactState(retrieval = null, matchedBooks = []) {
   const evidence = [];
   const artifacts = [];
@@ -1301,8 +1380,12 @@ function buildRuntimeTraceState({
   researchLedgerContext = null,
   promptTruth = null,
   reasoningPolicy = null,
+  toolOutcome = null,
 } = {}) {
   const toolEvidence = Array.isArray(toolState?.evidence) ? toolState.evidence : [];
+  const normalizedToolOutcome = normalizeToolOutcome(toolOutcome);
+  const writeRequiredUnmet = normalizedToolOutcome.writeIntentRequired === true
+    && normalizedToolOutcome.writeIntentSatisfied === false;
   const activeContradictions = Array.isArray(archiveContext?.activeContradictions)
     ? archiveContext.activeContradictions
     : (Array.isArray(retrieval?.provenance) ? retrieval.provenance : []);
@@ -1336,6 +1419,15 @@ function buildRuntimeTraceState({
   const renderedLedgerIds = new Set(promptTruthRenderedSourceIds(promptTruth, 'researchLedger'));
   const candidateLedgerIds = new Set(promptTruthCandidateSourceIds(promptTruth, 'researchLedger'));
   const ledgerHoldBackReason = promptTruthHeldBackReason(promptTruth, 'researchLedger');
+  const toolDebug = normalizedToolOutcome.debug && typeof normalizedToolOutcome.debug === 'object'
+    ? normalizedToolOutcome.debug
+    : {};
+  const manualFallbackDebug = toolDebug.manualFallback && typeof toolDebug.manualFallback === 'object'
+    ? toolDebug.manualFallback
+    : {};
+  const writeRescueDebug = toolDebug.writeRescue && typeof toolDebug.writeRescue === 'object'
+    ? toolDebug.writeRescue
+    : {};
   const injectedCount = retrievalTrace.filter((item) => item?.injected !== false).length;
   const rejectedCount = retrievalTrace.filter((item) => item?.injected === false).length;
   const channelCount = new Set(retrievalTrace.map((item) => String(item?.channel || '').trim()).filter(Boolean)).size;
@@ -1373,6 +1465,26 @@ function buildRuntimeTraceState({
       detail: trimText(item.reason || 'held back from prompt context', 220),
       status: 'held-back',
     }))
+    .concat(writeRequiredUnmet ? [{
+      type: 'tool-claim',
+      channel: 'verified-tool',
+      label: 'Required edit did not land',
+      detail: trimText(
+        [
+          normalizedToolOutcome.failureReason
+            ? `Write-required turn stopped without a verified edit (${normalizedToolOutcome.failureReason}).`
+            : 'Write-required turn stopped without a verified edit.',
+          manualFallbackDebug.used
+            ? `Manual fallback ${manualFallbackDebug.lastPlannerStatus || 'used'}${manualFallbackDebug.lastDecisionTool ? ` via ${manualFallbackDebug.lastDecisionTool}` : ''}.`
+            : '',
+          writeRescueDebug.attempted
+            ? `Rescue ${writeRescueDebug.phase || 'write-rescue'} ended as ${writeRescueDebug.status || 'unknown'}.`
+            : '',
+        ].filter(Boolean).join(' '),
+        220,
+      ),
+      status: 'write-unverified',
+    }] : [])
     .map(normalizeTraceEvidenceEntry)
     .filter(Boolean)
     .slice(0, 8);
@@ -1487,6 +1599,7 @@ function buildRuntimeArtifact({
   semanticMemoryMode = 'disabled',
   toolsUsed = [],
   toolRecords = [],
+  toolOutcome = null,
   retrieval = null,
   archiveContext = null,
   researchLedgerContext = null,
@@ -1532,6 +1645,10 @@ function buildRuntimeArtifact({
     ? Number(normalizedPromptTruth.channels?.researchLedger?.renderedCount || 0) > 0
     : (researchLedgerPromptInjected === true);
   const toolState = buildToolArtifactState(toolRecords, toolsUsed);
+  const normalizedToolOutcome = normalizeToolOutcome(toolOutcome);
+  const writeRequiredUnmet = selectedLane === 'tool'
+    && normalizedToolOutcome.writeIntentRequired === true
+    && normalizedToolOutcome.writeIntentSatisfied === false;
   const retrievalState = buildRetrievalArtifactState(retrieval, matchedBooks);
   const retrievalTrace = buildRetrievalTraceState(
     retrieval,
@@ -1570,6 +1687,7 @@ function buildRuntimeArtifact({
     reason,
     retrieval?.reasonCode,
     retrieval?.compression?.reasonCode,
+    normalizedToolOutcome.failureReason,
     ...(normalizedRepair?.firstPassGuardCodes || []),
   ], 12);
   const kind = selectedLane === 'tool'
@@ -1577,11 +1695,17 @@ function buildRuntimeArtifact({
     : requestedMode === 'shadow'
       ? 'shadow-turn'
       : 'chat-turn';
-  const authorityReply = toolState.evidence.length
-    ? 'verified-tool-evidence'
-    : requestedMode === 'shadow'
-      ? 'shadow-runtime'
-      : 'model-advisory';
+  const authorityReply = writeRequiredUnmet
+    ? 'write-required-unmet'
+    : toolState.evidence.length
+      ? 'verified-tool-evidence'
+      : requestedMode === 'shadow'
+        ? 'shadow-runtime'
+        : 'model-advisory';
+  const toolClaims = selectedLane === 'tool'
+    ? (writeRequiredUnmet ? 'write-unverified' : 'verified-required')
+    : 'n/a';
+  const missingWriteTarget = primaryToolArtifactPath(toolState) || 'workspace-file';
   const evidence = [
     {
       type: 'route',
@@ -1595,6 +1719,13 @@ function buildRuntimeArtifact({
   ].map(normalizeEvidenceEntry).filter(Boolean).slice(0, 12);
   const sideEffects = [
     { type: 'memory-persist', target: 'lastRoute', status: 'verified' },
+    ...(writeRequiredUnmet
+      ? [{
+          type: 'file-write',
+          target: missingWriteTarget,
+          status: 'missing',
+        }]
+      : []),
     ...(archiveEligible ? [{ type: 'archive-schedule', target: 'archive-session', status: 'queued' }] : []),
     ...(normalizedLedgerUpdate.status !== 'skipped'
       ? [{
@@ -1630,6 +1761,7 @@ function buildRuntimeArtifact({
     researchLedgerUpdate: normalizedLedgerUpdate,
     retrievalTrace,
     toolState,
+    toolOutcome: normalizedToolOutcome,
     retrieval,
     archiveContext,
     researchLedgerContext,
@@ -1658,7 +1790,7 @@ function buildRuntimeArtifact({
       reply: authorityReply,
       memory: 'explicit-canonical',
       archive: 'advisory',
-      toolClaims: selectedLane === 'tool' ? 'verified-required' : 'n/a',
+      toolClaims,
     },
     summary: {
       label: kind,
@@ -1670,6 +1802,7 @@ function buildRuntimeArtifact({
         toolEvidenceCount: toolState.evidence.length,
         promptTruth: normalizedPromptTruth,
         reasoningPolicy,
+        toolOutcome: normalizedToolOutcome,
       }),
       backend,
     },
@@ -1686,6 +1819,7 @@ function buildRuntimeArtifact({
     },
     evidence,
     artifacts,
+    toolOutcome: normalizedToolOutcome,
     retrievalTrace,
     trace,
     provenance,
@@ -1745,6 +1879,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
     ? Number(promptTruth.channels?.researchLedger?.renderedCount || 0) > 0
     : (raw.researchLedgerPromptInjected === true || fallback.researchLedgerPromptInjected === true);
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(raw.researchLedgerUpdate, fallback.researchLedgerUpdate);
+  const toolOutcome = normalizeToolOutcome(raw.toolOutcome, fallback.toolOutcome);
   const epistemics = normalizeEpistemicCaution(raw.epistemics || fallback.epistemics);
   const synthesis = normalizeArchiveSynthesis(raw.synthesis || fallback.synthesis);
   const reasoningPolicy = normalizeReasoningPolicy(advisoryRaw.reasoningPolicy, fallback.modelAdvisory?.reasoningPolicy);
@@ -1791,6 +1926,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       .map(normalizeArtifactEntry)
       .filter(Boolean)
       .slice(0, 10),
+    toolOutcome,
     retrievalTrace: (Array.isArray(raw.retrievalTrace) ? raw.retrievalTrace : fallback.retrievalTrace || [])
       .map(normalizeRetrievalTraceEntry)
       .filter(Boolean)
@@ -1854,6 +1990,7 @@ function normalizeLastRouteInfo(value) {
     ? Number(promptTruth.channels?.researchLedger?.renderedCount || 0) > 0
     : (value.researchLedgerPromptInjected === true);
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(value.researchLedgerUpdate);
+  const toolOutcome = normalizeToolOutcome(value.toolOutcome);
   const repair = normalizeRepairInfo(value.repair);
   const epistemics = normalizeEpistemicCaution(value.epistemics);
   const synthesis = normalizeArchiveSynthesis(value.synthesis);
@@ -1874,6 +2011,7 @@ function normalizeLastRouteInfo(value) {
       resolvedModel: String(value.resolvedModel || '').trim(),
       semanticMemoryReady: value.semanticMemoryReady === true,
       semanticMemoryMode: String(value.semanticMemoryMode || '').trim() || 'disabled',
+      toolOutcome,
       researchLedgerContext: value.researchLedgerContext || null,
       cleanup: value.cleanup || null,
       cleanupTransform: value.cleanupTransform || null,
@@ -1910,6 +2048,7 @@ function normalizeLastRouteInfo(value) {
     performance,
     readiness,
     promptTruth,
+    toolOutcome,
     researchLedgerPromptInjected,
     researchLedgerUpdate,
     artifact,
@@ -1932,6 +2071,7 @@ function buildLastRouteInfo({
   semanticMemoryMode = 'disabled',
   toolsUsed = [],
   toolRecords = [],
+  toolOutcome = null,
   retrieval = null,
   archiveContext = null,
   researchLedgerContext = null,
@@ -1973,6 +2113,7 @@ function buildLastRouteInfo({
     semanticMemoryMode,
     toolsUsed,
     toolRecords,
+    toolOutcome,
     retrieval,
     matchedBooks,
     cleanup,
@@ -2010,6 +2151,7 @@ function buildLastRouteInfo({
       semanticMemoryMode,
       toolsUsed,
       toolRecords,
+      toolOutcome,
       retrieval,
       archiveContext,
       researchLedgerContext,
@@ -2101,6 +2243,7 @@ function buildCombinedMemoryInspector({
       synthesis: routingBase.synthesis,
       researchLedgerPromptInjected: routingBase.researchLedgerPromptInjected === true,
       researchLedgerUpdate: routingBase.researchLedgerUpdate || null,
+      toolOutcome: routingBase.toolOutcome || null,
       shadowEnabled,
       usedAt: routingBase.usedAt,
       routePath: '/api/penny/memory/inspector',
@@ -2124,6 +2267,7 @@ function buildCombinedMemoryInspector({
     researchLedgerContext: ledger?.context || null,
     matchedBooks,
     promptTruth: routing.promptTruth || routing?.artifact?.promptTruth || null,
+    toolOutcome: routing.toolOutcome || routing?.artifact?.toolOutcome || null,
     repair: routing.repair,
     epistemics: routing.epistemics,
     synthesis: routing.synthesis,
