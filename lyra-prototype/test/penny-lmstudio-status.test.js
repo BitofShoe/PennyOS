@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createLmStudioStatusApi } = require('../lib/penny-lmstudio-status');
 
-function makeStatusApi({ models = [] } = {}) {
+function makeStatusApi({ models = [], loadedModels = [] } = {}) {
   const fetch = async () => ({
     ok: true,
     status: 200,
@@ -12,7 +12,13 @@ function makeStatusApi({ models = [] } = {}) {
     existsSync: () => false,
     readFileSync: () => '',
   };
-  const execFileText = async () => ({ stdout: '[]' });
+  const execFileText = async (command, args = []) => {
+    const action = Array.isArray(args) ? String(args[0] || '').trim() : '';
+    if (action === 'ps') {
+      return { stdout: JSON.stringify(loadedModels.map((id) => ({ identifier: id, status: 'idle' }))) };
+    }
+    return { stdout: '[]' };
+  };
   return createLmStudioStatusApi({
     fetch,
     fs,
@@ -122,4 +128,22 @@ test('LM Studio status cache hits surface probe metadata without forcing a refet
   assert.equal(first.probe.cacheHit, false);
   assert.equal(second.probe.cacheHit, true);
   assert.ok(Number.isFinite(Number(second.probe.cacheAgeMs)));
+});
+
+test('LM Studio status does not treat embed-only runtime state as chat or tool ready', async () => {
+  const api = makeStatusApi({
+    models: ['text-embedding-nomic-embed-text-v1.5'],
+    loadedModels: ['text-embedding-nomic-embed-text-v1.5'],
+  });
+
+  const status = await api.getLmStudioConnectionStatus({ force: true });
+
+  assert.equal(status.resolvedChatModel, '');
+  assert.equal(status.resolvedToolModel, '');
+  assert.deepEqual(status.availableModels, []);
+  assert.deepEqual(status.candidateModels, []);
+  assert.deepEqual(status.toolCandidateModels, []);
+  assert.deepEqual(status.loadedModels, ['text-embedding-nomic-embed-text-v1.5']);
+  assert.deepEqual(status.nativeAvailableModels, ['text-embedding-nomic-embed-text-v1.5']);
+  assert.match(status.hint, /no usable chat model/i);
 });

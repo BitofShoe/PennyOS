@@ -63,6 +63,10 @@ function createLmStudioStatusApi({
     return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
   }
 
+  function isEmbeddingLikeModelId(value = '') {
+    return /\b(embed|embedding|rerank)\b/i.test(String(value || '').trim());
+  }
+
   function tokenizeModelAlias(value = '') {
     const raw = String(value || '').trim().toLowerCase();
     if (!raw) return { full: [], short: [] };
@@ -203,7 +207,7 @@ function createLmStudioStatusApi({
     for (const item of parsed) {
       if (!item || typeof item !== 'object') continue;
       const state = String(item.state || item.status || '').toLowerCase();
-      if (state && !/\bloaded|ready|running|active\b/i.test(state)) continue;
+      if (state && !/\bloaded|ready|running|active|idle\b/i.test(state)) continue;
       const rawId = item.modelKey || item.model || item.identifier || item.id || item.name || item.path;
       const id = String(rawId || '').trim();
       if (!id) continue;
@@ -346,36 +350,38 @@ function createLmStudioStatusApi({
 
       const runtimeModels = normalizeLmStudioModelEntries(parsed);
       const loadedModelEntries = loadedModels.map(id => ({ id }));
+      const runtimeLaneModels = runtimeModels.filter(item => !isEmbeddingLikeModelId(item?.id));
+      const loadedLaneModelEntries = loadedModelEntries.filter(item => !isEmbeddingLikeModelId(item?.id));
       const chatPreferredModel = getPreferredModelForLane('chat');
       const toolPreferredModel = getPreferredModelForLane('tool');
       const fallbackModels = [];
       for (const fallbackId of [chatPreferredModel, toolPreferredModel]) {
         const id = String(fallbackId || '').trim();
         if (!id) continue;
-        if (loadedModelEntries.some(item => modelsLookEquivalent(item.id, id))) continue;
-        if (runtimeModels.some(item => modelsLookEquivalent(item.id, id))) continue;
+        if (loadedLaneModelEntries.some(item => modelsLookEquivalent(item.id, id))) continue;
+        if (runtimeLaneModels.some(item => modelsLookEquivalent(item.id, id))) continue;
         if (fallbackModels.some(item => modelsLookEquivalent(item.id, id))) continue;
         fallbackModels.push({ id });
       }
 
-      const loadedChatCandidates = buildLaneCandidates(loadedModelEntries, chatPreferredModel, runtimePreferredChatModel);
-      const runtimeChatCandidates = buildLaneCandidates(runtimeModels, chatPreferredModel, runtimePreferredChatModel);
+      const loadedChatCandidates = buildLaneCandidates(loadedLaneModelEntries, chatPreferredModel, runtimePreferredChatModel);
+      const runtimeChatCandidates = buildLaneCandidates(runtimeLaneModels, chatPreferredModel, runtimePreferredChatModel);
       const fallbackChatCandidates = buildLaneCandidates(fallbackModels, chatPreferredModel, runtimePreferredChatModel);
-      const loadedToolCandidates = buildLaneCandidates(loadedModelEntries, toolPreferredModel, '');
-      const runtimeToolCandidates = buildLaneCandidates(runtimeModels, toolPreferredModel, '');
+      const loadedToolCandidates = buildLaneCandidates(loadedLaneModelEntries, toolPreferredModel, '');
+      const runtimeToolCandidates = buildLaneCandidates(runtimeLaneModels, toolPreferredModel, '');
       const fallbackToolCandidates = buildLaneCandidates(fallbackModels, toolPreferredModel, '');
 
       const resolvedChatModel = loadedChatCandidates[0] || runtimeChatCandidates[0] || '';
       const resolvedToolModel = loadedToolCandidates[0] || runtimeToolCandidates[0] || '';
       const availableModels = loadedChatCandidates.length
         ? loadedChatCandidates
-        : runtimeModels.map(item => item.id);
+        : runtimeLaneModels.map(item => item.id);
       const candidateModels = loadedChatCandidates.length
         ? loadedChatCandidates
-        : (runtimeChatCandidates.length ? runtimeChatCandidates : fallbackChatCandidates);
+        : runtimeChatCandidates;
       const toolCandidateModels = loadedToolCandidates.length
         ? loadedToolCandidates
-        : (runtimeToolCandidates.length ? runtimeToolCandidates : fallbackToolCandidates);
+        : runtimeToolCandidates;
 
       value = {
         ok: true,
@@ -393,6 +399,7 @@ function createLmStudioStatusApi({
         candidateModels,
         toolCandidateModels,
         availableModels,
+        loadedModels,
         nativeAvailableModels: runtimeModels.map(item => item.id),
         installedModels: loadedChatCandidates.length
           ? mergeUniqueModelIds(availableModels, installedModels)
@@ -432,6 +439,7 @@ function createLmStudioStatusApi({
         candidateModels: [],
         toolCandidateModels: [],
         availableModels: [],
+        loadedModels,
         nativeAvailableModels: [],
         installedModels,
         desktopLocalServiceEnabled: settings?.enableLocalService ?? null,

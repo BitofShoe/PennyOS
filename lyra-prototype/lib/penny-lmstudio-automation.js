@@ -677,6 +677,9 @@ function createLmStudioAutomationApi({
     if (!loadedModels.length) {
       blockers.push(`LM Studio is reachable, but no usable models are currently loaded. Load Penny's chat/tool models before running QA.`);
     }
+    if (!statusAfter?.resolvedChatModel && !statusAfter?.resolvedToolModel) {
+      blockers.push('LM Studio is reachable, but no usable chat or tool model is currently loaded. Load a lane-capable model before running QA.');
+    }
 
     if (!exactToolInstalled) {
       blockers.push(`Requested tool model ${requestedToolModel} is not installed in LM Studio.`);

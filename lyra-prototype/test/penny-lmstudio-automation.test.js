@@ -336,3 +336,24 @@ test('prepareLmStudio warns when the requested chat model is missing but a chat 
   assert.equal(report.laneFallback.chat, true);
   assert.match(report.warnings.join('\n'), /fallback/i);
 });
+
+test('prepareLmStudio blocks embed-only loaded state from reporting QA readiness', async () => {
+  const fixture = createFixture({
+    loadedModels: ['text-embedding-nomic-embed-text-v1.5'],
+  });
+
+  const report = await fixture.automationApi.prepareLmStudio({
+    reportOnly: true,
+    repairPreset: false,
+    loadChatModel: false,
+    loadEmbedModel: false,
+    chatModel: 'google/gemma-4-31b',
+    toolModel: 'google/gemma-4-e4b',
+    embedModel: 'text-embedding-nomic-embed-text-v1.5',
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.statusAfter.resolvedChatModel, '');
+  assert.equal(report.statusAfter.resolvedToolModel, '');
+  assert.match(report.blockers.join('\n'), /no usable chat or tool model/i);
+});
