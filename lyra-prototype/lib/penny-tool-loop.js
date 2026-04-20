@@ -509,6 +509,49 @@ function buildWriteRescueContext(toolRecords = []) {
   }).join('\n');
 }
 
+function buildQueuedToolEvidenceFact({
+  path = '',
+  promptVisibility = '',
+  nonPromptUse = '',
+  renderForm = '',
+  modelHop = '',
+  toolRecordIndex = -1,
+} = {}) {
+  if (!Number.isInteger(toolRecordIndex) || toolRecordIndex < 0) return null;
+  return {
+    path: String(path || '').trim(),
+    promptVisibility: String(promptVisibility || '').trim(),
+    nonPromptUse: String(nonPromptUse || '').trim(),
+    renderForm: String(renderForm || '').trim(),
+    modelHop: String(modelHop || '').trim(),
+    toolRecordIndexes: [toolRecordIndex],
+  };
+}
+
+function queuePromptVisibleToolEvidenceFact(
+  pendingToolEvidenceFacts = null,
+  shape = {},
+  toolRecordIndex = -1,
+) {
+  if (!Array.isArray(pendingToolEvidenceFacts)) return;
+  const fact = buildQueuedToolEvidenceFact({
+    ...shape,
+    toolRecordIndex,
+  });
+  if (fact) pendingToolEvidenceFacts.push(fact);
+}
+
+function flushPendingToolEvidenceFacts(
+  toolEvidenceFacts = null,
+  pendingToolEvidenceFacts = null,
+) {
+  if (!Array.isArray(toolEvidenceFacts) || !Array.isArray(pendingToolEvidenceFacts) || !pendingToolEvidenceFacts.length) {
+    return;
+  }
+  toolEvidenceFacts.push(...pendingToolEvidenceFacts);
+  pendingToolEvidenceFacts.length = 0;
+}
+
 function createLmStudioToolLoopApi({
   withLmStudioLaneModel,
   postJsonLongRunning,
@@ -550,6 +593,7 @@ function createLmStudioToolLoopApi({
     userText,
     toolsUsed,
     toolRecords,
+    toolEvidenceFacts = [],
     editedPaths,
     autoCheckedSyntaxPaths,
     autoCheckedGitStatusRef,
@@ -824,6 +868,7 @@ function createLmStudioToolLoopApi({
         || `i landed the edit in ${normalizeProjectLikePath(rescueResult.data.path || rescueArgs.path || pathLabel)} and i'm not pretending otherwise.\n[MOOD:smug]`,
       toolsUsed,
       toolRecords,
+      toolEvidenceFacts,
       toolOutcome: buildToolOutcome({ userText, editedPaths, debug: debugState }),
     };
   }
@@ -1040,6 +1085,8 @@ function createLmStudioToolLoopApi({
 
       const toolsUsed = [];
       const toolRecords = [];
+      const toolEvidenceFacts = [];
+      const pendingToolEvidenceFacts = [];
       const editedPaths = new Set();
       const toolDebug = createToolDebugState();
       const autoCheckedSyntaxPaths = new Set();
@@ -1055,6 +1102,7 @@ function createLmStudioToolLoopApi({
       try {
         for (let step = 0; step < MAX_TOOL_STEPS; step += 1) {
           onToolEvent?.({ type: 'status', stage: step === 0 ? 'planning' : 'tool-followup', label: step === 0 ? 'planning tool move' : 'working the next step' });
+          flushPendingToolEvidenceFacts(toolEvidenceFacts, pendingToolEvidenceFacts);
           const payload = {
             model,
             messages: toolMessages,
@@ -1110,6 +1158,17 @@ function createLmStudioToolLoopApi({
                 onToolEvent?.({ type: 'tool', state: 'done', name: pending.name, label: result.label, ok: result.ok });
                 if (pending.name === 'run_node_check' && result.data?.path) autoCheckedSyntaxPaths.add(result.data.path);
                 if (pending.name === 'get_git_status') autoCheckedGitStatusRef.value = true;
+                queuePromptVisibleToolEvidenceFact(
+                  pendingToolEvidenceFacts,
+                  {
+                    path: 'native_tool_loop',
+                    promptVisibility: 'prompt_visible',
+                    nonPromptUse: 'none',
+                    renderForm: 'auto_verification_json',
+                    modelHop: 'multi',
+                  },
+                  toolRecords.length - 1,
+                );
                 toolMessages.push({
                   role: 'system',
                   content: `Automatic verification result from ${pending.name}:\n${JSON.stringify(result.data, null, 2)}`,
@@ -1143,6 +1202,7 @@ function createLmStudioToolLoopApi({
                 userText,
                 toolsUsed,
                 toolRecords,
+                toolEvidenceFacts,
                 editedPaths,
                 autoCheckedSyntaxPaths,
                 autoCheckedGitStatusRef,
@@ -1159,6 +1219,7 @@ function createLmStudioToolLoopApi({
               text: text.trim(),
               toolsUsed,
               toolRecords,
+              toolEvidenceFacts,
               toolOutcome: buildToolOutcome({ userText, editedPaths, debug: toolDebug }),
             };
           }
@@ -1190,6 +1251,17 @@ function createLmStudioToolLoopApi({
               toolsUsed.push({ name, ok: failedResult.ok, label: failedResult.label });
               toolRecords.push({ name, args: {}, result: failedResult });
               onToolEvent?.({ type: 'tool', state: 'done', name, label: failedResult.label, ok: failedResult.ok });
+              queuePromptVisibleToolEvidenceFact(
+                pendingToolEvidenceFacts,
+                {
+                  path: 'native_tool_loop',
+                  promptVisibility: 'prompt_visible',
+                  nonPromptUse: 'none',
+                  renderForm: 'raw_json',
+                  modelHop: 'multi',
+                },
+                toolRecords.length - 1,
+              );
               toolMessages.push({
                 role: 'tool',
                 tool_call_id: call.id,
@@ -1210,6 +1282,17 @@ function createLmStudioToolLoopApi({
               autoCheckedSyntaxPaths.add(result.data.path);
             }
             if (name === 'get_git_status') autoCheckedGitStatusRef.value = true;
+            queuePromptVisibleToolEvidenceFact(
+              pendingToolEvidenceFacts,
+              {
+                path: 'native_tool_loop',
+                promptVisibility: 'prompt_visible',
+                nonPromptUse: 'none',
+                renderForm: 'raw_json',
+                modelHop: 'multi',
+              },
+              toolRecords.length - 1,
+            );
             toolMessages.push({
               role: 'tool',
               tool_call_id: call.id,
@@ -1231,6 +1314,7 @@ function createLmStudioToolLoopApi({
               userText,
               toolsUsed,
               toolRecords,
+              toolEvidenceFacts,
               editedPaths,
               autoCheckedSyntaxPaths,
               autoCheckedGitStatusRef,
@@ -1243,6 +1327,7 @@ function createLmStudioToolLoopApi({
               text: buildWriteRequiredFailureText({ userText, toolRecords }),
               toolsUsed,
               toolRecords,
+              toolEvidenceFacts,
               toolOutcome: buildToolOutcome({ userText, editedPaths, failureReason: 'write-required-unmet', debug: toolDebug }),
               skipSemanticRender: true,
             };
@@ -1253,6 +1338,7 @@ function createLmStudioToolLoopApi({
             text: fallbackText,
             toolsUsed,
             toolRecords,
+            toolEvidenceFacts,
             toolOutcome: buildToolOutcome({ userText, editedPaths, debug: toolDebug }),
           };
         }
@@ -1344,6 +1430,8 @@ function createLmStudioToolLoopApi({
 
       const toolsUsed = [];
       const toolRecords = [];
+      const toolEvidenceFacts = [];
+      const pendingToolEvidenceFacts = [];
       const editedPaths = new Set();
       const toolDebug = createToolDebugState(fallbackDebug);
       updateManualFallbackDebug(toolDebug, {
@@ -1365,6 +1453,7 @@ function createLmStudioToolLoopApi({
       try {
         for (let step = 0; step < MAX_TOOL_STEPS; step += 1) {
           onToolEvent?.({ type: 'status', stage: step === 0 ? 'planning' : 'tool-followup', label: step === 0 ? 'planning tool move' : 'working the next step' });
+          flushPendingToolEvidenceFacts(toolEvidenceFacts, pendingToolEvidenceFacts);
           const payload = {
             model,
             messages: plannerMessages,
@@ -1457,6 +1546,17 @@ function createLmStudioToolLoopApi({
               autoCheckedSyntaxPaths.add(result.data.path);
             }
             if (decision.tool === 'get_git_status') autoCheckedGitStatusRef.value = true;
+            queuePromptVisibleToolEvidenceFact(
+              pendingToolEvidenceFacts,
+              {
+                path: 'manual_tool_loop',
+                promptVisibility: 'prompt_visible',
+                nonPromptUse: 'none',
+                renderForm: 'raw_json',
+                modelHop: 'multi',
+              },
+              toolRecords.length - 1,
+            );
             plannerMessages.push({
               role: 'system',
               content: `Tool result from ${decision.tool}:\n${JSON.stringify(result.data, null, 2)}`,
@@ -1484,6 +1584,7 @@ function createLmStudioToolLoopApi({
               userText,
               toolsUsed,
               toolRecords,
+              toolEvidenceFacts,
               editedPaths,
               autoCheckedSyntaxPaths,
               autoCheckedGitStatusRef,
@@ -1519,6 +1620,17 @@ function createLmStudioToolLoopApi({
               onToolEvent?.({ type: 'tool', state: 'done', name: pending.name, label: result.label, ok: result.ok });
               if (pending.name === 'run_node_check' && result.data?.path) autoCheckedSyntaxPaths.add(result.data.path);
               if (pending.name === 'get_git_status') autoCheckedGitStatusRef.value = true;
+              queuePromptVisibleToolEvidenceFact(
+                pendingToolEvidenceFacts,
+                {
+                  path: 'manual_tool_loop',
+                  promptVisibility: 'prompt_visible',
+                  nonPromptUse: 'none',
+                  renderForm: 'auto_verification_json',
+                  modelHop: 'multi',
+                },
+                toolRecords.length - 1,
+              );
               plannerMessages.push({
                 role: 'system',
                 content: `Automatic verification result from ${pending.name}:\n${JSON.stringify(result.data, null, 2)}`,
@@ -1542,6 +1654,7 @@ function createLmStudioToolLoopApi({
             text: decision.text.trim(),
             toolsUsed,
             toolRecords,
+            toolEvidenceFacts,
             toolOutcome: buildToolOutcome({ userText, editedPaths, debug: toolDebug }),
           };
         }
@@ -1553,6 +1666,7 @@ function createLmStudioToolLoopApi({
               userText,
               toolsUsed,
               toolRecords,
+              toolEvidenceFacts,
               editedPaths,
               autoCheckedSyntaxPaths,
               autoCheckedGitStatusRef,
@@ -1565,6 +1679,7 @@ function createLmStudioToolLoopApi({
               text: buildWriteRequiredFailureText({ userText, toolRecords }),
               toolsUsed,
               toolRecords,
+              toolEvidenceFacts,
               toolOutcome: buildToolOutcome({ userText, editedPaths, failureReason: 'write-required-unmet', debug: toolDebug }),
               skipSemanticRender: true,
             };
@@ -1575,6 +1690,7 @@ function createLmStudioToolLoopApi({
             text: fallbackText,
             toolsUsed,
             toolRecords,
+            toolEvidenceFacts,
             toolOutcome: buildToolOutcome({ userText, editedPaths, debug: toolDebug }),
           };
         }

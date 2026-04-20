@@ -244,6 +244,73 @@ test('runLmStudioToolLoop still allows plain final text for read-only tool turns
   assert.equal(api.toolCalls.length, 0);
 });
 
+test('runLmStudioToolLoop records prompt-visible raw-json evidence facts for native tool results that re-enter a later model call', async () => {
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: '',
+              tool_calls: [
+                {
+                  id: 'call-read',
+                  type: 'function',
+                  function: {
+                    name: 'read_project_file',
+                    arguments: JSON.stringify({
+                      path: 'README.md',
+                    }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: 'README says Penny is a local companion prototype.\n[MOOD:thinking]',
+              tool_calls: [],
+            },
+          },
+        ],
+      },
+    ],
+    executePennyTool: async (name, args = {}) => {
+      if (name === 'read_project_file') {
+        return {
+          ok: true,
+          label: `read ${args.path || 'file'}`,
+          data: { path: args.path || '', excerpt: '# Penny Companion Prototype' },
+        };
+      }
+      return { ok: true, label: name, data: {} };
+    },
+  });
+
+  const result = await api.runLmStudioToolLoop({
+    userText: 'Read README.md and tell me what Penny is.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.match(result.text, /local companion prototype/i);
+  assert.deepEqual(result.toolEvidenceFacts, [
+    {
+      path: 'native_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0],
+    },
+  ]);
+});
+
 test('draftOpenEndedWriteText strips file-access refusal scaffolding from usable creative text', async () => {
   const api = buildToolLoopApi({
     responses: [
@@ -467,6 +534,24 @@ test('runLmStudioToolLoop treats insert_in_project_file as a confirmed write and
 
   assert.match(result.text, /added one short second line/i);
   assert.deepEqual(api.toolCalls.map((entry) => entry.name), ['insert_in_project_file', 'get_git_status']);
+  assert.deepEqual(result.toolEvidenceFacts, [
+    {
+      path: 'native_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0],
+    },
+    {
+      path: 'native_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'auto_verification_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [1],
+    },
+  ]);
 });
 
 test('runLmStudioToolLoop can rescue folder-only self-named creation with write_project_file', async () => {
@@ -810,6 +895,145 @@ test('runLmStudioManualToolLoop refuses final planner replies until a real write
   assert.deepEqual(api.toolCalls.map((entry) => entry.name), ['insert_in_project_file', 'get_git_status']);
   assert.match(JSON.stringify(api.payloads[1].messages), /insert_in_project_file/);
   assert.match(JSON.stringify(api.payloads[1].messages), /write tool succeeds/i);
+});
+
+test('runLmStudioManualToolLoop records prompt-visible raw-json evidence facts for manual planner tool results that re-enter a later model call', async () => {
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: 'tool',
+                tool: 'read_project_file',
+                args: {
+                  path: 'README.md',
+                },
+              }),
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: 'final',
+                text: 'README says Penny is a local companion prototype.\n[MOOD:thinking]',
+              }),
+            },
+          },
+        ],
+      },
+    ],
+    executePennyTool: async (name, args = {}) => {
+      if (name === 'read_project_file') {
+        return {
+          ok: true,
+          label: `read ${args.path || 'file'}`,
+          data: { path: args.path || '', excerpt: '# Penny Companion Prototype' },
+        };
+      }
+      return { ok: true, label: name, data: {} };
+    },
+  });
+
+  const result = await api.runLmStudioManualToolLoop({
+    userText: 'Read README.md and tell me what Penny is.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.match(result.text, /local companion prototype/i);
+  assert.deepEqual(result.toolEvidenceFacts, [
+    {
+      path: 'manual_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0],
+    },
+  ]);
+});
+
+test('runLmStudioManualToolLoop records prompt-visible auto-verification facts when verification results are inserted into a later planner call', async () => {
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: 'tool',
+                tool: 'insert_in_project_file',
+                args: {
+                  path: 'tmp/qwen-dual-lane-sandbox.md',
+                  text: 'tiny menace',
+                  position: 'end',
+                  lineAware: true,
+                },
+              }),
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: 'final',
+                text: 'i added one short second line and i am not pretending otherwise.\n[MOOD:happy]',
+              }),
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: 'final',
+                text: 'i added one short second line to `tmp/qwen-dual-lane-sandbox.md` and checked git status.\n[MOOD:happy]',
+              }),
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const result = await api.runLmStudioManualToolLoop({
+    userText: 'In tmp/qwen-dual-lane-sandbox.md, add a second short line in your own Penny-ish voice. Keep it cute and brief. Then tell me exactly what you changed.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.deepEqual(api.toolCalls.map((entry) => entry.name), ['insert_in_project_file', 'get_git_status']);
+  assert.deepEqual(result.toolEvidenceFacts, [
+    {
+      path: 'manual_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0],
+    },
+    {
+      path: 'manual_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'auto_verification_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [1],
+    },
+  ]);
 });
 
 test('runLmStudioManualToolLoop preserves manual fallback and rescue diagnostics on failed write turns', async () => {

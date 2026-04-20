@@ -438,6 +438,180 @@ test('buildRuntimeArtifact builds provenance-only tool evidence receipts for dir
   assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[0].target, "Penny's Playground/penny-qa-freewrite.md");
 });
 
+test('buildRuntimeArtifact builds prompt-visible raw-json tool evidence receipts for native tool-loop results', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'native-tool-loop',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'llm-tool-loop',
+    toolsUsed: [
+      { name: 'read_project_file', label: 'read README.md', ok: true },
+    ],
+    toolRecords: [
+      {
+        name: 'read_project_file',
+        args: { path: 'README.md' },
+        result: {
+          ok: true,
+          label: 'read README.md',
+          data: {
+            path: 'README.md',
+            excerpt: '# Penny Companion Prototype',
+          },
+        },
+      },
+    ],
+    toolEvidenceFacts: [{
+      path: 'native_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0],
+    }],
+  });
+
+  assert.equal(artifact.toolEvidenceReceipt.summary.itemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.promptVisibleItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.rawJsonItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.multiHopItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.items[0].path, 'native_tool_loop');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].renderForm, 'raw_json');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].modelHop, 'multi');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[0].target, 'README.md');
+});
+
+test('buildRuntimeArtifact builds prompt-visible raw-json tool evidence receipts for manual tool-loop results', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'manual-tool-loop',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'llm-tool-loop',
+    toolsUsed: [
+      { name: 'read_project_file', label: 'read docs/README.md', ok: true },
+    ],
+    toolRecords: [
+      {
+        name: 'read_project_file',
+        args: { path: 'docs/README.md' },
+        result: {
+          ok: true,
+          label: 'read docs/README.md',
+          data: {
+            path: 'docs/README.md',
+            excerpt: '# Docs',
+          },
+        },
+      },
+    ],
+    toolEvidenceFacts: [{
+      path: 'manual_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0],
+    }],
+  });
+
+  assert.equal(artifact.toolEvidenceReceipt.summary.itemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.promptVisibleItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.rawJsonItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.multiHopItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.items[0].path, 'manual_tool_loop');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].renderForm, 'raw_json');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].modelHop, 'multi');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[0].target, 'docs/README.md');
+});
+
+test('buildRuntimeArtifact counts mixed tool-loop raw-json and auto-verification receipts without inferring hop counts', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'tool-loop-counts',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'llm-tool-loop',
+    toolsUsed: [
+      { name: 'read_project_file', label: 'read README.md', ok: true },
+      { name: 'read_project_file', label: 'read docs/README.md', ok: true },
+      { name: 'get_git_status', label: 'git status', ok: true },
+    ],
+    toolRecords: [
+      {
+        name: 'read_project_file',
+        args: { path: 'README.md' },
+        result: {
+          ok: true,
+          label: 'read README.md',
+          data: {
+            path: 'README.md',
+            excerpt: '# Penny Companion Prototype',
+          },
+        },
+      },
+      {
+        name: 'read_project_file',
+        args: { path: 'docs/README.md' },
+        result: {
+          ok: true,
+          label: 'read docs/README.md',
+          data: {
+            path: 'docs/README.md',
+            excerpt: '# Docs',
+          },
+        },
+      },
+      {
+        name: 'get_git_status',
+        args: {},
+        result: {
+          ok: true,
+          label: 'git status',
+          data: {
+            ok: true,
+            status: 'M README.md',
+          },
+        },
+      },
+    ],
+    toolEvidenceFacts: [
+      {
+        path: 'native_tool_loop',
+        promptVisibility: 'prompt_visible',
+        nonPromptUse: 'none',
+        renderForm: 'raw_json',
+        modelHop: 'multi',
+        toolRecordIndexes: [0],
+      },
+      {
+        path: 'manual_tool_loop',
+        promptVisibility: 'prompt_visible',
+        nonPromptUse: 'none',
+        renderForm: 'raw_json',
+        modelHop: 'multi',
+        toolRecordIndexes: [1],
+      },
+      {
+        path: 'manual_tool_loop',
+        promptVisibility: 'prompt_visible',
+        nonPromptUse: 'none',
+        renderForm: 'auto_verification_json',
+        modelHop: 'multi',
+        toolRecordIndexes: [2],
+      },
+    ],
+  });
+
+  assert.equal(artifact.toolEvidenceReceipt.summary.itemCount, 3);
+  assert.equal(artifact.toolEvidenceReceipt.summary.toolRecordCount, 3);
+  assert.equal(artifact.toolEvidenceReceipt.summary.promptVisibleItemCount, 3);
+  assert.equal(artifact.toolEvidenceReceipt.summary.rawJsonItemCount, 2);
+  assert.equal(artifact.toolEvidenceReceipt.summary.autoVerificationItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.multiHopItemCount, 3);
+});
+
 test('buildRuntimeArtifact marks write-required tool misses as failed edits instead of verified success', () => {
   const artifact = buildRuntimeArtifact({
     sessionId: 'demo-write-miss',
