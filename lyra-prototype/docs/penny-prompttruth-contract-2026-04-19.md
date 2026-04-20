@@ -62,7 +62,7 @@
 - In current live code, `ineligible` is only proven for archive channels when the turn never ran archive recall, and `disabled` is only proven for the prompt-disabled research-ledger channel.
 - Penny does not currently store turn metadata like `turnId`, `promptBuiltAt`, `lane`, or `model` inside `promptTruth` itself. Those belong to the surrounding runtime artifact.
 - Penny does not currently store `postReplyUpdates` inside `promptTruth`. Post-turn archive and ledger outcomes belong to `sideEffects`, `recentAuditTrail`, and `researchLedgerUpdate`.
-- Penny does not currently treat verified tool evidence as a first-class `promptTruth` channel. Tool evidence belongs to artifact evidence/provenance surfaces unless that evidence was also literally rendered into the prompt.
+- Penny does not currently treat verified tool evidence as a first-class `promptTruth` channel. Tool evidence belongs to sibling runtime-artifact evidence/provenance/receipt surfaces, including `artifact.toolEvidenceReceipt`, unless a future PromptTruth revision explicitly promotes a rendered tool-evidence channel.
 - Penny does not currently store rendered-only IDs inside `recentAuditTrail.retrieval.selected*Ids`. Those audit fields are candidate-selection summaries, not prompt-visibility receipts.
 - Penny now stores additive rendered-only audit identity fields alongside those candidate summaries: `renderedSessionIds`, `renderedGlobalIds`, `renderedBookIds`, and `renderedLedgerIds`. These are prompt-visibility receipts; they must not be inferred from broader retrieval payloads.
 
@@ -80,7 +80,7 @@
 - `promptTruth` does not explain the entire answer.
 - `promptTruth` does not prove the final answer was correct, emotionally appropriate, well-written, or fully grounded.
 - `promptTruth` does not replace `promptComposition`. Slot eligibility and stack-slot holdback for `voiceBlend`, `directives`, `overlays`, `examples`, and the `memory` block belong to `promptComposition`.
-- `promptTruth` does not replace runtime evidence or provenance. Verified tool evidence belongs in the artifact `authority`, `evidence`, `trace`, and `provenance` surfaces unless that evidence was also literally rendered into the prompt.
+- `promptTruth` does not replace runtime evidence or provenance. Verified tool evidence belongs in sibling artifact surfaces such as `authority`, `evidence`, `trace`, `provenance`, and `toolEvidenceReceipt` unless a future PromptTruth revision explicitly promotes a rendered tool-evidence channel.
 - `promptTruth` does not replace `researchLedgerUpdate`, which records post-reply continuity mutation rather than prompt-time influence.
 
 The strength of `promptTruth` is its narrowness: it tells the truth about prompt context and does not pretend to govern everything else.
