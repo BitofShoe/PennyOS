@@ -1,5 +1,11 @@
 # Penny: How We Got to This Point and What Comes Next
 
+> Category: Historical handoff
+> Authority: Deprecated/superseded
+> Status: Superseded
+> Use this for: project-history context and older intent framing.
+> Do not use this for: the current first-read handoff. Prefer [README.md](./README.md), [CODEBASE.md](./CODEBASE.md), [ARCHITECTURE.md](./ARCHITECTURE.md), [docs/README.md](./docs/README.md), and [docs/penny-progress-handoff-2026-04-17.md](./docs/penny-progress-handoff-2026-04-17.md).
+
 This file is the current handoff for Penny as of 2026-04-13.
 
 It replaces the older version of this doc that still described Penny as if image stability, first tool use, and several major runtime fixes were still ahead of us. They are not. The project has moved.

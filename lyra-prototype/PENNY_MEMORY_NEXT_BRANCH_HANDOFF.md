@@ -1,5 +1,11 @@
 # Penny Current Branch Handoff
 
+> Category: Branch handoff
+> Authority: Deprecated/superseded
+> Status: Superseded
+> Use this for: branch-era history and older memory-work context.
+> Do not use this for: the current first stop. Prefer [docs/penny-progress-handoff-2026-04-17.md](./docs/penny-progress-handoff-2026-04-17.md), [docs/README.md](./docs/README.md), and the current runtime docs first.
+
 This is the shortest honest handoff for the current Penny branch state as of April 15, 2026.
 
 Use this file when you need to know what landed recently, what is stable, what still needs follow-up, and what rules the next agent should not rediscover the hard way.
