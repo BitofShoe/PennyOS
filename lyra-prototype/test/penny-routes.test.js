@@ -613,7 +613,7 @@ test('direct write route survives semantic-render gating on side-effecting turns
   }
 });
 
-test('public chat route preserves tool-loop and semantic_render receipt items together without widening PromptTruth', async () => {
+test('public chat route persists tool-loop and semantic_render receipt items into lastRoute and inspector without widening PromptTruth', async () => {
   const originalEnv = {
     PORT: process.env.PORT,
     PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
@@ -766,6 +766,34 @@ test('public chat route preserves tool-loop and semantic_render receipt items to
     assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth, 'toolEvidenceReceipt'), false);
     assert.equal(artifact.modelAdvisory.promptTruth.schema, 'penny-prompttruth.v1');
     assert.equal(Object.prototype.hasOwnProperty.call(artifact.modelAdvisory.promptTruth.channels, 'toolEvidence'), false);
+
+    const storedMemory = await requestJson(
+      `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=route-tool-evidence-semantic`,
+    );
+    assert.equal(storedMemory.statusCode, 200);
+    const storedArtifact = storedMemory.json.memory?.lastRoute?.artifact;
+    assertArtifactShape(storedArtifact);
+    assert.deepEqual(storedArtifact.toolEvidenceReceipt, receipt);
+    assert.equal(storedArtifact.promptTruth.schema, 'penny-prompttruth.v1');
+    assert.equal(Object.prototype.hasOwnProperty.call(storedArtifact.promptTruth.channels, 'toolEvidence'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(storedArtifact.promptTruth, 'toolEvidenceReceipt'), false);
+
+    const inspectorResponse = await requestJson(
+      `http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=route-tool-evidence-semantic`,
+    );
+    assert.equal(inspectorResponse.statusCode, 200);
+    assertArtifactShape(inspectorResponse.json.inspector.artifact);
+    assert.deepEqual(inspectorResponse.json.inspector.artifact.toolEvidenceReceipt, receipt);
+    assert.deepEqual(inspectorResponse.json.inspector.routing.artifact.toolEvidenceReceipt, receipt);
+    assert.equal(inspectorResponse.json.inspector.artifact.promptTruth.schema, 'penny-prompttruth.v1');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(inspectorResponse.json.inspector.artifact.promptTruth.channels, 'toolEvidence'),
+      false,
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(inspectorResponse.json.inspector.artifact.promptTruth, 'toolEvidenceReceipt'),
+      false,
+    );
 
     assert.equal(mockLmStudio.stats.chatRequests, 3);
     const semanticPrompt = mockLmStudio.chatBodies
