@@ -6,6 +6,7 @@ const {
   deriveResearchLedgerPromptInjected,
   hasPromptTruthReceipt,
   normalizePromptTruth,
+  preferRenderedCompatibilityBoolean,
   projectAuditRetrievalFromPromptTruth,
 } = require('../lib/penny-prompttruth');
 
@@ -87,6 +88,14 @@ test('deriveResearchLedgerPromptInjected reads rendered prompt truth, not candid
   assert.equal(deriveResearchLedgerPromptInjected(heldBackPromptTruth, true), false);
   assert.equal(deriveResearchLedgerRendered(renderedPromptTruth, false), true);
   assert.equal(deriveResearchLedgerPromptInjected(renderedPromptTruth, false), true);
+});
+
+test('preferRenderedCompatibilityBoolean keeps canonical rendered booleans authoritative over legacy aliases', () => {
+  assert.equal(preferRenderedCompatibilityBoolean(true, false, false), true);
+  assert.equal(preferRenderedCompatibilityBoolean(false, true, true), false);
+  assert.equal(preferRenderedCompatibilityBoolean(undefined, true, false), true);
+  assert.equal(preferRenderedCompatibilityBoolean(undefined, false, true), false);
+  assert.equal(preferRenderedCompatibilityBoolean(undefined, undefined, true), true);
 });
 
 test('normalizePromptTruth keeps legacy zero-count channels unknown instead of inventing no-candidate state', () => {

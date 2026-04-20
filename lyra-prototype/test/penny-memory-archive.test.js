@@ -167,8 +167,16 @@ function buildAuditSlice({
       approximatePath: {
         status: artifactSummary.approximatePath?.status || 'exact',
       },
-      researchLedgerRendered: artifactSummary.researchLedgerRendered === true || artifactSummary.researchLedgerPromptInjected === true,
-      researchLedgerPromptInjected: artifactSummary.researchLedgerRendered === true || artifactSummary.researchLedgerPromptInjected === true,
+      researchLedgerRendered: artifactSummary.researchLedgerRendered === true
+        ? true
+        : (artifactSummary.researchLedgerRendered === false
+          ? false
+          : artifactSummary.researchLedgerPromptInjected === true),
+      researchLedgerPromptInjected: artifactSummary.researchLedgerRendered === true
+        ? true
+        : (artifactSummary.researchLedgerRendered === false
+          ? false
+          : artifactSummary.researchLedgerPromptInjected === true),
     },
     researchLedger: {
       updateStatus: researchLedger.updateStatus || 'skipped',

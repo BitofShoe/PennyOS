@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   MODE_CONFIGS,
   analyzeCaseResponse,
+  artifactResearchLedgerRendered,
   buildCases,
   buildPairSummary,
   buildLedgerCompareTrace,
@@ -49,6 +50,13 @@ test('analyzeCaseResponse rewards cautious continuity and penalizes overclaiming
   assert.ok(cautious.score > overclaim.score);
   assert.equal(cautious.overclaiming, false);
   assert.equal(overclaim.overclaiming, true);
+});
+
+test('artifactResearchLedgerRendered prefers canonical rendered names and only falls back to aliases when needed', () => {
+  assert.equal(artifactResearchLedgerRendered({ researchLedgerRendered: true, researchLedgerPromptInjected: false }), true);
+  assert.equal(artifactResearchLedgerRendered({ researchLedgerRendered: false, researchLedgerPromptInjected: true }), false);
+  assert.equal(artifactResearchLedgerRendered({ researchLedgerPromptInjected: true }), true);
+  assert.equal(artifactResearchLedgerRendered({}), false);
 });
 
 test('buildPairSummary distinguishes invalid, ambiguous, and clear ledger winners', () => {

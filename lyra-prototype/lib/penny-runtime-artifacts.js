@@ -12,6 +12,7 @@ const {
 const {
   normalizePromptTruth,
   advisoryPromptTruthChannels,
+  preferRenderedCompatibilityBoolean,
   promptTruthRenderedSourceIds,
   promptTruthCandidateSourceIds,
   promptTruthRenderedCount,
@@ -1103,7 +1104,7 @@ function buildApproximatePath({
 function buildAdvisoryMergeSummary({ sessionId = 'default', retrievalTrace = [] } = {}) {
   const normalizedSessionId = String(sessionId || '').trim() || 'default';
   const advisoryItems = (Array.isArray(retrievalTrace) ? retrievalTrace : [])
-    .filter((item) => item?.injected !== false)
+    .filter((item) => item?.rendered !== false)
     .filter((item) => ['archive-session', 'archive-global', 'archive-chapter', 'research-ledger'].includes(String(item?.channel || '').trim()));
   const mergeBasis = [];
   const discardedDetailSummary = [];
@@ -1687,7 +1688,11 @@ function buildRuntimeArtifact({
   const normalizedPromptTruth = normalizePromptTruth(promptTruth);
   const effectiveResearchLedgerRendered = deriveResearchLedgerRendered(
     normalizedPromptTruth,
-    researchLedgerRendered === true || researchLedgerPromptInjected === true,
+    preferRenderedCompatibilityBoolean(
+      researchLedgerRendered,
+      researchLedgerPromptInjected,
+      false,
+    ),
   );
   const toolState = buildToolArtifactState(toolRecords, toolsUsed);
   const normalizedToolOutcome = normalizeToolOutcome(toolOutcome);
@@ -1924,10 +1929,15 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   );
   const researchLedgerRendered = deriveResearchLedgerRendered(
     promptTruth,
-    raw.researchLedgerRendered === true
-      || fallback.researchLedgerRendered === true
-      || raw.researchLedgerPromptInjected === true
-      || fallback.researchLedgerPromptInjected === true,
+    preferRenderedCompatibilityBoolean(
+      raw.researchLedgerRendered,
+      raw.researchLedgerPromptInjected,
+      preferRenderedCompatibilityBoolean(
+        fallback.researchLedgerRendered,
+        fallback.researchLedgerPromptInjected,
+        false,
+      ),
+    ),
   );
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(raw.researchLedgerUpdate, fallback.researchLedgerUpdate);
   const toolOutcome = normalizeToolOutcome(raw.toolOutcome, fallback.toolOutcome);
@@ -2040,7 +2050,11 @@ function normalizeLastRouteInfo(value) {
   const promptTruth = normalizePromptTruth(value.promptTruth);
   const researchLedgerRendered = deriveResearchLedgerRendered(
     promptTruth,
-    value.researchLedgerRendered === true || value.researchLedgerPromptInjected === true,
+    preferRenderedCompatibilityBoolean(
+      value.researchLedgerRendered,
+      value.researchLedgerPromptInjected,
+      false,
+    ),
   );
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(value.researchLedgerUpdate);
   const toolOutcome = normalizeToolOutcome(value.toolOutcome);

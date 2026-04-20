@@ -905,6 +905,144 @@ test('buildBrainModeNote keeps local, shadow, and fallback explanations stable',
   }), /Shadow failed/i);
 });
 
+test('renderMemoryInspector prefers canonical rendered booleans over conflicting ledger alias flags', async () => {
+  const { renderMemoryInspector } = await helpersPromise;
+  const els = {
+    memoryInspectorPanel: {
+      className: '',
+      textContent: '',
+      innerHTML: '',
+    },
+  };
+
+  renderMemoryInspector({
+    els,
+    inspector: {
+      explicit: { count: 0 },
+      archive: {
+        session: {
+          episodeCount: 0,
+          chapterCount: 0,
+          recencyProtection: { enabled: false, protectedEpisodeCount: 0, protectedEpisodeIds: [] },
+          lastRetrieval: {
+            session: [],
+            global: [],
+            compression: { used: false, chapters: [] },
+          },
+          activeContradictions: [],
+        },
+        global: {
+          patternCount: 0,
+          promotionQueue: [],
+        },
+      },
+      memoryBooks: {
+        enabledCount: 0,
+        matchedBooks: [],
+      },
+      embeddings: {
+        semanticMemory: {
+          ready: true,
+          configuredModel: 'text-embedding-nomic-embed-text-v1.5',
+        },
+      },
+      ledger: {
+        topicCount: 0,
+        openCount: 0,
+        provisionalCount: 0,
+        settledCount: 0,
+        context: { topics: [] },
+        recentTopics: [],
+      },
+      routing: {
+        selectedLane: 'chat',
+        requestedMode: 'local',
+        backend: 'local-lmstudio',
+      },
+      runtime: {
+        readiness: {},
+        performance: {},
+      },
+      artifact: {
+        version: 'penny-runtime-artifact.v1',
+        kind: 'chat-turn',
+        executionPath: 'llm-chat',
+        researchLedgerRendered: false,
+        researchLedgerPromptInjected: true,
+        researchLedgerUpdate: {
+          status: 'skipped',
+          reason: '',
+          topicId: '',
+          topicLabel: '',
+        },
+        scope: { sessionId: 'demo', route: '/api/penny/chat', requestedMode: 'local', selectedLane: 'chat' },
+        authority: { reply: 'model-advisory', memory: 'explicit-canonical', archive: 'advisory', toolClaims: 'n/a' },
+        summary: { label: 'chat-turn', text: 'Minimal ordinary turn without rendered advisory context.', backend: 'local-lmstudio' },
+        context: { backend: 'local-lmstudio', requestedModel: '', resolvedModel: '', executionPath: 'llm-chat', semanticMemoryReady: true, semanticMemoryMode: 'semantic', usedFallback: false, laneFallback: false, shadowEnabled: false },
+        evidence: [],
+        artifacts: [],
+        sideEffects: [],
+        reasonCodes: [],
+        epistemics: { enabled: false, triggered: false, scope: '', stance: '', signals: [], note: '' },
+        synthesis: { enabled: false, generated: false, kind: '', scope: '', summary: '', evidenceSources: [] },
+        trace: {
+          laneChoice: {
+            requestedMode: 'local',
+            selectedLane: 'chat',
+            backend: 'local-lmstudio',
+            route: '/api/penny/chat',
+            requestedModel: '',
+            resolvedModel: '',
+            executionPath: 'llm-chat',
+            usedFallback: false,
+            laneFallback: false,
+            researchLedgerRendered: false,
+            researchLedgerPromptInjected: true,
+            researchLedgerUpdateStatus: 'skipped',
+          },
+          reasoningPolicy: {},
+          wakeHierarchy: [],
+          retrievalChannels: [],
+          contradictions: [],
+          openQuestions: [],
+          ongoingInvestigations: [],
+          evidenceAccepted: [],
+          evidenceRejected: [],
+          qaValidity: { active: false, verdict: 'n/a', reasons: [] },
+        },
+        provenance: {
+          retrieval: [],
+          contradictions: [],
+          openQuestions: [],
+          ongoingInvestigations: [],
+          acceptedEvidence: [],
+          rejectedEvidence: [],
+        },
+        modelAdvisory: {
+          authorityPressure: {
+            canonicalFactsPresent: false,
+            canonicalOverrideActive: false,
+            advisoryChannelsRendered: 0,
+            advisoryItemsRendered: 0,
+            advisoryChannelsInjected: 0,
+            advisoryItemsInjected: 0,
+            sameSessionAdvisoryItems: 0,
+            crossSessionAdvisoryItems: 0,
+          },
+          toolsUsed: [],
+        },
+        performance: {},
+        readiness: {},
+        timestamps: { usedAt: '2026-04-16T12:00:00.000Z', archivedAt: '', persistedAt: '2026-04-16T12:00:00.000Z' },
+      },
+    },
+  });
+
+  assert.match(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>unknown/i);
+  assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>rendered/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Research-ledger prompt state is unknown for this turn\./i);
+});
+
 test('renderMemoryInspector surfaces execution path and ledger prompt/update truth fields', async () => {
   const { renderMemoryInspector } = await helpersPromise;
   const els = {

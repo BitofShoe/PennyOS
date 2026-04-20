@@ -203,6 +203,26 @@ test('normalizeRuntimeArtifact preserves prompt truth schema during normalizatio
   assert.equal(artifact.researchLedgerPromptInjected, artifact.researchLedgerRendered);
 });
 
+test('normalizeRuntimeArtifact prefers canonical rendered booleans over conflicting compatibility aliases', () => {
+  const artifact = normalizeRuntimeArtifact({
+    promptTruth: {
+      schema: 'penny-prompttruth.v1',
+      channels: {
+        stableFacts: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        memoryBooks: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        sessionArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        globalArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        researchLedger: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+      },
+    },
+    researchLedgerRendered: false,
+    researchLedgerPromptInjected: true,
+  });
+
+  assert.equal(artifact.researchLedgerRendered, false);
+  assert.equal(artifact.researchLedgerPromptInjected, false);
+});
+
 test('buildRuntimeArtifact preserves deterministic-tool truth without faking model receipts', () => {
   const artifact = buildRuntimeArtifact({
     sessionId: 'demo',

@@ -9,6 +9,7 @@ const {
 const {
   normalizePromptTruth,
   PROMPT_TRUTH_AUDIT_LIMITS,
+  preferRenderedCompatibilityBoolean,
 } = require('./penny-prompttruth');
 const { createMemoryArchivePolicyApi } = require('./penny-memory-archive-policy');
 const {
@@ -902,8 +903,11 @@ function createMemoryArchiveApi({
       : (value.modelAdvisory?.approximatePath && typeof value.modelAdvisory.approximatePath === 'object'
         ? value.modelAdvisory.approximatePath
         : {});
-    const researchLedgerRendered = value.researchLedgerRendered === true
-      || value.researchLedgerPromptInjected === true;
+    const researchLedgerRendered = preferRenderedCompatibilityBoolean(
+      value.researchLedgerRendered,
+      value.researchLedgerPromptInjected,
+      false,
+    );
     return {
       kind: trimText(value.kind || '', 80) || 'unknown',
       authority: {

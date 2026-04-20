@@ -170,9 +170,22 @@ function summarizeResearchLedgerPromptState(channel = null, rendered = false) {
   return normalized.state;
 }
 
+function preferRenderedCompatibilityBoolean(value = null, renderedKey = '', aliasKey = '', fallback = false) {
+  const source = value && typeof value === 'object' ? value : {};
+  if (source[renderedKey] === true) return true;
+  if (source[renderedKey] === false) return false;
+  if (source[aliasKey] === true) return true;
+  if (source[aliasKey] === false) return false;
+  return fallback === true;
+}
+
 function isResearchLedgerRendered(value = null) {
-  if (!value || typeof value !== 'object') return false;
-  return value.researchLedgerRendered === true || value.researchLedgerPromptInjected === true;
+  return preferRenderedCompatibilityBoolean(
+    value,
+    'researchLedgerRendered',
+    'researchLedgerPromptInjected',
+    false,
+  );
 }
 
 function renderedAdvisoryCount(value = null, key = 'items') {
@@ -184,8 +197,7 @@ function renderedAdvisoryCount(value = null, key = 'items') {
 }
 
 function isRetrievalTraceRendered(item = null) {
-  const value = item && typeof item === 'object' ? item : {};
-  return value.rendered === true || (value.rendered !== false && value.injected !== false);
+  return preferRenderedCompatibilityBoolean(item, 'rendered', 'injected', true);
 }
 
 function formatInspectorMoment(value = '') {

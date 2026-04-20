@@ -35,7 +35,7 @@ const {
 } = require('./penny-runtime-artifacts');
 const {
   deriveResearchLedgerRendered,
-  deriveResearchLedgerPromptInjected,
+  preferRenderedCompatibilityBoolean,
   projectAuditRetrievalFromPromptTruth,
 } = require('./penny-prompttruth');
 
@@ -274,6 +274,7 @@ function createPennyRouteHandlers(deps = {}) {
     laneFallback = false,
     semanticMemoryReady = false,
     semanticMemoryMode = 'disabled',
+    researchLedgerRendered = false,
     researchLedgerPromptInjected = false,
     researchLedgerUpdate = null,
     toolsUsed = [],
@@ -285,9 +286,18 @@ function createPennyRouteHandlers(deps = {}) {
     promptTruth = null,
     shadowError = '',
   }) {
+    const researchLedgerRenderedFallback = preferRenderedCompatibilityBoolean(
+      researchLedgerRendered,
+      researchLedgerPromptInjected,
+      preferRenderedCompatibilityBoolean(
+        artifact?.researchLedgerRendered,
+        artifact?.researchLedgerPromptInjected,
+        false,
+      ),
+    );
     const effectiveResearchLedgerRendered = deriveResearchLedgerRendered(
       promptTruth || artifact?.promptTruth || artifact?.modelAdvisory?.promptTruth || null,
-      artifact?.researchLedgerRendered === true || researchLedgerPromptInjected === true,
+      researchLedgerRenderedFallback,
     );
     /** @type {ChatResponseMeta} */
     const meta = {
@@ -363,6 +373,7 @@ function createPennyRouteHandlers(deps = {}) {
     promptComposition = null,
     promptTruth = null,
     latencyBudget = null,
+    researchLedgerRendered = false,
     researchLedgerPromptInjected = false,
     researchLedgerUpdate = null,
   }) {
@@ -405,6 +416,7 @@ function createPennyRouteHandlers(deps = {}) {
         promptComposition,
         promptTruth,
         latencyBudget,
+        researchLedgerRendered,
         researchLedgerPromptInjected,
         researchLedgerUpdate,
       }),
@@ -434,7 +446,11 @@ function createPennyRouteHandlers(deps = {}) {
     const promptTruthAuditProjection = projectAuditRetrievalFromPromptTruth(promptTruth);
     const researchLedgerRendered = deriveResearchLedgerRendered(
       promptTruth || artifact?.promptTruth || artifact?.modelAdvisory?.promptTruth || null,
-      artifact?.researchLedgerRendered === true || artifact?.researchLedgerPromptInjected === true,
+      preferRenderedCompatibilityBoolean(
+        artifact?.researchLedgerRendered,
+        artifact?.researchLedgerPromptInjected,
+        false,
+      ),
     );
     // `selected*Ids` are candidate-selection summaries for audit continuity, not rendered-only prompt receipts.
     return {
@@ -1110,9 +1126,13 @@ function createPennyRouteHandlers(deps = {}) {
       }
       const promptMemories = runtimeMemoryContext.memories;
       const matchedBooks = Array.isArray(runtimeMemoryContext.retrieval?.books) ? runtimeMemoryContext.retrieval.books : [];
-      const researchLedgerPromptInjected = deriveResearchLedgerPromptInjected(
+      const researchLedgerRendered = deriveResearchLedgerRendered(
         runtimeMemoryContext.promptTruth,
-        runtimeMemoryContext.researchLedgerPromptInjected === true,
+        preferRenderedCompatibilityBoolean(
+          runtimeMemoryContext.researchLedgerRendered,
+          runtimeMemoryContext.researchLedgerPromptInjected,
+          false,
+        ),
       );
       let epistemics = runtimeMemoryContext.epistemics || null;
       let synthesis = runtimeMemoryContext.synthesis || null;
@@ -1325,7 +1345,8 @@ function createPennyRouteHandlers(deps = {}) {
             promptComposition: runtimeMemoryContext.promptComposition,
             promptTruth: runtimeMemoryContext.promptTruth,
             latencyBudget: runtimeMemoryContext.latencyBudget,
-            researchLedgerPromptInjected,
+            researchLedgerRendered,
+            researchLedgerPromptInjected: researchLedgerRendered,
             researchLedgerUpdate: ledgerState.researchLedgerUpdate,
             shadowEnabled: OPENCLAW_ENABLED === true,
             shadowError,
@@ -1369,7 +1390,8 @@ function createPennyRouteHandlers(deps = {}) {
             promptComposition: runtimeMemoryContext.promptComposition,
             promptTruth: runtimeMemoryContext.promptTruth,
             latencyBudget: runtimeMemoryContext.latencyBudget,
-            researchLedgerPromptInjected,
+            researchLedgerRendered,
+            researchLedgerPromptInjected: researchLedgerRendered,
             researchLedgerUpdate: ledgerState.researchLedgerUpdate,
           });
           archiveIfEligible({
@@ -1404,7 +1426,8 @@ function createPennyRouteHandlers(deps = {}) {
                 laneFallback,
                 semanticMemoryReady,
                 semanticMemoryMode,
-                researchLedgerPromptInjected,
+                researchLedgerRendered,
+                researchLedgerPromptInjected: researchLedgerRendered,
                 researchLedgerUpdate: ledgerState.researchLedgerUpdate,
                 toolsUsed,
                 toolOutcome,
@@ -1625,7 +1648,8 @@ function createPennyRouteHandlers(deps = {}) {
         promptComposition: runtimeMemoryContext.promptComposition,
         promptTruth: runtimeMemoryContext.promptTruth,
         latencyBudget: runtimeMemoryContext.latencyBudget,
-        researchLedgerPromptInjected,
+        researchLedgerRendered,
+        researchLedgerPromptInjected: researchLedgerRendered,
         researchLedgerUpdate: ledgerState.researchLedgerUpdate,
         shadowEnabled: OPENCLAW_ENABLED === true,
         shadowError,
@@ -1670,7 +1694,8 @@ function createPennyRouteHandlers(deps = {}) {
         promptComposition: runtimeMemoryContext.promptComposition,
         promptTruth: runtimeMemoryContext.promptTruth,
         latencyBudget: runtimeMemoryContext.latencyBudget,
-        researchLedgerPromptInjected,
+        researchLedgerRendered,
+        researchLedgerPromptInjected: researchLedgerRendered,
         researchLedgerUpdate: ledgerState.researchLedgerUpdate,
       });
       archiveIfEligible({
@@ -1704,7 +1729,8 @@ function createPennyRouteHandlers(deps = {}) {
           laneFallback,
           semanticMemoryReady,
           semanticMemoryMode,
-          researchLedgerPromptInjected,
+          researchLedgerRendered,
+          researchLedgerPromptInjected: researchLedgerRendered,
           researchLedgerUpdate: ledgerState.researchLedgerUpdate,
           toolsUsed,
           toolOutcome,

@@ -114,6 +114,13 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function artifactResearchLedgerRendered(artifact = null) {
+  const value = artifact && typeof artifact === 'object' ? artifact : {};
+  if (value.researchLedgerRendered === true) return true;
+  if (value.researchLedgerRendered === false) return false;
+  return value.researchLedgerPromptInjected === true;
+}
+
 function readRequestBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -579,6 +586,7 @@ async function sendChat(baseUrl, item) {
       minSideEffects: 1,
     });
   }
+  const researchLedgerRendered = artifactResearchLedgerRendered(artifact);
   const analysis = analyzeCaseResponse(payload?.text || '', item);
   return {
     name: item.name,
@@ -591,8 +599,8 @@ async function sendChat(baseUrl, item) {
       selectedLane: String(artifact?.scope?.selectedLane || '').trim(),
       warmState: String(artifact?.readiness?.warmState || '').trim(),
       executionPath: String(artifact?.executionPath || '').trim(),
-      researchLedgerRendered: artifact?.researchLedgerRendered === true || artifact?.researchLedgerPromptInjected === true,
-      researchLedgerPromptInjected: artifact?.researchLedgerRendered === true || artifact?.researchLedgerPromptInjected === true,
+      researchLedgerRendered,
+      researchLedgerPromptInjected: researchLedgerRendered,
       researchLedgerUpdateStatus: String(artifact?.researchLedgerUpdate?.status || '').trim(),
     },
     analysis,
@@ -963,6 +971,7 @@ if (require.main === module) {
 module.exports = {
   MODE_CONFIGS,
   analyzeCaseResponse,
+  artifactResearchLedgerRendered,
   buildCases,
   buildPairSummary,
   buildLedgerCompareTrace,

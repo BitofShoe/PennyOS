@@ -58,6 +58,14 @@ function normalizePromptTruthChannelState(value = '') {
   return PROMPT_TRUTH_CHANNEL_STATES.includes(text) ? text : '';
 }
 
+function preferRenderedCompatibilityBoolean(renderedValue, aliasValue, fallback = false) {
+  if (renderedValue === true) return true;
+  if (renderedValue === false) return false;
+  if (aliasValue === true) return true;
+  if (aliasValue === false) return false;
+  return fallback === true;
+}
+
 function derivePromptTruthChannelState(raw = {}) {
   const value = raw && typeof raw === 'object' ? raw : {};
   const explicitState = normalizePromptTruthChannelState(value.state);
@@ -184,6 +192,7 @@ module.exports = {
   PROMPT_TRUTH_HOLDBACK_REASONS,
   PROMPT_TRUTH_AUDIT_LIMITS,
   normalizePromptTruthChannelState,
+  preferRenderedCompatibilityBoolean,
   derivePromptTruthChannelState,
   normalizePromptTruthChannel,
   normalizePromptTruth,
