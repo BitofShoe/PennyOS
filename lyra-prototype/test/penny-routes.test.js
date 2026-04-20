@@ -823,6 +823,313 @@ test('public chat route persists tool-loop and semantic_render receipt items int
   }
 });
 
+test('seeded persisted lastRoute toolEvidenceReceipt survives disk readback into memory and inspector without a chat turn', async () => {
+  const originalEnv = {
+    PORT: process.env.PORT,
+    PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_MEMORY_ARCHIVE_FILE: process.env.PENNY_MEMORY_ARCHIVE_FILE,
+    PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
+    PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
+    PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
+    PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+    PENNY_LMSTUDIO_CHAT_MODEL: process.env.PENNY_LMSTUDIO_CHAT_MODEL,
+    PENNY_LMSTUDIO_TOOL_MODEL: process.env.PENNY_LMSTUDIO_TOOL_MODEL,
+    PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
+  };
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-seeded-tool-evidence-'));
+  const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  const archiveFile = path.join(tmpDir, 'penny-memory-archive.test.json');
+  const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.test.json');
+  const booksFile = path.join(tmpDir, 'penny-memory-books.test.json');
+  const seededSessionId = 'seeded-route-tool-evidence-readback';
+  const oldSessionId = 'seeded-route-tool-evidence-old-artifact';
+  const seededPromptTruth = {
+    schema: 'penny-prompttruth.v1',
+    canonicalFactsPresent: false,
+    canonicalOverrideActive: false,
+    channels: {
+      stableFacts: { state: 'no_candidate', renderedCount: 0, candidateCount: 0, heldBackReason: '' },
+      memoryBooks: { state: 'no_candidate', renderedCount: 0, candidateCount: 0, heldBackReason: '' },
+      sessionArchive: { state: 'no_candidate', renderedCount: 0, candidateCount: 0, heldBackReason: '' },
+      globalArchive: { state: 'no_candidate', renderedCount: 0, candidateCount: 0, heldBackReason: '' },
+      researchLedger: { state: 'no_candidate', renderedCount: 0, candidateCount: 0, heldBackReason: '' },
+    },
+  };
+  const seededReceipt = {
+    schema: 'penny-tool-evidence-receipt.v1',
+    summary: {
+      toolRecordCount: 2,
+      itemCount: 2,
+      promptVisibleItemCount: 2,
+      deterministicOnlyItemCount: 0,
+      provenanceOnlyItemCount: 0,
+      unknownItemCount: 0,
+      rawJsonItemCount: 1,
+      autoVerificationItemCount: 0,
+      summarizedItemCount: 1,
+      multiHopItemCount: 1,
+    },
+    items: [
+      {
+        path: 'native_tool_loop',
+        promptVisibility: 'prompt_visible',
+        nonPromptUse: 'none',
+        renderForm: 'raw_json',
+        modelHop: 'multi',
+        sourceRefs: [
+          { toolRecordIndex: 0, toolName: 'read_project_file', target: 'README.md' },
+        ],
+        truncated: false,
+      },
+      {
+        path: 'semantic_render',
+        promptVisibility: 'prompt_visible',
+        nonPromptUse: 'none',
+        renderForm: 'summarized_semantic_core',
+        modelHop: 'single',
+        sourceRefs: [
+          { toolRecordIndex: 0, toolName: 'read_project_file', target: 'README.md' },
+          { toolRecordIndex: 1, toolName: 'read_project_file', target: 'docs/README.md' },
+        ],
+        truncated: false,
+      },
+    ],
+  };
+  const seededArtifact = {
+    version: 'penny-runtime-artifact.v1',
+    kind: 'tool-turn',
+    executionPath: 'llm-tool-loop',
+    scope: {
+      sessionId: seededSessionId,
+      route: '/api/penny/chat',
+      requestedMode: 'local',
+      selectedLane: 'tool',
+    },
+    authority: {
+      reply: 'verified-tool-evidence',
+      memory: 'explicit-canonical',
+      archive: 'advisory',
+      toolClaims: 'verified-required',
+    },
+    summary: {
+      label: 'tool-turn',
+      text: 'Seeded tool-evidence receipt persisted on disk.',
+      backend: 'local-lmstudio-tools',
+    },
+    context: {
+      backend: 'local-lmstudio-tools',
+      requestedModel: 'google/gemma-4-e4b',
+      resolvedModel: 'google/gemma-4-e4b',
+      executionPath: 'llm-tool-loop',
+      semanticMemoryReady: true,
+      semanticMemoryMode: 'semantic',
+      usedFallback: false,
+      laneFallback: false,
+      shadowEnabled: false,
+    },
+    promptTruth: seededPromptTruth,
+    toolEvidenceReceipt: seededReceipt,
+  };
+  const oldArtifact = {
+    version: 'penny-runtime-artifact.v1',
+    kind: 'tool-turn',
+    executionPath: 'llm-tool-loop',
+    scope: {
+      sessionId: oldSessionId,
+      route: '/api/penny/chat',
+      requestedMode: 'local',
+      selectedLane: 'tool',
+    },
+    authority: {
+      reply: 'verified-tool-evidence',
+      memory: 'explicit-canonical',
+      archive: 'advisory',
+      toolClaims: 'verified-required',
+    },
+    summary: {
+      label: 'tool-turn',
+      text: 'Older artifact seeded without a receipt.',
+      backend: 'local-lmstudio-tools',
+    },
+    context: {
+      backend: 'local-lmstudio-tools',
+      requestedModel: 'google/gemma-4-e4b',
+      resolvedModel: 'google/gemma-4-e4b',
+      executionPath: 'llm-tool-loop',
+      semanticMemoryReady: false,
+      semanticMemoryMode: 'disabled',
+      usedFallback: false,
+      laneFallback: false,
+      shadowEnabled: false,
+    },
+    promptTruth: seededPromptTruth,
+  };
+
+  fs.writeFileSync(memoryFile, `${JSON.stringify({
+    sessions: {
+      [seededSessionId]: {
+        sessionId: seededSessionId,
+        userName: 'Malac',
+        memories: [],
+        voiceOn: false,
+        brainMode: 'local',
+        lastRoute: {
+          sessionId: seededSessionId,
+          selectedLane: 'tool',
+          requestedMode: 'local',
+          reason: 'seeded-persisted-readback',
+          backend: 'local-lmstudio-tools',
+          executionPath: 'llm-tool-loop',
+          usedFallback: false,
+          laneFallback: false,
+          requestedModel: 'google/gemma-4-e4b',
+          resolvedModel: 'google/gemma-4-e4b',
+          semanticMemoryReady: true,
+          semanticMemoryMode: 'semantic',
+          promptTruth: seededPromptTruth,
+          artifact: seededArtifact,
+          usedAt: '2026-04-19T22:11:00.000Z',
+        },
+        updatedAt: '2026-04-19T22:11:00.000Z',
+      },
+      [oldSessionId]: {
+        sessionId: oldSessionId,
+        userName: 'Malac',
+        memories: [],
+        voiceOn: false,
+        brainMode: 'local',
+        lastRoute: {
+          sessionId: oldSessionId,
+          selectedLane: 'tool',
+          requestedMode: 'local',
+          reason: 'seeded-old-artifact',
+          backend: 'local-lmstudio-tools',
+          executionPath: 'llm-tool-loop',
+          usedFallback: false,
+          laneFallback: false,
+          requestedModel: 'google/gemma-4-e4b',
+          resolvedModel: 'google/gemma-4-e4b',
+          semanticMemoryReady: false,
+          semanticMemoryMode: 'disabled',
+          promptTruth: seededPromptTruth,
+          artifact: oldArtifact,
+          usedAt: '2026-04-19T22:12:00.000Z',
+        },
+        updatedAt: '2026-04-19T22:12:00.000Z',
+      },
+    },
+  }, null, 2)}\n`);
+
+  const mockLmStudio = await createMockLmStudioServer();
+  process.env.PORT = '0';
+  process.env.PENNY_MEMORY_FILE = memoryFile;
+  process.env.PENNY_MEMORY_ARCHIVE_FILE = archiveFile;
+  process.env.PENNY_MEMORY_EMBEDDINGS_FILE = embeddingsFile;
+  process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
+  process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+  process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
+  process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
+  process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const serverModule = require('../server.js');
+  const started = serverModule.startServer({ port: 0, silent: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (started.listening) {
+        resolve();
+        return;
+      }
+      started.once('listening', resolve);
+      started.once('error', reject);
+    });
+
+    const address = started.address();
+    const memoryResponse = await requestJson(
+      `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=${seededSessionId}`,
+    );
+    assert.equal(memoryResponse.statusCode, 200);
+    const storedArtifact = memoryResponse.json.memory?.lastRoute?.artifact;
+    assertArtifactShape(storedArtifact);
+    assert.deepEqual(storedArtifact.toolEvidenceReceipt, seededReceipt);
+    assert.equal(storedArtifact.promptTruth.schema, 'penny-prompttruth.v1');
+    assert.equal(Object.prototype.hasOwnProperty.call(storedArtifact.promptTruth.channels, 'toolEvidence'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(storedArtifact.promptTruth, 'toolEvidenceReceipt'), false);
+    assert.equal(storedArtifact.toolEvidenceReceipt.items.filter((item) => item.path === 'native_tool_loop').length, 1);
+    assert.equal(storedArtifact.toolEvidenceReceipt.items.filter((item) => item.path === 'semantic_render').length, 1);
+
+    const inspectorResponse = await requestJson(
+      `http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=${seededSessionId}`,
+    );
+    assert.equal(inspectorResponse.statusCode, 200);
+    assertArtifactShape(inspectorResponse.json.inspector.artifact);
+    assert.deepEqual(inspectorResponse.json.inspector.artifact.toolEvidenceReceipt, seededReceipt);
+    assert.deepEqual(inspectorResponse.json.inspector.routing.artifact.toolEvidenceReceipt, seededReceipt);
+    assert.equal(inspectorResponse.json.inspector.artifact.promptTruth.schema, 'penny-prompttruth.v1');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(inspectorResponse.json.inspector.artifact.promptTruth.channels, 'toolEvidence'),
+      false,
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(inspectorResponse.json.inspector.artifact.promptTruth, 'toolEvidenceReceipt'),
+      false,
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(inspectorResponse.json.inspector.routing.artifact.promptTruth.channels, 'toolEvidence'),
+      false,
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(inspectorResponse.json.inspector.routing.artifact.promptTruth, 'toolEvidenceReceipt'),
+      false,
+    );
+
+    const oldMemoryResponse = await requestJson(
+      `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=${oldSessionId}`,
+    );
+    assert.equal(oldMemoryResponse.statusCode, 200);
+    const oldStoredArtifact = oldMemoryResponse.json.memory?.lastRoute?.artifact;
+    assertArtifactShape(oldStoredArtifact);
+    assert.equal(oldStoredArtifact.toolEvidenceReceipt, null);
+    assert.equal(oldStoredArtifact.promptTruth.schema, 'penny-prompttruth.v1');
+    assert.equal(Object.prototype.hasOwnProperty.call(oldStoredArtifact.promptTruth.channels, 'toolEvidence'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(oldStoredArtifact.promptTruth, 'toolEvidenceReceipt'), false);
+
+    const oldInspectorResponse = await requestJson(
+      `http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=${oldSessionId}`,
+    );
+    assert.equal(oldInspectorResponse.statusCode, 200);
+    assertArtifactShape(oldInspectorResponse.json.inspector.artifact);
+    assert.equal(oldInspectorResponse.json.inspector.artifact.toolEvidenceReceipt, null);
+    assert.equal(oldInspectorResponse.json.inspector.routing.artifact.toolEvidenceReceipt, null);
+
+    assert.equal(mockLmStudio.stats.chatRequests, 0);
+  } finally {
+    await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
+    delete require.cache[modulePath];
+    if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
+    if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
+    if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
+    if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
+    if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
+    if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
+    if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    if (originalEnv.PENNY_LMSTUDIO_CHAT_MODEL == null) delete process.env.PENNY_LMSTUDIO_CHAT_MODEL; else process.env.PENNY_LMSTUDIO_CHAT_MODEL = originalEnv.PENNY_LMSTUDIO_CHAT_MODEL;
+    if (originalEnv.PENNY_LMSTUDIO_TOOL_MODEL == null) delete process.env.PENNY_LMSTUDIO_TOOL_MODEL; else process.env.PENNY_LMSTUDIO_TOOL_MODEL = originalEnv.PENNY_LMSTUDIO_TOOL_MODEL;
+    if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('direct web inspect fallback stays deterministic on the public chat route', async () => {
   const originalEnv = {
     PORT: process.env.PORT,
