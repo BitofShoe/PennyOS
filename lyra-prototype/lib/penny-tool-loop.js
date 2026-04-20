@@ -496,10 +496,19 @@ function normalizeProjectLikePath(value = '') {
   return String(value || '').trim().replace(/\\/g, '/');
 }
 
+function listWriteRescueSourceToolRecordEntries(toolRecords = []) {
+  const records = Array.isArray(toolRecords) ? toolRecords : [];
+  const startIndex = Math.max(0, records.length - 3);
+  return records.slice(startIndex).map((record, offset) => ({
+    record,
+    toolRecordIndex: startIndex + offset,
+  }));
+}
+
 function buildWriteRescueContext(toolRecords = []) {
-  const recent = Array.isArray(toolRecords) ? toolRecords.slice(-3) : [];
-  if (!recent.length) return 'No verified tool results yet.';
-  return recent.map((record) => {
+  const recentEntries = listWriteRescueSourceToolRecordEntries(toolRecords);
+  if (!recentEntries.length) return 'No verified tool results yet.';
+  return recentEntries.map(({ record }) => {
     const name = String(record?.name || 'unknown_tool').trim() || 'unknown_tool';
     const data = record?.result?.data;
     const summary = typeof data === 'string'
@@ -516,15 +525,19 @@ function buildQueuedToolEvidenceFact({
   renderForm = '',
   modelHop = '',
   toolRecordIndex = -1,
+  toolRecordIndexes = null,
 } = {}) {
-  if (!Number.isInteger(toolRecordIndex) || toolRecordIndex < 0) return null;
+  const normalizedToolRecordIndexes = Array.isArray(toolRecordIndexes)
+    ? [...new Set(toolRecordIndexes.filter((index) => Number.isInteger(index) && index >= 0))]
+    : (Number.isInteger(toolRecordIndex) && toolRecordIndex >= 0 ? [toolRecordIndex] : []);
+  if (!normalizedToolRecordIndexes.length) return null;
   return {
     path: String(path || '').trim(),
     promptVisibility: String(promptVisibility || '').trim(),
     nonPromptUse: String(nonPromptUse || '').trim(),
     renderForm: String(renderForm || '').trim(),
     modelHop: String(modelHop || '').trim(),
-    toolRecordIndexes: [toolRecordIndex],
+    toolRecordIndexes: normalizedToolRecordIndexes,
   };
 }
 
@@ -607,6 +620,8 @@ function createLmStudioToolLoopApi({
     const folderPath = writeIntent.folderPath;
     const pathLabel = exactPath || folderPath;
     if (!pathLabel) return null;
+    const writeRescueSourceToolRecordIndexes = listWriteRescueSourceToolRecordEntries(toolRecords)
+      .map((entry) => entry.toolRecordIndex);
     updateWriteRescueDebug(debugState, {
       attempted: true,
       phase,
@@ -650,6 +665,17 @@ function createLmStudioToolLoopApi({
       body: JSON.stringify(rescuePayload),
       signal: controller.signal,
     });
+    const writeRescueFact = buildQueuedToolEvidenceFact({
+      path: 'write_rescue',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'summarized_write_rescue',
+      modelHop: 'single',
+      toolRecordIndexes: writeRescueSourceToolRecordIndexes,
+    });
+    if (writeRescueFact && Array.isArray(toolEvidenceFacts)) {
+      toolEvidenceFacts.push(writeRescueFact);
+    }
     if (rescueResponse.statusCode < 200 || rescueResponse.statusCode >= 300) {
       updateWriteRescueDebug(debugState, {
         status: 'http-error',

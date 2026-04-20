@@ -821,6 +821,26 @@ test('runLmStudioToolLoop can rescue a write-required turn from bare tool JSON',
     'insert_in_project_file',
     'get_git_status',
   ]);
+  assert.deepEqual(result.toolEvidenceFacts, [
+    {
+      path: 'native_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0],
+    },
+    {
+      path: 'write_rescue',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'summarized_write_rescue',
+      modelHop: 'single',
+      toolRecordIndexes: [0],
+    },
+  ]);
+  assert.match(JSON.stringify(api.payloads[2].messages), /Verified tool context:/);
+  assert.match(JSON.stringify(api.payloads[2].messages), /read_project_file/);
 });
 
 test('runLmStudioManualToolLoop refuses final planner replies until a real write tool succeeds', async () => {
@@ -1034,6 +1054,115 @@ test('runLmStudioManualToolLoop records prompt-visible auto-verification facts w
       toolRecordIndexes: [1],
     },
   ]);
+});
+
+test('runLmStudioManualToolLoop records summarized write-rescue evidence without counting rescue-only verification as prompt-visible', async () => {
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: 'tool',
+                tool: 'read_project_file',
+                args: {
+                  path: 'tmp/qwen-dual-lane-sandbox.md',
+                },
+              }),
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: 'final',
+                text: 'i already handled it.\n[MOOD:smug]',
+              }),
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                tool: 'insert_in_project_file',
+                args: {
+                  path: 'tmp/qwen-dual-lane-sandbox.md',
+                  text: 'tiny menace',
+                  position: 'end',
+                  lineAware: true,
+                },
+              }),
+            },
+          },
+        ],
+      },
+    ],
+    executePennyTool: async (name, args = {}) => {
+      if (name === 'read_project_file') {
+        return {
+          ok: true,
+          label: `read ${args.path || 'file'}`,
+          data: { path: args.path || '', excerpt: '1:alpha' },
+        };
+      }
+      if (name === 'insert_in_project_file') {
+        return {
+          ok: true,
+          label: `inserted text into ${args.path || 'file'}`,
+          data: { path: args.path || '', inserted: 1 },
+        };
+      }
+      if (name === 'get_git_status') {
+        return {
+          ok: true,
+          label: 'checked git status',
+          data: { ok: true, status: 'M tmp/qwen-dual-lane-sandbox.md' },
+        };
+      }
+      return { ok: true, label: name, data: {} };
+    },
+  });
+
+  const result = await api.runLmStudioManualToolLoop({
+    userText: 'In tmp/qwen-dual-lane-sandbox.md, add a second short line in your own Penny-ish voice. Keep it cute and brief. Then tell me exactly what you changed.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.match(result.text, /fallback from 3 tool records/i);
+  assert.deepEqual(api.toolCalls.map((entry) => entry.name), [
+    'read_project_file',
+    'insert_in_project_file',
+    'get_git_status',
+  ]);
+  assert.deepEqual(result.toolEvidenceFacts, [
+    {
+      path: 'manual_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0],
+    },
+    {
+      path: 'write_rescue',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'summarized_write_rescue',
+      modelHop: 'single',
+      toolRecordIndexes: [0],
+    },
+  ]);
+  assert.match(JSON.stringify(api.payloads[2].messages), /Verified tool context:/);
+  assert.match(JSON.stringify(api.payloads[2].messages), /read_project_file/);
 });
 
 test('runLmStudioManualToolLoop preserves manual fallback and rescue diagnostics on failed write turns', async () => {

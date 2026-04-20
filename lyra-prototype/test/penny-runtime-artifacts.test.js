@@ -612,6 +612,67 @@ test('buildRuntimeArtifact counts mixed tool-loop raw-json and auto-verification
   assert.equal(artifact.toolEvidenceReceipt.summary.multiHopItemCount, 3);
 });
 
+test('buildRuntimeArtifact counts summarized write-rescue receipts as prompt-visible summarized items', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'write-rescue-receipt',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'llm-tool-loop',
+    toolsUsed: [
+      { name: 'read_project_file', label: 'read README.md', ok: true },
+      { name: 'read_project_file', label: 'read docs/README.md', ok: true },
+    ],
+    toolRecords: [
+      {
+        name: 'read_project_file',
+        args: { path: 'README.md' },
+        result: {
+          ok: true,
+          label: 'read README.md',
+          data: {
+            path: 'README.md',
+            excerpt: '# Penny Companion Prototype',
+          },
+        },
+      },
+      {
+        name: 'read_project_file',
+        args: { path: 'docs/README.md' },
+        result: {
+          ok: true,
+          label: 'read docs/README.md',
+          data: {
+            path: 'docs/README.md',
+            excerpt: '# Docs',
+          },
+        },
+      },
+    ],
+    toolEvidenceFacts: [{
+      path: 'write_rescue',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'summarized_write_rescue',
+      modelHop: 'single',
+      toolRecordIndexes: [0, 1],
+    }],
+  });
+
+  assert.equal(artifact.toolEvidenceReceipt.summary.itemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.toolRecordCount, 2);
+  assert.equal(artifact.toolEvidenceReceipt.summary.promptVisibleItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.summarizedItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.rawJsonItemCount, 0);
+  assert.equal(artifact.toolEvidenceReceipt.summary.multiHopItemCount, 0);
+  assert.equal(artifact.toolEvidenceReceipt.items[0].path, 'write_rescue');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].renderForm, 'summarized_write_rescue');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].modelHop, 'single');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs.length, 2);
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[0].target, 'README.md');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[1].target, 'docs/README.md');
+});
+
 test('buildRuntimeArtifact marks write-required tool misses as failed edits instead of verified success', () => {
   const artifact = buildRuntimeArtifact({
     sessionId: 'demo-write-miss',
