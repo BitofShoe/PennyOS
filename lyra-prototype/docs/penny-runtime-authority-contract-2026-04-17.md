@@ -6,6 +6,8 @@
 > Use this for: runtime authority, memory precedence, prompt-truth semantics, and advisory-vs-canonical rules.
 > Do not use this for: project history, public explanation, or future planning.
 
+For the narrow prompt-time receipt law, use [penny-prompttruth-contract-2026-04-19.md](./penny-prompttruth-contract-2026-04-19.md).
+
 - Voice assets under `penny-voice/runtime/` define Penny's identity and speaking style.
 - Explicit memory remains canonical. If explicit memory and advisory recall disagree, canon wins.
 - Archive recall, memory books, and research-ledger context are advisory context only. They can help Penny answer, but they do not become truth by sounding confident.

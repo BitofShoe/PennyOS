@@ -13,8 +13,9 @@ If you are a new agent or contributor, use this order:
 3. [../CODEBASE.md](../CODEBASE.md)
 4. [../ARCHITECTURE.md](../ARCHITECTURE.md)
 5. [penny-runtime-authority-contract-2026-04-17.md](./penny-runtime-authority-contract-2026-04-17.md)
-6. [../server-js-section-map.md](../server-js-section-map.md), [../frontend-section-map.md](../frontend-section-map.md), and [penny-module-ownership.md](./penny-module-ownership.md) if you are editing orchestration or ownership boundaries
-7. Only then open handoffs, plans, reviews, public explainers, or raw source material
+6. [penny-prompttruth-contract-2026-04-19.md](./penny-prompttruth-contract-2026-04-19.md) if your question is specifically about prompt visibility, rendered-vs-candidate truth, or holdback semantics
+7. [../server-js-section-map.md](../server-js-section-map.md), [../frontend-section-map.md](../frontend-section-map.md), and [penny-module-ownership.md](./penny-module-ownership.md) if you are editing orchestration or ownership boundaries
+8. Only then open handoffs, plans, reviews, public explainers, or raw source material
 
 If you want outward-facing or layperson docs instead of repo law, start with [penny-public/README.md](./penny-public/README.md).
 
@@ -69,6 +70,7 @@ When a document makes an important claim, check these in order:
 | [../CODEBASE.md](../CODEBASE.md) | Repo map and source-vs-generated boundary | Binding/current law | Current | where code lives, what is generated, edit boundaries | product philosophy |
 | [../ARCHITECTURE.md](../ARCHITECTURE.md) | Current engineering architecture | Binding/current law | Current | present-tense architecture and subsystem behavior | public-facing explanation |
 | [penny-runtime-authority-contract-2026-04-17.md](./penny-runtime-authority-contract-2026-04-17.md) | Runtime authority contract | Binding/current law | Current | memory authority, prompt truth, advisory vs canonical rules | full project history |
+| [penny-prompttruth-contract-2026-04-19.md](./penny-prompttruth-contract-2026-04-19.md) | Prompt-truth contract | Binding/current law | Current | rendered-vs-candidate truth, prompt visibility rules, holdback semantics | full runtime authority beyond prompt context |
 | [../server-js-section-map.md](../server-js-section-map.md), [../frontend-section-map.md](../frontend-section-map.md), [penny-module-ownership.md](./penny-module-ownership.md) | Ownership and orchestration boundaries | Strong guidance | Current | who owns what when editing shells and subsystems | product-law disputes without code checks |
 | [../OPENCLAW_SHADOW_EVAL.md](../OPENCLAW_SHADOW_EVAL.md) | Shadow-mode verdict | Strong guidance | Current | current keep/park policy for shadow mode | general runtime law beyond shadow scope |
 | [penny-progress-handoff-2026-04-17.md](./penny-progress-handoff-2026-04-17.md) | Continuity snapshot | Strong guidance | Current | freshest landed-vs-deferred continuation context | binding runtime contract |
