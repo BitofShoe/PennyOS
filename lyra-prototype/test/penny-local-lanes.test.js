@@ -129,3 +129,13 @@ test('selectLocalLane keeps ambiguous repo chatter on the chat lane', () => {
   assert.equal(selection.localLane, 'chat');
   assert.equal(selection.reasonCode, LOCAL_LANE_REASON_CODES.COMPANION_CHAT);
 });
+
+test('selectLocalLane keeps casual quoted repo banter on the chat lane', () => {
+  const { selectLocalLane } = buildApi();
+  const selection = selectLocalLane({
+    userText: 'bahahaha okay dolly, people have called these "sleepy eyes" before. you have your own damn "readme" section already, but lemme find some other interesting files you can look at too.',
+  });
+  assert.equal(selection.localLane, 'chat');
+  assert.equal(selection.reasonCode, LOCAL_LANE_REASON_CODES.COMPANION_CHAT);
+  assert.equal(selection.directIntent, null);
+});

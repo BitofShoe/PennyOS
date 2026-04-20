@@ -1,9 +1,24 @@
+const DIRECTED_TOOL_REQUEST_RE = /\b(can you|could you|would you|will you|please|try|use|tell me|show me)\b/;
+const QUESTION_TOOL_REQUEST_RE = /\b(what|which|where|why|how)\b/;
+const TOOL_VERB_PATTERN = '(?:check|show|tell me|read|open|inspect|search|find|grep|list|scan|summarize|explain|walk through|look up|look into|look at|fix|change|edit|update|patch|rewrite|refactor|implement|add|remove|create|build|test|lint|run|debug|compare|review)';
+const IMPERATIVE_TOOL_REQUEST_RE = new RegExp(
+  '^\\s*(?:hey\\s+penny[,! ]+)?(?:(?:in|inside|within)\\s+[^,.!?]+,\\s*)?' + TOOL_VERB_PATTERN + '\\b',
+  'i',
+);
+const SELF_DIRECTED_TOOL_ACTION_RE = new RegExp(
+  '\\b(?:let me|lemme|i(?:\'ll| will| wanna| want to| need to| can| could| should| might| may| am going to|\'m gonna)|we(?:\'ll| will| wanna| want to| need to| can| could| should| might| may| are going to|\'re gonna))\\s+'
+    + TOOL_VERB_PATTERN + '\\b',
+  'i',
+);
+
 function looksLikeActionableToolRequest(text = '') {
   const lower = String(text || '').toLowerCase();
   if (!lower) return false;
-  if (/\b(can you|could you|would you|will you|please|try|use|check|show|tell me|read|open|inspect|search|find|grep|list|scan|summarize|explain|walk through|look up|look into|look at|fix|change|edit|update|patch|rewrite|refactor|implement|add|remove|create|build|test|lint|run|debug|compare|review)\b/.test(lower)) return true;
-  if (/\b(what|which|where|why|how)\b/.test(lower) && /\?/.test(lower)) return true;
   if (/\b(git diff|git status|node --check)\b/.test(lower)) return true;
+  if (DIRECTED_TOOL_REQUEST_RE.test(lower)) return true;
+  if (QUESTION_TOOL_REQUEST_RE.test(lower) && /\?/.test(lower)) return true;
+  if (IMPERATIVE_TOOL_REQUEST_RE.test(lower)) return true;
+  if (SELF_DIRECTED_TOOL_ACTION_RE.test(lower)) return false;
   return false;
 }
 
@@ -36,8 +51,8 @@ function shouldOfferLocalTools(userText = '') {
   if (/\b(server\.js|app\.js|styles\.css|index\.html|package\.json|readme|penny_how_we_got_here_and_next_steps\.md)\b/.test(text)) return actionable;
   if (/\b(log|logs|stack trace|traceback|runtime|lm studio|model|models|status|diagnostic|diagnostics|error|errors|bug|bugs)\b/.test(text)) return actionable;
   if (looksLikeExplicitWebToolRequest(text)) return true;
-  if (/\b(read|open|show|inspect|search|find|grep|list|scan|summarize|explain)\b/.test(text) && /\b(file|files|folder|folders|directory|directories|code|repo|project)\b/.test(text)) return true;
-  if (/\b(fix|change|edit|update|patch|rewrite|refactor|implement|add|remove|create|build|test|lint|check)\b/.test(text) && /\b(file|files|server\.js|app\.js|styles\.css|index\.html|code|repo|project|button|composer|ui|tool)\b/.test(text)) return true;
+  if (/\b(read|open|show|inspect|search|find|grep|list|scan|summarize|explain)\b/.test(text) && /\b(file|files|folder|folders|directory|directories|code|repo|project)\b/.test(text)) return actionable;
+  if (/\b(fix|change|edit|update|patch|rewrite|refactor|implement|add|remove|create|build|test|lint|check)\b/.test(text) && /\b(file|files|server\.js|app\.js|styles\.css|index\.html|code|repo|project|button|composer|ui|tool)\b/.test(text)) return actionable;
   if (/\b(which file|what file|where is|line \d+|function|route|endpoint)\b/.test(text)) return true;
   return false;
 }

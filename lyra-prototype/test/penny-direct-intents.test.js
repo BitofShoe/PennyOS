@@ -103,6 +103,14 @@ test('resolveDirectToolIntent still keeps explicit read requests on the direct p
   assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_READ);
 });
 
+test('resolveDirectToolIntent keeps explicit file reads broad when earlier quoted context is unrelated', () => {
+  const intent = resolveDirectToolIntent('lololol well let’s try this one on for size, hunny! so the repo is "lyra-prototype." in there, there is a document called "README.md" can you read it?????');
+  assert.ok(intent);
+  assert.equal(intent.name, 'read_project_file');
+  assert.equal(intent.args.path, 'README.md');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_READ);
+});
+
 test('resolveDirectToolIntent keeps apostrophe-heavy long-file summary requests on full-file reads', () => {
   const intent = resolveDirectToolIntent("Read Penny's Playground/PENNY'S_BRAIN.md and tell me the three most important ideas in plain English.");
   assert.ok(intent);
@@ -155,6 +163,11 @@ test('resolveDirectToolIntent routes natural port questions to deterministic ins
 
 test('resolveDirectToolIntent keeps ambiguous freeform technical chatter on the chat lane', () => {
   const intent = resolveDirectToolIntent('what do you think about package.json?');
+  assert.equal(intent, null);
+});
+
+test('resolveDirectToolIntent ignores casual quoted banter about files', () => {
+  const intent = resolveDirectToolIntent('bahahaha okay dolly, people have called these "sleepy eyes" before. you have your own damn "readme" section already, but lemme find some other interesting files you can look at too.');
   assert.equal(intent, null);
 });
 

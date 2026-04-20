@@ -25,6 +25,12 @@ test('shouldOfferLocalTools distinguishes casual mentions from actionable repo a
   assert.equal(shouldOfferLocalTools('Which file handles LM Studio status?'), true);
 });
 
+test('shouldOfferLocalTools keeps casual quoted file banter off the tool lane', () => {
+  const userText = 'bahahaha okay dolly, people have called these "sleepy eyes" before. you have your own damn "readme" section already, but lemme find some other interesting files you can look at too.';
+  assert.equal(looksLikeActionableToolRequest(userText), false);
+  assert.equal(shouldOfferLocalTools(userText), false);
+});
+
 test('executeDirectProjectInspectIntent returns annoyed fallback without a query', async () => {
   const result = await executeDirectProjectInspectIntent({
     intent: { args: {} },

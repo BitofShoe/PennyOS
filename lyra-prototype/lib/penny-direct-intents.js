@@ -220,24 +220,46 @@ function createDirectIntentApi({
     return '';
   }
 
+  function quotedSearchCandidateAppearsAnchored(text = '', startIndex = -1, matchLength = 0, explicitPath = '') {
+    if (!text || startIndex < 0 || matchLength < 1) return false;
+    const before = text.slice(Math.max(0, startIndex - 96), startIndex);
+    const after = text.slice(startIndex + matchLength, Math.min(text.length, startIndex + matchLength + 96));
+    const beforeLower = before.toLowerCase();
+    const afterLower = after.toLowerCase();
+    const around = `${before} ${after}`.toLowerCase();
+    if (explicitPath) {
+      const tailBefore = beforeLower.slice(-64);
+      return /\b(search(?: for)?|find|grep|look for|check(?: whether)?|see(?: if)?|inspect|open|read|show|tell me(?: what)?|what does|which line|what line|where in|say(?:s)? about|mention(?:s)? about|contains?|includes?|defines?|defined|around|about|regarding)\b/.test(tailBefore);
+    }
+    if (!/\b(search(?: for)?|find|grep|look for|check|inspect|open|read|show|tell me|where is|which file|what file|used in|used for|handles?)\b/.test(around)) {
+      return false;
+    }
+    if (/\b(?:let me|lemme|i(?:'ll| will| wanna| want to| need to| can| could| should| might| may)|we(?:'ll| will|wanna| want to| need to| can| could| should| might| may))\s+(?:search|find|grep|look for|check|inspect|open|read|show|list|browse)\b/.test(`${beforeLower} ${afterLower}`)) {
+      return false;
+    }
+    return true;
+  }
+
   function extractDirectSearchQuery(text = '', explicitPath = '') {
     const raw = String(text || '');
     const lower = raw.toLowerCase();
-    const exactPatterns = [/`([^`\n]{2,120})`/, /"([^"\n]{2,120})"/, /'([^'\n]{2,120})'/];
+    const exactPatterns = [/`([^`\n]{2,120})`/g, /"([^"\n]{2,120})"/g, /'([^'\n]{2,120})'/g];
     for (const pattern of exactPatterns) {
-      const match = raw.match(pattern);
-      const candidate = String(match?.[1] || '').trim();
-      if (!candidate || extractExplicitProjectPath(candidate)) continue;
-      if (candidate.includes('/') || candidate.includes('\\')) {
-        const explicitLower = String(explicitPath || '').trim().toLowerCase();
-        if (explicitLower && explicitLower.includes(candidate.toLowerCase())) continue;
-        const start = Number.isFinite(match?.index) ? match.index : -1;
-        const end = start >= 0 ? start + String(match?.[0] || '').length : -1;
-        const before = start > 0 ? raw[start - 1] : '';
-        const after = end >= 0 && end < raw.length ? raw[end] : '';
-        if (/[a-z0-9_./\\-]/i.test(before) || /[a-z0-9_./\\-]/i.test(after)) continue;
+      for (const match of raw.matchAll(pattern)) {
+        const candidate = String(match?.[1] || '').trim();
+        if (!candidate || extractExplicitProjectPath(candidate)) continue;
+        if (!quotedSearchCandidateAppearsAnchored(raw, Number(match?.index), String(match?.[0] || '').length, explicitPath)) continue;
+        if (candidate.includes('/') || candidate.includes('\\')) {
+          const explicitLower = String(explicitPath || '').trim().toLowerCase();
+          if (explicitLower && explicitLower.includes(candidate.toLowerCase())) continue;
+          const start = Number.isFinite(match?.index) ? match.index : -1;
+          const end = start >= 0 ? start + String(match?.[0] || '').length : -1;
+          const before = start > 0 ? raw[start - 1] : '';
+          const after = end >= 0 && end < raw.length ? raw[end] : '';
+          if (/[a-z0-9_./\\-]/i.test(before) || /[a-z0-9_./\\-]/i.test(after)) continue;
+        }
+        return candidate;
       }
-      return candidate;
     }
     const underscored = raw.match(/\b([a-z][a-z0-9]*_[a-z0-9_]+)\b/i);
     if (underscored?.[1]) {
@@ -280,6 +302,14 @@ function createDirectIntentApi({
       if (candidate) return candidate;
     }
     return '';
+  }
+
+  function explicitPathReadFocusAppearsAnchored(text = '', query = '') {
+    const candidate = cleanDirectReadFocusCandidate(query);
+    if (!candidate) return false;
+    const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`\\b(?:say about|says about|mention about|mentions about|about|regarding)\\b[\\s\\S]{0,48}[\\\`"'â€œâ€â€˜â€™]?${escaped}[\\\`"'â€œâ€â€˜â€™]?`, 'i')
+      .test(String(text || ''));
   }
 
   function inferNaturalProjectReadTarget(text = '', explicitPath = '') {
@@ -455,7 +485,9 @@ function createDirectIntentApi({
       }, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
     }
     if (explicitPath && /\b(read|open|show|inspect|explain|summarize|check|look at|walk through|search|find|grep|look for)\b/i.test(lower)) {
-      const symbolQuery = extractDirectSearchQuery(text, explicitPath) || extractDirectReadFocusQuery(text, explicitPath);
+      const searchQuery = extractDirectSearchQuery(text, explicitPath);
+      const readFocusQuery = extractDirectReadFocusQuery(text, explicitPath);
+      const symbolQuery = searchQuery || (explicitPathReadFocusAppearsAnchored(text, readFocusQuery) ? readFocusQuery : '');
       if (symbolQuery && !/^(git diff|git status)$/i.test(symbolQuery) && !extractExplicitProjectPath(symbolQuery)) {
         return withReasonCode({
           name: 'read_project_file_around_match',
