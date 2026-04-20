@@ -84,3 +84,40 @@ test('buildQaEnvironmentValidity rejects duplicate loaded models as an environme
   assert.match(validity.reasons.join(' '), /duplicate loaded models/i);
   assert.match(validity.duplicateLoadedModels.join(' '), /gemma-4-e4b/i);
 });
+
+test('buildQaEnvironmentValidity prefers runtime artifact lane models over a stale server snapshot', () => {
+  const validity = buildQaEnvironmentValidity({
+    serverMode: 'spawned-disposable',
+    preparation: { ok: true, blockers: [] },
+    serverStatus: {
+      resolvedChatModel: 'unsloth/gemma-4-31b-it@q6_k',
+      resolvedToolModel: 'unsloth/gemma-4-31b-it@q6_k',
+      semanticMemory: { ready: true },
+      availableModels: ['unsloth/gemma-4-31b-it@q6_k'],
+    },
+    results: [({
+      artifact: {
+        version: 'penny-runtime-artifact.v1',
+        readiness: { warmState: 'warm' },
+        performance: {},
+        scope: { selectedLane: 'tool' },
+        context: {
+          resolvedModel: 'google/gemma-4-e4b',
+          laneFallback: false,
+          usedFallback: false,
+          semanticMemoryReady: true,
+        },
+      },
+    })],
+    requireDisposable: true,
+    requireChat: false,
+    requireTool: true,
+    requireSemantic: true,
+    expectedToolModel: 'google/gemma-4-e4b',
+  });
+
+  assert.equal(validity.valid, true);
+  assert.equal(validity.toolReady, true);
+  assert.equal(validity.observed.toolModel, 'google/gemma-4-e4b');
+  assert.deepEqual(validity.observed.artifactResolvedModels.tool, ['google/gemma-4-e4b']);
+});

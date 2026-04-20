@@ -3,6 +3,7 @@ qa-composer-visual/
 .qa-pw/
 output/
 tmp/
+sillytavern-character-memory/
 *.log
 .lyra-server.pid
 .lyra-server.meta.json

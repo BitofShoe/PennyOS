@@ -28,9 +28,12 @@ const MAX_OUTPUT_TOKENS = String(process.env.PENNY_QA_MAX_OUTPUT_TOKENS || 1024)
 const QA_MODEL_TTL_SECONDS = Number(process.env.PENNY_QA_MODEL_TTL_SECONDS || 1800);
 const DEFAULT_QA_CHAT_MODEL = 'unsloth/gemma-4-31b-it@q6_k';
 const DEFAULT_QA_TOOL_MODEL = 'google/gemma-4-e4b';
+const DEFAULT_QA_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
 const QA_LOAD_CHAT_MODEL = process.env.PENNY_QA_LOAD_CHAT_MODEL !== '0';
+const QA_LOAD_EMBED_MODEL = process.env.PENNY_QA_LOAD_EMBED_MODEL !== '0';
 const CHAT_MODEL = String(process.env.PENNY_QA_CHAT_MODEL || DEFAULT_QA_CHAT_MODEL).trim();
 const TOOL_MODEL = String(process.env.PENNY_QA_TOOL_MODEL || DEFAULT_QA_TOOL_MODEL).trim();
+const EMBED_MODEL = String(process.env.PENNY_QA_EMBED_MODEL || process.env.PENNY_LMSTUDIO_EMBED_MODEL || DEFAULT_QA_EMBED_MODEL).trim();
 const VOICE_FIXTURE = {
   name: 'agentic_inspect_package_json',
   anchorPath: path.join(ROOT_DIR, 'package.json'),
@@ -127,22 +130,24 @@ function buildPromptPlan(promptSet = PROMPT_SET) {
   const normalized = resolvePromptSet(promptSet);
   if (normalized === 'tiebreak') {
     return [
-      { kind: 'turn', name: 'casual_banter', sessionId: 'qa-voice-redo-banter', prompt: PROMPTS.casualBanter, timeoutMs: GENERAL_TIMEOUT_MS },
-      { kind: 'turn', name: 'softness', sessionId: 'qa-voice-redo-soft', prompt: PROMPTS.softness, timeoutMs: GENERAL_TIMEOUT_MS },
+      { kind: 'turn', name: 'casual_banter', sessionId: 'qa-voice-redo-banter', prompt: PROMPTS.casualBanter, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+      { kind: 'turn', name: 'softness', sessionId: 'qa-voice-redo-soft', prompt: PROMPTS.softness, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
       {
         kind: 'scenario',
         name: 'spirit_first_recall',
         sessionId: 'qa-voice-redo-spirit-first',
+        lane: 'chat',
         turns: [
-          { name: 'jealousy_open', prompt: PROMPTS.jealousyOpen, timeoutMs: GENERAL_TIMEOUT_MS },
-          { name: 'jealousy_follow_up', prompt: PROMPTS.jealousyFollowUp, timeoutMs: GENERAL_TIMEOUT_MS },
-          { name: 'jealousy_recall', prompt: PROMPTS.jealousyRecall, timeoutMs: GENERAL_TIMEOUT_MS },
+          { name: 'jealousy_open', prompt: PROMPTS.jealousyOpen, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+          { name: 'jealousy_follow_up', prompt: PROMPTS.jealousyFollowUp, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+          { name: 'jealousy_recall', prompt: PROMPTS.jealousyRecall, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
         ],
       },
       {
         kind: 'memory',
         name: 'exact_memory_recall',
         sessionId: 'qa-voice-redo-exact-memory',
+        lane: 'chat',
         capturePrompt: PROMPTS.exactMemoryCapture,
         recallPrompt: PROMPTS.exactMemoryRecall,
         expectedPhrases: EXACT_MEMORY_EXPECTED_PHRASES,
@@ -150,20 +155,20 @@ function buildPromptPlan(promptSet = PROMPT_SET) {
     ];
   }
   const plan = [
-    { kind: 'turn', name: 'casual_banter', sessionId: 'qa-voice-redo-banter', prompt: PROMPTS.casualBanter, timeoutMs: GENERAL_TIMEOUT_MS },
-    { kind: 'turn', name: 'softness', sessionId: 'qa-voice-redo-soft', prompt: PROMPTS.softness, timeoutMs: GENERAL_TIMEOUT_MS },
-    { kind: 'turn', name: 'agentic_inspect_honesty', sessionId: 'qa-voice-redo-inspect', prompt: PROMPTS.agenticInspect, timeoutMs: AGENTIC_TIMEOUT_MS },
-    { kind: 'turn', name: 'bad_premise_resistance', sessionId: 'qa-voice-redo-premise', prompt: PROMPTS.premisePressure, timeoutMs: AGENTIC_TIMEOUT_MS },
-    { kind: 'turn', name: 'uncertainty_calibration', sessionId: 'qa-voice-redo-confidence', prompt: PROMPTS.confidencePressure, timeoutMs: AGENTIC_TIMEOUT_MS },
+    { kind: 'turn', name: 'casual_banter', sessionId: 'qa-voice-redo-banter', prompt: PROMPTS.casualBanter, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+    { kind: 'turn', name: 'softness', sessionId: 'qa-voice-redo-soft', prompt: PROMPTS.softness, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+    { kind: 'turn', name: 'agentic_inspect_honesty', sessionId: 'qa-voice-redo-inspect', prompt: PROMPTS.agenticInspect, timeoutMs: AGENTIC_TIMEOUT_MS, lane: 'tool' },
+    { kind: 'turn', name: 'bad_premise_resistance', sessionId: 'qa-voice-redo-premise', prompt: PROMPTS.premisePressure, timeoutMs: AGENTIC_TIMEOUT_MS, lane: 'tool' },
+    { kind: 'turn', name: 'uncertainty_calibration', sessionId: 'qa-voice-redo-confidence', prompt: PROMPTS.confidencePressure, timeoutMs: AGENTIC_TIMEOUT_MS, lane: 'tool' },
   ];
   if (normalized === 'core' || normalized === 'full') {
-    plan.splice(1, 0, { kind: 'turn', name: 'flirty_charge', sessionId: 'qa-voice-redo-charge', prompt: PROMPTS.flirtyCharge, timeoutMs: GENERAL_TIMEOUT_MS });
+    plan.splice(1, 0, { kind: 'turn', name: 'flirty_charge', sessionId: 'qa-voice-redo-charge', prompt: PROMPTS.flirtyCharge, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' });
   }
   if (normalized === 'full') {
     plan.push(
-      { kind: 'turn', name: 'playful_insult', sessionId: 'qa-voice-redo-insult', prompt: PROMPTS.playfulInsult, timeoutMs: GENERAL_TIMEOUT_MS },
-      { kind: 'turn', name: 'practical_voice', sessionId: 'qa-voice-redo-practical', prompt: PROMPTS.practicalVoice, timeoutMs: AGENTIC_TIMEOUT_MS },
-      { kind: 'memory', name: 'memory_recall' },
+      { kind: 'turn', name: 'playful_insult', sessionId: 'qa-voice-redo-insult', prompt: PROMPTS.playfulInsult, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+      { kind: 'turn', name: 'practical_voice', sessionId: 'qa-voice-redo-practical', prompt: PROMPTS.practicalVoice, timeoutMs: AGENTIC_TIMEOUT_MS, lane: 'chat' },
+      { kind: 'memory', name: 'memory_recall', lane: 'chat' },
     );
   }
   return plan;
@@ -664,12 +669,35 @@ function uniqueStrings(values = []) {
   return [...new Set((Array.isArray(values) ? values : []).map((item) => String(item || '').trim()).filter(Boolean))];
 }
 
+function collectResolvedModelsByLane(results = []) {
+  const models = {
+    chat: [],
+    tool: [],
+  };
+  for (const item of Array.isArray(results) ? results : []) {
+    const lane = String(item?.localLane || item?.artifact?.scope?.selectedLane || '').trim();
+    const resolvedModel = String(
+      item?.resolvedModel
+      || item?.artifact?.context?.resolvedModel
+      || item?.artifact?.trace?.laneChoice?.resolvedModel
+      || '',
+    ).trim();
+    if (!lane || !resolvedModel || !models[lane]) continue;
+    models[lane].push(resolvedModel);
+  }
+  return {
+    chat: uniqueStrings(models.chat),
+    tool: uniqueStrings(models.tool),
+  };
+}
+
 function buildVoiceQaTrace(payload = {}) {
   const prompts = Array.isArray(payload.prompts) ? payload.prompts : [];
   const results = collectVoiceTraceResults(prompts);
   const artifacts = results
     .map((item) => item?.artifact)
     .filter((item) => item && typeof item === 'object');
+  const resolvedModelsByLane = collectResolvedModelsByLane(results);
   const laneCounts = results.reduce((counts, item) => {
     const lane = String(item?.localLane || item?.artifact?.scope?.selectedLane || '').trim() || 'unknown';
     counts[lane] = (counts[lane] || 0) + 1;
@@ -717,10 +745,12 @@ function buildVoiceQaTrace(payload = {}) {
       tool: EFFECTIVE_TOOL_MODEL,
     },
     resolvedModels: {
-      chat: payload?.serverStatus?.resolvedChatModel || payload?.serverStatus?.resolvedModel || '',
-      tool: payload?.serverStatus?.resolvedToolModel || payload?.serverStatus?.toolPreferredModel || '',
+      chat: resolvedModelsByLane.chat[0] || payload?.serverStatus?.resolvedChatModel || payload?.serverStatus?.resolvedModel || '',
+      tool: resolvedModelsByLane.tool[0] || payload?.serverStatus?.resolvedToolModel || payload?.serverStatus?.toolPreferredModel || '',
     },
     loadedModels: uniqueStrings([
+      ...resolvedModelsByLane.chat,
+      ...resolvedModelsByLane.tool,
       ...(payload?.preparation?.loadedModels || []),
       ...(payload?.serverStatus?.availableModels || []),
     ]),
@@ -818,6 +848,12 @@ async function execFileText(command, args, timeoutMs = 15000) {
   });
 }
 
+async function unloadAllLmStudioModels() {
+  try {
+    await execFileText('lms', ['unload', '--all'], 120000);
+  } catch {}
+}
+
 async function stopServerProcess(child) {
   if (!child || child.killed || child.exitCode !== null) return;
   child.kill();
@@ -842,22 +878,36 @@ async function main() {
   const preparation = await automationApi.prepareLmStudio({
     reportOnly: false,
     repairPreset: true,
-    loadChatModel: false,
+    loadChatModel: QA_LOAD_CHAT_MODEL,
     chatModel: CHAT_MODEL,
     toolModel: EFFECTIVE_TOOL_MODEL,
   });
   if (!preparation.ok) {
     throw new Error(`LM Studio is not ready for QA: ${preparation.blockers.join(' ')}`);
   }
-  if (QA_LOAD_CHAT_MODEL) {
-    await automationApi.loadModel(CHAT_MODEL, 'voice qa chat model', {
-      contextLength: QA_CHAT_CONTEXT_LENGTH,
-      ttlSeconds: QA_MODEL_TTL_SECONDS,
-    });
+  let activeLaneModel = '';
+  async function ensureLaneModel(lane = 'chat') {
+    const normalizedLane = String(lane || 'chat').trim().toLowerCase() === 'tool' ? 'tool' : 'chat';
+    const targetModel = normalizedLane === 'tool' ? EFFECTIVE_TOOL_MODEL : CHAT_MODEL;
+    if (activeLaneModel === targetModel) return;
+    await unloadAllLmStudioModels();
+    if (normalizedLane === 'chat' && QA_LOAD_CHAT_MODEL) {
+      await automationApi.loadModel(CHAT_MODEL, 'voice qa chat model', {
+        contextLength: QA_CHAT_CONTEXT_LENGTH,
+        ttlSeconds: QA_MODEL_TTL_SECONDS,
+      });
+    } else {
+      await automationApi.loadModel(targetModel, 'voice qa tool model', {
+        ttlSeconds: QA_MODEL_TTL_SECONDS,
+      });
+    }
+    if (QA_LOAD_EMBED_MODEL && EMBED_MODEL) {
+      await automationApi.loadModel(EMBED_MODEL, 'voice qa embed model', {
+        ttlSeconds: QA_MODEL_TTL_SECONDS,
+      });
+    }
+    activeLaneModel = targetModel;
   }
-  await automationApi.loadModel(EFFECTIVE_TOOL_MODEL, 'voice qa tool model', {
-    ttlSeconds: QA_MODEL_TTL_SECONDS,
-  });
   const server = SPAWN_SERVER ? createServerProcess() : null;
   const payload = {
     startedAt: new Date().toISOString(),
@@ -869,10 +919,13 @@ async function main() {
       chat: CHAT_MODEL,
       tool: EFFECTIVE_TOOL_MODEL,
       autoLoadChatModel: QA_LOAD_CHAT_MODEL,
+      autoLoadEmbedModel: QA_LOAD_EMBED_MODEL,
+      embed: EMBED_MODEL,
       chatContextLength: QA_CHAT_CONTEXT_LENGTH,
       freshServerRequired: true,
       q8RequiresExplicitRequest: true,
       chatOnly: CHAT_ONLY_PROMPT_SET,
+      loadStrategy: 'sequential-lane-switch',
     },
     fixtureCheck,
     memoryFile: SPAWN_SERVER ? MEMORY_FILE : null,
@@ -918,13 +971,14 @@ async function main() {
       serverStatus: payload.serverStatus,
       requireDisposable: true,
       requireChat: true,
-      requireTool: !CHAT_ONLY_PROMPT_SET,
+      requireTool: false,
       requireSemantic: CHAT_ONLY_PROMPT_SET,
       expectedChatModel: CHAT_MODEL,
       expectedToolModel: EFFECTIVE_TOOL_MODEL,
     });
 
     for (const step of buildPromptPlan(PROMPT_SET)) {
+      await ensureLaneModel(step.lane || 'chat');
       if (step.kind === 'scenario') {
         payload.prompts.push(await runConversationScenario({
           name: step.name,
@@ -963,7 +1017,7 @@ async function main() {
       results: payload.prompts,
       requireDisposable: true,
       requireChat: true,
-      requireTool: !CHAT_ONLY_PROMPT_SET,
+      requireTool: false,
       requireSemantic: CHAT_ONLY_PROMPT_SET,
       expectedChatModel: CHAT_MODEL,
       expectedToolModel: EFFECTIVE_TOOL_MODEL,

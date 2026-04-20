@@ -133,6 +133,62 @@ test('LM Studio status cache hits surface probe metadata without forcing a refet
   assert.ok(Number.isFinite(Number(second.probe.cacheAgeMs)));
 });
 
+test('LM Studio lane resolution refreshes cached status when the preferred lane model changed', async () => {
+  let fetchCalls = 0;
+  let loadedModels = ['unsloth/gemma-4-31b-it'];
+  const api = createLmStudioStatusApi({
+    fetch: async () => {
+      fetchCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          data: [
+            { id: 'unsloth/gemma-4-31b-it' },
+            { id: 'google/gemma-4-e4b' },
+          ],
+        }),
+      };
+    },
+    fs: {
+      existsSync: () => false,
+      readFileSync: () => '',
+    },
+    execFileText: async (_command, args = []) => {
+      const action = Array.isArray(args) ? String(args[0] || '').trim() : '';
+      if (action === 'ps') {
+        return { stdout: JSON.stringify(loadedModels.map((id) => ({ identifier: id, status: 'idle' }))) };
+      }
+      return { stdout: '[]' };
+    },
+    URL,
+    LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+    LMSTUDIO_API_KEY: 'lm-studio-local',
+    LMSTUDIO_SETTINGS_FILE: '',
+    LMSTUDIO_STATUS_CACHE_MS: 1000,
+    LMSTUDIO_STATUS_ERROR_CACHE_MS: 1000,
+    LMSTUDIO_MODELS_PROBE_MS: 5000,
+    LOCAL_LLM_TRANSPORT: 'auto',
+    PENNY_LMSTUDIO_CHAT_MODEL: 'unsloth/gemma-4-31b-it',
+    PENNY_LMSTUDIO_TOOL_MODEL: 'google/gemma-4-e4b',
+  });
+
+  const cachedChatState = await api.getLmStudioConnectionStatus({ force: true });
+  assert.equal(cachedChatState.resolvedToolModel, 'unsloth/gemma-4-31b-it');
+
+  loadedModels = ['google/gemma-4-e4b'];
+
+  const runtime = {};
+  const chosen = await api.withLmStudioLaneModel('tool', async (model) => model, runtime);
+
+  assert.equal(chosen, 'google/gemma-4-e4b');
+  assert.equal(runtime.requestedModel, 'google/gemma-4-e4b');
+  assert.equal(runtime.resolvedModel, 'google/gemma-4-e4b');
+  assert.equal(runtime.laneFallback, false);
+  assert.equal(runtime.performance.modelResolution.cacheHit, false);
+  assert.equal(fetchCalls, 2);
+});
+
 test('LM Studio status does not treat embed-only runtime state as chat or tool ready', async () => {
   const api = makeStatusApi({
     models: ['text-embedding-nomic-embed-text-v1.5'],

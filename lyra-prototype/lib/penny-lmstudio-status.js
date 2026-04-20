@@ -488,10 +488,20 @@ function createLmStudioStatusApi({
     return [getPreferredModelForLane('chat')].filter(Boolean);
   }
 
+  function shouldRefreshCachedLaneStatus(status = {}, lane = 'chat', preferredModel = '') {
+    if (status?.probe?.cacheHit !== true) return false;
+    const preferred = String(preferredModel || '').trim();
+    if (!preferred) return false;
+    const candidates = resolveLaneCandidates(status, lane);
+    if (!candidates.length) return true;
+    return !candidates.some(candidate => modelsLookEquivalent(candidate, preferred));
+  }
+
   async function withLmStudioLaneModel(lane = 'chat', runForModel, runtime = null) {
     let resolutionStartedAt = Date.now();
     let status = await getLmStudioConnectionStatus();
     let refreshedAfterMissingModel = false;
+    let refreshedAfterCachedLaneMiss = false;
 
     if (runtime && typeof runtime === 'object') {
       runtime.performance = runtime.performance && typeof runtime.performance === 'object'
@@ -514,6 +524,26 @@ function createLmStudioStatusApi({
       }
 
       const preferredModel = getPreferredModelForLane(lane);
+      if (!refreshedAfterCachedLaneMiss && shouldRefreshCachedLaneStatus(status, lane, preferredModel)) {
+        resolutionStartedAt = Date.now();
+        status = await getLmStudioConnectionStatus({ force: true });
+        refreshedAfterCachedLaneMiss = true;
+        if (runtime && typeof runtime === 'object') {
+          runtime.performance = runtime.performance && typeof runtime.performance === 'object'
+            ? runtime.performance
+            : {};
+          runtime.performance.modelResolution = {
+            startedAt: new Date(resolutionStartedAt).toISOString(),
+            finishedAt: new Date().toISOString(),
+            durationMs: Math.max(0, Date.now() - resolutionStartedAt),
+            available: true,
+            cacheHit: status?.probe?.cacheHit === true,
+            source: 'lmstudio-status',
+            note: String(status?.error || status?.hint || '').trim(),
+          };
+        }
+        continue;
+      }
       const candidates = resolveLaneCandidates(status, lane);
       let lastMissingModelError = null;
 

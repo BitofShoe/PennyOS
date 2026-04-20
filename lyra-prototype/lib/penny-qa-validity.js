@@ -81,6 +81,32 @@ function collectRuntimeArtifacts(results = []) {
   return artifacts;
 }
 
+function collectArtifactResolvedModels(artifacts = []) {
+  const models = {
+    chat: [],
+    tool: [],
+  };
+  for (const artifact of Array.isArray(artifacts) ? artifacts : []) {
+    const lane = String(
+      artifact?.scope?.selectedLane
+      || artifact?.trace?.laneChoice?.selectedLane
+      || artifact?.context?.selectedLane
+      || '',
+    ).trim();
+    const resolvedModel = String(
+      artifact?.context?.resolvedModel
+      || artifact?.trace?.laneChoice?.resolvedModel
+      || '',
+    ).trim();
+    if (!lane || !resolvedModel || !models[lane]) continue;
+    models[lane].push(resolvedModel);
+  }
+  return {
+    chat: uniqueStrings(models.chat, 8),
+    tool: uniqueStrings(models.tool, 8),
+  };
+}
+
 function buildQaEnvironmentValidity({
   serverMode = '',
   preparation = null,
@@ -95,12 +121,25 @@ function buildQaEnvironmentValidity({
   expectedToolModel = '',
 } = {}) {
   const artifacts = collectRuntimeArtifacts(results);
+  const artifactResolvedModels = collectArtifactResolvedModels(artifacts);
   const availableModels = uniqueStrings([
+    ...artifactResolvedModels.chat,
+    ...artifactResolvedModels.tool,
     ...(Array.isArray(serverStatus?.availableModels) ? serverStatus.availableModels : []),
     ...(Array.isArray(preparation?.loadedModels) ? preparation.loadedModels : []),
   ], 24);
-  const observedChatModel = String(serverStatus?.resolvedChatModel || serverStatus?.resolvedModel || '').trim();
-  const observedToolModel = String(serverStatus?.resolvedToolModel || serverStatus?.toolPreferredModel || '').trim();
+  const observedChatModel = String(
+    artifactResolvedModels.chat[0]
+    || serverStatus?.resolvedChatModel
+    || serverStatus?.resolvedModel
+    || '',
+  ).trim();
+  const observedToolModel = String(
+    artifactResolvedModels.tool[0]
+    || serverStatus?.resolvedToolModel
+    || serverStatus?.toolPreferredModel
+    || '',
+  ).trim();
   const duplicateLoadedModels = collectDuplicateLoadedModels(
     (Array.isArray(loadedModelEntries) && loadedModelEntries.length)
       ? loadedModelEntries
@@ -119,9 +158,11 @@ function buildQaEnvironmentValidity({
   const preparationOk = preparation?.ok !== false && !(Array.isArray(preparation?.blockers) && preparation.blockers.length);
   const chatReady = !requireChat
     || modelsLookCompatible(observedChatModel, expectedChatModel)
+    || artifactResolvedModels.chat.some((item) => modelsLookCompatible(item, expectedChatModel))
     || availableModels.some((item) => modelsLookCompatible(item, expectedChatModel));
   const toolReady = !requireTool
     || modelsLookCompatible(observedToolModel, expectedToolModel)
+    || artifactResolvedModels.tool.some((item) => modelsLookCompatible(item, expectedToolModel))
     || availableModels.some((item) => modelsLookCompatible(item, expectedToolModel));
   const semanticReadyOk = !requireSemantic || semanticReady === true;
   const reasons = [];
@@ -163,6 +204,7 @@ function buildQaEnvironmentValidity({
       toolModel: observedToolModel,
       semanticReady: semanticReady === true,
       availableModels,
+      artifactResolvedModels,
       loadedModelEntries: uniqueStrings((Array.isArray(loadedModelEntries) ? loadedModelEntries : []).map(normalizeLoadedModelEntry).filter(Boolean), 24),
     },
   };
@@ -173,5 +215,6 @@ module.exports = {
   modelsLookCompatible,
   collectDuplicateLoadedModels,
   collectRuntimeArtifacts,
+  collectArtifactResolvedModels,
   buildQaEnvironmentValidity,
 };
