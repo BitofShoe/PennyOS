@@ -161,6 +161,92 @@ function createDirectIntentReplyApi({
     return `i found "${query}" in the repo here:\n${preview}\n[MOOD:smug]`;
   }
 
+  function extractWebTopicTokens(text = '') {
+    const STOPWORDS = new Set([
+      'digital', 'foundry', 'latest', 'news', 'today', 'todays', 'current', 'stories', 'story',
+      'headlines', 'headline', 'official', 'site', 'feed', 'home', 'front', 'door', 'youtube',
+      'video', 'videos', 'article', 'articles', 'posts', 'post', 'tech', 'analysis', 'direct',
+      'www', 'http', 'https', 'com', 'net', 'org', 'the', 'and', 'for', 'with', 'from', 'that',
+      'this', 'into', 'your', 'about', 'after', 'before', 'over', 'under', 'their', 'they', 'them',
+    ]);
+    return String(text || '')
+      .toLowerCase()
+      .match(/[a-z0-9][a-z0-9.+-]{2,}/g)?.filter((token) => {
+        if (!token) return false;
+        if (STOPWORDS.has(token)) return false;
+        if (/^\d+$/.test(token)) return false;
+        if (/\.(?:com|net|org|ai|gg|tv|io)$/.test(token)) return false;
+        return true;
+      }) || [];
+  }
+
+  function inferRepeatedWebTopic(results = []) {
+    const counts = new Map();
+    for (const item of results.slice(0, 4)) {
+      const tokens = new Set(extractWebTopicTokens(`${item?.title || ''} ${item?.snippet || ''}`));
+      for (const token of tokens) {
+        counts.set(token, (counts.get(token) || 0) + 1);
+      }
+    }
+    let bestToken = '';
+    let bestCount = 0;
+    for (const [token, count] of counts.entries()) {
+      if (count > bestCount || (count === bestCount && token.length > bestToken.length)) {
+        bestToken = token;
+        bestCount = count;
+      }
+    }
+    return bestCount >= 2 ? bestToken : '';
+  }
+
+  function looksLikeGenericWebFeedTitle(title = '') {
+    return /\b(latest|news|headlines|home|feed|direct)\b/i.test(String(title || ''));
+  }
+
+  function pickStandoutWebResult(results = [], repeatedTopic = '') {
+    for (const item of results.slice(0, 4)) {
+      const title = String(item?.title || '').trim();
+      const url = String(item?.url || '').trim().toLowerCase();
+      if (!title) continue;
+      if (/youtube\.com/.test(url)) continue;
+      if (looksLikeGenericWebFeedTitle(title)) continue;
+      if (repeatedTopic) {
+        const hay = `${title} ${item?.snippet || ''}`.toLowerCase();
+        if (hay.includes(repeatedTopic.toLowerCase())) continue;
+      }
+      return item;
+    }
+    return null;
+  }
+
+  function buildDirectWebSearchTake(query = '', results = []) {
+    const top = results[0] || null;
+    const second = results[1] || null;
+    if (!top) return '';
+
+    const topTitle = truncateText(String(top.title || top.url || 'that first hit').trim(), 100);
+    const secondTitle = truncateText(String(second?.title || second?.url || '').trim(), 100);
+    const secondUrl = String(second?.url || '').trim().toLowerCase();
+
+    if (looksLikeGenericWebFeedTitle(topTitle) && /youtube\.com/.test(secondUrl)) {
+      return `yeah, the live web is being annoyingly front-door about "${query}": the site feed first, youtube second.`;
+    }
+
+    const repeatedTopic = inferRepeatedWebTopic(results);
+    const standout = pickStandoutWebResult(results, repeatedTopic);
+    if (repeatedTopic && standout) {
+      const standoutTitle = truncateText(String(standout.title || standout.url || 'that one').trim(), 100);
+      return `yeah, looks like they're leaning hard on ${repeatedTopic} right now. "${standoutTitle}" is the one i'd crack open first, though.`;
+    }
+    if (repeatedTopic) {
+      return `yeah, looks like they're leaning hard on ${repeatedTopic} right now.`;
+    }
+    if (secondTitle) {
+      return `yeah, the live web is mostly throwing "${topTitle}" at me first, then "${secondTitle}".`;
+    }
+    return `yeah, the live web is mostly throwing "${topTitle}" at me first.`;
+  }
+
   function composeDirectWebSearchReply(result = {}) {
     const query = String(result.query || '').trim() || 'that';
     const results = Array.isArray(result.results) ? result.results : [];
@@ -174,7 +260,8 @@ function createDirectIntentReplyApi({
         return `${idx + 1}. ${item.title}\n   ${item.url}${snippet}`;
       })
       .join('\n');
-    return `i searched the live web for "${query}". strongest hits:\n${preview}\n[MOOD:thinking]`;
+    const take = buildDirectWebSearchTake(query, results);
+    return `${take}\n\nhere's the pile:\n${preview}\n\npick one and i'll crack it open.\n[MOOD:thinking]`;
   }
 
   function composeDirectWebPageReply(result = {}) {
@@ -249,16 +336,7 @@ function createDirectIntentReplyApi({
     }
     const web = records.find((record) => record?.name === 'search_web' && record?.result?.ok && Array.isArray(record?.result?.data?.results));
     if (web) {
-      const results = web.result.data.results;
-      if (!results.length) {
-        return `i searched the web for "${web.result.data.query || 'that topic'}" and came up empty.\n[MOOD:annoyed]`;
-      }
-      const top = results[0];
-      const snippet = truncateText(String(top?.snippet || '').trim(), 220);
-      if (snippet) {
-        return `i found the strongest live-web hit for "${web.result.data.query || 'that topic'}":\n${top.title}\n${top.url}\n\nshort version: ${snippet}\n[MOOD:thinking]`;
-      }
-      return `i found the strongest live-web hit for "${web.result.data.query || 'that topic'}":\n${top.title}\n${top.url}\n[MOOD:thinking]`;
+      return composeDirectWebSearchReply(web.result.data);
     }
     const read = records.find((record) => record?.name === 'read_project_file' || record?.name === 'read_project_file_around_match');
     if (read?.result?.ok && read.result.data) {

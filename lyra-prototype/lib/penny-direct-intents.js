@@ -184,6 +184,8 @@ function createDirectIntentApi({
       const candidate = collapseWhitespace(match?.[1] || '').replace(/[?.!]+$/g, '');
       if (candidate) return candidate;
     }
+    const topicalSiteQuery = extractNaturalSiteTopStoriesQuery(raw);
+    if (topicalSiteQuery) return topicalSiteQuery;
     return '';
   }
 
@@ -194,6 +196,28 @@ function createDirectIntentApi({
       return true;
     }
     return /\b(official|docs|documentation)\b/.test(lower);
+  }
+
+  function extractNaturalSiteTopStoriesQuery(text = '') {
+    const raw = String(text || '').trim();
+    const lower = raw.toLowerCase();
+    if (!raw) return '';
+    const asksForFresh = /\b(latest|current|today'?s|today|right now)\b/.test(lower);
+    const asksForStoryFeed = /\b(top stories|stories|headlines|latest stories|latest headlines|articles|posts)\b/.test(lower);
+    const asksForSummary = /\b(can you|could you|would you|will you|please|show me|tell me|give me|what(?:'s| is| are))\b/.test(lower);
+    if (!(asksForFresh && asksForStoryFeed && asksForSummary)) return '';
+
+    const domainMatch = raw.match(/\b([a-z0-9-]+\.[a-z]{2,}(?:\.[a-z]{2,})?)\b/i);
+    if (domainMatch?.[1]) {
+      return `${domainMatch[1]} top stories today`;
+    }
+
+    const namedSourceMatch = raw.match(/\b(?:on|from|at)\s+([A-Z][A-Za-z0-9&'’.-]*(?:\s+[A-Z][A-Za-z0-9&'’.-]*){0,4})\b/);
+    if (namedSourceMatch?.[1]) {
+      return `${collapseWhitespace(namedSourceMatch[1])} top stories today`;
+    }
+
+    return '';
   }
 
   function extractDirectSearchQuery(text = '', explicitPath = '') {

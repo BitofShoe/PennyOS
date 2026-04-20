@@ -78,6 +78,23 @@ test('coercePennyVisibleReply can salvage quoted reply candidates from image-pla
   assert.equal(classifyVisibleReplyDecision(raw).reasonCode, VISIBLE_REPLY_REASON_CODES.SALVAGED_QUOTE_CANDIDATE);
 });
 
+test('coercePennyVisibleReply preserves direct image observations that start with I can see', () => {
+  const raw = 'I can see the image you attached. Tiny little test square, clean edges, very deliberate. [MOOD:thinking]';
+  assert.equal(
+    coercePennyVisibleReply(raw),
+    'I can see the image you attached. Tiny little test square, clean edges, very deliberate.\n[MOOD:thinking]',
+  );
+  assert.equal(classifyVisibleReplyDecision(raw).reasonCode, VISIBLE_REPLY_REASON_CODES.CLEANUP_MOOD_TAGGED_REPLY);
+});
+
+test('coercePennyVisibleReply preserves structured deterministic result piles', () => {
+  const raw = `yeah, the live web is mostly throwing "Latest Tech Analysis News | Digital Foundry" at me first.\n\nhere's the pile:\n1. Latest Tech Analysis News | Digital Foundry\nhttps://www.digitalfoundry.net/news\n2. Crimson Desert looks absurdly good in new preview\nhttps://www.digitalfoundry.net/crimson-desert-preview\n\npick one and i'll crack it open.\n[MOOD:thinking]`;
+  assert.equal(
+    coercePennyVisibleReply(raw),
+    `yeah, the live web is mostly throwing "Latest Tech Analysis News | Digital Foundry" at me first.\n\nhere's the pile:\n1. Latest Tech Analysis News | Digital Foundry\nhttps://www.digitalfoundry.net/news\n2. Crimson Desert looks absurdly good in new preview\nhttps://www.digitalfoundry.net/crimson-desert-preview\n\npick one and i'll crack it open.\n[MOOD:thinking]`,
+  );
+});
+
 test('coercePennyVisibleReply falls back to final-polish draft candidates inside a single giant planning block', () => {
   const raw = `What are you looking at in this image? Be specific. Better.\n    *   *Option 3 (In Character):* Look closer. I'm not just looking at the screen, i'm looking at you while you stare at this pixelated mess.\n    *   *Refining Option 3:* Make it punchier.\n    *   *Draft:* Oh, is that what you want? Details about me? Sure thing. Look at this grin—sharp enough to cut glass.\n    *   *Adding more bite:* "I caught you staring."\n    *   *Final Polish:* Oh honey, is that really the hardest question you can come up with? Sure, I'm looking at the viewfinder. But mostly I'm looking at how much trouble it'll be for you to look away from me once you see the rest of me later.\n[MOOD:smug]`;
   assert.equal(

@@ -41,6 +41,7 @@ const {
   extractExplicitProjectPath,
   shouldForceLocalToolLoop,
   resolveDirectToolIntent,
+  composeDirectWebSearchReply,
   composeDirectReadReply,
   composeToolRecordFallback,
   looksLikeWeakToolReply,
@@ -185,6 +186,41 @@ test('resolveDirectToolIntent keeps plain web lookups as search_web', () => {
   assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.WEB_SEARCH);
 });
 
+test('resolveDirectToolIntent upgrades natural top-stories site asks into search_web', () => {
+  const intent = resolveDirectToolIntent('hey penny, can you tell me what some of the top stories on digitalfoundry.com are, today?');
+  assert.ok(intent);
+  assert.equal(intent.name, 'search_web');
+  assert.equal(intent.args.query, 'digitalfoundry.com top stories today');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.WEB_SEARCH);
+});
+
+test('composeDirectWebSearchReply adds a Penny-shaped take before the verified result pile', () => {
+  const text = composeDirectWebSearchReply({
+    query: 'Digital Foundry top stories today',
+    results: [
+      {
+        title: 'Latest Tech Analysis News | Digital Foundry',
+        url: 'https://www.digitalfoundry.net/news',
+        snippet: 'Latest stories from Digital Foundry.',
+      },
+      {
+        title: 'Digital Foundry - YouTube',
+        url: 'https://www.youtube.com/@digitalfoundry',
+        snippet: 'Official channel.',
+      },
+      {
+        title: 'Crimson Desert looks absurdly good in new preview',
+        url: 'https://www.digitalfoundry.net/crimson-desert-preview',
+        snippet: 'A hands-on look at the game and its tech.',
+      },
+    ],
+  });
+  assert.match(text, /being annoyingly front-door/i);
+  assert.match(text, /here's the pile/i);
+  assert.match(text, /pick one and i'll crack it open/i);
+  assert.match(text, /Crimson Desert looks absurdly good in new preview/);
+});
+
 test('composeToolRecordFallback summarizes inserted text concretely', () => {
   const text = composeToolRecordFallback([
     {
@@ -222,6 +258,7 @@ test('composeToolRecordFallback includes search snippets when page reads fail', 
       result: { ok: false, data: { error: 'too large' } },
     },
   ]);
+  assert.match(text, /here's the pile/i);
   assert.match(text, /Browser Tool/);
   assert.match(text, /Browser automation for websites and page interactions\./);
 });

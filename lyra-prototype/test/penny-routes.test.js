@@ -706,6 +706,113 @@ test('direct web inspect fallback stays deterministic on the public chat route',
   }
 });
 
+test('natural top-stories site asks stay deterministic on the public chat route', async () => {
+  const originalEnv = {
+    PORT: process.env.PORT,
+    PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
+    PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
+    PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
+    PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+  };
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-web-natural-'));
+  const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  const booksFile = path.join(tmpDir, 'penny-memory-books.test.json');
+  const mockLmStudio = await createMockLmStudioServer();
+  process.env.PORT = '0';
+  process.env.PENNY_MEMORY_FILE = memoryFile;
+  process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
+  process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+
+  const toolRegistryModulePath = require.resolve('../lib/penny-tool-registry');
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  delete require.cache[toolRegistryModulePath];
+  require.cache[toolRegistryModulePath] = {
+    id: toolRegistryModulePath,
+    filename: toolRegistryModulePath,
+    loaded: true,
+    exports: {
+      createToolRegistry() {
+        return {
+          toolLabelFromResult() {
+            return '';
+          },
+          async executePennyTool(name, args = {}) {
+            if (name === 'search_web') {
+              return {
+                ok: true,
+                label: 'searched the web',
+                data: {
+                  query: args.query,
+                  results: [
+                    {
+                      title: 'Digital Foundry Stories',
+                      url: 'https://digitalfoundry.com/news',
+                      snippet: 'Latest stories from Digital Foundry.',
+                    },
+                  ],
+                },
+              };
+            }
+            throw new Error(`Unexpected tool ${name}`);
+          },
+        };
+      },
+    },
+  };
+
+  const serverModule = require('../server.js');
+  const started = serverModule.startServer({ port: 0, silent: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (started.listening) {
+        resolve();
+        return;
+      }
+      started.once('listening', resolve);
+      started.once('error', reject);
+    });
+
+    const address = started.address();
+    const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'route-web-natural-test',
+        messages: [
+          { role: 'user', content: 'hey penny, can you tell me what some of the top stories on digitalfoundry.com are, today?' },
+        ],
+        memories: { brainMode: 'local' },
+      }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json.meta.localLane, 'tool');
+    assert.match(response.json.text, /here's the pile/i);
+    assert.match(response.json.text, /pick one and i'll crack it open/i);
+    assert.match(response.json.text, /Digital Foundry Stories/);
+  } finally {
+    await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
+    delete require.cache[modulePath];
+    delete require.cache[toolRegistryModulePath];
+    if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
+    if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
+    if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
+    if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
+    if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('memory inspector tracks archived turns and review approval promotes a pending pattern', async () => {
   const originalEnv = {
     PORT: process.env.PORT,

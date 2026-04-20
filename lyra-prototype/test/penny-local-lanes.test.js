@@ -108,6 +108,10 @@ test('selectLocalLane keeps explicit live web lookups on the tool lane', () => {
   const { selectLocalLane } = buildApi();
   assert.equal(selectLocalLane({ userText: 'search the web for bitcoin news' }).localLane, 'tool');
   assert.equal(selectLocalLane({ userText: "what's the latest on LM Studio?" }).localLane, 'tool');
+  const natural = selectLocalLane({ userText: 'hey penny, can you tell me what some of the top stories on digitalfoundry.com are, today?' });
+  assert.equal(natural.localLane, 'tool');
+  assert.equal(natural.reasonCode, LOCAL_LANE_REASON_CODES.DIRECT_INTENT);
+  assert.equal(natural.directIntent?.reasonCode, 'web_search_request');
 });
 
 test('selectLocalLane forces open-ended explicit file edits onto the tool lane', () => {

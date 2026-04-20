@@ -240,6 +240,12 @@ function createVisibleReplyApi({
     const raw = String(line || '').trim();
     const x = normalizeMetaLead(raw);
     if (x.length < 12) return true;
+    if (
+      /^I can see\b/i.test(x)
+      && (/\byou attached\b/i.test(x) || /\b(image|photo|picture|screenshot|square|edges?|colors?|lighting|frame)\b/i.test(x))
+    ) {
+      return false;
+    }
     if (/^(#{1,3}\s|[-*]\s|Step\s+\d|\d+\.\s|Output:|Response:|Final answer:)/i.test(raw)) return true;
     if (/^(Thinking Process|Analyze the Request|Determine the Voice|Drafting the Reply|Fact Check|Constraint Check|Refinement|Penny-ifying|Final Polish|Draft(?:\s+\d+)?|Observation|Tone|Content)\b/i.test(x)) return true;
     return /^(I need to|I'll |I should|Let me |First,|The user |Okay, I|Since the |Based on|Looking at|I will |My goal|According to|Here's |I must|We need|I can |I have to|To respond|I want to|I'm going to|Note:|Analysis:|Actually, let's make it more)/i.test(x);
@@ -253,6 +259,13 @@ function createVisibleReplyApi({
         lines.shift();
         continue;
       }
+      const next = String(lines[1] || '').trim();
+      const normalizedFirst = normalizeMetaLead(first);
+      const looksLikeStructuredResultLead = /^here's the pile:?$/i.test(normalizedFirst)
+        || (/^\d+\.\s+\S/.test(first) && /^(?:https?:\/\/|www\.)/i.test(next));
+      if (looksLikeStructuredResultLead) {
+        break;
+      }
       if (isMetaThinkingLine(first)) {
         lines.shift();
         continue;
@@ -260,6 +273,13 @@ function createVisibleReplyApi({
       break;
     }
     return lines.join('\n').trim();
+  }
+
+  function looksLikeStructuredResultReply(text = '') {
+    const value = String(text || '').trim();
+    if (!value) return false;
+    return /(?:^|\n)here's the pile:\s*(?:\n|\r\n?)+\d+\.\s+\S/i.test(value)
+      || /\n\d+\.\s+\S[\s\S]*?\n(?:https?:\/\/|www\.)/i.test(value);
   }
 
   function cleanDraftCandidate(text = '') {
@@ -356,6 +376,16 @@ function createVisibleReplyApi({
       const endIdx = lastMood.index;
       const before = t.slice(0, endIdx).trim();
       const afterMood = t.slice(endIdx + moodTag.length).trim();
+      if (looksLikeStructuredResultReply(before)) {
+        const out = `${before}\n${moodTag}${afterMood ? `\n${afterMood}` : ''}`.trim();
+        return finalizeVisibleReplyDecision(
+          raw,
+          retagAssistantReply(repairCommonMojibake(out.replace(/\n{3,}/g, '\n\n')), lastMood[1] || ''),
+          sawTaggedVisibleReply
+            ? VISIBLE_REPLY_REASON_CODES.TAGGED_VISIBLE_REPLY
+            : VISIBLE_REPLY_REASON_CODES.CLEANUP_MOOD_TAGGED_REPLY,
+        );
+      }
       const draftCandidates = collectDraftCandidates(before);
       const quoteCandidates = collectQuotedReplyCandidates(before);
       const parts = before.split(/\n{2,}/).map(v => stripLeadingMetaLines(v)).filter(Boolean);
@@ -385,6 +415,15 @@ function createVisibleReplyApi({
     }
     const draftCandidates = collectDraftCandidates(t);
     const quoteCandidates = collectQuotedReplyCandidates(t);
+    if (looksLikeStructuredResultReply(t)) {
+      return finalizeVisibleReplyDecision(
+        raw,
+        retagAssistantReply(repairCommonMojibake(t.replace(/\n{3,}/g, '\n\n'))),
+        sawTaggedVisibleReply
+          ? VISIBLE_REPLY_REASON_CODES.TAGGED_VISIBLE_REPLY
+          : VISIBLE_REPLY_REASON_CODES.CLEANUP_PLAIN_REPLY,
+      );
+    }
     const tailParts = t.split(/\n{2,}/).map(v => stripLeadingMetaLines(v)).filter(Boolean);
     while (tailParts.length > 1 && paragraphLooksLikeCoT(tailParts[0])) {
       tailParts.shift();
