@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createLmStudioStatusApi } = require('../lib/penny-lmstudio-status');
 
-function makeStatusApi({ models = [], loadedModels = [] } = {}) {
+function makeStatusApi({ models = [], loadedModels = [], installedDetailed = [] } = {}) {
   const fetch = async () => ({
     ok: true,
     status: 200,
@@ -16,6 +16,9 @@ function makeStatusApi({ models = [], loadedModels = [] } = {}) {
     const action = Array.isArray(args) ? String(args[0] || '').trim() : '';
     if (action === 'ps') {
       return { stdout: JSON.stringify(loadedModels.map((id) => ({ identifier: id, status: 'idle' }))) };
+    }
+    if (action === 'ls') {
+      return { stdout: JSON.stringify(installedDetailed) };
     }
     return { stdout: '[]' };
   };
@@ -146,4 +149,28 @@ test('LM Studio status does not treat embed-only runtime state as chat or tool r
   assert.deepEqual(status.loadedModels, ['text-embedding-nomic-embed-text-v1.5']);
   assert.deepEqual(status.nativeAvailableModels, ['text-embedding-nomic-embed-text-v1.5']);
   assert.match(status.hint, /no usable chat model/i);
+});
+
+test('LM Studio status keeps embedding installs in the installed inventory', async () => {
+  const api = makeStatusApi({
+    models: ['google/gemma-4-e4b', 'text-embedding-nomic-embed-text-v1.5'],
+    loadedModels: ['google/gemma-4-e4b', 'text-embedding-nomic-embed-text-v1.5'],
+    installedDetailed: [
+      {
+        type: 'llm',
+        modelKey: 'google/gemma-4-e4b',
+        selectedVariant: 'google/gemma-4-e4b@q8_0',
+      },
+      {
+        type: 'embedding',
+        modelKey: 'text-embedding-nomic-embed-text-v1.5',
+      },
+    ],
+  });
+
+  const status = await api.getLmStudioConnectionStatus({ force: true });
+
+  assert.equal(status.resolvedToolModel, 'google/gemma-4-e4b');
+  assert.ok(status.installedModels.includes('google/gemma-4-e4b@q8_0'));
+  assert.ok(status.installedModels.includes('text-embedding-nomic-embed-text-v1.5'));
 });

@@ -57,6 +57,9 @@ function buildArchiveApi({
   enableBackgroundChatVectors = false,
   backgroundChatVectorBatchLimit = 2,
   fetchImpl = null,
+  statusInstalledModels = null,
+  statusNativeAvailableModels = null,
+  statusAvailableModels = null,
 } = {}) {
   let fetchCalls = 0;
   const api = createMemoryArchiveApi({
@@ -92,9 +95,15 @@ function buildArchiveApi({
     async getLmStudioConnectionStatus() {
       return {
         reachable: true,
-        installedModels: embedReady ? [embedModel] : [],
-        nativeAvailableModels: embedReady ? [embedModel] : [],
-        availableModels: embedReady ? [embedModel] : [],
+        installedModels: Array.isArray(statusInstalledModels)
+          ? statusInstalledModels
+          : (embedReady ? [embedModel] : []),
+        nativeAvailableModels: Array.isArray(statusNativeAvailableModels)
+          ? statusNativeAvailableModels
+          : (embedReady ? [embedModel] : []),
+        availableModels: Array.isArray(statusAvailableModels)
+          ? statusAvailableModels
+          : (embedReady ? [embedModel] : []),
       };
     },
     nowMs: (() => {
@@ -723,6 +732,32 @@ test('buildArchiveContext marks semantic downgrade when query embedding creation
     assert.equal(result.archiveContext.semanticDowngradeReason, 'query-vector-unavailable');
     assert.equal(result.retrieval.semanticDowngrade, true);
     assert.equal(result.retrieval.semanticDowngradeReason, 'query-vector-unavailable');
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('getSemanticMemoryStatus treats a loaded embed model plus a live probe as ready even if the installed inventory lags', async () => {
+  const files = makeTempFiles();
+  const { api, getFetchCalls } = buildArchiveApi({
+    ...files,
+    embedReady: false,
+    statusInstalledModels: [],
+    statusNativeAvailableModels: ['text-embedding-nomic-embed-text-v1.5'],
+    statusAvailableModels: [],
+  });
+
+  try {
+    const status = await api.getSemanticMemoryStatus({ force: true });
+
+    assert.equal(status.installed, true);
+    assert.equal(status.loaded, true);
+    assert.equal(status.ready, true);
+    assert.equal(status.active, true);
+    assert.equal(status.mode, 'semantic');
+    assert.equal(status.fallback, false);
+    assert.equal(status.reason, '');
+    assert.equal(getFetchCalls(), 1);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

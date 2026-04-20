@@ -1361,13 +1361,16 @@ function createMemoryArchiveApi({
     const installed = matchConfiguredModel(installedModels);
     const listedAsLoaded = matchConfiguredModel(runtimeModels);
     const reachable = status?.reachable === true;
-    const liveProbe = reachable && installed ? await probeEmbeddingAvailability() : { ok: false, error: '' };
+    const liveProbe = reachable && (installed || listedAsLoaded)
+      ? await probeEmbeddingAvailability()
+      : { ok: false, error: '' };
+    const installReady = installed || listedAsLoaded || liveProbe.ok;
     const loaded = listedAsLoaded || liveProbe.ok;
-    const ready = !!configuredEmbedModel && reachable && installed && liveProbe.ok;
+    const ready = !!configuredEmbedModel && reachable && installReady && liveProbe.ok;
     const value = {
       configuredModel: configuredEmbedModel,
       reachable,
-      installed,
+      installed: installReady,
       loaded,
       ready,
       active: ready,
@@ -1377,7 +1380,7 @@ function createMemoryArchiveApi({
         ? 'No embedding model is configured.'
         : !reachable
           ? String(status?.error || 'LM Studio is unreachable.')
-          : !installed
+          : !installReady
             ? `Embedding model ${configuredEmbedModel} is not installed in LM Studio.`
             : !loaded
               ? `Embedding model ${configuredEmbedModel} is installed but not currently ready.`

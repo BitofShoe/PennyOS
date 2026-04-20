@@ -187,7 +187,8 @@ function createLmStudioStatusApi({
     };
     for (const item of parsed) {
       if (!item || typeof item !== 'object') continue;
-      if (String(item.type || '').toLowerCase() !== 'llm') continue;
+      const type = String(item.type || '').toLowerCase().trim();
+      if (type && !/^(llm|embedding|rerank)$/.test(type)) continue;
       const selectedVariant = typeof item.selectedVariant === 'string' ? item.selectedVariant.trim() : '';
       const modelKey = typeof item.modelKey === 'string' ? item.modelKey.trim() : '';
       const variants = Array.isArray(item.variants)
