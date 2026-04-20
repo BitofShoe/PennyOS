@@ -170,6 +170,27 @@ function summarizeResearchLedgerPromptState(channel = null, rendered = false) {
   return normalized.state;
 }
 
+function normalizeToolEvidenceReceipt(receipt = null) {
+  if (!receipt || typeof receipt !== 'object') return null;
+  const summary = receipt.summary && typeof receipt.summary === 'object' ? receipt.summary : {};
+  return {
+    schema: String(receipt.schema || '').trim(),
+    summary: {
+      toolRecordCount: Math.max(0, Number(summary.toolRecordCount || 0)),
+      itemCount: Math.max(0, Number(summary.itemCount || 0)),
+      promptVisibleItemCount: Math.max(0, Number(summary.promptVisibleItemCount || 0)),
+      deterministicOnlyItemCount: Math.max(0, Number(summary.deterministicOnlyItemCount || 0)),
+      provenanceOnlyItemCount: Math.max(0, Number(summary.provenanceOnlyItemCount || 0)),
+      unknownItemCount: Math.max(0, Number(summary.unknownItemCount || 0)),
+      rawJsonItemCount: Math.max(0, Number(summary.rawJsonItemCount || 0)),
+      autoVerificationItemCount: Math.max(0, Number(summary.autoVerificationItemCount || 0)),
+      summarizedItemCount: Math.max(0, Number(summary.summarizedItemCount || 0)),
+      multiHopItemCount: Math.max(0, Number(summary.multiHopItemCount || 0)),
+    },
+    items: Array.isArray(receipt.items) ? receipt.items : [],
+  };
+}
+
 function preferRenderedCompatibilityBoolean(value = null, renderedKey = '', aliasKey = '', fallback = false) {
   const source = value && typeof value === 'object' ? value : {};
   if (source[renderedKey] === true) return true;
@@ -338,6 +359,7 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   const performance = artifact.performance && typeof artifact.performance === 'object' ? artifact.performance : {};
   const readiness = artifact.readiness && typeof artifact.readiness === 'object' ? artifact.readiness : {};
   const toolOutcome = artifact.toolOutcome && typeof artifact.toolOutcome === 'object' ? artifact.toolOutcome : {};
+  const toolEvidenceReceipt = normalizeToolEvidenceReceipt(artifact.toolEvidenceReceipt);
   const toolDebug = toolOutcome.debug && typeof toolOutcome.debug === 'object' ? toolOutcome.debug : {};
   const manualFallbackDebug = toolDebug.manualFallback && typeof toolDebug.manualFallback === 'object'
     ? toolDebug.manualFallback
@@ -457,6 +479,19 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   if (Array.isArray(advisoryMerge.discardedDetailSummary) && advisoryMerge.discardedDetailSummary.length) {
     advisoryMergeBits.push(`discarded ${advisoryMerge.discardedDetailSummary.slice(0, 2).join(', ')}`);
   }
+  const toolEvidenceSummary = toolEvidenceReceipt?.summary || null;
+  const toolEvidenceBits = toolEvidenceSummary
+    ? [
+      `tool records ${toolEvidenceSummary.toolRecordCount}`,
+      `prompt-visible ${toolEvidenceSummary.promptVisibleItemCount}`,
+      `deterministic-only ${toolEvidenceSummary.deterministicOnlyItemCount}`,
+      `provenance-only ${toolEvidenceSummary.provenanceOnlyItemCount}`,
+      `raw json ${toolEvidenceSummary.rawJsonItemCount}`,
+      `multi-hop ${toolEvidenceSummary.multiHopItemCount}`,
+      toolEvidenceSummary.unknownItemCount > 0 ? `unknown ${toolEvidenceSummary.unknownItemCount}` : '',
+      'runtime artifact receipt only; not a PromptTruth channel',
+    ].filter(Boolean)
+    : ['No tool-evidence receipt recorded for this turn.', 'runtime artifact receipt only; not a PromptTruth channel'];
   return `
     <div class="list-item">
       <div class="memory-copy">
@@ -501,6 +536,12 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
       <div class="memory-copy">
         Prompt truth: <strong>${escapeHtmlFn(promptTruth.canonicalOverrideActive ? 'canon-first holdback' : (promptTruth.canonicalFactsPresent ? 'canon rendered' : 'canon silent'))}</strong>
         <small>${escapeHtmlFn(promptTruthBits.join(' | ') || 'No prompt-truth receipt recorded.')}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
+        Tool evidence receipt: <strong>${escapeHtmlFn(toolEvidenceSummary ? `${toolEvidenceSummary.itemCount} item(s)` : 'none')}</strong>
+        <small>${escapeHtmlFn(toolEvidenceBits.join(' | '))}</small>
       </div>
     </div>
     <div class="list-item">

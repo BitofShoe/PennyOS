@@ -299,6 +299,145 @@ test('buildRuntimeArtifact preserves deterministic-tool truth without faking mod
   assert.equal(artifact.provenance.retrieval[0].sourceLabel, 'package.json');
 });
 
+test('buildRuntimeArtifact builds deterministic-only tool evidence receipts for direct deterministic paths', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'direct-deterministic',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'deterministic-tool',
+    toolsUsed: [
+      { name: 'read_project_file', label: 'read README.md', ok: true },
+    ],
+    toolRecords: [
+      {
+        name: 'read_project_file',
+        args: { path: 'README.md' },
+        result: {
+          ok: true,
+          label: 'read README.md',
+          data: {
+            path: 'README.md',
+            textPreview: '# Penny',
+          },
+        },
+      },
+    ],
+    toolEvidenceFacts: [{
+      path: 'direct_deterministic',
+      promptVisibility: 'not_prompt_visible',
+      nonPromptUse: 'deterministic_only',
+      renderForm: 'none',
+      modelHop: 'none',
+      toolRecordIndexes: [0],
+    }],
+  });
+
+  assert.equal(artifact.toolEvidenceReceipt.schema, 'penny-tool-evidence-receipt.v1');
+  assert.equal(artifact.toolEvidenceReceipt.summary.itemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.promptVisibleItemCount, 0);
+  assert.equal(artifact.toolEvidenceReceipt.summary.deterministicOnlyItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.rawJsonItemCount, 0);
+  assert.equal(artifact.toolEvidenceReceipt.items[0].path, 'direct_deterministic');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[0].toolName, 'read_project_file');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[0].target, 'README.md');
+});
+
+test('buildRuntimeArtifact builds prompt-visible raw-json tool evidence receipts for direct single-tool LM answers', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'direct-lm-answer',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'llm-tool-loop',
+    toolsUsed: [
+      { name: 'read_project_file', label: 'read docs/README.md', ok: true },
+    ],
+    toolRecords: [
+      {
+        name: 'read_project_file',
+        args: { path: 'docs/README.md' },
+        result: {
+          ok: true,
+          label: 'read docs/README.md',
+          data: {
+            path: 'docs/README.md',
+            textPreview: '# Docs',
+          },
+        },
+      },
+    ],
+    toolEvidenceFacts: [{
+      path: 'direct_single_tool_context_answer',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'single',
+      toolRecordIndexes: [0],
+    }],
+  });
+
+  assert.equal(artifact.toolEvidenceReceipt.summary.itemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.promptVisibleItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.rawJsonItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.multiHopItemCount, 0);
+  assert.equal(artifact.toolEvidenceReceipt.items[0].path, 'direct_single_tool_context_answer');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].renderForm, 'raw_json');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].modelHop, 'single');
+});
+
+test('buildRuntimeArtifact builds provenance-only tool evidence receipts for direct open-ended sequences', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'direct-open-ended',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'llm-tool-loop',
+    toolsUsed: [
+      { name: 'insert_in_project_file', label: "insert Penny's Playground/penny-qa-freewrite.md", ok: true },
+      { name: 'get_git_status', label: 'git status', ok: true },
+    ],
+    toolRecords: [
+      {
+        name: 'insert_in_project_file',
+        args: { path: "Penny's Playground/penny-qa-freewrite.md" },
+        result: {
+          ok: true,
+          label: "insert Penny's Playground/penny-qa-freewrite.md",
+          data: {
+            path: "Penny's Playground/penny-qa-freewrite.md",
+          },
+        },
+      },
+      {
+        name: 'get_git_status',
+        args: {},
+        result: {
+          ok: true,
+          label: 'git status',
+          data: {},
+        },
+      },
+    ],
+    toolEvidenceFacts: [{
+      path: 'direct_open_ended_sequence',
+      promptVisibility: 'not_prompt_visible',
+      nonPromptUse: 'provenance_only',
+      renderForm: 'none',
+      modelHop: 'none',
+      toolRecordIndexes: [0, 1],
+    }],
+  });
+
+  assert.equal(artifact.toolEvidenceReceipt.summary.itemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.toolRecordCount, 2);
+  assert.equal(artifact.toolEvidenceReceipt.summary.provenanceOnlyItemCount, 1);
+  assert.equal(artifact.toolEvidenceReceipt.summary.promptVisibleItemCount, 0);
+  assert.equal(artifact.toolEvidenceReceipt.items[0].path, 'direct_open_ended_sequence');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs.length, 2);
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[0].target, "Penny's Playground/penny-qa-freewrite.md");
+});
+
 test('buildRuntimeArtifact marks write-required tool misses as failed edits instead of verified success', () => {
   const artifact = buildRuntimeArtifact({
     sessionId: 'demo-write-miss',
@@ -661,4 +800,49 @@ test('buildRuntimeArtifact marks image-heavy turns as attachment-bounded without
   assert.equal(artifact.modelAdvisory.reasoningPolicy.executionPreference, 'attachment-bounded');
   assert.equal(artifact.trace.reasoningPolicy.mode, 'attachment-bounded');
   assert.equal(artifact.summary.text, 'Attachment-bounded turn without rendered advisory context.');
+});
+
+test('normalizeRuntimeArtifact keeps old artifacts without a tool evidence receipt at null', () => {
+  const artifact = normalizeRuntimeArtifact({
+    version: 'penny-runtime-artifact.v1',
+    kind: 'tool-turn',
+    executionPath: 'deterministic-tool',
+    scope: {
+      sessionId: 'old-artifact',
+      route: '/api/penny/chat',
+      requestedMode: 'local',
+      selectedLane: 'tool',
+    },
+    authority: {
+      reply: 'verified-tool-evidence',
+      memory: 'explicit-canonical',
+      archive: 'advisory',
+      toolClaims: 'verified-required',
+    },
+    summary: {
+      label: 'tool-turn',
+      text: 'Older runtime artifact without receipt.',
+      backend: 'local-lmstudio-tools',
+    },
+    context: {
+      backend: 'local-lmstudio-tools',
+      requestedModel: '',
+      resolvedModel: '',
+      executionPath: 'deterministic-tool',
+      semanticMemoryReady: false,
+      semanticMemoryMode: 'disabled',
+      usedFallback: false,
+      laneFallback: false,
+      shadowEnabled: false,
+    },
+    evidence: [],
+    artifacts: [],
+    sideEffects: [],
+    reasonCodes: [],
+    modelAdvisory: {
+      toolsUsed: [],
+    },
+  });
+
+  assert.equal(artifact.toolEvidenceReceipt, null);
 });

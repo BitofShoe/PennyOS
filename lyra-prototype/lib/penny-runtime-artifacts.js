@@ -27,6 +27,29 @@ const {
 } = require('./penny-latency-budget');
 
 const RUNTIME_ARTIFACT_VERSION = 'penny-runtime-artifact.v1';
+const TOOL_EVIDENCE_RECEIPT_SCHEMA = 'penny-tool-evidence-receipt.v1';
+const TOOL_EVIDENCE_PATHS = new Set([
+  'direct_deterministic',
+  'direct_single_tool_context_answer',
+  'direct_open_ended_sequence',
+  'native_tool_loop',
+  'manual_tool_loop',
+  'write_rescue',
+  'semantic_render',
+  'artifact_provenance_fallback',
+  'unknown',
+]);
+const TOOL_EVIDENCE_PROMPT_VISIBILITY = new Set(['prompt_visible', 'not_prompt_visible', 'unknown']);
+const TOOL_EVIDENCE_NON_PROMPT_USE = new Set(['none', 'deterministic_only', 'provenance_only', 'unknown']);
+const TOOL_EVIDENCE_RENDER_FORM = new Set([
+  'raw_json',
+  'auto_verification_json',
+  'summarized_write_rescue',
+  'summarized_semantic_core',
+  'none',
+  'unknown',
+]);
+const TOOL_EVIDENCE_MODEL_HOP = new Set(['none', 'single', 'multi', 'unknown']);
 
 function trimText(value = '', limit = 220) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -187,6 +210,147 @@ function normalizeToolOutcome(raw = {}, defaults = {}) {
     confirmedWriteCount,
     failureReason: trimText(value.failureReason || fallback.failureReason || '', 120),
     debug: debugActive ? debug : null,
+  };
+}
+
+function normalizeToolEvidenceEnum(value, allowedValues, fallback = 'unknown') {
+  const text = String(value || '').trim();
+  if (!text) return fallback;
+  return allowedValues.has(text) ? text : fallback;
+}
+
+function normalizeToolEvidenceSourceRef(raw = {}, defaults = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const toolRecordIndex = Number.isInteger(value.toolRecordIndex)
+    ? value.toolRecordIndex
+    : (Number.isInteger(fallback.toolRecordIndex) ? fallback.toolRecordIndex : -1);
+  const toolName = trimText(value.toolName || fallback.toolName || '', 120);
+  const target = trimText(value.target || fallback.target || '', 220);
+  if (toolRecordIndex < 0 && !toolName && !target) return null;
+  const normalized = {};
+  if (toolRecordIndex >= 0) normalized.toolRecordIndex = toolRecordIndex;
+  if (toolName) normalized.toolName = toolName;
+  if (target) normalized.target = target;
+  return normalized;
+}
+
+function buildToolEvidenceSourceRefFromToolRecord(toolRecord = {}, toolRecordIndex = -1) {
+  const data = toolRecord?.result?.data && typeof toolRecord.result.data === 'object'
+    ? toolRecord.result.data
+    : {};
+  return normalizeToolEvidenceSourceRef({
+    toolRecordIndex,
+    toolName: toolRecord?.name || '',
+    target: data.path || data.url || data.requestedUrl || '',
+  });
+}
+
+function normalizeToolEvidenceReceiptItem(raw = {}, defaults = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const sourceRefsRaw = Array.isArray(value.sourceRefs)
+    ? value.sourceRefs
+    : (Array.isArray(fallback.sourceRefs) ? fallback.sourceRefs : []);
+  return {
+    path: normalizeToolEvidenceEnum(value.path || fallback.path, TOOL_EVIDENCE_PATHS),
+    promptVisibility: normalizeToolEvidenceEnum(
+      value.promptVisibility || fallback.promptVisibility,
+      TOOL_EVIDENCE_PROMPT_VISIBILITY,
+    ),
+    nonPromptUse: normalizeToolEvidenceEnum(
+      value.nonPromptUse || fallback.nonPromptUse,
+      TOOL_EVIDENCE_NON_PROMPT_USE,
+    ),
+    renderForm: normalizeToolEvidenceEnum(
+      value.renderForm || fallback.renderForm,
+      TOOL_EVIDENCE_RENDER_FORM,
+    ),
+    modelHop: normalizeToolEvidenceEnum(
+      value.modelHop || fallback.modelHop,
+      TOOL_EVIDENCE_MODEL_HOP,
+    ),
+    sourceRefs: sourceRefsRaw
+      .map((item, index) => normalizeToolEvidenceSourceRef(item, fallback.sourceRefs?.[index]))
+      .filter(Boolean)
+      .slice(0, 12),
+    truncated: value.truncated === true || fallback.truncated === true,
+  };
+}
+
+function summarizeToolEvidenceReceiptItems(items = []) {
+  const sourceRecordIndexes = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    for (const ref of Array.isArray(item?.sourceRefs) ? item.sourceRefs : []) {
+      if (Number.isInteger(ref?.toolRecordIndex) && ref.toolRecordIndex >= 0) {
+        sourceRecordIndexes.add(ref.toolRecordIndex);
+      }
+    }
+  }
+  const normalizedItems = Array.isArray(items) ? items : [];
+  return {
+    toolRecordCount: sourceRecordIndexes.size,
+    itemCount: normalizedItems.length,
+    promptVisibleItemCount: normalizedItems.filter((item) => item.promptVisibility === 'prompt_visible').length,
+    deterministicOnlyItemCount: normalizedItems.filter((item) => item.nonPromptUse === 'deterministic_only').length,
+    provenanceOnlyItemCount: normalizedItems.filter((item) => item.nonPromptUse === 'provenance_only').length,
+    unknownItemCount: normalizedItems.filter((item) => (
+      item.path === 'unknown'
+      || item.promptVisibility === 'unknown'
+      || item.nonPromptUse === 'unknown'
+      || item.renderForm === 'unknown'
+      || item.modelHop === 'unknown'
+    )).length,
+    rawJsonItemCount: normalizedItems.filter((item) => item.renderForm === 'raw_json').length,
+    autoVerificationItemCount: normalizedItems.filter((item) => item.renderForm === 'auto_verification_json').length,
+    summarizedItemCount: normalizedItems.filter((item) => String(item.renderForm || '').startsWith('summarized_')).length,
+    multiHopItemCount: normalizedItems.filter((item) => item.modelHop === 'multi').length,
+  };
+}
+
+function buildToolEvidenceReceipt({
+  toolEvidenceFacts = [],
+  toolRecords = [],
+} = {}) {
+  if (!Array.isArray(toolEvidenceFacts) || !toolEvidenceFacts.length) return null;
+  const items = toolEvidenceFacts.map((fact = {}) => {
+    const rawIndexes = Array.isArray(fact?.toolRecordIndexes)
+      ? fact.toolRecordIndexes
+      : (Number.isInteger(fact?.toolRecordIndex) ? [fact.toolRecordIndex] : []);
+    const sourceRefs = rawIndexes
+      .map((index) => {
+        if (!Number.isInteger(index) || index < 0) return null;
+        return buildToolEvidenceSourceRefFromToolRecord(toolRecords[index], index);
+      })
+      .filter(Boolean);
+    return normalizeToolEvidenceReceiptItem({
+      ...fact,
+      sourceRefs,
+      truncated: fact?.truncated === true,
+    });
+  });
+  return {
+    schema: TOOL_EVIDENCE_RECEIPT_SCHEMA,
+    summary: summarizeToolEvidenceReceiptItems(items),
+    items,
+  };
+}
+
+function normalizeToolEvidenceReceipt(raw = null, defaults = null) {
+  const value = raw && typeof raw === 'object' ? raw : null;
+  const fallback = defaults && typeof defaults === 'object' ? defaults : null;
+  if (!value && !fallback) return null;
+  const source = value || fallback || {};
+  const itemDefaults = Array.isArray(fallback?.items) ? fallback.items : [];
+  const itemsRaw = Array.isArray(source.items) ? source.items : [];
+  const items = itemsRaw
+    .map((item, index) => normalizeToolEvidenceReceiptItem(item, itemDefaults[index]))
+    .filter(Boolean)
+    .slice(0, 12);
+  return {
+    schema: TOOL_EVIDENCE_RECEIPT_SCHEMA,
+    summary: summarizeToolEvidenceReceiptItems(items),
+    items,
   };
 }
 
@@ -1643,6 +1807,7 @@ function buildRuntimeArtifact({
   semanticMemoryMode = 'disabled',
   toolsUsed = [],
   toolRecords = [],
+  toolEvidenceFacts = [],
   toolOutcome = null,
   retrieval = null,
   archiveContext = null,
@@ -1686,6 +1851,10 @@ function buildRuntimeArtifact({
   const normalizedEpistemics = normalizeEpistemicCaution(epistemics);
   const normalizedSynthesis = normalizeArchiveSynthesis(synthesis);
   const normalizedPromptTruth = normalizePromptTruth(promptTruth);
+  const toolEvidenceReceipt = buildToolEvidenceReceipt({
+    toolEvidenceFacts,
+    toolRecords,
+  });
   const effectiveResearchLedgerRendered = deriveResearchLedgerRendered(
     normalizedPromptTruth,
     preferRenderedCompatibilityBoolean(
@@ -1871,6 +2040,7 @@ function buildRuntimeArtifact({
     },
     evidence,
     artifacts,
+    toolEvidenceReceipt,
     toolOutcome: normalizedToolOutcome,
     retrievalTrace,
     trace,
@@ -1941,6 +2111,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   );
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(raw.researchLedgerUpdate, fallback.researchLedgerUpdate);
   const toolOutcome = normalizeToolOutcome(raw.toolOutcome, fallback.toolOutcome);
+  const toolEvidenceReceipt = normalizeToolEvidenceReceipt(raw.toolEvidenceReceipt, fallback.toolEvidenceReceipt);
   const epistemics = normalizeEpistemicCaution(raw.epistemics || fallback.epistemics);
   const synthesis = normalizeArchiveSynthesis(raw.synthesis || fallback.synthesis);
   const reasoningPolicy = normalizeReasoningPolicy(advisoryRaw.reasoningPolicy, fallback.modelAdvisory?.reasoningPolicy);
@@ -1988,6 +2159,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       .map(normalizeArtifactEntry)
       .filter(Boolean)
       .slice(0, 10),
+    toolEvidenceReceipt,
     toolOutcome,
     retrievalTrace: (Array.isArray(raw.retrievalTrace) ? raw.retrievalTrace : fallback.retrievalTrace || [])
       .map(normalizeRetrievalTraceEntry)
@@ -2078,6 +2250,7 @@ function normalizeLastRouteInfo(value) {
       resolvedModel: String(value.resolvedModel || '').trim(),
       semanticMemoryReady: value.semanticMemoryReady === true,
       semanticMemoryMode: String(value.semanticMemoryMode || '').trim() || 'disabled',
+      toolEvidenceFacts: Array.isArray(value.toolEvidenceFacts) ? value.toolEvidenceFacts : [],
       toolOutcome,
       researchLedgerContext: value.researchLedgerContext || null,
       cleanup: value.cleanup || null,
@@ -2140,6 +2313,7 @@ function buildLastRouteInfo({
   semanticMemoryMode = 'disabled',
   toolsUsed = [],
   toolRecords = [],
+  toolEvidenceFacts = [],
   toolOutcome = null,
   retrieval = null,
   archiveContext = null,
@@ -2183,6 +2357,7 @@ function buildLastRouteInfo({
     semanticMemoryMode,
     toolsUsed,
     toolRecords,
+    toolEvidenceFacts,
     toolOutcome,
     retrieval,
     matchedBooks,
@@ -2222,6 +2397,7 @@ function buildLastRouteInfo({
       semanticMemoryMode,
       toolsUsed,
       toolRecords,
+      toolEvidenceFacts,
       toolOutcome,
       retrieval,
       archiveContext,

@@ -213,7 +213,50 @@ test('runDirectToolAssist keeps read, search, and list intents on deterministic 
     assert.equal(result.skipSemanticRender, true, `${scenario.label} should skip semantic render`);
     assert.match(result.text, scenario.expected, `${scenario.label} reply should stay deterministic`);
     assert.equal(getLmAssistCalls(), 0, `${scenario.label} should not call LM tool assist`);
+    assert.deepEqual(result.toolEvidenceFacts, [{
+      path: 'direct_deterministic',
+      promptVisibility: 'not_prompt_visible',
+      nonPromptUse: 'deterministic_only',
+      renderForm: 'none',
+      modelHop: 'none',
+      toolRecordIndexes: [0],
+    }], `${scenario.label} should emit deterministic-only tool evidence facts`);
   }
+});
+
+test('runDirectToolAssist emits prompt-visible raw-json facts for direct single-tool LM answers', async () => {
+  const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
+    executePennyTool: async () => ({
+      ok: true,
+      label: 'read docs/README.md',
+      data: {
+        path: 'docs/README.md',
+        textPreview: '# Docs',
+      },
+    }),
+    runLmStudioToolContextAnswer: async () => 'here is the quick readback\n[MOOD:thinking]',
+  });
+
+  const result = await runDirectToolAssist({
+    userText: 'Read docs/README.md and give me the short takeaway.',
+    messages: [],
+    memories: {},
+    intent: {
+      name: 'custom_repo_read',
+      args: { path: 'docs/README.md' },
+    },
+  });
+
+  assert.equal(getLmAssistCalls(), 1);
+  assert.equal(result.skipSemanticRender, undefined);
+  assert.deepEqual(result.toolEvidenceFacts, [{
+    path: 'direct_single_tool_context_answer',
+    promptVisibility: 'prompt_visible',
+    nonPromptUse: 'none',
+    renderForm: 'raw_json',
+    modelHop: 'single',
+    toolRecordIndexes: [0],
+  }]);
 });
 
 test('runDirectToolAssist reads attached files deterministically without calling tools or the LM', async () => {
@@ -375,6 +418,14 @@ test('runDirectToolAssist drafts explicit-path creative edits before determinist
   assert.equal(result.toolOutcome.writeIntentRequired, true);
   assert.equal(result.toolOutcome.writeIntentSatisfied, true);
   assert.equal(result.toolOutcome.confirmedWriteCount, 1);
+  assert.deepEqual(result.toolEvidenceFacts, [{
+    path: 'direct_open_ended_sequence',
+    promptVisibility: 'not_prompt_visible',
+    nonPromptUse: 'provenance_only',
+    renderForm: 'none',
+    modelHop: 'none',
+    toolRecordIndexes: [0, 1],
+  }]);
   assert.deepEqual(calls.map((entry) => entry.name), ['insert_in_project_file', 'get_git_status']);
   assert.match(result.text, /bright little note/i);
   assert.match(result.text, /Penny's Playground\/penny-qa-freewrite\.md/i);

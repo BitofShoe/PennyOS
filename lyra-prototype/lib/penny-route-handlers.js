@@ -352,6 +352,7 @@ function createPennyRouteHandlers(deps = {}) {
     toolsUsed = [],
     toolOutcome = null,
     toolRecords = [],
+    toolEvidenceFacts = [],
     retrieval = null,
     archiveContext = null,
     researchLedgerContext = null,
@@ -395,6 +396,7 @@ function createPennyRouteHandlers(deps = {}) {
         toolsUsed,
         toolOutcome,
         toolRecords,
+        toolEvidenceFacts,
         retrieval,
         archiveContext,
         researchLedgerContext,
@@ -1148,6 +1150,7 @@ function createPennyRouteHandlers(deps = {}) {
       let toolsUsed = [];
       let toolRecords = [];
       let toolOutcome = null;
+      let toolEvidenceFacts = [];
       let repair = null;
       let cleanup = null;
       let cleanupTransform = null;
@@ -1221,6 +1224,7 @@ function createPennyRouteHandlers(deps = {}) {
             toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
             toolRecords = Array.isArray(result.toolRecords) ? result.toolRecords : [];
             toolOutcome = result.toolOutcome && typeof result.toolOutcome === 'object' ? result.toolOutcome : null;
+            toolEvidenceFacts = Array.isArray(result.toolEvidenceFacts) ? result.toolEvidenceFacts : [];
             repair = result.repair && typeof result.repair === 'object' ? result.repair : null;
             cleanup = result.cleanup && typeof result.cleanup === 'object' ? result.cleanup : null;
             cleanupTransform = result.cleanupTransform && typeof result.cleanupTransform === 'object' ? result.cleanupTransform : null;
@@ -1329,6 +1333,7 @@ function createPennyRouteHandlers(deps = {}) {
             toolsUsed,
             toolOutcome,
             toolRecords,
+            toolEvidenceFacts,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
             researchLedgerContext: runtimeMemoryContext.researchLedger,
@@ -1370,6 +1375,7 @@ function createPennyRouteHandlers(deps = {}) {
             toolsUsed,
             toolOutcome,
             toolRecords,
+            toolEvidenceFacts,
             retrieval: runtimeMemoryContext.retrieval,
             archiveContext: runtimeMemoryContext.archiveContext,
             researchLedgerContext: runtimeMemoryContext.researchLedger,
@@ -1492,6 +1498,7 @@ function createPennyRouteHandlers(deps = {}) {
             toolsUsed = Array.isArray(result.toolsUsed) ? result.toolsUsed : [];
             toolRecords = Array.isArray(result.toolRecords) ? result.toolRecords : [];
             toolOutcome = result.toolOutcome && typeof result.toolOutcome === 'object' ? result.toolOutcome : null;
+            toolEvidenceFacts = Array.isArray(result.toolEvidenceFacts) ? result.toolEvidenceFacts : [];
             repair = result.repair && typeof result.repair === 'object' ? result.repair : null;
             cleanup = result.cleanup && typeof result.cleanup === 'object' ? result.cleanup : null;
             cleanupTransform = result.cleanupTransform && typeof result.cleanupTransform === 'object' ? result.cleanupTransform : null;
@@ -1632,6 +1639,7 @@ function createPennyRouteHandlers(deps = {}) {
         toolsUsed,
         toolOutcome,
         toolRecords,
+        toolEvidenceFacts,
         retrieval: runtimeMemoryContext.retrieval,
         archiveContext: runtimeMemoryContext.archiveContext,
         researchLedgerContext: runtimeMemoryContext.researchLedger,
@@ -1674,6 +1682,7 @@ function createPennyRouteHandlers(deps = {}) {
         toolsUsed,
         toolOutcome,
         toolRecords,
+        toolEvidenceFacts,
         retrieval: runtimeMemoryContext.retrieval,
         archiveContext: runtimeMemoryContext.archiveContext,
         researchLedgerContext: runtimeMemoryContext.researchLedger,

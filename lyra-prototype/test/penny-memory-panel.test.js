@@ -601,6 +601,34 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
         context: { backend: 'local-lmstudio-tools', requestedModel: 'google/gemma-4-e4b', resolvedModel: 'google/gemma-4-e4b', semanticMemoryReady: true, semanticMemoryMode: 'semantic', usedFallback: false, laneFallback: false, shadowEnabled: false },
       evidence: [{ type: 'tool', source: 'verified-tool', label: 'read_project_file', text: 'README.md', target: 'README.md' }],
       artifacts: [{ type: 'project-path', value: 'README.md' }],
+      toolEvidenceReceipt: {
+        schema: 'penny-tool-evidence-receipt.v1',
+        summary: {
+          toolRecordCount: 1,
+          itemCount: 1,
+          promptVisibleItemCount: 1,
+          deterministicOnlyItemCount: 0,
+          provenanceOnlyItemCount: 0,
+          unknownItemCount: 0,
+          rawJsonItemCount: 1,
+          autoVerificationItemCount: 0,
+          summarizedItemCount: 0,
+          multiHopItemCount: 0,
+        },
+        items: [
+          {
+            path: 'direct_single_tool_context_answer',
+            promptVisibility: 'prompt_visible',
+            nonPromptUse: 'none',
+            renderForm: 'raw_json',
+            modelHop: 'single',
+            sourceRefs: [
+              { toolRecordIndex: 0, toolName: 'read_project_file', target: 'README.md' },
+            ],
+            truncated: false,
+          },
+        ],
+      },
       trace: {
         laneChoice: {
           requestedMode: 'local',
@@ -787,6 +815,9 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /same session rendered 1 \| cross session rendered 1/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Prompt composition:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /voiceBlend:filled/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Tool evidence receipt: <strong>1 item\(s\)<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /prompt-visible 1 \| deterministic-only 0 \| provenance-only 0 \| raw json 1 \| multi-hop 0/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /runtime artifact receipt only; not a PromptTruth channel/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Reasoning policy:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /preference verifier-first/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Approximate path:/);
@@ -1041,6 +1072,8 @@ test('renderMemoryInspector prefers canonical rendered booleans over conflicting
   assert.match(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>unknown/i);
   assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>rendered/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Research-ledger prompt state is unknown for this turn\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Tool evidence receipt: <strong>none<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /No tool-evidence receipt recorded for this turn\./i);
 });
 
 test('renderMemoryInspector surfaces execution path and ledger prompt/update truth fields', async () => {

@@ -48,6 +48,23 @@ function createDirectToolAssistApi({
     throw new TypeError('createDirectToolAssistApi requires normalizeWebUrl');
   }
 
+  function buildToolEvidenceFacts(shape = {}, toolRecords = []) {
+    const recordIndexes = Array.isArray(toolRecords)
+      ? toolRecords
+        .map((_, index) => index)
+        .filter((index) => Number.isInteger(index) && index >= 0)
+      : [];
+    if (!recordIndexes.length) return [];
+    return [{
+      path: String(shape.path || '').trim(),
+      promptVisibility: String(shape.promptVisibility || '').trim(),
+      nonPromptUse: String(shape.nonPromptUse || '').trim(),
+      renderForm: String(shape.renderForm || '').trim(),
+      modelHop: String(shape.modelHop || '').trim(),
+      toolRecordIndexes: recordIndexes,
+    }];
+  }
+
   function formatAttachmentExcerpt(lines = [], startLine = 1, endLine = startLine) {
     const excerpt = lines
       .slice(Math.max(0, startLine - 1), Math.max(0, endLine))
@@ -267,6 +284,13 @@ function createDirectToolAssistApi({
         toolsUsed: sequence.toolsUsed,
         toolRecords: sequence.results,
         toolOutcome: buildSequenceToolOutcome(intent, sequence),
+        toolEvidenceFacts: buildToolEvidenceFacts({
+          path: 'direct_deterministic',
+          promptVisibility: 'not_prompt_visible',
+          nonPromptUse: 'deterministic_only',
+          renderForm: 'none',
+          modelHop: 'none',
+        }, sequence.results),
       };
     }
     if (intent?.kind === 'open_ended_sequence') {
@@ -287,6 +311,13 @@ function createDirectToolAssistApi({
         toolsUsed: sequence.toolsUsed,
         toolRecords: sequence.results,
         toolOutcome: buildSequenceToolOutcome(intent, sequence),
+        toolEvidenceFacts: buildToolEvidenceFacts({
+          path: 'direct_open_ended_sequence',
+          promptVisibility: 'not_prompt_visible',
+          nonPromptUse: 'provenance_only',
+          renderForm: 'none',
+          modelHop: 'none',
+        }, sequence.results),
         modelUsed: true,
         skipSemanticRender: true,
       };
@@ -311,6 +342,13 @@ function createDirectToolAssistApi({
         text: sequence.fallbackText || composeToolRecordFallback(sequence.results),
         toolsUsed: sequence.toolsUsed,
         toolRecords: sequence.results,
+        toolEvidenceFacts: buildToolEvidenceFacts({
+          path: 'direct_deterministic',
+          promptVisibility: 'not_prompt_visible',
+          nonPromptUse: 'deterministic_only',
+          renderForm: 'none',
+          modelHop: 'none',
+        }, sequence.results),
       };
     }
     if (intent?.name === 'inspect_web_result') {
@@ -322,6 +360,13 @@ function createDirectToolAssistApi({
         text: sequence.fallbackText || composeToolRecordFallback(sequence.results),
         toolsUsed: sequence.toolsUsed,
         toolRecords: sequence.results,
+        toolEvidenceFacts: buildToolEvidenceFacts({
+          path: 'direct_deterministic',
+          promptVisibility: 'not_prompt_visible',
+          nonPromptUse: 'deterministic_only',
+          renderForm: 'none',
+          modelHop: 'none',
+        }, sequence.results),
         skipSemanticRender: true,
       };
     }
@@ -330,17 +375,30 @@ function createDirectToolAssistApi({
     onToolEvent?.({ type: 'tool', state: 'done', name: intent.name, label: result.label, ok: result.ok });
     const toolRecords = [{ name: intent.name, args: intent.args || {}, result }];
     const toolsUsed = [{ name: intent.name, ok: result.ok, label: result.label }];
+    const deterministicToolEvidenceFacts = buildToolEvidenceFacts({
+      path: 'direct_deterministic',
+      promptVisibility: 'not_prompt_visible',
+      nonPromptUse: 'deterministic_only',
+      renderForm: 'none',
+      modelHop: 'none',
+    }, toolRecords);
     if (intent.name === 'get_runtime_status') {
-      return { text: composeDirectRuntimeReply(result.data), toolsUsed, toolRecords };
+      return { text: composeDirectRuntimeReply(result.data), toolsUsed, toolRecords, toolEvidenceFacts: deterministicToolEvidenceFacts };
     }
     if (intent.name === 'run_node_check') {
-      return { text: composeDirectSyntaxReply(result.data), toolsUsed, toolRecords };
+      return { text: composeDirectSyntaxReply(result.data), toolsUsed, toolRecords, toolEvidenceFacts: deterministicToolEvidenceFacts };
     }
     if (intent.name === 'get_git_status') {
-      return { text: composeDirectGitStatusReply(result.data), toolsUsed, toolRecords };
+      return { text: composeDirectGitStatusReply(result.data), toolsUsed, toolRecords, toolEvidenceFacts: deterministicToolEvidenceFacts };
     }
     if (intent.name === 'search_project_text') {
-      return { text: composeDirectSearchReply(result.data), toolsUsed, toolRecords, skipSemanticRender: true };
+      return {
+        text: composeDirectSearchReply(result.data),
+        toolsUsed,
+        toolRecords,
+        toolEvidenceFacts: deterministicToolEvidenceFacts,
+        skipSemanticRender: true,
+      };
     }
     if (
       (intent.name === 'read_project_file' || intent.name === 'read_project_file_around_match')
@@ -353,17 +411,36 @@ function createDirectToolAssistApi({
         }),
         toolsUsed,
         toolRecords,
+        toolEvidenceFacts: deterministicToolEvidenceFacts,
         skipSemanticRender: true,
       };
     }
     if (intent.name === 'list_project_files') {
-      return { text: composeDirectFileListReply(result.data), toolsUsed, toolRecords, skipSemanticRender: true };
+      return {
+        text: composeDirectFileListReply(result.data),
+        toolsUsed,
+        toolRecords,
+        toolEvidenceFacts: deterministicToolEvidenceFacts,
+        skipSemanticRender: true,
+      };
     }
     if (intent.name === 'search_web') {
-      return { text: composeDirectWebSearchReply(result.data), toolsUsed, toolRecords, skipSemanticRender: true };
+      return {
+        text: composeDirectWebSearchReply(result.data),
+        toolsUsed,
+        toolRecords,
+        toolEvidenceFacts: deterministicToolEvidenceFacts,
+        skipSemanticRender: true,
+      };
     }
     if (intent.name === 'read_web_page') {
-      return { text: composeDirectWebPageReply(result.data), toolsUsed, toolRecords, skipSemanticRender: true };
+      return {
+        text: composeDirectWebPageReply(result.data),
+        toolsUsed,
+        toolRecords,
+        toolEvidenceFacts: deterministicToolEvidenceFacts,
+        skipSemanticRender: true,
+      };
     }
     onToolEvent?.({ type: 'status', stage: 'replying', label: 'turning the findings into words' });
     const text = await runLmStudioToolContextAnswer({
@@ -374,7 +451,18 @@ function createDirectToolAssistApi({
       toolData: result.data,
       abortSignal,
     });
-    return { text, toolsUsed, toolRecords };
+    return {
+      text,
+      toolsUsed,
+      toolRecords,
+      toolEvidenceFacts: buildToolEvidenceFacts({
+        path: 'direct_single_tool_context_answer',
+        promptVisibility: 'prompt_visible',
+        nonPromptUse: 'none',
+        renderForm: 'raw_json',
+        modelHop: 'single',
+      }, toolRecords),
+    };
   }
 
   return {

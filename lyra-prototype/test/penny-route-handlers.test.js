@@ -5,6 +5,183 @@ const { EventEmitter } = require('node:events');
 const { bindClientDisconnectAbort, createPennyRouteHandlers } = require('../lib/penny-route-handlers');
 const { buildLastRouteInfo } = require('../lib/penny-runtime-artifacts');
 
+function createToolReceiptRouteHarness({ sessionId = 'tool-receipt-session', userText = 'Inspect README.md', runResult = {} } = {}) {
+  const memoryStore = new Map();
+  let response = null;
+  const handlers = createPennyRouteHandlers({
+    sendJson(_res, statusCode, json) {
+      response = { statusCode, json };
+    },
+    async safeReadBody() {
+      return JSON.stringify({
+        sessionId,
+        messages: [
+          {
+            role: 'user',
+            content: userText,
+          },
+        ],
+        memories: { brainMode: 'local', memories: [] },
+      });
+    },
+    buildLastRouteInfo,
+    buildChatMemoryState(_sessionId, memories = {}) {
+      return {
+        memory: {
+          brainMode: memories.brainMode || 'local',
+          memories: Array.isArray(memories.memories) ? memories.memories : [],
+        },
+        patch: {
+          provenance: [],
+          reviewCandidates: [],
+        },
+      };
+    },
+    sanitizeChatMessages(messages = []) {
+      return Array.isArray(messages) ? messages : [];
+    },
+    sanitizeImageDataUrl() {
+      return null;
+    },
+    sanitizeFileAttachment() {
+      return null;
+    },
+    appendAttachmentContext(text = '') {
+      return text;
+    },
+    async buildRuntimeMemoryContext() {
+      return {
+        memories: [],
+        retrieval: null,
+        archiveContext: null,
+        researchLedger: null,
+        promptComposition: null,
+        promptTruth: null,
+        latencyBudget: {
+          latencyClass: 'tool-heavy',
+          allowSemanticQuery: false,
+          allowArchiveCompression: false,
+          allowSemanticRender: false,
+        },
+        semanticMemory: {
+          ready: false,
+          mode: 'disabled',
+        },
+      };
+    },
+    selectLocalLane() {
+      return {
+        localLane: 'tool',
+        directIntent: null,
+        needsTools: true,
+        reason: 'tool-intent',
+      };
+    },
+    async runLmStudioLocalSmart() {
+      return runResult;
+    },
+    async streamLmStudioLocalSmart() {
+      throw new Error('stream path should not be used in this test');
+    },
+    scheduleResearchLedgerUpdate() {
+      return {
+        status: 'skipped',
+        reason: 'tool-receipt-test',
+      };
+    },
+    scheduleArchiveConsolidation() {},
+    saveStoredMemory(savedSessionId, memory) {
+      memoryStore.set(savedSessionId, memory);
+      return memory;
+    },
+    getStoredMemory(savedSessionId) {
+      return {
+        memory: memoryStore.get(savedSessionId) || { memories: [] },
+      };
+    },
+    mergeMemoryItems(items = []) {
+      return items;
+    },
+    mergeMemoryState(existing = {}, patch = {}) {
+      return { ...existing, ...patch };
+    },
+    reviewPromotion() {
+      return null;
+    },
+    purgeArchiveMemory() {
+      return null;
+    },
+    purgeResearchLedger() {
+      return null;
+    },
+    buildCombinedMemoryInspector() {
+      return {};
+    },
+    buildPennyReply() {
+      return '';
+    },
+    runOpenClawShadow() {
+      return '';
+    },
+    retagAssistantReply(text = '') {
+      return text;
+    },
+    extractReplyMoodTag() {
+      return 'calm';
+    },
+    pickMood() {
+      return 'calm';
+    },
+    stripReplyMoodTags(text = '') {
+      return String(text || '').replace(/\s*\[MOOD:[^\]]+\]\s*/gi, '').trim();
+    },
+    beginEventStream() {},
+    sendEventStream() {},
+    startEventStreamKeepAlive() {
+      return null;
+    },
+    describeLocalBrainFailure(error) {
+      return String(error?.message || error || 'local failure');
+    },
+    getLmStudioConnectionStatus() {
+      return {};
+    },
+    getSemanticMemoryStatus() {
+      return {};
+    },
+    setRuntimePreferredChatModel() {},
+    getRuntimePreferredChatModel() {
+      return '';
+    },
+    sessionState: {
+      turns: 0,
+      lastMood: 'calm',
+      memory: [],
+    },
+    constants: {
+      OPENCLAW_ENABLED: false,
+      OPENCLAW_TIMEOUT_MS: 0,
+      PENNY_LMSTUDIO_EMBED_MODEL: 'text-embedding-nomic-embed-text-v1.5',
+      LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+      LMSTUDIO_NATIVE_BASE: 'http://127.0.0.1:1234/api/v1',
+      LMSTUDIO_MODEL: 'google/gemma-4-e4b',
+      LOCAL_LLM_TRANSPORT: 'chat-completions',
+      RESPONSES_THEN_CHAT_FALLBACK: false,
+      LMSTUDIO_MAX_OUTPUT_TOKENS: 1024,
+      MEMORY_FILE: 'data/penny-memory.json',
+      MEMORY_ARCHIVE_FILE: 'data/penny-memory-archive.json',
+      MEMORY_EMBEDDINGS_FILE: 'data/penny-memory-embeddings.json',
+      WEB_SEARCH_ENABLED: true,
+    },
+  });
+
+  return {
+    handlers,
+    memoryStore,
+    getResponse: () => response,
+  };
+}
+
 test('bindClientDisconnectAbort aborts on aborted, request close, and response close', () => {
   for (const eventName of ['aborted', 'request-close', 'response-close']) {
     const req = new EventEmitter();
@@ -564,6 +741,132 @@ test('chat route threads successful write intent into ledger scheduling so gener
   assert.ok(saved);
   assert.equal(saved.lastRoute.researchLedgerUpdate.reason, 'generic-write-turn');
   assert.equal(saved.lastRoute.toolOutcome.writeIntentSatisfied, true);
+});
+
+test('chat route forwards deterministic direct-tool evidence facts into the runtime artifact receipt', async () => {
+  const sessionId = 'deterministic-receipt-session';
+  const harness = createToolReceiptRouteHarness({
+    sessionId,
+    userText: 'Open README.md and tell me what it says without changing anything.',
+    runResult: {
+      text: 'README.md says Penny is a local-first companion prototype.\n[MOOD:calm]',
+      toolsUsed: [
+        { name: 'read_project_file', label: 'read README.md', ok: true },
+      ],
+      toolRecords: [
+        {
+          name: 'read_project_file',
+          args: { path: 'README.md' },
+          result: {
+            ok: true,
+            label: 'read README.md',
+            data: {
+              path: 'README.md',
+              textPreview: '# Penny',
+            },
+          },
+        },
+      ],
+      toolEvidenceFacts: [{
+        path: 'direct_deterministic',
+        promptVisibility: 'not_prompt_visible',
+        nonPromptUse: 'deterministic_only',
+        renderForm: 'none',
+        modelHop: 'none',
+        toolRecordIndexes: [0],
+      }],
+      localLane: 'tool',
+      requestedModel: 'google/gemma-4-e4b',
+      resolvedModel: '',
+      executionPath: 'deterministic-tool',
+      laneFallback: false,
+      modelUsed: false,
+      canonicalFactsPresent: false,
+      canonicalOverrideActive: false,
+    },
+  });
+
+  const handled = await harness.handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/chat'),
+  });
+
+  const response = harness.getResponse();
+  assert.equal(handled, true);
+  assert.ok(response);
+  assert.equal(response.json.meta.artifact.toolEvidenceReceipt.summary.itemCount, 1);
+  assert.equal(response.json.meta.artifact.toolEvidenceReceipt.summary.deterministicOnlyItemCount, 1);
+  assert.equal(response.json.meta.artifact.toolEvidenceReceipt.summary.promptVisibleItemCount, 0);
+  assert.equal(response.json.meta.artifact.toolEvidenceReceipt.items[0].path, 'direct_deterministic');
+  assert.equal(response.json.meta.artifact.toolEvidenceReceipt.items[0].sourceRefs[0].target, 'README.md');
+
+  const saved = harness.memoryStore.get(sessionId);
+  assert.ok(saved);
+  assert.equal(saved.lastRoute.artifact.toolEvidenceReceipt.summary.deterministicOnlyItemCount, 1);
+});
+
+test('chat route forwards direct single-tool LM evidence facts into the runtime artifact receipt', async () => {
+  const sessionId = 'lm-receipt-session';
+  const harness = createToolReceiptRouteHarness({
+    sessionId,
+    userText: 'Read docs/README.md and give me the short takeaway.',
+    runResult: {
+      text: 'docs/README.md is the docs authority map.\n[MOOD:thinking]',
+      toolsUsed: [
+        { name: 'read_project_file', label: 'read docs/README.md', ok: true },
+      ],
+      toolRecords: [
+        {
+          name: 'read_project_file',
+          args: { path: 'docs/README.md' },
+          result: {
+            ok: true,
+            label: 'read docs/README.md',
+            data: {
+              path: 'docs/README.md',
+              textPreview: '# Docs',
+            },
+          },
+        },
+      ],
+      toolEvidenceFacts: [{
+        path: 'direct_single_tool_context_answer',
+        promptVisibility: 'prompt_visible',
+        nonPromptUse: 'none',
+        renderForm: 'raw_json',
+        modelHop: 'single',
+        toolRecordIndexes: [0],
+      }],
+      localLane: 'tool',
+      requestedModel: 'google/gemma-4-e4b',
+      resolvedModel: 'google/gemma-4-e4b',
+      executionPath: 'llm-tool-loop',
+      laneFallback: false,
+      modelUsed: true,
+      canonicalFactsPresent: false,
+      canonicalOverrideActive: false,
+    },
+  });
+
+  const handled = await harness.handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/chat'),
+  });
+
+  const response = harness.getResponse();
+  assert.equal(handled, true);
+  assert.ok(response);
+  assert.equal(response.json.meta.artifact.toolEvidenceReceipt.summary.itemCount, 1);
+  assert.equal(response.json.meta.artifact.toolEvidenceReceipt.summary.promptVisibleItemCount, 1);
+  assert.equal(response.json.meta.artifact.toolEvidenceReceipt.summary.rawJsonItemCount, 1);
+  assert.equal(response.json.meta.artifact.toolEvidenceReceipt.items[0].path, 'direct_single_tool_context_answer');
+  assert.equal(response.json.meta.artifact.toolEvidenceReceipt.items[0].modelHop, 'single');
+
+  const saved = harness.memoryStore.get(sessionId);
+  assert.ok(saved);
+  assert.equal(saved.lastRoute.artifact.toolEvidenceReceipt.summary.rawJsonItemCount, 1);
 });
 
 test('chat route keeps image uploads on the chat lane and records attachment-bounded reasoning', async () => {
