@@ -1,6 +1,8 @@
 # Architecture
 
-This file describes how Penny currently works in this repo as of 2026-04-16.
+This file describes how Penny currently works in this repo.
+
+If code, tests, or runtime artifacts disagree with this doc, trust those first and then update the doc.
 
 It is intentionally blunt about what is "real architecture" versus "current monolith that still needs to be split."
 

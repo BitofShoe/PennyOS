@@ -2,7 +2,7 @@
 
 > Category: Completion note
 > Authority: Historical/current handoff
-> Status: Current as of 2026-04-19; live full-suite recheck also run on 2026-04-20
+> Status: Current handoff note first completed on 2026-04-19; live full-suite recheck also run on 2026-04-20
 > Use this for: understanding what landed in PromptTruth v2 and toolEvidenceReceipt.
 > Do not use this for: overriding current-law contracts, code, tests, or runtime artifacts.
 
