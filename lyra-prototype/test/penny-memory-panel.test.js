@@ -604,26 +604,27 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
       toolEvidenceReceipt: {
         schema: 'penny-tool-evidence-receipt.v1',
         summary: {
-          toolRecordCount: 1,
+          toolRecordCount: 2,
           itemCount: 1,
           promptVisibleItemCount: 1,
           deterministicOnlyItemCount: 0,
           provenanceOnlyItemCount: 0,
           unknownItemCount: 0,
-          rawJsonItemCount: 1,
+          rawJsonItemCount: 0,
           autoVerificationItemCount: 0,
-          summarizedItemCount: 0,
+          summarizedItemCount: 1,
           multiHopItemCount: 0,
         },
         items: [
           {
-            path: 'direct_single_tool_context_answer',
+            path: 'semantic_render',
             promptVisibility: 'prompt_visible',
             nonPromptUse: 'none',
-            renderForm: 'raw_json',
+            renderForm: 'summarized_semantic_core',
             modelHop: 'single',
             sourceRefs: [
               { toolRecordIndex: 0, toolName: 'read_project_file', target: 'README.md' },
+              { toolRecordIndex: 1, toolName: 'read_project_file', target: 'docs/README.md' },
             ],
             truncated: false,
           },
@@ -816,7 +817,8 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Prompt composition:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /voiceBlend:filled/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Tool evidence receipt: <strong>1 item\(s\)<\/strong>/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /prompt-visible 1 \| deterministic-only 0 \| provenance-only 0 \| raw json 1 \| multi-hop 0/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Prompt truth:/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /prompt-visible 1 \| deterministic-only 0 \| provenance-only 0 \| raw json 0 \| multi-hop 0/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /runtime artifact receipt only; not a PromptTruth channel/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Reasoning policy:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /preference verifier-first/i);

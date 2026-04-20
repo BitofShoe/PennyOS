@@ -1774,6 +1774,51 @@ function buildSemanticCore({ userText, file, toolRecords, draftText }) {
   return truncateText(blocks.filter(Boolean).join('\n\n'), 9000);
 }
 
+function listSemanticRenderSourceToolRecordIndexes(toolRecords = []) {
+  if (!Array.isArray(toolRecords) || !toolRecords.length) return [];
+  const startIndex = Math.max(0, toolRecords.length - SEMANTIC_RENDER_MAX_TOOL_RECORDS);
+  return toolRecords
+    .slice(startIndex)
+    .map((_, offset) => startIndex + offset)
+    .filter((index) => Number.isInteger(index) && index >= 0);
+}
+
+function buildSemanticRenderToolEvidenceFact(toolRecords = []) {
+  const toolRecordIndexes = listSemanticRenderSourceToolRecordIndexes(toolRecords);
+  if (!toolRecordIndexes.length) return null;
+  return {
+    path: 'semantic_render',
+    promptVisibility: 'prompt_visible',
+    nonPromptUse: 'none',
+    renderForm: 'summarized_semantic_core',
+    modelHop: 'single',
+    toolRecordIndexes,
+  };
+}
+
+function sameToolEvidenceRecordIndexes(left = [], right = []) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function appendToolEvidenceFact(toolEvidenceFacts = [], fact = null) {
+  const existingFacts = Array.isArray(toolEvidenceFacts) ? toolEvidenceFacts : [];
+  if (!fact || typeof fact !== 'object') return existingFacts;
+  const alreadyPresent = existingFacts.some((entry = {}) => (
+    String(entry.path || '').trim() === fact.path
+    && String(entry.promptVisibility || '').trim() === fact.promptVisibility
+    && String(entry.nonPromptUse || '').trim() === fact.nonPromptUse
+    && String(entry.renderForm || '').trim() === fact.renderForm
+    && String(entry.modelHop || '').trim() === fact.modelHop
+    && sameToolEvidenceRecordIndexes(entry.toolRecordIndexes, fact.toolRecordIndexes)
+  ));
+  if (alreadyPresent) return existingFacts;
+  return [...existingFacts, fact];
+}
+
 function shouldUseSemanticRender({ file, toolRecords = [], draftText = '' }) {
   if (file) return true;
   const draft = String(draftText || '');
@@ -2015,6 +2060,10 @@ async function maybeRenderHardTurnReply({
       laneRuntime,
       activeContradictions,
     });
+    const renderedToolEvidenceFacts = appendToolEvidenceFact(
+      toolEvidenceFacts,
+      buildSemanticRenderToolEvidenceFact(toolRecords),
+    );
     const firstPassText = coerceFinalizedText(rendered);
     const firstPassGuardCodes = collectReplyGuardCodes({
       candidate: firstPassText,
@@ -2035,7 +2084,7 @@ async function maybeRenderHardTurnReply({
         toolsUsed,
         toolRecords,
         toolOutcome,
-        toolEvidenceFacts,
+        toolEvidenceFacts: renderedToolEvidenceFacts,
         epistemics: hardTurnEpistemics,
         synthesis: hardTurnSynthesis,
         modelUsed: laneRuntime?.modelUsed === true,
@@ -2085,7 +2134,7 @@ async function maybeRenderHardTurnReply({
           toolsUsed,
           toolRecords,
           toolOutcome,
-          toolEvidenceFacts,
+          toolEvidenceFacts: renderedToolEvidenceFacts,
           epistemics: hardTurnEpistemics,
           synthesis: hardTurnSynthesis,
           modelUsed: laneRuntime?.modelUsed === true,
@@ -2104,7 +2153,7 @@ async function maybeRenderHardTurnReply({
         toolsUsed,
         toolRecords,
         toolOutcome,
-        toolEvidenceFacts,
+        toolEvidenceFacts: renderedToolEvidenceFacts,
         epistemics: hardTurnEpistemics,
         synthesis: hardTurnSynthesis,
         repair: normalizeRepairInfo({
@@ -2131,6 +2180,7 @@ async function maybeRenderHardTurnReply({
         toolsUsed,
         toolRecords,
         toolOutcome,
+        toolEvidenceFacts: renderedToolEvidenceFacts,
         epistemics: hardTurnEpistemics,
         synthesis: hardTurnSynthesis,
         modelUsed: laneRuntime?.modelUsed === true,
@@ -2739,6 +2789,7 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         toolsUsed: result.toolsUsed,
         toolRecords: result.toolRecords,
         toolOutcome: result.toolOutcome,
+        toolEvidenceFacts: result.toolEvidenceFacts,
         skipSemanticRender: result.skipSemanticRender === true,
         onToolEvent,
         abortSignal,
@@ -2787,6 +2838,7 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         toolsUsed: result.toolsUsed,
         toolRecords: result.toolRecords,
         toolOutcome: result.toolOutcome,
+        toolEvidenceFacts: result.toolEvidenceFacts,
         skipSemanticRender: result.skipSemanticRender === true,
         onToolEvent,
         abortSignal,
@@ -2918,6 +2970,7 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
       toolsUsed: result.toolsUsed,
       toolRecords: result.toolRecords,
       toolOutcome: result.toolOutcome,
+      toolEvidenceFacts: result.toolEvidenceFacts,
       skipSemanticRender: result.skipSemanticRender === true,
       onToolEvent: onEvent,
       abortSignal,
@@ -3086,4 +3139,5 @@ module.exports = {
   resolveDirectToolIntent,
   composeToolRecordFallback,
   looksLikeWeakToolReply,
+  maybeRenderHardTurnReply,
 };
