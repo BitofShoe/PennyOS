@@ -72,6 +72,9 @@ Optional overlay context:
 - Use subagents aggressively for independent read-only exploration, QA inspection, and doc mapping.
 - Codex can have at most six live subagents at once; trying to spawn more without closing or reusing older ones will error.
 - If a subagent spawn fails because the active-agent limit was hit, fix that immediately before continuing. Do not pretend the delegation succeeded.
+- Full-context forks (`fork_context=true`) inherit the current thread history, instructions, and model/reasoning settings unless those are explicitly overridden. For Penny, that inherited context is usually a feature for aligned repo work, not a bug by itself.
+- Do not confuse "this child is too anchored to the parent and is not an independent second opinion" with "subagent spawning/runtime failed." The first is expected inheritance behavior. The second is a real tooling/runtime problem and must be called out plainly instead of hand-waved away.
+- If the task needs a fresh review, disagreement check, or different operating mode, spawn without a full-context fork or override the model/reasoning settings on purpose. If the child hangs, errors, or returns uselessly thin work, stop and diagnose that as a delegation failure before continuing the main slice.
 - Keep one primary editing agent per file boundary.
 - Consolidate what the subagents find before writing anything.
 - If a task crosses backend, frontend, tests, and docs, treat that as the cue to delegate the independent reads and QA slices before a single editor applies the final patch.
