@@ -20,6 +20,10 @@ import {
   saveStateSnapshot,
 } from './penny-storage.js';
 import {
+  createChatRequestGuard,
+  isAbortError,
+} from './penny-chat-request-guard.mjs';
+import {
   MOOD_THEMES as MOODS,
   CHAT_DECOR_CHIBI as CHAT_DECOR_CHIBI_RUNTIME,
   CHAT_DECOR_TECH as CHAT_DECOR_TECH_RUNTIME,
@@ -128,6 +132,21 @@ function setComposerNotice(text = '', tone = 'muted') {
   els.composerNotice.hidden = !text;
 }
 const attachmentUi = createAttachmentUi({ els, setComposerNotice });
+const chatRequestGuard = createChatRequestGuard();
+
+function removeTrailingStreamingAssistantDraft() {
+  const last = state.messages[state.messages.length - 1];
+  if (last?.role === 'assistant' && last?.streaming) {
+    state.messages.pop();
+  }
+}
+
+function cancelActiveChatRequest({ removeStreamingDraft = false, clearLoading = true } = {}) {
+  const canceledRequestId = chatRequestGuard.cancel();
+  if (removeStreamingDraft) removeTrailingStreamingAssistantDraft();
+  if (clearLoading) state.loading = false;
+  return canceledRequestId !== null;
+}
 
 function parseMood(text, fallbackMood = '') {
   return parseMoodRuntime(text, fallbackMood);
@@ -684,10 +703,13 @@ async function sendMessage() {
   const userText = els.composer.value.trim();
   const pendingImage = attachmentUi.getPendingImage();
   const pendingFile = attachmentUi.getPendingFile();
-  if (state.loading) return;
   if (!userText) {
     if (pendingImage || pendingFile) setComposerNotice('Add a short prompt so Penny knows what to do with the attachment.', 'warn');
     return;
+  }
+  const { requestId, signal, replacedRequestId } = chatRequestGuard.start();
+  if (replacedRequestId !== null) {
+    removeTrailingStreamingAssistantDraft();
   }
   const imageData = pendingImage?.dataUrl || null;
   const fileData = pendingFile ? { ...pendingFile } : null;
@@ -702,10 +724,12 @@ async function sendMessage() {
     const body = { sessionId: state.memory.sessionId, messages: serializeMessagesForApi(), memories: buildChatMemoryPayload(state.memory), stream: true };
     if (imageData) body.image = imageData;
     if (fileData) body.file = fileData;
-    const res = await fetch('/api/penny/chat?stream=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch('/api/penny/chat?stream=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+    if (!chatRequestGuard.isActive(requestId)) return;
     const contentType = res.headers.get('content-type') || '';
     if (!res.ok) {
       const data = contentType.includes('application/json') ? await res.json().catch(() => ({})) : {};
+      if (!chatRequestGuard.isActive(requestId)) return;
       updateBrainModeUi(data.meta || { requestedMode: state.memory.brainMode, usedFallback: false, shadowError: data.detail || data.error || `Request failed: ${res.status}` });
       throw new Error(data.detail || data.error || `Request failed: ${res.status}`);
     }
@@ -713,6 +737,7 @@ async function sendMessage() {
     let finalData = null;
     await readPennyEventStream(res, {
       onEvent(event, data) {
+        if (!chatRequestGuard.isActive(requestId)) return;
         if (event === 'status') {
           state.presence = data?.label || state.presence;
           updateTheme();
@@ -721,13 +746,13 @@ async function sendMessage() {
         if (event === 'message.delta') {
           streamedText = typeof data?.text === 'string' && data.text ? data.text : `${streamedText}${data?.content || ''}`;
           const last = state.messages[state.messages.length - 1];
-          if (last?.role === 'assistant') last.content = stripDraftMood(streamedText);
+          if (last?.role === 'assistant' && last?.streaming) last.content = stripDraftMood(streamedText);
           updateStreamingAssistantBubble(streamedText);
           return;
         }
         if (event === 'tool') {
           const last = state.messages[state.messages.length - 1];
-          if (last?.role === 'assistant') {
+          if (last?.role === 'assistant' && last?.streaming) {
             last.toolStatus = data?.label || `using ${data?.name || 'tool'}`;
           }
           state.presence = data?.state === 'running' ? 'tooling' : state.presence;
@@ -744,6 +769,7 @@ async function sendMessage() {
         }
       },
     });
+    if (!chatRequestGuard.isActive(requestId)) return;
     if (!finalData) throw new Error('Stream ended without a final Penny payload.');
     const parsed = parseMood(finalData.text || streamedText || 'Something glitched.', finalData.meta?.mood || '');
     const last = state.messages[state.messages.length - 1];
@@ -764,6 +790,12 @@ async function sendMessage() {
     state.presence = 'present'; state.turns = finalData.meta?.turns || state.turns + 1; applyMemory(finalData.memory); maybeSpeak(parsed.text); updateBrainModeUi(finalData.meta || null);
     window.setTimeout(() => { loadMemoryInspector({ quiet: true }); }, 150);
   } catch (error) {
+    if (!chatRequestGuard.isActive(requestId)) return;
+    if (isAbortError(error)) {
+      removeTrailingStreamingAssistantDraft();
+      state.presence = state.messages.length ? 'present' : 'idle';
+      return;
+    }
     const prefix = state.memory.brainMode === 'shadow'
       ? 'Shadow brain did not return a reply.'
       : 'Local LLM did not return a reply.';
@@ -782,6 +814,7 @@ async function sendMessage() {
     });
     state.presence = 'error';
   } finally {
+    if (!chatRequestGuard.finish(requestId)) return;
     state.loading = false; renderMessages(); renderMemory(); updateTheme(); saveState(); els.composer.focus();
     loadBackendStatus();
   }
@@ -886,6 +919,7 @@ els.memoryList?.addEventListener('click', async (event) => {
   const index = Number(button.dataset.index); const memories = [...(state.memory.memories || [])]; memories.splice(index, 1); await patchMemory({ memories });
 });
 els.newChat?.addEventListener('click', async () => {
+  cancelActiveChatRequest();
   const freshSessionId = createSessionId();
   state.memory = { ...state.memory, sessionId: freshSessionId };
   state.messages = [];
@@ -903,6 +937,7 @@ els.newChat?.addEventListener('click', async () => {
   await syncMemoryToDisk();
 });
 els.clearMemory?.addEventListener('click', async () => {
+  cancelActiveChatRequest();
   localStorage.removeItem(STORAGE_KEY);
   const freshSessionId = createSessionId();
   state.memory = { ...structuredClone(DEFAULT_MEMORY), sessionId: freshSessionId };
@@ -949,4 +984,3 @@ window.__pennyDebug = (mood, turns) => {
     _lastPresentationProfile = null;
     updateTheme();
   };
-
