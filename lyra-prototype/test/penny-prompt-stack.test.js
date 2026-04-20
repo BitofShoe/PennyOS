@@ -139,3 +139,88 @@ test('buildPromptStack keeps the slot order stable and excludes examples on tool
   assert.equal(toolSlotSummary.slots.find((slot) => slot.id === 'overlays').state, 'filled');
   assert.equal(toolSlotSummary.slots.find((slot) => slot.id === 'memory').renderTarget, 'memory-block');
 });
+
+test('buildPromptStack preserves canon-first selected-vs-rendered prompt truth from the rendered memory block', () => {
+  const result = buildPromptStack({
+    assets: {
+      blend: 'Blend section',
+      chatDirectives: 'Directive section',
+      examples: 'Example section',
+      overlays: [],
+    },
+    memories: {
+      memories: [
+        { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: Date.UTC(2026, 3, 12) },
+      ],
+      archiveContext: {
+        session: [{ id: 'session-1', text: 'Favorite tea used to be oolong.' }],
+        global: [{ id: 'global-1', text: 'They keep returning to midnight rain.' }],
+      },
+      researchLedgerContext: {
+        topics: [
+          {
+            topicId: 'path-package-json',
+            topicLabel: 'package.json',
+            status: 'open',
+            summary: 'verify whether the Vitest migration is still pending.',
+          },
+        ],
+      },
+    },
+    userText: 'What tea do I like again?',
+    lane: 'chat',
+    mode: 'local',
+    includeExamples: false,
+    memoryLimit: 8,
+    fallbackMemory: '- Nothing yet.',
+  });
+
+  assert.match(result.memoryBlock, /Favorite tea is lapsang souchong/);
+  assert.doesNotMatch(result.memoryBlock, /Wake state - active session context:/);
+  assert.doesNotMatch(result.memoryBlock, /Wake state - ongoing investigations \(advisory\):/);
+  assert.equal(result.promptTruth.canonicalFactsPresent, true);
+  assert.equal(result.promptTruth.canonicalOverrideActive, true);
+  assert.equal(result.promptTruth.channels.sessionArchive.candidateCount, 1);
+  assert.equal(result.promptTruth.channels.sessionArchive.renderedCount, 0);
+  assert.equal(result.promptTruth.channels.sessionArchive.heldBackReason, 'canon-priority-suppression');
+  assert.equal(result.promptTruth.channels.globalArchive.candidateCount, 1);
+  assert.equal(result.promptTruth.channels.globalArchive.renderedCount, 0);
+  assert.equal(result.promptTruth.channels.researchLedger.candidateCount, 1);
+  assert.equal(result.promptTruth.channels.researchLedger.renderedCount, 0);
+  assert.equal(result.promptTruth.channels.researchLedger.heldBackReason, 'canon-priority-suppression');
+});
+
+test('buildPromptStack builds memory block and prompt truth from a single prompt-memory construction pass', () => {
+  const realDateNow = Date.now;
+  let dateNowCalls = 0;
+  Date.now = () => {
+    dateNowCalls += 1;
+    return Date.UTC(2026, 3, 12);
+  };
+
+  try {
+    buildPromptStack({
+      assets: {
+        blend: 'Blend section',
+        chatDirectives: 'Directive section',
+        examples: '',
+        overlays: [],
+      },
+      memories: {
+        memories: [
+          { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: Date.UTC(2026, 3, 11) },
+        ],
+      },
+      userText: 'What tea do I like again?',
+      lane: 'chat',
+      mode: 'local',
+      includeExamples: false,
+      memoryLimit: 8,
+      fallbackMemory: '- Nothing yet.',
+    });
+  } finally {
+    Date.now = realDateNow;
+  }
+
+  assert.equal(dateNowCalls, 1);
+});

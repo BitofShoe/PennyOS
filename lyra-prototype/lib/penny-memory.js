@@ -476,6 +476,7 @@ module.exports = {
   MEMORY_BOOK_PROMPT_LIMIT,
   normalizeText,
   mergeMemoryItems,
+  buildPromptMemoryContext,
   formatPromptMemories,
   injectRelevantMemoryContext,
   selectMemoriesForPrompt,
