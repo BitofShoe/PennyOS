@@ -1,5 +1,11 @@
 # Penny Public Visual Direction
 
+> Category: Public/external explanation
+> Authority: Public/external explanation
+> Status: Creative brief snapshot as of 2026-04-19
+> Use this for: visual direction, mood, and public-facing presentation goals.
+> Do not use this for: proof that a given visual, page, or capability has shipped.
+
 This is the art and product-direction spec for a future Penny pitch artifact.
 
 The deliverable for this pass is still text-first, but this document should make a later landing page, slideshow, or visual pitch feel inevitable instead of improvised.
@@ -109,7 +115,7 @@ If this becomes a slideshow/deck:
 2. The problem with normal AI companions/assistants
 3. Who Penny is
 4. Why local matters
-5. What she can do today
+5. What she can do in this snapshot
 6. The emotional difference
 7. Honest limits
 8. "This is where it's going"
@@ -165,7 +171,7 @@ End with honesty, not hype.
 
 Closer should feel like:
 
-"This is already real, even if it is still unfinished."
+"This is already real in this snapshot, even if it is still unfinished."
 
 Not:
 

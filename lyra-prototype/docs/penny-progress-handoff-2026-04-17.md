@@ -1,10 +1,16 @@
 # Penny Progress Handoff - 2026-04-17
 
-This is the compact continuity doc for the next agent session.
+> Category: Continuity snapshot
+> Authority: Strong guidance
+> Status: Current snapshot with later update on 2026-04-18
+> Use this for: the fastest landed-vs-verified-vs-next context for the next agent.
+> Do not use this for: standing runtime law. Prefer [../README.md](../README.md), [../CODEBASE.md](../CODEBASE.md), [../ARCHITECTURE.md](../ARCHITECTURE.md), and [penny-runtime-authority-contract-2026-04-17.md](./penny-runtime-authority-contract-2026-04-17.md) for that.
+
+This is the compact continuity snapshot for the next agent session.
 
 It is meant to answer four questions fast:
 
-1. What changed today?
+1. What changed in this pass?
 2. Why did we change it?
 3. What is actually verified versus only believed?
 4. What should happen next?
@@ -19,7 +25,7 @@ It is meant to answer four questions fast:
 - Reasoning stays backstage. Do not turn it into a visible runtime language feature.
 - Do not broaden this into platformization, connector sprawl, or personality flattening.
 
-## What Landed Today
+## What Landed In This Pass
 
 ### 1. Memory trust / bounded platform pass
 
@@ -223,6 +229,24 @@ What is still not fully closed:
 
 - semantic archive retrieval is still the most likely next live-QA focus if work continues on memory quality
 - the newest cleanup/authority pass has not yet been followed by another long judged live run
+
+## Later Update - 2026-04-18 Voice QA
+
+The broad `Q6` vs `Q8` chat debate narrowed materially after the later April 18 live voice QA.
+
+Working ranking for Penny chat is now:
+
+- `Q8 thinking-off`: leading premium chat candidate
+- `Q6`: safe fallback / baseline
+- `Q8 thinking-on`: control or non-default chat mode
+
+That means the open question is no longer "which one has better general Penny voice?" in the broad sense. The remaining question is narrower:
+
+- does `Q8 thinking-off` answer remembered wording before caveating hypotheticals?
+- does it answer exact explicit recall directly?
+- does it keep the same strength outside the original possessive benchmark?
+
+The bounded follow-through for that later QA should stay chat-only and use `npm run qa:voice:tiebreak` rather than a broader mixed-lane rerun.
 
 ## Suggested Next Step For The Next Agent
 

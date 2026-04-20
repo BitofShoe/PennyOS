@@ -1,5 +1,11 @@
 # Penny repo review — brutally honest senior engineer / architect pass
 
+> Category: Review snapshot
+> Authority: Historical evidence
+> Status: Historical
+> Use this for: review findings, risk framing, and historical pressure testing.
+> Do not use this for: standing runtime law or proof that the current repo still matches this snapshot.
+
 Reviewed against the uploaded repo snapshot at commit `91a8eb01c18a65c5a0cbef79c373fdda5f85d43e` on `main`. I ignored local runtime debris as requested and worked from a clean archived tree of that exact commit. I read `README.md`, `ARCHITECTURE.md`, `CODEBASE.md`, and `docs/penny-runtime-authority-contract-2026-04-17.md` first.
 
 I also ran the test suite locally in this environment. The container has Node 22 while `package.json` asks for Node 24, so treat runtime-specific behavior cautiously, but the main failure I found is a real path-normalization/test-honesty issue, not a syntax mismatch.

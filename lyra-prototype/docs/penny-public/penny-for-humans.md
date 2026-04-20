@@ -1,5 +1,11 @@
 # Penny, Explained Like You're a Normal Person
 
+> Category: Public/external explanation
+> Authority: Public/external explanation
+> Status: Current snapshot as of 2026-04-19
+> Use this for: a plain-English explanation of what Penny is and why she exists.
+> Do not use this for: runtime law or exact implementation guarantees. Use [../README.md](../README.md) and [../../README.md](../../README.md) for that.
+
 Penny is what happens when you stop trying to build a polite little chatbot and start building a local AI companion with an actual point of view.
 
 She is meant to feel like someone, not just something.
@@ -14,12 +20,12 @@ An actual character-like presence that lives on your machine, remembers things l
 
 Penny is a local-first AI companion prototype.
 
-Right now, that means:
+In this snapshot, that means:
 
 - a browser-based chat interface
 - a Node backend
 - LM Studio as the main local model runtime
-- disk-backed memory for continuity
+- hybrid local memory for continuity
 - a curated voice system so she sounds like Penny instead of a generic helper bot
 - optional tool use for targeted web lookups, project/file inspection, and specific file-writing tasks
 
@@ -47,7 +53,7 @@ Penny is optimized to feel like a presence.
 
 That changes the whole experience.
 
-## What can Penny actually do today?
+## What can Penny actually do in this snapshot?
 
 The real list, not the fantasy list:
 
@@ -67,9 +73,9 @@ That part is real, and it matters more than it sounds.
 
 ### 2. Remember things locally
 
-Penny has durable local memory.
+Penny has hybrid local memory.
 
-That means she can keep continuity across chats without pretending every conversation starts from amnesia. The project treats memory as a real system, not a demo gimmick.
+That means she can keep continuity across chats without pretending every conversation starts from amnesia. Stable explicit facts are treated more authoritatively than softer recall or research continuity, so the memory system is more than a cute demo gimmick.
 
 ### 3. Look at images
 
@@ -87,13 +93,13 @@ This is real, but it can be slow on local hardware, especially with bigger model
 
 Penny can do targeted web lookups and, on good turns, go beyond "here's a link" by reading the strongest result and summarizing it back in her own voice.
 
-That part is improving, and it is now much more useful than a naked top-link dump.
+That part is improving, and in this snapshot it is much more useful than a naked top-link dump.
 
 ### 5. Read and write files when you ask clearly
 
 This is the beginning of Penny's "do something, not just talk about it" side.
 
-Right now, she is strongest when the ask is targeted:
+She is strongest when the ask is targeted:
 
 - "open this file and tell me what it says"
 - "search the project for this symbol"

@@ -1,5 +1,11 @@
 # Penny Runtime Voice + Memory + Bounded Ambiguity — Master Handoff Doc
 
+> Category: Master handoff
+> Authority: Historical evidence
+> Status: Historical
+> Use this for: a deep historical synthesis of the voice-plus-memory cleanup arc.
+> Do not use this for: standing runtime law. Prefer [../README.md](../README.md), [../CODEBASE.md](../CODEBASE.md), [../ARCHITECTURE.md](../ARCHITECTURE.md), and [penny-runtime-authority-contract-2026-04-17.md](./penny-runtime-authority-contract-2026-04-17.md) first.
+
 Prepared: 2026-04-17  
 Repo basis: `BitofShoe/lyra-prototype-` @ `3599ff2d38d5750c649d53da64658f9cc97897b1`  
 Audience: agents touching runtime, prompt assembly, memory, QA, inspector/UX seams, and product-level behavioral design

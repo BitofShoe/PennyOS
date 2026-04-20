@@ -1,5 +1,11 @@
 # Planning Template
 
+> Category: Planning scaffold
+> Authority: Implementation plan
+> Status: Draft
+> Use this for: planning future work, delegation maps, risks, and verification plans.
+> Do not use this for: proof that anything already shipped or as a substitute for current law.
+
 Use this template for cross-cutting Penny work that needs a written plan before editing.
 
 ## Goal and success criteria

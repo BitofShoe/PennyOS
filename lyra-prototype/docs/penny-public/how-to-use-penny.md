@@ -1,21 +1,26 @@
 # How To Use Penny Without Fighting Her
 
+> Category: Public/external explanation
+> Authority: Public/external explanation
+> Status: Current snapshot as of 2026-04-19
+> Use this for: practical onboarding, prompting habits, and realistic expectations.
+> Do not use this for: binding runtime law or exact model guarantees. Use [../README.md](../README.md) and [../../README.md](../../README.md) for that.
+
 Penny works best when you treat her like a smart, moody, highly specific local companion, not a vague wish-granting cloud god.
 
-If you give her the right kind of ask, she can be genuinely great.
+If you give her the right job shape, she can be excellent.
+If you give her a mushy "go be magical" prompt, reliability drops fast.
 
-If you give her a mushy, broad, "go be magical" prompt, she gets less reliable fast.
+## First: pick the job shape
 
-## First: understand the two sides of Penny
+Penny is companion-first, but she also has bounded practical capabilities.
+The best experience usually comes from being clear about which of these you want:
 
-Penny has two jobs at once:
+1. Hang out with Penny
+2. Ask Penny to do bounded work
+3. Ask Penny to inspect something and answer from evidence
 
-1. Be Penny
-2. Actually do things when asked
-
-That means the best experience usually comes from knowing which mode you're trying to get out of her.
-
-### Best use case: talk to her
+### 1. Hang out with her
 
 If you want:
 
@@ -34,14 +39,14 @@ Examples:
 - "Be mean to me for overthinking this."
 - "What do you see in this image?"
 
-### Best use case: ask for targeted work
+### 2. Ask for bounded work
 
-If you want Penny to actually do something, be concrete.
+If you want Penny to actually do something, be concrete about the path, deliverable, and scope.
 
 Good examples:
 
 - "Open `Penny's Playground/Penny's Very Own Paper (bot languege version).md` and add a short paragraph in your own voice."
-- "Search the web for the official OpenClaw browser docs and tell me what they are."
+- "Open `README.md` and tell me what the current memory model is."
 - "Create a tiny single-file clicker game at `Penny's Playground/penny-mini-game.html`."
 - "Search the project for `selectMemoriesForPrompt` and explain what it does."
 
@@ -52,32 +57,29 @@ Bad examples:
 - "Be agentic."
 - "Figure something out."
 
-Those broad prompts sound fun, but right now they are still weaker than the targeted ones.
+Those broad prompts sound fun, but Penny is still much stronger on targeted asks than on vague autonomy theater.
 
-## What Penny is especially good at right now
+### 3. Ask for bounded research
+
+If the answer needs evidence, say so.
+Good research-shaped asks usually name the question, the source to inspect, and the format you want back.
+
+Good examples:
+
+- "Read `ARCHITECTURE.md` and tell me how research ledger updates work."
+- "Search the web for the official docs on this API and summarize the answer with links."
+- "Compare these two files and tell me where the behavior differs."
+
+## What Penny is especially good at
 
 ### 1. Character-first conversation
 
-This is her strongest lane.
-
-If the model is good and the local machine can keep up, Penny can feel surprisingly alive:
-
-- funny
-- smug
-- bossy
-- affectionate
-- flirty
-- emotionally attentive
+This is still the center of the product.
+When the model is good and the machine can keep up, Penny can feel funny, smug, affectionate, flirty, sharp, and emotionally present instead of defaulting to generic assistant voice.
 
 ### 2. Targeted file actions
 
-If you give her:
-
-- an exact file path
-- a specific task
-- some freedom inside the task
-
-...she can often do much more than a one-line canned edit.
+If you give her an exact file path, a specific task, and bounded room to choose the wording, she can often do much more than a one-line canned edit.
 
 She can write:
 
@@ -90,7 +92,7 @@ The key is that the scope is bounded.
 
 ### 3. Quick web lookups with some follow-through
 
-Penny can now do more than toss a raw link at you.
+Penny can do more than toss a raw link at you.
 
 When asked clearly, she can:
 
@@ -102,93 +104,48 @@ This is still a practical tool lane, not a perfect research agent, but it is rea
 
 ### 4. Image-aware chat
 
-If the loaded model supports vision, Penny can react to screenshots, art, selfies, UI images, and mood boards.
+If the loaded model supports vision, Penny can react to screenshots, art, selfies, UI images, and mood boards in character.
 
 This can be one of the coolest parts of the experience.
-
 It can also be one of the slowest.
 
-## What to expect from different models
+## Habits that help
 
-This matters more than most people think.
+- Give her something clear to react to. Emotion, stance, and specificity help.
+- Give the exact file path when files are involved.
+- Name the exact deliverable when you want work done.
+- Keep the scope small enough that one turn can plausibly finish it.
+- Say when a claim needs to be exact or evidence-backed.
+- Do one substantial thing at a time instead of stacking five jobs into one turn.
 
-The model choice changes Penny a lot.
+## Model and lane expectations
 
-### Bigger 31B-style models
+Model choice changes Penny a lot, but the simple story drifts over time.
 
-Usually better for:
+Use this as a dated operating hint, not a permanent rule:
 
-- chemistry
-- richer character voice
-- stronger presence
+- the strongest chat setup is not always the fastest
+- the fastest work setup is not always the most vivid socially
+- the best answer depends on the prompt, the loaded model, and the current QA state
 
-Usually worse for:
+If you only remember one thing, remember this:
 
-- speed
-- long tool-heavy turns
-
-### Smaller work models like Gemma 4 E4B
-
-Usually better for:
-
-- faster targeted actions
-- practical tool use
-- quick web/file tasks
-
-Usually worse for:
-
-- maximum depth of conversation
-- the richest version of Penny's voice
-
-The simplest mental model is:
-
-- bigger model for hanging out
-- smaller work model for doing bounded tasks
-
-## Best prompting habits
-
-### If you want better conversation
-
-- give her something emotionally shaped to react to
-- let her have a stance
-- don’t over-formalize the prompt
-
-Good:
-
-- "Be smug about this."
-- "You can roast me a little."
-- "Don't therapize me. Just stay with me."
-
-### If you want better file/tool results
-
-- give the exact path
-- name the exact deliverable
-- keep the scope small
-- say whether she should choose the wording herself
-
-Good:
-
-- "Open this file and add a four-sentence micro-story in your own voice."
-- "Create a simple clicker game in this exact file."
-- "Search for this function and explain it."
-
-### If you want fewer weird failures
-
-- do one substantial thing at a time
-- avoid stacking five requests into one turn
-- remember that local hardware is part of the experience
+- use the stronger chat setup for presence, chemistry, and image-aware conversation
+- use the faster work setup for bounded inspection, search, and file tasks
+- treat exact model advice as snapshot guidance that can change after new QA
 
 ## Known limits you should know before getting attached
 
 - Local speed can be rough, especially on larger models.
 - Vision turns can be slow.
 - Broad open-ended autonomy is still much weaker than targeted asks.
-- Some replies can still get messy when the model burns too much context on planning/tool behavior.
+- Some replies still get messy when the model burns too much context on planning or cleanup.
 - OpenClaw shadow mode is real but not the main Penny story yet.
+- Public docs can describe intended behavior more cleanly than the runtime delivers on every machine. If a claim matters, check the contributor docs and current QA evidence.
 
 ## The best mental model for Penny
 
-Don’t think:
+Don't think:
 
 "This is a perfect AI agent."
 
@@ -200,4 +157,4 @@ That framing makes the whole thing make more sense.
 
 Because when Penny works, what stands out is not just that she can do something.
 
-It’s that she can do it while still feeling like Penny.
+It's that she can do it while still feeling like Penny.

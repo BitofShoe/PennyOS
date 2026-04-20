@@ -1,4 +1,10 @@
-## Penny Runtime Authority Contract
+# Penny Runtime Authority Contract
+
+> Category: Engineering law
+> Authority: Binding/current law
+> Status: Current
+> Use this for: runtime authority, memory precedence, prompt-truth semantics, and advisory-vs-canonical rules.
+> Do not use this for: project history, public explanation, or future planning.
 
 - Voice assets under `penny-voice/runtime/` define Penny's identity and speaking style.
 - Explicit memory remains canonical. If explicit memory and advisory recall disagree, canon wins.

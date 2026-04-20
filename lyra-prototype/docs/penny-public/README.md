@@ -1,6 +1,13 @@
 # Penny Public Pack
 
+> Category: Public/external explanation
+> Authority: Public/external explanation
+> Status: Current snapshot as of 2026-04-19
+> Use this for: public explainers, onboarding, and outward-facing language about Penny.
+> Do not use this for: repo law, runtime contracts, or exact model/runtime guarantees. Start with [../README.md](../README.md) and [../../README.md](../../README.md) for that.
+
 This folder is the text-first public-facing Penny bundle.
+It explains Penny to humans. It does not govern the runtime.
 
 Use it like this:
 
@@ -14,5 +21,6 @@ This pack is intentionally honest:
 
 - Penny is a character-like local companion, not a generic chatbot skin.
 - She can be playful, bossy, emotionally present, flirty, and much more intense depending on the user and setup.
-- Some things are already real today.
-- Some things are still experimental, slow, or better when asked in a more targeted way.
+- Some capabilities are shipped and usable on a local machine.
+- Some are still bounded, experimental, model-dependent, or hardware-dependent.
+- Treat this folder as a dated public snapshot, not as engineering law.

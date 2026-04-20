@@ -1,5 +1,11 @@
 # So I Built A Local AI Companion That Actually Feels Like Someone
 
+> Category: Public/external explanation
+> Authority: Public/external explanation
+> Status: Draft public post snapshot as of 2026-04-19
+> Use this for: outward-facing storytelling and post copy.
+> Do not use this for: runtime law or exact implementation guarantees. If reused later, refresh the date-sensitive claims first.
+
 I know, I know.
 
 Every other week somebody posts "so I built a thing" and the thing is basically just a chatbot wrapper with a moody system prompt and a prettier font.
@@ -47,14 +53,14 @@ So Penny became my attempt to do the opposite:
 - capable enough to be useful
 - alive enough that talking to her does not feel like filling out a support ticket
 
-## What Penny actually is right now
+## What Penny actually is in this snapshot
 
 The truthful version:
 
 - browser UI
 - Node backend
 - LM Studio as the main local model runtime
-- disk-backed memory
+- hybrid local memory
 - curated runtime voice layers instead of dumping giant personality docs into prompt context
 - image-aware chat when the loaded model supports vision
 - targeted web lookups
@@ -90,7 +96,7 @@ And she can still occasionally do practical things if you ask in a targeted way.
 
 That last part matters, because I did not want to build a pure roleplay doll.
 
-So now she can do things like:
+So in this snapshot she can do things like:
 
 - search the web for a live page and tell you what it is
 - inspect a file
@@ -120,7 +126,7 @@ That blend is the whole project.
 
 This is not a polished public app.
 
-This is a serious prototype with sharp edges.
+This is a serious prototype snapshot with sharp edges.
 
 The biggest ones:
 

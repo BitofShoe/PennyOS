@@ -4,45 +4,52 @@ Local-first Penny companion app with:
 
 - a single-page browser UI
 - a single Node backend
-- LM Studio as the main chat brain
-- durable disk-backed memory
+- LM Studio as the main brain
+- hybrid memory with canonical explicit memory, advisory archive recall, and bounded research continuity
 - runtime voice assets under `penny-voice/runtime/`
 - an optional experimental OpenClaw shadow lane
 
-If you landed here from the wider `workspace-main/` ritual docs, start with [CODEBASE.md](./CODEBASE.md) for the actual runnable app map.
+If you landed here from the wider `workspace-main/` ritual docs, start with [docs/README.md](./docs/README.md) for the docs hierarchy, then [CODEBASE.md](./CODEBASE.md) for the runnable app map.
+
+> Operator note:
+> This README is the contributor-facing current-state map for the repo.
+> Start with [docs/README.md](./docs/README.md) if you need the docs hierarchy and authority map.
+> Use [docs/penny-public/README.md](./docs/penny-public/README.md) for public-facing explainers.
 
 ## Start here
 
 Read these in order if you need the current truth:
 
-1. [CODEBASE.md](./CODEBASE.md)
-2. [ARCHITECTURE.md](./ARCHITECTURE.md)
-3. [server-js-section-map.md](./server-js-section-map.md)
+1. [docs/README.md](./docs/README.md)
+2. [CODEBASE.md](./CODEBASE.md)
+3. [ARCHITECTURE.md](./ARCHITECTURE.md)
+4. [docs/penny-runtime-authority-contract-2026-04-17.md](./docs/penny-runtime-authority-contract-2026-04-17.md)
+5. [server-js-section-map.md](./server-js-section-map.md)
 
 ## Current runtime truth
 
-- Penny now routes local turns through two automatic LM Studio lanes:
+- Penny routes local turns through two automatic LM Studio lanes:
   - chat lane for companion turns and memory-heavy conversation
   - tool lane for bounded inspect/search/read/edit/runtime/git/web turns
 - `server.js` is still the main backend monolith, but lane selection, LM Studio status/model resolution, visible-reply salvage, tool-loop orchestration, transports, direct-intent parsing/replies, direct tool-assist, and concrete tools now live under `lib/`.
-- `public/app.js` is now bootstrap glue. The main browser logic lives under `public/js/`, with separate modules for LM Studio diagnostics/model UI, transcript rendering, expression runtime, ambient chrome/emoji behavior, memory-inspector rendering, attachments, and local persistence.
+- `public/app.js` is bootstrap glue. The main browser logic lives under `public/js/`, with separate modules for LM Studio diagnostics/model UI, transcript rendering, expression runtime, ambient chrome/emoji behavior, memory-inspector rendering, attachments, and local persistence.
 - Penny's live prompt stack comes from `penny-voice/runtime/`, not the giant raw personality docs.
 - LM Studio is Penny's real primary brain.
 - OpenClaw shadow exists, but it is optional and experimental.
 - Browser storage uses the `penny:v3` key for local vessel/settings continuity.
-- Durable memory now defaults to an untracked `data/penny-memory.json`, seeded from tracked `data/penny-memory.seed.json` when missing.
-- Penny now has a hybrid memory stack:
+- Durable memory defaults to an untracked `data/penny-memory.json`, seeded from tracked `data/penny-memory.seed.json` when missing.
+- Penny uses a hybrid memory stack:
   - canonical explicit facts/settings in `data/penny-memory.json`
   - archive + semantic recall in `data/penny-memory-archive.json` and `data/penny-memory-embeddings.json`
   - a bounded research continuity ledger in `data/penny-memory-ledger.json`
   - the archive layer is additive and reviewable; it does not silently overwrite explicit facts
 - The archive layer can do bounded post-turn shadow vector prewarm for recent chat history, but only when explicitly enabled and only off the reply-latency path. It still shares the same process, embedding backend, and cache/store.
 - The backend memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, bounded background-vectorization telemetry, compact prompt-slot composition, prompt-truth receipts, cleanup-transform class/materiality, reasoning-policy receipts, approximate-path policy, and advisory-merge provenance summaries. The in-app panel surfaces these as compact debugging summaries instead of raw dumps.
-- The research continuity ledger is now question-scoped instead of file-scoped: one repo anchor can hold multiple bounded topics, and the inspector exposes each topic's anchor/scope identity instead of flattening them together.
+- The research continuity ledger is question-scoped instead of file-scoped: one repo anchor can hold multiple bounded topics, and the inspector exposes each topic's anchor/scope identity instead of flattening them together.
 - Question-scoped ledger topics only settle when verified non-`query` evidence supports an evidence-tight summary. Otherwise Penny keeps the topic provisional, leaves the durable conclusion empty, and falls back to the question or open follow-up instead of laundering assistant wording into continuity.
 - Generic authored file-write turns stay out of the research ledger unless the turn was genuinely research-shaped and anchored by verified read evidence. Penny's Playground free-writing can matter to archive/audit continuity without pretending it was research provenance.
-- Session archive buckets now keep a bounded `recentAuditTrail` with compact turn slices: selected lane/mode/path, compact retrieval ids, prompt-truth counts/holdbacks, artifact summary, and post-turn ledger update status. `lastRetrieval` keeps its old compatibility role but now carries the same compact summary so the two views stay aligned.
-- Canon-first recall handling now covers more natural personal-memory shapes like "What color is my..." or "What do I like again?", but it is gated by question phrasing plus actual explicit-memory overlap so repo/file questions do not get misclassified as personal recall.
+- Session archive buckets keep a bounded `recentAuditTrail` with compact turn slices: selected lane/mode/path, compact retrieval ids, prompt-truth counts/holdbacks, artifact summary, and post-turn ledger update status. `lastRetrieval` keeps its old compatibility role but now carries the same compact summary so the two views stay aligned.
+- Canon-first recall handling covers more natural personal-memory shapes like "What color is my..." or "What do I like again?", but it is gated by question phrasing plus actual explicit-memory overlap so repo/file questions do not get misclassified as personal recall.
 
 ## Project layout
 
@@ -132,7 +139,7 @@ This is lightweight UI continuity like voice toggle, selected brain mode, and ot
 - Durable server-side memory in `data/penny-memory.json`
 This is the actual runtime memory store used for prompt relevance and longer continuity. The repo tracks `data/penny-memory.seed.json`; the live `data/penny-memory.json` is created on first run and stays local.
 
-Penny's runtime memory is now hybrid:
+Penny's runtime memory is hybrid:
 
 - Canonical explicit memory in `data/penny-memory.json`
   This stays the source of truth for direct facts, preferences, user name, brain mode, and other explicit state.
@@ -145,15 +152,15 @@ Penny's runtime memory is now hybrid:
 - Prompt-truth receipts in runtime artifacts
   These record what advisory context was selected, what was actually rendered into the prompt, what was held back canon-first, and which post-turn ledger changes happened after the reply instead of before it.
 - Bounded reasoning-policy receipts in runtime artifacts
-  Penny now records whether a turn was `minimal`, `deliberate`, `verifier-first`, or `attachment-bounded`, whether verifier-style evidence actually drove the turn, and whether the runtime short-circuited early. This is a policy/execution receipt, not exposed chain-of-thought.
+  Penny records whether a turn was `minimal`, `deliberate`, `verifier-first`, or `attachment-bounded`, whether verifier-style evidence actually drove the turn, and whether the runtime short-circuited early. This is a policy/execution receipt, not exposed chain-of-thought.
 - Artifact prose derived from prompt truth
   Human-facing artifact summaries and wake-hierarchy notes now derive from rendered `promptTruth` counts and holdback reasons, so "held back" and "not rendered" stay honest instead of implying advisory support Penny did not actually use.
 
 For memory QA, use `npm run qa:memory:smoke` for the fast regression slice, `npm run qa:memory` for the full combined release-style run, and `npm run qa:memory:judged` for the grouped `write / retrieve / forget` trust pass. On the current Q6 setup the full combined run is expected to take roughly 80-90 minutes end to end.
 For automated QA, the standard baseline is Q6 chat/memory plus `google/gemma-4-e4b` tooling. Do not treat a Q8-class chat model or a dual-lane stress setup as the default unless that is the specific thing under test.
-The QA/eval artifacts now also carry a normalized trust summary (`pass`, `invalid`, `ambiguous`, `fallback`, `degraded`) so outside review can distinguish Penny-behavior failures from environment drift.
+The QA/eval artifacts also carry a normalized trust summary (`pass`, `invalid`, `ambiguous`, `fallback`, `degraded`) so outside review can distinguish Penny-behavior failures from environment drift.
 They also carry a compact `runIdentity` canary with the resolved models, loaded-model snapshot, execution-path facts, runtime-artifact version, semantic-readiness state, and fallback/degraded counters so harness drift is easier to spot before blaming Penny.
-They now also carry additive drift/fixation canaries such as first drift reason/turn, fixation repeat count, and whether the run recovered after drift. These are diagnostic facts derived from artifacts, not a thinking-quality score.
+They also carry additive drift/fixation canaries such as first drift reason/turn, fixation repeat count, and whether the run recovered after drift. These are diagnostic facts derived from artifacts, not a thinking-quality score.
 
 For handoffs and outside review, use `npm run bundle:review` to build a filtered copy under `tmp/review-bundle/` without QA artifacts, local logs, or runtime debris.
 
@@ -171,7 +178,7 @@ The browser cache is not the source of truth for long-term memory.
 - `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS` defaults to on for bounded post-turn background vectorization of recent chat-history candidates. Set it to `0` to turn that shadow prewarm work off.
 - `PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT` defaults to `2` and caps that background vector work per archived turn.
 - `npm run lmstudio:prepare` verifies local preset wiring, checks installed/loaded models, and tries to load the requested chat model for QA/startup flows.
-- The settings-panel model picker is now a chat-lane override only. Tool-lane selection is config-driven.
+- The settings-panel model picker is a chat-lane override only. Tool-lane selection is config-driven.
 - The local `@local:penny` preset is operator-owned LM Studio state. Penny can verify and reassert the wiring, but the repo does not own the preset body.
 - Depending on the loaded model, Penny may use native stateful chat, chat completions, or responses-style fallbacks.
 - LM Studio `Context Length` still matters even though Penny chats through this app instead of the LM Studio UI. Penny still sends her prompt stack, recent conversation, and memory context into the loaded LM Studio runtime each turn, and the native stateful lane can preserve a live LM Studio thread across turns.

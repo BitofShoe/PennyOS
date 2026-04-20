@@ -1,5 +1,11 @@
 # Penny repo review — commit `5c08ac05fef01a0564822398aa236683ef3c5768`
 
+> Category: Review snapshot
+> Authority: Historical evidence
+> Status: Historical
+> Use this for: commit-specific findings, risks, and follow-up ideas.
+> Do not use this for: standing runtime law or current-state assumptions without checking newer code, tests, and contract docs.
+
 I reviewed a clean worktree at the exact commit from the uploaded repo snapshot, ignored local runtime debris, read the four requested docs first, and ran the test suite.
 
 Test run: `npm test --silent` → **238 passing, 1 failing, 3 todo**.
