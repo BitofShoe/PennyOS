@@ -800,6 +800,19 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   });
 
   assert.match(els.memoryInspectorPanel.innerHTML, /verified-tool/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Last reply at a glance/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Reply path: <strong>local\/tool .* tool-heavy/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /What rendered: <strong>canon-first holdback active<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Memory used: <strong>keyword path<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /session rendered 0 of 0 selected/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /global rendered 0 of 0 selected/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /books rendered 0 of 0 selected/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /ledger rendered 0 of 0 selected/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /compression not used/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Readiness: <strong>warm<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Tool evidence: <strong>1 item\(s\)<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /prompt-visible 1 \| deterministic-only 0 \| provenance-only 0/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Post-reply ledger: <strong>held back · update skipped<\/strong>/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /read README\.md/);
   assert.match(els.memoryInspectorPanel.innerHTML, /project-path: README\.md/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Epistemic caution:/);
@@ -920,8 +933,188 @@ test('renderMemoryInspector shows when background vectorization status came from
     },
   });
 
+  assert.match(els.memoryInspectorPanel.innerHTML, /Reply path: <strong>local\/chat/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /source other-session/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /No archive memories were retrieved for the last reply\./i);
+});
+
+test('renderMemoryInspector uses latest audit data for the top summary when the live artifact is missing', async () => {
+  const { renderMemoryInspector } = await helpersPromise;
+  const els = {
+    memoryInspectorPanel: {
+      className: '',
+      textContent: '',
+      innerHTML: '',
+    },
+  };
+
+  renderMemoryInspector({
+    els,
+    inspector: {
+      sessionId: 'audit-fallback',
+      explicit: { count: 1 },
+      archive: {
+        session: {
+          episodeCount: 1,
+          chapterCount: 0,
+          recencyProtection: { enabled: false, protectedEpisodeCount: 0, protectedEpisodeIds: [] },
+          lastRetrieval: {
+            summary: {
+              mode: 'keyword',
+              reasonCode: 'keyword_fallback',
+              selectedSessionIds: ['session-1'],
+              selectedGlobalIds: [],
+              selectedBookIds: [],
+              selectedLedgerIds: ['topic-1'],
+              renderedSessionIds: [],
+              renderedGlobalIds: [],
+              renderedBookIds: [],
+              renderedLedgerIds: [],
+              semanticReady: false,
+              semanticDowngrade: false,
+              compression: { used: false },
+            },
+            session: [],
+            global: [],
+            compression: { used: false, chapters: [] },
+          },
+          recentAuditTrail: [
+            {
+              turnId: 'turn-1',
+              usedAt: '2026-04-20T12:00:00.000Z',
+              userTextExcerpt: 'What did you actually have available?',
+              selectedLane: 'chat',
+              requestedMode: 'local',
+              executionPath: 'llm-chat',
+              retrieval: {
+                mode: 'keyword',
+                reasonCode: 'keyword_fallback',
+                selectedSessionIds: ['session-1'],
+                selectedGlobalIds: [],
+                selectedBookIds: [],
+                selectedLedgerIds: ['topic-1'],
+                renderedSessionIds: [],
+                renderedGlobalIds: [],
+                renderedBookIds: [],
+                renderedLedgerIds: [],
+                compression: { used: false },
+                semanticReady: false,
+                semanticDowngrade: false,
+              },
+              promptTruth: {
+                channels: {
+                  stableFacts: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+                  memoryBooks: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+                  sessionArchive: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+                  globalArchive: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+                  researchLedger: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+                },
+              },
+              artifactSummary: {
+                kind: 'chat-turn',
+                authority: { reply: 'explicit-canonical' },
+                approximatePath: { status: 'exact' },
+                researchLedgerRendered: false,
+                researchLedgerPromptInjected: false,
+              },
+              researchLedger: {
+                updateStatus: 'skipped',
+                topicId: 'topic-1',
+                topicLabel: 'tea continuity',
+              },
+            },
+          ],
+          activeContradictions: [],
+        },
+        global: {
+          patternCount: 0,
+          promotionQueue: [],
+        },
+      },
+      memoryBooks: {
+        enabledCount: 0,
+        matchedBooks: [],
+      },
+      embeddings: {
+        semanticMemory: {
+          ready: false,
+          configuredModel: 'text-embedding-nomic-embed-text-v1.5',
+        },
+      },
+      ledger: { topicCount: 0, openCount: 0, provisionalCount: 0, settledCount: 0, context: { topics: [] }, recentTopics: [] },
+      routing: {},
+      runtime: {
+        readiness: {
+          chatModelReady: true,
+          toolModelReady: true,
+          embeddingReady: false,
+          fallbackActive: true,
+          warmState: 'warm',
+          cacheAgeMs: 12000,
+        },
+        performance: {
+          latencyClass: 'casual-companion',
+        },
+      },
+      artifact: null,
+    },
+  });
+
+  assert.match(els.memoryInspectorPanel.innerHTML, /Reply path: <strong>local\/chat .* casual-companion/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /What rendered: <strong>canon rendered<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /sessionArchive held back 0\/1 \(canon-priority-suppression\)/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /researchLedger held back 0\/1 \(canon-priority-suppression\)/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Memory used: <strong>keyword path<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /session rendered 0 of 1 selected/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /ledger rendered 0 of 1 selected/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /embeddings fallback/i);
+  assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /Tool evidence: <strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Post-reply ledger: <strong>held back · update skipped<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /reason canon-priority-suppression \| tea continuity/i);
+});
+
+test('renderMemoryInspector shows a calm empty latest-reply summary when no reply data is available', async () => {
+  const { renderMemoryInspector } = await helpersPromise;
+  const els = {
+    memoryInspectorPanel: {
+      className: '',
+      textContent: '',
+      innerHTML: '',
+    },
+  };
+
+  renderMemoryInspector({
+    els,
+    inspector: {
+      explicit: { count: 0 },
+      archive: {
+        session: {
+          episodeCount: 0,
+          chapterCount: 0,
+          recencyProtection: { enabled: false, protectedEpisodeCount: 0, protectedEpisodeIds: [] },
+          lastRetrieval: { session: [], global: [], compression: { used: false, chapters: [] } },
+          recentAuditTrail: [],
+          activeContradictions: [],
+        },
+        global: {
+          patternCount: 0,
+          promotionQueue: [],
+        },
+      },
+      memoryBooks: { enabledCount: 0, matchedBooks: [] },
+      embeddings: {
+        semanticMemory: { ready: false, configuredModel: '' },
+      },
+      ledger: { topicCount: 0, openCount: 0, provisionalCount: 0, settledCount: 0, context: { topics: [] }, recentTopics: [] },
+      routing: {},
+      runtime: { readiness: {}, performance: {} },
+      artifact: null,
+    },
+  });
+
+  assert.match(els.memoryInspectorPanel.innerHTML, /Last reply at a glance/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Last-reply summary is not available yet\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /The deeper inspector sections below still show whatever state is available\./i);
 });
 
 test('buildBrainModeNote keeps local, shadow, and fallback explanations stable', async () => {
