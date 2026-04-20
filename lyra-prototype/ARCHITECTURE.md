@@ -377,7 +377,7 @@ expression/mood runtime helpers
 - `public/js/penny-ambient-chrome.mjs`
 boot overlay, emoji picker, particle, and idle/parallax chrome helpers
 - `public/js/penny-memory-panel.mjs`
-memory-inspector rendering for explicit memory, archive state, runtime artifacts, trace provenance, and research continuity
+memory-inspector rendering for the latest-reply summary plus explicit memory, archive state, runtime artifacts, trace provenance, and research continuity
 - `public/js/penny-lmstudio-ui.js`
 LM Studio diagnostics/model UI helpers
 - `public/js/penny-attachments.js`
