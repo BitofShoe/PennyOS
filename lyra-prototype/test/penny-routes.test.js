@@ -128,12 +128,37 @@ function buildMockLmStudioReply(payload = {}) {
   return 'Mock Penny reply. [MOOD:thinking]';
 }
 
-async function createMockLmStudioServer() {
+function buildMockChatCompletion(body = {}, message = {}) {
+  return {
+    id: 'chatcmpl-mock',
+    object: 'chat.completion',
+    created: 0,
+    model: body.model || 'unsloth/gemma-4-31b-it',
+    choices: [
+      {
+        index: 0,
+        finish_reason: 'stop',
+        message: {
+          role: 'assistant',
+          ...message,
+        },
+      },
+    ],
+    usage: {
+      prompt_tokens: 1,
+      completion_tokens: 1,
+      total_tokens: 2,
+    },
+  };
+}
+
+async function createMockLmStudioServer({ handleChatCompletion = null } = {}) {
   const stats = {
     modelsRequests: 0,
     embeddingsRequests: 0,
     chatRequests: 0,
   };
+  const chatBodies = [];
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     if (req.method === 'GET' && url.pathname === '/v1/models') {
@@ -172,29 +197,20 @@ async function createMockLmStudioServer() {
     if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
       stats.chatRequests += 1;
       const body = JSON.parse((await readRequestBody(req)) || '{}');
+      chatBodies.push(body);
+      if (typeof handleChatCompletion === 'function') {
+        const scripted = await handleChatCompletion({ body, chatBodies, stats });
+        if (scripted && typeof scripted === 'object') {
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify(scripted));
+          return;
+        }
+      }
       const reply = buildMockLmStudioReply(body);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({
-        id: 'chatcmpl-mock',
-        object: 'chat.completion',
-        created: 0,
-        model: body.model || 'unsloth/gemma-4-31b-it',
-        choices: [
-          {
-            index: 0,
-            finish_reason: 'stop',
-            message: {
-              role: 'assistant',
-              content: reply,
-            },
-          },
-        ],
-        usage: {
-          prompt_tokens: 1,
-          completion_tokens: 1,
-          total_tokens: 2,
-        },
-      }));
+      res.end(JSON.stringify(buildMockChatCompletion(body, {
+        content: reply,
+      })));
       return;
     }
 
@@ -211,6 +227,7 @@ async function createMockLmStudioServer() {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     nativeBaseUrl: `http://127.0.0.1:${port}/api/v1`,
     stats,
+    chatBodies,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 }
@@ -592,6 +609,188 @@ test('direct write route survives semantic-render gating on side-effecting turns
     if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
     if (fs.existsSync(repoTempFile)) fs.rmSync(repoTempFile, { force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('public chat route preserves tool-loop and semantic_render receipt items together without widening PromptTruth', async () => {
+  const originalEnv = {
+    PORT: process.env.PORT,
+    PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_MEMORY_ARCHIVE_FILE: process.env.PENNY_MEMORY_ARCHIVE_FILE,
+    PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
+    PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
+    PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
+    PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+    PENNY_LMSTUDIO_CHAT_MODEL: process.env.PENNY_LMSTUDIO_CHAT_MODEL,
+    PENNY_LMSTUDIO_TOOL_MODEL: process.env.PENNY_LMSTUDIO_TOOL_MODEL,
+    PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
+  };
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-tool-evidence-'));
+  const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  const archiveFile = path.join(tmpDir, 'penny-memory-archive.test.json');
+  const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.test.json');
+  const booksFile = path.join(tmpDir, 'penny-memory-books.test.json');
+  const userPrompt = 'Compare README.md with docs/README.md and tell me the short takeaway.';
+  const mockLmStudio = await createMockLmStudioServer({
+    async handleChatCompletion({ body }) {
+      const messages = Array.isArray(body?.messages) ? body.messages : [];
+      const raw = JSON.stringify(body);
+      const semanticPrompt = messages.find((message) => /Verified semantic core:/i.test(String(message?.content || '')));
+      if (semanticPrompt) {
+        return buildMockChatCompletion(body, {
+          content: 'README frames Penny as the local companion prototype, and docs/README is the docs authority map.\n[MOOD:thinking]',
+        });
+      }
+      if (!new RegExp(userPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(raw)) {
+        return null;
+      }
+      const hasToolResults = messages.some((message) => message?.role === 'tool');
+      if (!hasToolResults) {
+        return buildMockChatCompletion(body, {
+          content: '',
+          tool_calls: [
+            {
+              id: 'call-readme',
+              type: 'function',
+              function: {
+                name: 'read_project_file',
+                arguments: JSON.stringify({ path: 'README.md' }),
+              },
+            },
+            {
+              id: 'call-docs-readme',
+              type: 'function',
+              function: {
+                name: 'read_project_file',
+                arguments: JSON.stringify({ path: 'docs/README.md' }),
+              },
+            },
+          ],
+        });
+      }
+      return buildMockChatCompletion(body, {
+        content: 'README says Penny is the local companion prototype, and docs/README is the docs authority map.\n[MOOD:thinking]',
+        tool_calls: [],
+      });
+    },
+  });
+
+  process.env.PORT = '0';
+  process.env.PENNY_MEMORY_FILE = memoryFile;
+  process.env.PENNY_MEMORY_ARCHIVE_FILE = archiveFile;
+  process.env.PENNY_MEMORY_EMBEDDINGS_FILE = embeddingsFile;
+  process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
+  process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+  process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
+  process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
+  process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const serverModule = require('../server.js');
+  const started = serverModule.startServer({ port: 0, silent: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (started.listening) {
+        resolve();
+        return;
+      }
+      started.once('listening', resolve);
+      started.once('error', reject);
+    });
+
+    const address = started.address();
+    const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'route-tool-evidence-semantic',
+        messages: [
+          { role: 'user', content: userPrompt },
+        ],
+        memories: { brainMode: 'local' },
+      }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json.meta.localLane, 'tool');
+    assert.equal(response.json.meta.executionPath, 'llm-tool-loop');
+    assertArtifactShape(response.json.meta.artifact);
+
+    const artifact = response.json.meta.artifact;
+    const receipt = artifact.toolEvidenceReceipt;
+    assert.ok(receipt && typeof receipt === 'object');
+    assert.equal(receipt.schema, 'penny-tool-evidence-receipt.v1');
+
+    const nativeLoopItems = receipt.items.filter((item = {}) => (
+      item.path === 'native_tool_loop'
+      && item.promptVisibility === 'prompt_visible'
+      && item.renderForm === 'raw_json'
+      && item.modelHop === 'multi'
+    ));
+    assert.equal(nativeLoopItems.length, 2);
+    assert.deepEqual(
+      nativeLoopItems
+        .map((item) => String(item?.sourceRefs?.[0]?.target || ''))
+        .sort(),
+      ['README.md', 'docs/README.md'],
+    );
+
+    const semanticRenderItems = receipt.items.filter((item = {}) => (
+      item.path === 'semantic_render'
+      && item.promptVisibility === 'prompt_visible'
+      && item.renderForm === 'summarized_semantic_core'
+      && item.modelHop === 'single'
+    ));
+    assert.equal(semanticRenderItems.length, 1);
+    assert.deepEqual(
+      semanticRenderItems[0].sourceRefs.map((entry) => entry.target).sort(),
+      ['README.md', 'docs/README.md'],
+    );
+
+    assert.equal(receipt.summary.itemCount, 3);
+    assert.equal(receipt.summary.promptVisibleItemCount, 3);
+    assert.equal(receipt.summary.rawJsonItemCount, 2);
+    assert.equal(receipt.summary.summarizedItemCount, 1);
+    assert.equal(receipt.summary.multiHopItemCount, 2);
+
+    assert.equal(artifact.promptTruth.schema, 'penny-prompttruth.v1');
+    assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'toolEvidence'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth, 'toolEvidenceReceipt'), false);
+    assert.equal(artifact.modelAdvisory.promptTruth.schema, 'penny-prompttruth.v1');
+    assert.equal(Object.prototype.hasOwnProperty.call(artifact.modelAdvisory.promptTruth.channels, 'toolEvidence'), false);
+
+    assert.equal(mockLmStudio.stats.chatRequests, 3);
+    const semanticPrompt = mockLmStudio.chatBodies
+      .flatMap((body) => (Array.isArray(body?.messages) ? body.messages : []))
+      .find((message) => /Verified semantic core:/i.test(String(message?.content || '')));
+    assert.ok(semanticPrompt);
+    assert.match(String(semanticPrompt.content || ''), /Tool: read_project_file/i);
+    assert.match(String(semanticPrompt.content || ''), /README\.md/i);
+    assert.match(String(semanticPrompt.content || ''), /docs\/README\.md/i);
+  } finally {
+    await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
+    delete require.cache[modulePath];
+    if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
+    if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
+    if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
+    if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
+    if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
+    if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
+    if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    if (originalEnv.PENNY_LMSTUDIO_CHAT_MODEL == null) delete process.env.PENNY_LMSTUDIO_CHAT_MODEL; else process.env.PENNY_LMSTUDIO_CHAT_MODEL = originalEnv.PENNY_LMSTUDIO_CHAT_MODEL;
+    if (originalEnv.PENNY_LMSTUDIO_TOOL_MODEL == null) delete process.env.PENNY_LMSTUDIO_TOOL_MODEL; else process.env.PENNY_LMSTUDIO_TOOL_MODEL = originalEnv.PENNY_LMSTUDIO_TOOL_MODEL;
+    if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
