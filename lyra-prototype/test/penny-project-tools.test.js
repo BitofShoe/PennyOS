@@ -90,7 +90,7 @@ test('project tool guards reject root escapes and oversized writes', () => {
   try {
     const outsideFile = path.join(path.dirname(projectRoot), 'outside.txt');
     fs.writeFileSync(outsideFile, 'nope\n');
-    assert.throws(() => api.readProjectFileTool({ path: '..\\outside.txt' }), /inside the Penny project/i);
+    assert.throws(() => api.readProjectFileTool({ path: path.join('..', 'outside.txt') }), /inside the Penny project/i);
     assert.throws(() => api.writeProjectFileTool({ path: 'src/big.js', content: 'x'.repeat(1024) }), /Keep tool writes under/i);
     fs.rmSync(outsideFile, { force: true });
   } finally {
