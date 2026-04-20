@@ -41,6 +41,7 @@ const {
   extractExplicitProjectPath,
   shouldForceLocalToolLoop,
   resolveDirectToolIntent,
+  resolveAttachedFileIntent,
   composeDirectWebSearchReply,
   composeDirectReadReply,
   composeToolRecordFallback,
@@ -169,6 +170,16 @@ test('resolveDirectToolIntent keeps ambiguous freeform technical chatter on the 
 test('resolveDirectToolIntent ignores casual quoted banter about files', () => {
   const intent = resolveDirectToolIntent('bahahaha okay dolly, people have called these "sleepy eyes" before. you have your own damn "readme" section already, but lemme find some other interesting files you can look at too.');
   assert.equal(intent, null);
+});
+
+test('resolveAttachedFileIntent treats uploaded-file follow-up turns as bounded attached-file reads', () => {
+  const intent = resolveAttachedFileIntent(
+    "bruh i get you but the file is literally so easy to find. here i even attached it this time.",
+    { name: 'README.md', text: '# Penny', lineCount: 1 },
+  );
+  assert.ok(intent);
+  assert.equal(intent.name, 'read_attached_file');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.ATTACHED_FILE_READ);
 });
 
 test('composeDirectReadReply stays honest when a file only mentions a symbol instead of defining it', () => {

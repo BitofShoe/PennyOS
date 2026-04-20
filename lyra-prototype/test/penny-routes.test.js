@@ -1255,11 +1255,13 @@ test('chat route reports experimental epistemic caution and archive synthesis wh
     assert.ok(Array.isArray(inspector.json.inspector.archive.session.recentAuditTrail));
     assert.equal(inspector.json.inspector.archive.session.recentAuditTrail.length >= 1, true);
     assert.equal(inspector.json.inspector.archive.session.recentAuditTrail[0].retrieval.selectedSessionIds.length >= 1, true);
+    assert.ok(Array.isArray(inspector.json.inspector.archive.session.recentAuditTrail[0].retrieval.renderedSessionIds));
     assert.equal(typeof inspector.json.inspector.archive.session.recentAuditTrail[0].promptTruth.channels.sessionArchive.renderedCount, 'number');
     assert.ok(['', 'canon-priority-suppression'].includes(
       inspector.json.inspector.archive.session.recentAuditTrail[0].promptTruth.channels.sessionArchive.heldBackReason,
     ));
     assert.equal(inspector.json.inspector.archive.session.lastRetrieval.summary.selectedSessionIds.length >= 1, true);
+    assert.ok(Array.isArray(inspector.json.inspector.archive.session.lastRetrieval.summary.renderedSessionIds));
   } finally {
     await new Promise((resolve) => started.close(() => resolve()));
     await mockLmStudio.close();

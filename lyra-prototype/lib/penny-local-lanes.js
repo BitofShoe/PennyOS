@@ -22,6 +22,7 @@ function createLocalLaneApi({
   shouldOfferLocalTools,
   shouldForceLocalToolLoop,
   resolveDirectToolIntent,
+  resolveAttachedFileIntent = null,
 } = {}) {
   if (typeof shouldOfferLocalTools !== 'function') {
     throw new TypeError('createLocalLaneApi requires shouldOfferLocalTools');
@@ -31,6 +32,9 @@ function createLocalLaneApi({
   }
   if (typeof resolveDirectToolIntent !== 'function') {
     throw new TypeError('createLocalLaneApi requires resolveDirectToolIntent');
+  }
+  if (resolveAttachedFileIntent != null && typeof resolveAttachedFileIntent !== 'function') {
+    throw new TypeError('createLocalLaneApi requires resolveAttachedFileIntent to be a function when provided');
   }
 
   function selectLocalLane({ userText = '', image = null, file = null } = {}) {
@@ -46,9 +50,10 @@ function createLocalLaneApi({
       };
     }
 
-    const directIntent = resolveDirectToolIntent(text);
+    const directIntent = resolveDirectToolIntent(text)
+      || (typeof resolveAttachedFileIntent === 'function' ? resolveAttachedFileIntent(text, file) : null);
     const forceToolLoop = shouldForceLocalToolLoop(text);
-    const needsTools = !!(file || forceToolLoop || shouldOfferLocalTools(text));
+    const needsTools = !!(directIntent || forceToolLoop || shouldOfferLocalTools(text));
     const localLane = directIntent || needsTools ? 'tool' : 'chat';
     let reason = 'companion-chat';
     let reasonCode = LOCAL_LANE_REASON_CODES.COMPANION_CHAT;

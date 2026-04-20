@@ -3,10 +3,13 @@ const { writeJsonFileAtomicSync } = require('./penny-atomic-json');
 
 const {
   normalizeText,
-  normalizePromptTruth,
   selectMemoriesForPrompt,
   tokenizeMemoryText,
 } = require('./penny-memory');
+const {
+  normalizePromptTruth,
+  PROMPT_TRUTH_AUDIT_LIMITS,
+} = require('./penny-prompttruth');
 const { createMemoryArchivePolicyApi } = require('./penny-memory-archive-policy');
 const {
   normalizeConsolidationPacket,
@@ -842,7 +845,10 @@ function createMemoryArchiveApi({
         heldBackReason: trimText(channel.heldBackReason || '', 120),
       };
     }
-    return { channels };
+    return {
+      schema: normalized.schema,
+      channels,
+    };
   }
 
   function normalizeAuditRetrievalSummary(raw = {}) {
@@ -858,19 +864,27 @@ function createMemoryArchiveApi({
       selectedSessionIds: normalizeEvidenceIds(
         value.selectedSessionIds
         || (Array.isArray(value.session) ? value.session.map((item) => item?.id || item) : []),
-      ).slice(0, 6),
+      ).slice(0, PROMPT_TRUTH_AUDIT_LIMITS.sessionArchive),
       selectedGlobalIds: normalizeEvidenceIds(
         value.selectedGlobalIds
         || (Array.isArray(value.global) ? value.global.map((item) => item?.id || item) : []),
-      ).slice(0, 6),
+      ).slice(0, PROMPT_TRUTH_AUDIT_LIMITS.globalArchive),
       selectedBookIds: normalizeEvidenceIds(
         value.selectedBookIds
         || (Array.isArray(value.books) ? value.books.map((item) => item?.id || item) : []),
-      ).slice(0, 4),
+      ).slice(0, PROMPT_TRUTH_AUDIT_LIMITS.memoryBooks),
       selectedLedgerIds: normalizeEvidenceIds(
         value.selectedLedgerIds
         || (Array.isArray(value.ledger) ? value.ledger.map((item) => item?.topicId || item?.id || item) : []),
-      ).slice(0, 4),
+      ).slice(0, PROMPT_TRUTH_AUDIT_LIMITS.researchLedger),
+      renderedSessionIds: normalizeEvidenceIds(value.renderedSessionIds || [])
+        .slice(0, PROMPT_TRUTH_AUDIT_LIMITS.sessionArchive),
+      renderedGlobalIds: normalizeEvidenceIds(value.renderedGlobalIds || [])
+        .slice(0, PROMPT_TRUTH_AUDIT_LIMITS.globalArchive),
+      renderedBookIds: normalizeEvidenceIds(value.renderedBookIds || [])
+        .slice(0, PROMPT_TRUTH_AUDIT_LIMITS.memoryBooks),
+      renderedLedgerIds: normalizeEvidenceIds(value.renderedLedgerIds || [])
+        .slice(0, PROMPT_TRUTH_AUDIT_LIMITS.researchLedger),
       compression: {
         used: compression.used === true,
       },

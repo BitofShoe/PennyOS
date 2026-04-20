@@ -78,6 +78,10 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
               selectedGlobalIds: [],
               selectedBookIds: [],
               selectedLedgerIds: ['path-package-json'],
+              renderedSessionIds: [],
+              renderedGlobalIds: [],
+              renderedBookIds: [],
+              renderedLedgerIds: [],
               compression: { used: false },
               semanticReady: false,
               semanticDowngrade: false,
@@ -455,6 +459,10 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
                 selectedGlobalIds: [],
                 selectedBookIds: [],
                 selectedLedgerIds: ['path-package-json'],
+                renderedSessionIds: [],
+                renderedGlobalIds: [],
+                renderedBookIds: [],
+                renderedLedgerIds: [],
                 compression: { used: false },
                 semanticReady: false,
                 semanticDowngrade: false,
@@ -809,7 +817,8 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Recency protection/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Recent audit trail/);
   assert.match(els.memoryInspectorPanel.innerHTML, /canon-priority-suppression/);
-  assert.match(els.memoryInspectorPanel.innerHTML, /ledger 1/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /session selected 1 rendered 0/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /ledger selected 1 rendered 0/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /ledger held back/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /post-reply update skipped/i);
   assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /supported the reply/i);

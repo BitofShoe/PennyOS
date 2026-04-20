@@ -11,7 +11,15 @@ const {
 } = require('./penny-prompt-stack');
 const {
   normalizePromptTruth,
-} = require('./penny-memory');
+  advisoryPromptTruthChannels,
+  promptTruthRenderedSourceIds,
+  promptTruthCandidateSourceIds,
+  promptTruthRenderedCount,
+  promptTruthCandidateCount,
+  promptTruthHeldBackReason,
+  hasPromptTruthReceipt,
+  deriveResearchLedgerPromptInjected,
+} = require('./penny-prompttruth');
 const {
   LATENCY_CLASSES,
 } = require('./penny-latency-budget');
@@ -815,49 +823,6 @@ function normalizeAuthorityPressure(value = {}, defaults = {}) {
   };
 }
 
-function promptTruthChannel(promptTruth = null, channel = '') {
-  const normalized = normalizePromptTruth(promptTruth);
-  return normalized.channels?.[channel] || normalizePromptTruth().channels[channel] || {
-    candidateCount: 0,
-    renderedCount: 0,
-    candidateSourceIds: [],
-    renderedSourceIds: [],
-    heldBackReason: '',
-  };
-}
-
-function promptTruthRenderedSourceIds(promptTruth = null, channel = '') {
-  return uniqueStrings(promptTruthChannel(promptTruth, channel).renderedSourceIds || [], 12);
-}
-
-function promptTruthCandidateSourceIds(promptTruth = null, channel = '') {
-  return uniqueStrings(promptTruthChannel(promptTruth, channel).candidateSourceIds || [], 12);
-}
-
-function promptTruthRenderedCount(promptTruth = null, channel = '') {
-  return Math.max(0, Number(promptTruthChannel(promptTruth, channel).renderedCount || 0));
-}
-
-function promptTruthCandidateCount(promptTruth = null, channel = '') {
-  return Math.max(0, Number(promptTruthChannel(promptTruth, channel).candidateCount || 0));
-}
-
-function promptTruthHeldBackReason(promptTruth = null, channel = '') {
-  return String(promptTruthChannel(promptTruth, channel).heldBackReason || '').trim();
-}
-
-function hasPromptTruthReceipt(promptTruth = null) {
-  const normalized = normalizePromptTruth(promptTruth);
-  if (normalized.canonicalFactsPresent === true || normalized.canonicalOverrideActive === true) return true;
-  return Object.values(normalized.channels || {}).some((channel) => (
-    Number(channel?.candidateCount || 0) > 0
-    || Number(channel?.renderedCount || 0) > 0
-    || (Array.isArray(channel?.candidateSourceIds) && channel.candidateSourceIds.length > 0)
-    || (Array.isArray(channel?.renderedSourceIds) && channel.renderedSourceIds.length > 0)
-    || !!String(channel?.heldBackReason || '').trim()
-  ));
-}
-
 function formatCountLabel(count = 0, singular = 'item', plural = 'items') {
   const safeCount = Math.max(0, Number(count || 0));
   return `${safeCount} ${safeCount === 1 ? singular : plural}`;
@@ -904,10 +869,6 @@ function describePromptTruthLayer({
     status: 'empty',
     count: 0,
   };
-}
-
-function advisoryPromptTruthChannels() {
-  return ['memoryBooks', 'sessionArchive', 'globalArchive', 'researchLedger'];
 }
 
 function promptTruthAdvisoryRenderedCount(promptTruth = null) {
@@ -1643,9 +1604,10 @@ function buildRuntimeArtifact({
   const normalizedEpistemics = normalizeEpistemicCaution(epistemics);
   const normalizedSynthesis = normalizeArchiveSynthesis(synthesis);
   const normalizedPromptTruth = normalizePromptTruth(promptTruth);
-  const effectiveResearchLedgerPromptInjected = hasPromptTruthReceipt(normalizedPromptTruth)
-    ? Number(normalizedPromptTruth.channels?.researchLedger?.renderedCount || 0) > 0
-    : (researchLedgerPromptInjected === true);
+  const effectiveResearchLedgerPromptInjected = deriveResearchLedgerPromptInjected(
+    normalizedPromptTruth,
+    researchLedgerPromptInjected === true,
+  );
   const toolState = buildToolArtifactState(toolRecords, toolsUsed);
   const normalizedToolOutcome = normalizeToolOutcome(toolOutcome);
   const writeRequiredUnmet = selectedLane === 'tool'
@@ -1877,9 +1839,10 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
     raw.executionPath || fallback.executionPath,
     kind === 'shadow-turn' ? 'shadow' : (kind === 'tool-turn' ? 'deterministic-tool' : 'llm-chat'),
   );
-  const researchLedgerPromptInjected = hasPromptTruthReceipt(promptTruth)
-    ? Number(promptTruth.channels?.researchLedger?.renderedCount || 0) > 0
-    : (raw.researchLedgerPromptInjected === true || fallback.researchLedgerPromptInjected === true);
+  const researchLedgerPromptInjected = deriveResearchLedgerPromptInjected(
+    promptTruth,
+    raw.researchLedgerPromptInjected === true || fallback.researchLedgerPromptInjected === true,
+  );
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(raw.researchLedgerUpdate, fallback.researchLedgerUpdate);
   const toolOutcome = normalizeToolOutcome(raw.toolOutcome, fallback.toolOutcome);
   const epistemics = normalizeEpistemicCaution(raw.epistemics || fallback.epistemics);
@@ -1988,9 +1951,10 @@ function normalizeLastRouteInfo(value) {
     requestedMode === 'shadow' ? 'shadow' : (selectedLane === 'tool' ? 'deterministic-tool' : 'llm-chat'),
   );
   const promptTruth = normalizePromptTruth(value.promptTruth);
-  const researchLedgerPromptInjected = hasPromptTruthReceipt(promptTruth)
-    ? Number(promptTruth.channels?.researchLedger?.renderedCount || 0) > 0
-    : (value.researchLedgerPromptInjected === true);
+  const researchLedgerPromptInjected = deriveResearchLedgerPromptInjected(
+    promptTruth,
+    value.researchLedgerPromptInjected === true,
+  );
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(value.researchLedgerUpdate);
   const toolOutcome = normalizeToolOutcome(value.toolOutcome);
   const repair = normalizeRepairInfo(value.repair);

@@ -37,6 +37,7 @@
 
 `promptTruth` currently records:
 
+- top-level `schema` marker, currently `penny-prompttruth.v1`
 - top-level flags `canonicalFactsPresent` and `canonicalOverrideActive`
 - per-channel receipts for `stableFacts`, `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger`
 - per-channel `candidateCount`, `renderedCount`, `candidateSourceIds`, `renderedSourceIds`, and `heldBackReason`
@@ -47,7 +48,7 @@
 ## Holdback rules
 
 - `heldBackReason` means selected context was intentionally suppressed after selection and before the live model request.
-- Current live holdback reasons include `canon-priority-suppression` and `ledger-disabled`.
+- Current live holdback reasons include `canon-priority-suppression` and `ledger-prompt-disabled`.
 - New holdback reason codes are allowed only if they stay explicit, bounded, and truthful at artifact and inspector surfaces.
 - Human-readable wording may prettify a holdback reason, but it must not change the underlying meaning.
 
@@ -58,13 +59,14 @@
 - Penny does not currently store `postReplyUpdates` inside `promptTruth`. Post-turn archive and ledger outcomes belong to `sideEffects`, `recentAuditTrail`, and `researchLedgerUpdate`.
 - Penny does not currently treat verified tool evidence as a first-class `promptTruth` channel. Tool evidence belongs to artifact evidence/provenance surfaces unless that evidence was also literally rendered into the prompt.
 - Penny does not currently store rendered-only IDs inside `recentAuditTrail.retrieval.selected*Ids`. Those audit fields are candidate-selection summaries, not prompt-visibility receipts.
+- Penny now stores additive rendered-only audit identity fields alongside those candidate summaries: `renderedSessionIds`, `renderedGlobalIds`, `renderedBookIds`, and `renderedLedgerIds`. These are prompt-visibility receipts; they must not be inferred from broader retrieval payloads.
 
 ## Deferred v2 hooks
 
 - This section is non-binding. It records future-plan seams without promoting them into current law.
 - If runtime code begins to distinguish `unavailable` from `excluded-before-candidate`, a future `promptTruth` revision may add explicit receipt states or bounded exclusion reasons for those cases.
 - If Penny ever renders verified tool evidence into the live prompt as its own truth-bearing channel, a future `promptTruth` revision may add a first-class rendered tool-evidence receipt instead of inferring that state from provenance.
-- If audit consumers need rendered-only source identities, a future audit shape may add dedicated rendered-ID fields rather than reinterpreting `recentAuditTrail.retrieval.selected*Ids`.
+- Future audit revisions may extend the additive rendered-ID receipt beyond `renderedSessionIds`, `renderedGlobalIds`, `renderedBookIds`, and `renderedLedgerIds`, but they should keep `selected*Ids` as candidate continuity rather than reinterpreting them.
 - If compatibility consumers can migrate cleanly, a future versioned cleanup pass may rename rendered-only aliases such as `researchLedgerPromptInjected`, retrieval-trace `injected`, `authorityPressure.*Injected`, and QA compare `promptInjectedCases` into rendered terminology.
 - If turn-level receipt metadata becomes necessary, a future revision may add an outer PromptTruth envelope for fields like turn, lane, build time, and model instead of overloading per-channel rows.
 

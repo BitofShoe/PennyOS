@@ -1,4 +1,8 @@
 const crypto = require('node:crypto');
+const {
+  normalizePromptTruth,
+  PROMPT_TRUTH_SCHEMA,
+} = require('./penny-prompttruth');
 
 const MEMORY_ENTRY_LIMIT = 30;
 const MEMORY_PROMPT_LIMIT = 12;
@@ -266,37 +270,6 @@ function researchLedgerPromptTruthSourceId(item = {}) {
   return String(item?.topicId || '').trim() || stablePromptTruthSourceId('research-ledger', item?.topicLabel || item?.summary || item?.question || '');
 }
 
-function normalizePromptTruthChannel(raw = {}) {
-  const value = raw && typeof raw === 'object' ? raw : {};
-  return {
-    candidateCount: Math.max(0, Number(value.candidateCount || 0) || 0),
-    renderedCount: Math.max(0, Number(value.renderedCount || 0) || 0),
-    candidateSourceIds: Array.isArray(value.candidateSourceIds)
-      ? value.candidateSourceIds.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12)
-      : [],
-    renderedSourceIds: Array.isArray(value.renderedSourceIds)
-      ? value.renderedSourceIds.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12)
-      : [],
-    heldBackReason: String(value.heldBackReason || '').trim(),
-  };
-}
-
-function normalizePromptTruth(raw = {}) {
-  const value = raw && typeof raw === 'object' ? raw : {};
-  const channels = value.channels && typeof value.channels === 'object' ? value.channels : {};
-  return {
-    canonicalFactsPresent: value.canonicalFactsPresent === true,
-    canonicalOverrideActive: value.canonicalOverrideActive === true,
-    channels: {
-      stableFacts: normalizePromptTruthChannel(channels.stableFacts),
-      memoryBooks: normalizePromptTruthChannel(channels.memoryBooks),
-      sessionArchive: normalizePromptTruthChannel(channels.sessionArchive),
-      globalArchive: normalizePromptTruthChannel(channels.globalArchive),
-      researchLedger: normalizePromptTruthChannel(channels.researchLedger),
-    },
-  };
-}
-
 function buildPromptMemoryContext(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
   const selected = selectMemoriesForPrompt(memories, userText, limit, now);
   const memoryBooks = selectMemoryBooksForPrompt(memories, MEMORY_BOOK_PROMPT_LIMIT);
@@ -430,6 +403,7 @@ function buildPromptMemoryContext(memories = {}, userText = '', limit = MEMORY_P
   return {
     text: sections.length ? sections.join('\n') : fallback,
     promptTruth: normalizePromptTruth({
+      schema: PROMPT_TRUTH_SCHEMA,
       canonicalFactsPresent: selected.length > 0,
       canonicalOverrideActive: suppressArchiveForDirectAuthority,
       channels: {
@@ -515,4 +489,5 @@ module.exports = {
   tokenizeMemoryText,
   scoreMemoryForPrompt,
   PROMPT_TRUTH_HOLDBACK_REASONS,
+  PROMPT_TRUTH_SCHEMA,
 };

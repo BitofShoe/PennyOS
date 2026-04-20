@@ -730,12 +730,38 @@ function renderRecentAuditTrail(items = [], escapeHtmlFn = escapeHtml) {
         return `${key} ${renderedCount}/${candidateCount}${heldBackReason ? ` (${heldBackReason})` : ''}`;
       })
       .filter(Boolean);
+    const retrievalIdentityBits = [
+      {
+        label: 'session',
+        selected: retrieval.selectedSessionIds,
+        rendered: retrieval.renderedSessionIds,
+      },
+      {
+        label: 'global',
+        selected: retrieval.selectedGlobalIds,
+        rendered: retrieval.renderedGlobalIds,
+      },
+      {
+        label: 'books',
+        selected: retrieval.selectedBookIds,
+        rendered: retrieval.renderedBookIds,
+      },
+      {
+        label: 'ledger',
+        selected: retrieval.selectedLedgerIds,
+        rendered: retrieval.renderedLedgerIds,
+      },
+    ]
+      .map((entry) => {
+        const selectedCount = Array.isArray(entry.selected) ? entry.selected.length : 0;
+        const renderedCount = Array.isArray(entry.rendered) ? entry.rendered.length : 0;
+        if (!selectedCount && !renderedCount) return '';
+        return `${entry.label} selected ${selectedCount} rendered ${renderedCount}`;
+      })
+      .filter(Boolean);
     const retrievalBits = [
       retrieval.mode ? `${retrieval.mode}/${retrieval.reasonCode || 'reason-unknown'}` : '',
-      Array.isArray(retrieval.selectedSessionIds) && retrieval.selectedSessionIds.length ? `session ${retrieval.selectedSessionIds.length}` : '',
-      Array.isArray(retrieval.selectedGlobalIds) && retrieval.selectedGlobalIds.length ? `global ${retrieval.selectedGlobalIds.length}` : '',
-      Array.isArray(retrieval.selectedBookIds) && retrieval.selectedBookIds.length ? `books ${retrieval.selectedBookIds.length}` : '',
-      Array.isArray(retrieval.selectedLedgerIds) && retrieval.selectedLedgerIds.length ? `ledger ${retrieval.selectedLedgerIds.length}` : '',
+      ...retrievalIdentityBits,
       retrieval.compression?.used ? 'compression used' : '',
       retrieval.semanticReady ? 'semantic ready' : 'keyword path',
       retrieval.semanticDowngrade ? 'semantic downgraded' : '',

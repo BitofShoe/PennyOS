@@ -48,6 +48,64 @@ function createDirectToolAssistApi({
     throw new TypeError('createDirectToolAssistApi requires normalizeWebUrl');
   }
 
+  function formatAttachmentExcerpt(lines = [], startLine = 1, endLine = startLine) {
+    const excerpt = lines
+      .slice(Math.max(0, startLine - 1), Math.max(0, endLine))
+      .map((line, idx) => `${startLine + idx}:${line}`)
+      .join('\n');
+    if (excerpt.length <= 12000) return excerpt;
+    return `${excerpt.slice(0, 11997).trimEnd()}...`;
+  }
+
+  function buildAttachedFileReadData(file = null, intent = {}) {
+    const name = String(file?.name || 'attached file').trim() || 'attached file';
+    const path = `attached ${name}`;
+    const raw = String(file?.text || '').replace(/\r\n/g, '\n');
+    const lines = raw.split('\n');
+    const totalLines = lines.length;
+    if (intent?.name === 'read_attached_file_around_match') {
+      const query = String(intent?.args?.query || '').trim();
+      if (!query) {
+        return {
+          path,
+          error: `Could not find a valid query for ${name}.`,
+        };
+      }
+      const beforeLines = clampNumber(intent?.args?.beforeLines, 0, 120, 12);
+      const afterLines = clampNumber(intent?.args?.afterLines, 1, 120, 48);
+      const matchIndex = lines.findIndex((line) => line.toLowerCase().includes(query.toLowerCase()));
+      if (matchIndex === -1) {
+        return {
+          path,
+          query,
+          error: `Could not find "${query}" in attached ${name}.`,
+        };
+      }
+      const startLine = Math.max(1, matchIndex + 1 - beforeLines);
+      const endLine = Math.min(totalLines, matchIndex + 1 + afterLines);
+      return {
+        path,
+        query,
+        matchLine: matchIndex + 1,
+        startLine,
+        endLine,
+        totalLines,
+        excerpt: formatAttachmentExcerpt(lines, startLine, endLine),
+      };
+    }
+
+    const startLine = clampNumber(intent?.args?.startLine, 1, Math.max(1, totalLines), 1);
+    const defaultEndLine = Math.min(totalLines, startLine + 119);
+    const endLine = clampNumber(intent?.args?.endLine, startLine, Math.max(startLine, startLine + 119), defaultEndLine);
+    return {
+      path,
+      startLine,
+      endLine: Math.min(endLine, totalLines),
+      totalLines,
+      excerpt: formatAttachmentExcerpt(lines, startLine, Math.min(endLine, totalLines)),
+    };
+  }
+
   async function executeDirectToolSequence(intent = {}, onToolEvent) {
     const toolsUsed = [];
     const results = [];
@@ -201,7 +259,7 @@ function createDirectToolAssistApi({
     };
   }
 
-  async function runDirectToolAssist({ userText, messages, memories, intent, onToolEvent, abortSignal, laneRuntime = null }) {
+  async function runDirectToolAssist({ userText, messages, memories, intent, file = null, onToolEvent, abortSignal, laneRuntime = null }) {
     if (intent?.kind === 'sequence') {
       const sequence = await executeDirectToolSequence(intent, onToolEvent);
       return {
@@ -230,6 +288,15 @@ function createDirectToolAssistApi({
         toolRecords: sequence.results,
         toolOutcome: buildSequenceToolOutcome(intent, sequence),
         modelUsed: true,
+        skipSemanticRender: true,
+      };
+    }
+    if (intent?.name === 'read_attached_file' || intent?.name === 'read_attached_file_around_match') {
+      const data = buildAttachedFileReadData(file, intent);
+      return {
+        text: composeDirectReadReply(data),
+        toolsUsed: [],
+        toolRecords: [],
         skipSemanticRender: true,
       };
     }

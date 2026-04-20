@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   buildRuntimeArtifact,
+  normalizeRuntimeArtifact,
 } = require('../lib/penny-runtime-artifacts');
 
 test('buildRuntimeArtifact records a compact retrieval trace for inspector and QA consumers', () => {
@@ -157,6 +158,8 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.trace.evidenceAccepted.length > 0, true);
   assert.equal(artifact.modelAdvisory.promptComposition.lane, 'chat');
   assert.equal(artifact.modelAdvisory.promptComposition.slots[2].state, 'held-back');
+  assert.equal(artifact.promptTruth.schema, 'penny-prompttruth.v1');
+  assert.equal(artifact.modelAdvisory.promptTruth.schema, 'penny-prompttruth.v1');
   assert.equal(artifact.promptTruth.channels.sessionArchive.renderedCount, 1);
   assert.equal(artifact.promptTruth.channels.researchLedger.renderedCount, 1);
   assert.equal(artifact.modelAdvisory.approximatePath.status, 'bounded-approximate');
@@ -168,6 +171,28 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.modelAdvisory.advisoryMerge.advisoryItems, 3);
   assert.equal(artifact.modelAdvisory.advisoryMerge.lossyItems, 0);
   assert.deepEqual(artifact.modelAdvisory.advisoryMerge.mergeBasis, []);
+});
+
+test('normalizeRuntimeArtifact preserves prompt truth schema during normalization', () => {
+  const artifact = normalizeRuntimeArtifact({
+    promptTruth: {
+      schema: 'penny-prompttruth.v1',
+      canonicalFactsPresent: false,
+      canonicalOverrideActive: false,
+      channels: {
+        stableFacts: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        memoryBooks: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        sessionArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        globalArchive: { candidateCount: 0, renderedCount: 0, candidateSourceIds: [], renderedSourceIds: [] },
+        researchLedger: { candidateCount: 1, renderedCount: 1, candidateSourceIds: ['path-readme'], renderedSourceIds: ['path-readme'] },
+      },
+    },
+    researchLedgerPromptInjected: false,
+  });
+
+  assert.equal(artifact.promptTruth.schema, 'penny-prompttruth.v1');
+  assert.equal(artifact.modelAdvisory.promptTruth.schema, 'penny-prompttruth.v1');
+  assert.equal(artifact.researchLedgerPromptInjected, true);
 });
 
 test('buildRuntimeArtifact preserves deterministic-tool truth without faking model receipts', () => {

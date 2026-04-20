@@ -32,6 +32,10 @@ const {
   buildRuntimeReadiness,
   buildRuntimeStatusPerformance,
 } = require('./penny-runtime-artifacts');
+const {
+  deriveResearchLedgerPromptInjected,
+  projectAuditRetrievalFromPromptTruth,
+} = require('./penny-prompttruth');
 
 function isoNow(ms = Date.now()) {
   return new Date(ms).toISOString();
@@ -419,10 +423,8 @@ function createPennyRouteHandlers(deps = {}) {
     researchLedgerUpdate = null,
   } = {}) {
     const usedAt = String(artifact?.timestamps?.usedAt || retrieval?.usedAt || '').trim() || isoNow();
-    const promptTruthChannels = promptTruth?.channels && typeof promptTruth.channels === 'object'
-      ? promptTruth.channels
-      : {};
     const mode = String(retrieval?.mode || '').trim() || 'keyword';
+    const promptTruthAuditProjection = projectAuditRetrievalFromPromptTruth(promptTruth);
     // `selected*Ids` are candidate-selection summaries for audit continuity, not rendered-only prompt receipts.
     return {
       turnId: `${String(sessionId || 'default').trim() || 'default'}:${usedAt}`,
@@ -435,18 +437,7 @@ function createPennyRouteHandlers(deps = {}) {
         mode,
         reasonCode: String(retrieval?.reasonCode || '').trim()
           || (mode === 'semantic' ? 'semantic_query' : 'keyword_fallback'),
-        selectedSessionIds: Array.isArray(promptTruthChannels.sessionArchive?.candidateSourceIds)
-          ? promptTruthChannels.sessionArchive.candidateSourceIds
-          : [],
-        selectedGlobalIds: Array.isArray(promptTruthChannels.globalArchive?.candidateSourceIds)
-          ? promptTruthChannels.globalArchive.candidateSourceIds
-          : [],
-        selectedBookIds: Array.isArray(promptTruthChannels.memoryBooks?.candidateSourceIds)
-          ? promptTruthChannels.memoryBooks.candidateSourceIds
-          : [],
-        selectedLedgerIds: Array.isArray(promptTruthChannels.researchLedger?.candidateSourceIds)
-          ? promptTruthChannels.researchLedger.candidateSourceIds
-          : [],
+        ...promptTruthAuditProjection,
         compression: {
           used: retrieval?.compression?.used === true,
         },
@@ -1107,7 +1098,10 @@ function createPennyRouteHandlers(deps = {}) {
       }
       const promptMemories = runtimeMemoryContext.memories;
       const matchedBooks = Array.isArray(runtimeMemoryContext.retrieval?.books) ? runtimeMemoryContext.retrieval.books : [];
-      const researchLedgerPromptInjected = runtimeMemoryContext.researchLedgerPromptInjected === true;
+      const researchLedgerPromptInjected = deriveResearchLedgerPromptInjected(
+        runtimeMemoryContext.promptTruth,
+        runtimeMemoryContext.researchLedgerPromptInjected === true,
+      );
       let epistemics = runtimeMemoryContext.epistemics || null;
       let synthesis = runtimeMemoryContext.synthesis || null;
       saveStoredMemory(sessionId, memories);

@@ -1,5 +1,5 @@
 /**
- * @typedef {'direct_write_instruction' | 'direct_replace_instruction' | 'direct_append_instruction' | 'direct_open_ended_edit_instruction' | 'syntax_check_request' | 'git_diff_request' | 'web_page_request' | 'web_result_inspection_request' | 'web_search_request' | 'project_file_focus_read' | 'project_file_read_request' | 'project_path_discovery' | 'project_symbol_inspect' | 'project_text_search' | 'runtime_status_request' | 'git_status_request' | 'recent_logs_request'} DirectIntentReasonCode
+ * @typedef {'direct_write_instruction' | 'direct_replace_instruction' | 'direct_append_instruction' | 'direct_open_ended_edit_instruction' | 'syntax_check_request' | 'git_diff_request' | 'web_page_request' | 'web_result_inspection_request' | 'web_search_request' | 'project_file_focus_read' | 'project_file_read_request' | 'attached_file_focus_read' | 'attached_file_read_request' | 'project_path_discovery' | 'project_symbol_inspect' | 'project_text_search' | 'runtime_status_request' | 'git_status_request' | 'recent_logs_request'} DirectIntentReasonCode
  *
  * @typedef {Object} DirectIntentResolution
  * @property {string} name
@@ -22,6 +22,8 @@ const DIRECT_INTENT_REASON_CODES = Object.freeze({
   WEB_SEARCH: 'web_search_request',
   PROJECT_FILE_FOCUS_READ: 'project_file_focus_read',
   PROJECT_FILE_READ: 'project_file_read_request',
+  ATTACHED_FILE_FOCUS_READ: 'attached_file_focus_read',
+  ATTACHED_FILE_READ: 'attached_file_read_request',
   PROJECT_PATH_DISCOVERY: 'project_path_discovery',
   PROJECT_SYMBOL_INSPECT: 'project_symbol_inspect',
   PROJECT_TEXT_SEARCH: 'project_text_search',
@@ -312,6 +314,74 @@ function createDirectIntentApi({
       .test(String(text || ''));
   }
 
+  function extractAttachedFileReadFocusQuery(text = '') {
+    const raw = String(text || '');
+    const attachmentTarget = '(?:it|this|that|the attached file|the file|the doc|the document|this file|that file|this doc|that doc|this document|that document)';
+    const patterns = [
+      new RegExp(`\\bwhat does ${attachmentTarget}\\s+say about\\s+([\\\`\"'â€œâ€â€˜â€™]?[^\\\`\"'â€œâ€â€˜â€™?.!\\n]+[\\\`\"'â€œâ€â€˜â€™]?)`, 'i'),
+      new RegExp(`\\btell me what ${attachmentTarget}\\s+says about\\s+([\\\`\"'â€œâ€â€˜â€™]?[^\\\`\"'â€œâ€â€˜â€™?.!\\n]+[\\\`\"'â€œâ€â€˜â€™]?)`, 'i'),
+      new RegExp(`\\bwhat does ${attachmentTarget}\\s+mention about\\s+([\\\`\"'â€œâ€â€˜â€™]?[^\\\`\"'â€œâ€â€˜â€™?.!\\n]+[\\\`\"'â€œâ€â€˜â€™]?)`, 'i'),
+      new RegExp(`\\btell me what ${attachmentTarget}\\s+mentions about\\s+([\\\`\"'â€œâ€â€˜â€™]?[^\\\`\"'â€œâ€â€˜â€™?.!\\n]+[\\\`\"'â€œâ€â€˜â€™]?)`, 'i'),
+    ];
+    for (const pattern of patterns) {
+      const match = raw.match(pattern);
+      const candidate = cleanDirectReadFocusCandidate(match?.[1] || '');
+      if (candidate) return candidate;
+    }
+    return '';
+  }
+
+  function shouldReadAttachedFile(text = '') {
+    const lower = String(text || '').toLowerCase();
+    const attachmentTarget = '(?:it|this|that|attached|upload(?:ed)?|file|doc|document|this file|that file|this doc|that doc|this document|that document)';
+    if (!lower) return false;
+    if (extractExplicitProjectPath(text)) return false;
+    if (/\b(search the web|look up|google|latest|today'?s|current events|news)\b/i.test(lower)) return false;
+    if (
+      /\b(read|open|show|inspect|explain|summarize|check|look at|walk through)\b/i.test(lower)
+      && new RegExp(`\\b${attachmentTarget}\\b`, 'i').test(lower)
+    ) {
+      return true;
+    }
+    if (/\bwhat(?:'s| is) in (?:it|this|that|the attached file|the file|the doc|the document|this file|that file|this doc|that doc|this document|that document)\b/i.test(lower)) {
+      return true;
+    }
+    if (/\btell me what (?:it|this|that|the attached file|the file|the doc|the document|this file|that file|this doc|that doc|this document|that document) says\b/i.test(lower)) {
+      return true;
+    }
+    if (/\bwhat does (?:it|this|that|the attached file|the file|the doc|the document|this file|that file|this doc|that doc|this document|that document) say\b/i.test(lower)) {
+      return true;
+    }
+    return /\b(attached|upload(?:ed)?|here i even attached it|this time)\b/i.test(lower)
+      && /\b(file|doc|document|readme|it)\b/i.test(lower);
+  }
+
+  function resolveAttachedFileIntent(userText = '', file = null) {
+    if (!file || typeof file !== 'object') return null;
+    const text = String(userText || '');
+    if (!shouldReadAttachedFile(text)) return null;
+    const quotedQuery = extractDirectSearchQuery(text, '');
+    const focusQuery = extractAttachedFileReadFocusQuery(text);
+    const query = focusQuery || quotedQuery;
+    if (query && !extractExplicitProjectPath(query) && !/^(git diff|git status)$/i.test(query)) {
+      return withReasonCode({
+        name: 'read_attached_file_around_match',
+        args: {
+          query,
+          beforeLines: 12,
+          afterLines: 48,
+        },
+      }, DIRECT_INTENT_REASON_CODES.ATTACHED_FILE_FOCUS_READ);
+    }
+    return withReasonCode({
+      name: 'read_attached_file',
+      args: {
+        startLine: 1,
+        endLine: 160,
+      },
+    }, DIRECT_INTENT_REASON_CODES.ATTACHED_FILE_READ);
+  }
+
   function inferNaturalProjectReadTarget(text = '', explicitPath = '') {
     const lower = String(text || '').toLowerCase();
     const explicit = String(explicitPath || '').trim();
@@ -550,6 +620,7 @@ function createDirectIntentApi({
     looksLikeOpenEndedProjectEdit,
     shouldForceLocalToolLoop,
     resolveDirectToolIntent,
+    resolveAttachedFileIntent,
     shouldUseDirectReadReply,
     ...directIntentReplyApi,
   };

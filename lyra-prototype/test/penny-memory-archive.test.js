@@ -140,6 +140,10 @@ function buildAuditSlice({
       selectedGlobalIds: retrieval.selectedGlobalIds || [],
       selectedBookIds: retrieval.selectedBookIds || [],
       selectedLedgerIds: retrieval.selectedLedgerIds || [],
+      renderedSessionIds: retrieval.renderedSessionIds || [],
+      renderedGlobalIds: retrieval.renderedGlobalIds || [],
+      renderedBookIds: retrieval.renderedBookIds || [],
+      renderedLedgerIds: retrieval.renderedLedgerIds || [],
       compression: {
         used: retrieval.compression?.used === true,
       },
@@ -1035,6 +1039,7 @@ test('archiveCompletedTurn appends bounded recent audit slices and keeps lastRet
               ? ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK
               : ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY,
             selectedSessionIds: [`session-${turnNumber}`],
+            renderedSessionIds: [`session-${turnNumber}`],
             compression: { used: false },
             semanticReady: turnNumber % 2 === 1,
             semanticDowngrade: false,
@@ -1063,9 +1068,11 @@ test('archiveCompletedTurn appends bounded recent audit slices and keeps lastRet
     assert.equal(session.recentAuditTrail[0].turnId, 'turn-9');
     assert.equal(session.recentAuditTrail[7].turnId, 'turn-2');
     assert.deepEqual(session.lastRetrieval.summary.selectedSessionIds, ['session-9']);
+    assert.deepEqual(session.lastRetrieval.summary.renderedSessionIds, ['session-9']);
     assert.equal(session.lastRetrieval.reasonCode, session.recentAuditTrail[0].retrieval.reasonCode);
     assert.equal(inspector.archive.session.recentAuditTrail.length, 8);
     assert.equal(inspector.archive.session.recentAuditTrail[0].turnId, 'turn-9');
+    assert.deepEqual(inspector.archive.session.recentAuditTrail[0].retrieval.renderedSessionIds, ['session-9']);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
@@ -1139,8 +1146,10 @@ test('archiveCompletedTurn preserves held-back prompt-truth reasons inside compa
     assert.equal(slice.promptTruth.channels.researchLedger.heldBackReason, 'canon-priority-suppression');
     assert.equal(slice.promptTruth.channels.researchLedger.renderedCount, 0);
     assert.equal(slice.retrieval.selectedSessionIds[0], 'session-held');
+    assert.deepEqual(slice.retrieval.renderedSessionIds, []);
     assert.equal(slice.artifactSummary.researchLedgerPromptInjected, false);
     assert.equal(slice.researchLedger.updateStatus, 'skipped');
+    assert.deepEqual(archive.sessions['audit-held-back'].lastRetrieval.summary.renderedSessionIds, []);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
@@ -1206,8 +1215,10 @@ test('archiveCompletedTurn can store truthful empty-advisory audit slices for de
     assert.equal(slice.promptTruth.channels.researchLedger.renderedCount, 0);
     assert.equal(slice.researchLedger.updateStatus, 'applied');
     assert.deepEqual(slice.retrieval.selectedSessionIds, []);
+    assert.deepEqual(slice.retrieval.renderedSessionIds, []);
     assert.equal(slice.artifactSummary.kind, 'tool-turn');
     assert.equal(inspector.archive.session.lastRetrieval.summary.selectedSessionIds.length, 0);
+    assert.equal(inspector.archive.session.lastRetrieval.summary.renderedSessionIds.length, 0);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

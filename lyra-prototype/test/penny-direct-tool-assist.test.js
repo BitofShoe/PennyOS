@@ -216,6 +216,32 @@ test('runDirectToolAssist keeps read, search, and list intents on deterministic 
   }
 });
 
+test('runDirectToolAssist reads attached files deterministically without calling tools or the LM', async () => {
+  const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
+    executePennyTool: async () => {
+      throw new Error('attached file reads should not call workspace tools');
+    },
+  });
+
+  const result = await runDirectToolAssist({
+    userText: 'tell me what this file says',
+    messages: [],
+    memories: {},
+    file: {
+      name: 'README.md',
+      text: '# Penny\nLocal-first companion app\nLM Studio as the main brain',
+      lineCount: 3,
+    },
+    intent: { name: 'read_attached_file', args: { startLine: 1, endLine: 3 } },
+  });
+
+  assert.equal(result.skipSemanticRender, true);
+  assert.equal(result.toolsUsed.length, 0);
+  assert.match(result.text, /attached README\.md lines 1-3/i);
+  assert.match(result.text, /1:# Penny/);
+  assert.equal(getLmAssistCalls(), 0);
+});
+
 test('runDirectToolAssist answers missing read-around-match lookups without crashing', async () => {
   const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
     executePennyTool: async () => ({

@@ -49,6 +49,7 @@ function buildApi() {
     shouldOfferLocalTools,
     shouldForceLocalToolLoop: directIntentApi.shouldForceLocalToolLoop,
     resolveDirectToolIntent: directIntentApi.resolveDirectToolIntent,
+    resolveAttachedFileIntent: directIntentApi.resolveAttachedFileIntent,
   });
 }
 
@@ -97,11 +98,23 @@ test('selectLocalLane pushes direct inspect and file turns onto the tool lane', 
     userText: 'tell me what this file says',
     file: { name: 'notes.md', text: 'hi', lineCount: 1 },
   });
-  assert.equal(attached.reasonCode, LOCAL_LANE_REASON_CODES.ATTACHED_FILE);
+  assert.equal(attached.reasonCode, LOCAL_LANE_REASON_CODES.DIRECT_INTENT);
+  assert.equal(attached.directIntent?.name, 'read_attached_file');
   assert.equal(selectLocalLane({
     userText: 'tell me what this file says',
     file: { name: 'notes.md', text: 'hi', lineCount: 1 },
   }).localLane, 'tool');
+});
+
+test('selectLocalLane upgrades uploaded-file correction turns into deterministic attached-file reads', () => {
+  const { selectLocalLane } = buildApi();
+  const selection = selectLocalLane({
+    userText: "bruh i get you but the file is literally so easy to find. here i even attached it this time.",
+    file: { name: 'README.md', text: '# Penny', lineCount: 1 },
+  });
+  assert.equal(selection.localLane, 'tool');
+  assert.equal(selection.reasonCode, LOCAL_LANE_REASON_CODES.DIRECT_INTENT);
+  assert.equal(selection.directIntent?.name, 'read_attached_file');
 });
 
 test('selectLocalLane keeps explicit live web lookups on the tool lane', () => {

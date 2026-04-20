@@ -476,14 +476,12 @@ async function buildRuntimeMemoryContext({
   });
   const promptComposition = promptContext.slotSummary;
   const promptTruth = promptContext.promptTruth || null;
-  const researchLedgerPromptInjected = Number(promptTruth?.channels?.researchLedger?.renderedCount || 0) > 0;
   return {
     memories: enrichedMemories,
     archiveContext: archive.archiveContext,
     memoryBooks,
     researchLedger,
     promptTruth,
-    researchLedgerPromptInjected,
     retrieval,
     semanticMemory: archive.semanticMemory,
     epistemics,
@@ -787,6 +785,7 @@ const {
   extractExplicitProjectPath,
   shouldForceLocalToolLoop,
   resolveDirectToolIntent,
+  resolveAttachedFileIntent,
   composeDirectRuntimeReply,
   composeDirectSyntaxReply,
   composeDirectGitStatusReply,
@@ -805,6 +804,7 @@ const {
   shouldOfferLocalTools,
   shouldForceLocalToolLoop,
   resolveDirectToolIntent,
+  resolveAttachedFileIntent,
 });
 const {
   executeDirectToolSequence,
@@ -2652,6 +2652,7 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
         userText: toolUserText,
         messages,
         memories,
+        file,
         latencyBudget: budget,
         intent: resolvedLaneSelection.directIntent,
         onToolEvent,
@@ -2823,7 +2824,7 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
     memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
   });
   if (!image && resolvedLaneSelection.directIntent) {
-      const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, latencyBudget: budget, intent: resolvedLaneSelection.directIntent, onToolEvent: onEvent, abortSignal, laneRuntime });
+      const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, file, latencyBudget: budget, intent: resolvedLaneSelection.directIntent, onToolEvent: onEvent, abortSignal, laneRuntime });
       if (result.modelUsed === true) {
         laneRuntime.modelUsed = true;
         laneRuntime.executionPath = 'llm-tool-loop';
