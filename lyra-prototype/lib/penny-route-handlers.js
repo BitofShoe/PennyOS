@@ -14,7 +14,7 @@
  * @property {boolean} [laneFallback]
  * @property {boolean} [semanticMemoryReady]
  * @property {string} [semanticMemoryMode]
- * @property {boolean} [researchLedgerPromptInjected]
+ * @property {boolean} [researchLedgerPromptInjected] Compatibility alias; true only when research-ledger context actually rendered into prompt context.
  * @property {Object|null} [researchLedgerUpdate]
  * @property {Object|null} [promptTruth]
  * @property {Array<Object>} [toolsUsed]
@@ -423,6 +423,7 @@ function createPennyRouteHandlers(deps = {}) {
       ? promptTruth.channels
       : {};
     const mode = String(retrieval?.mode || '').trim() || 'keyword';
+    // `selected*Ids` are candidate-selection summaries for audit continuity, not rendered-only prompt receipts.
     return {
       turnId: `${String(sessionId || 'default').trim() || 'default'}:${usedAt}`,
       usedAt,

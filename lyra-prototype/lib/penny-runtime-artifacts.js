@@ -372,6 +372,7 @@ function normalizeRetrievalTraceEntry(raw = {}) {
   const sourceLabel = trimText(raw.sourceLabel || raw.source || channel, 140);
   const reason = trimText(raw.reason || '', 140);
   const contradictionState = trimText(raw.contradictionState || 'none', 80) || 'none';
+  // Compatibility alias: `injected` stays serialized, but true means the item actually rendered into prompt context.
   const injected = raw.injected !== false;
   const score = Number.isFinite(Number(raw.score)) ? Math.round(Number(raw.score) * 1000) / 1000 : 0;
   const sourceType = trimText(raw.sourceType || '', 80);
@@ -806,6 +807,7 @@ function normalizeAuthorityPressure(value = {}, defaults = {}) {
   return {
     canonicalFactsPresent: raw.canonicalFactsPresent === true || fallback.canonicalFactsPresent === true,
     canonicalOverrideActive: raw.canonicalOverrideActive === true || fallback.canonicalOverrideActive === true,
+    // Compatibility aliases: these counts stay serialized as `*Injected`, but they count rendered advisory prompt context only.
     advisoryChannelsInjected: normalizeNonNegativeNumber(raw.advisoryChannelsInjected, fallback.advisoryChannelsInjected || 0),
     advisoryItemsInjected: normalizeNonNegativeNumber(raw.advisoryItemsInjected, fallback.advisoryItemsInjected || 0),
     sameSessionAdvisoryItems: normalizeNonNegativeNumber(raw.sameSessionAdvisoryItems, fallback.sameSessionAdvisoryItems || 0),
@@ -987,18 +989,18 @@ function buildAuthorityPressure({
   canonicalFactsPresent = false,
   canonicalOverrideActive = false,
 } = {}) {
-  const advisoryItems = (Array.isArray(retrievalTrace) ? retrievalTrace : [])
+  const renderedAdvisoryItems = (Array.isArray(retrievalTrace) ? retrievalTrace : [])
     .filter((item) => item?.injected !== false)
     .filter((item) => ['archive-session', 'archive-global', 'archive-chapter', 'memory-book', 'research-ledger'].includes(String(item?.channel || '').trim()));
-  const advisoryChannelsInjected = new Set(
-    advisoryItems
+  const renderedAdvisoryChannelCount = new Set(
+    renderedAdvisoryItems
       .map((item) => String(item?.channel || '').trim())
       .filter(Boolean),
   ).size;
   let sameSessionAdvisoryItems = 0;
   let crossSessionAdvisoryItems = 0;
   const normalizedSessionId = String(sessionId || '').trim() || 'default';
-  for (const item of advisoryItems) {
+  for (const item of renderedAdvisoryItems) {
     const channel = String(item?.channel || '').trim();
     if (!channel || channel === 'memory-book') continue;
     if (channel === 'archive-session') {
@@ -1020,8 +1022,8 @@ function buildAuthorityPressure({
   return normalizeAuthorityPressure({
     canonicalFactsPresent,
     canonicalOverrideActive,
-    advisoryChannelsInjected,
-    advisoryItemsInjected: advisoryItems.length,
+    advisoryChannelsInjected: renderedAdvisoryChannelCount,
+    advisoryItemsInjected: renderedAdvisoryItems.length,
     sameSessionAdvisoryItems,
     crossSessionAdvisoryItems,
   });
@@ -1428,8 +1430,8 @@ function buildRuntimeTraceState({
   const writeRescueDebug = toolDebug.writeRescue && typeof toolDebug.writeRescue === 'object'
     ? toolDebug.writeRescue
     : {};
-  const injectedCount = retrievalTrace.filter((item) => item?.injected !== false).length;
-  const rejectedCount = retrievalTrace.filter((item) => item?.injected === false).length;
+  const renderedRetrievalCount = retrievalTrace.filter((item) => item?.injected !== false).length;
+  const notRenderedRetrievalCount = retrievalTrace.filter((item) => item?.injected === false).length;
   const channelCount = new Set(retrievalTrace.map((item) => String(item?.channel || '').trim()).filter(Boolean)).size;
   const evidenceAccepted = [
     {
@@ -1453,7 +1455,7 @@ function buildRuntimeTraceState({
         channel: item.channel,
         label: trimText(item.sourceLabel || item.sourceId || item.channel, 140),
         detail: trimText(item.reason || item.sourceId || '', 220),
-        status: item.contradictionState === 'tracked' ? 'correction-aware' : 'injected',
+        status: item.contradictionState === 'tracked' ? 'correction-aware' : 'rendered',
       })),
   ].map(normalizeTraceEvidenceEntry).filter(Boolean).slice(0, 8);
   const evidenceRejected = retrievalTrace
@@ -1462,8 +1464,8 @@ function buildRuntimeTraceState({
       type: 'retrieval',
       channel: item.channel,
       label: trimText(item.sourceLabel || item.sourceId || item.channel, 140),
-      detail: trimText(item.reason || 'held back from prompt context', 220),
-      status: 'held-back',
+      detail: trimText(item.reason || 'not rendered into prompt context', 220),
+      status: 'not-rendered',
     }))
     .concat(writeRequiredUnmet ? [{
       type: 'tool-claim',
@@ -1547,7 +1549,7 @@ function buildRuntimeTraceState({
         layer: 'advisory-retrieval',
         label: 'Advisory retrieval hints',
         detail: retrievalTrace.length
-          ? `${injectedCount} injected / ${rejectedCount} held back across ${channelCount} retrieval channel(s).`
+          ? `${renderedRetrievalCount} rendered / ${notRenderedRetrievalCount} not rendered across ${channelCount} retrieval channel(s).`
           : 'No retrieval channels were recorded for this turn.',
         status: retrievalTrace.length ? 'present' : 'empty',
         count: retrievalTrace.length,

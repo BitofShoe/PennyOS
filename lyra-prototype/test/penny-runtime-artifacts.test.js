@@ -229,6 +229,7 @@ test('buildRuntimeArtifact preserves deterministic-tool truth without faking mod
   assert.equal(artifact.context.resolvedModel, '');
   assert.equal(artifact.researchLedgerPromptInjected, false);
   assert.equal(artifact.researchLedgerUpdate.status, 'applied');
+  assert.equal(artifact.promptTruth.channels.researchLedger.renderedCount, 0);
   assert.equal(artifact.trace.laneChoice.executionPath, 'deterministic-tool');
   assert.equal(artifact.trace.laneChoice.researchLedgerPromptInjected, false);
   assert.equal(artifact.trace.laneChoice.researchLedgerUpdateStatus, 'applied');
@@ -473,8 +474,11 @@ test('buildRuntimeArtifact records cleanup and authority-pressure summaries sepa
   assert.equal(artifact.modelAdvisory.advisoryMerge.advisoryItems, 0);
   assert.equal(artifact.modelAdvisory.advisoryMerge.sameSessionItems, 0);
   assert.equal(artifact.summary.text, 'Minimal ordinary turn with advisory context held back canon-first.');
+  assert.equal(artifact.trace.wakeHierarchy.find((item) => item.layer === 'advisory-retrieval')?.detail, '0 rendered / 3 not rendered across 3 retrieval channel(s).');
   assert.match(artifact.trace.wakeHierarchy[1].detail, /selected but held back \(canon priority suppression\)/i);
   assert.match(artifact.trace.wakeHierarchy[4].detail, /selected but held back \(canon priority suppression\)/i);
+  assert.equal(artifact.provenance.acceptedEvidence.some((item) => item.type === 'retrieval'), false);
+  assert.equal(artifact.provenance.rejectedEvidence.some((item) => item.channel === 'research-ledger' && item.status === 'not-rendered'), true);
   assert.equal(artifact.trace.ongoingInvestigations[0].status, 'held-back');
 });
 

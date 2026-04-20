@@ -272,6 +272,27 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     ? artifact.researchLedgerUpdate
     : { status: 'skipped', reason: '' };
   const researchLedgerPromptInjected = artifact.researchLedgerPromptInjected === true;
+  const researchLedgerPromptChannel = promptTruth?.channels?.researchLedger && typeof promptTruth.channels.researchLedger === 'object'
+    ? promptTruth.channels.researchLedger
+    : {};
+  const researchLedgerPromptCandidateCount = Number(researchLedgerPromptChannel.candidateCount || 0);
+  const researchLedgerPromptRenderedCount = Number(researchLedgerPromptChannel.renderedCount || 0);
+  const researchLedgerPromptHoldbackReason = String(researchLedgerPromptChannel.heldBackReason || '').trim();
+  const researchLedgerPromptState = (
+    researchLedgerPromptRenderedCount > 0
+    || (!researchLedgerPromptCandidateCount && !researchLedgerPromptRenderedCount && researchLedgerPromptInjected)
+  )
+    ? 'rendered'
+    : (researchLedgerPromptCandidateCount > 0
+      ? (researchLedgerPromptHoldbackReason ? 'held back' : 'not rendered')
+      : 'absent');
+  const researchLedgerPromptDetail = researchLedgerPromptState === 'rendered'
+    ? `${Math.max(1, researchLedgerPromptRenderedCount)} research continuity topic${Math.max(1, researchLedgerPromptRenderedCount) === 1 ? '' : 's'} rendered into the prompt.`
+    : (researchLedgerPromptCandidateCount > 0
+      ? (researchLedgerPromptHoldbackReason
+        ? `Candidate ledger context was held back (${researchLedgerPromptHoldbackReason}).`
+        : `${researchLedgerPromptCandidateCount} candidate research continuity topic${researchLedgerPromptCandidateCount === 1 ? '' : 's'} were not rendered into the prompt.`)
+      : 'No research-ledger prompt candidates were selected for this turn.');
   const promptTruthBits = ['stableFacts', 'memoryBooks', 'sessionArchive', 'globalArchive', 'researchLedger']
     .map((channelKey) => {
       const channel = promptTruth?.channels?.[channelKey] && typeof promptTruth.channels[channelKey] === 'object'
@@ -395,8 +416,8 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     </div>
     <div class="list-item">
       <div class="memory-copy">
-        Authority pressure: <strong>${escapeHtmlFn(canonicalSummary)}</strong> &middot; ${escapeHtmlFn(overrideSummary)} &middot; advisory ${escapeHtmlFn(String(Number(authorityPressure.advisoryItemsInjected || 0)))} item(s) across ${escapeHtmlFn(String(Number(authorityPressure.advisoryChannelsInjected || 0)))} channel(s)
-        <small>${escapeHtmlFn(`same session ${Number(authorityPressure.sameSessionAdvisoryItems || 0)} | cross session ${Number(authorityPressure.crossSessionAdvisoryItems || 0)}`)}</small>
+        Authority pressure: <strong>${escapeHtmlFn(canonicalSummary)}</strong> &middot; ${escapeHtmlFn(overrideSummary)} &middot; advisory rendered ${escapeHtmlFn(String(Number(authorityPressure.advisoryItemsInjected || 0)))} item(s) across ${escapeHtmlFn(String(Number(authorityPressure.advisoryChannelsInjected || 0)))} channel(s)
+        <small>${escapeHtmlFn(`same session rendered ${Number(authorityPressure.sameSessionAdvisoryItems || 0)} | cross session rendered ${Number(authorityPressure.crossSessionAdvisoryItems || 0)}`)}</small>
       </div>
     </div>
     <div class="list-item">
@@ -443,8 +464,8 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     </div>
     <div class="list-item">
       <div class="memory-copy">
-        Research ledger prompt: <strong>${escapeHtmlFn(researchLedgerPromptInjected ? 'rendered' : 'held back')}</strong> &middot; Ledger update <strong>${escapeHtmlFn(researchLedgerUpdate.status || 'skipped')}</strong>
-        <small>${escapeHtmlFn(promptTruth?.channels?.researchLedger?.heldBackReason || researchLedgerUpdate.reason || 'No research-ledger update details were recorded.')}</small>
+        Research ledger prompt: <strong>${escapeHtmlFn(researchLedgerPromptState)}</strong> &middot; Post-reply ledger update <strong>${escapeHtmlFn(researchLedgerUpdate.status || 'skipped')}</strong>
+        <small>${escapeHtmlFn([researchLedgerPromptDetail, researchLedgerUpdate.reason || ''].filter(Boolean).join(' | ') || 'No research-ledger update details were recorded.')}</small>
       </div>
     </div>
     <div class="list-item">
@@ -502,7 +523,7 @@ function renderTraceArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) 
     .filter(Boolean);
   const retrievalSummary = retrievalChannels
     .slice(0, 4)
-    .map((item) => `${item?.channel || 'archive'}:${item?.injected === false ? 'held' : 'used'}:${item?.sourceLabel || item?.sourceId || 'source'}`)
+    .map((item) => `${item?.channel || 'archive'}:${item?.injected === false ? 'not-rendered' : 'rendered'}:${item?.sourceLabel || item?.sourceId || 'source'}`)
     .filter(Boolean);
   const contradictionSummary = contradictions
     .slice(0, 2)
@@ -605,11 +626,11 @@ function renderTraceProvenance(artifact = null, escapeHtmlFn = escapeHtml) {
   ].filter(Boolean);
   const evidenceLedger = [
     acceptedEvidence.length ? `accepted ${acceptedEvidence.length}` : '',
-    rejectedEvidence.length ? `held ${rejectedEvidence.length}` : '',
+    rejectedEvidence.length ? `not rendered ${rejectedEvidence.length}` : '',
   ].filter(Boolean).join(' · ');
   const retrievalRows = retrieval.slice(0, 6).map((item) => {
     const identity = [
-      item?.injected === false ? 'held back' : 'used',
+      item?.injected === false ? 'not rendered' : 'rendered',
       item?.channel || '',
       item?.scope || '',
       item?.reason || '',
@@ -719,14 +740,25 @@ function renderRecentAuditTrail(items = [], escapeHtmlFn = escapeHtml) {
       retrieval.semanticReady ? 'semantic ready' : 'keyword path',
       retrieval.semanticDowngrade ? 'semantic downgraded' : '',
     ].filter(Boolean);
+    const ledgerChannel = promptTruth.researchLedger && typeof promptTruth.researchLedger === 'object'
+      ? promptTruth.researchLedger
+      : {};
+    const ledgerCandidateCount = Number(ledgerChannel.candidateCount || 0);
+    const ledgerRenderedCount = Number(ledgerChannel.renderedCount || 0);
+    const ledgerHeldBackReason = String(ledgerChannel.heldBackReason || '').trim();
+    const ledgerPromptState = artifactSummary.researchLedgerPromptInjected
+      ? 'ledger rendered'
+      : (ledgerCandidateCount > 0
+        ? (ledgerHeldBackReason ? 'ledger held back' : 'ledger not rendered')
+        : 'ledger absent');
     const artifactBits = [
       artifactSummary.kind ? `kind ${artifactSummary.kind}` : '',
       artifactSummary.authority?.reply ? `reply ${artifactSummary.authority.reply}` : '',
       artifactSummary.approximatePath?.status ? `approx ${artifactSummary.approximatePath.status}` : '',
-      artifactSummary.researchLedgerPromptInjected ? 'ledger rendered' : 'ledger held',
+      ledgerPromptState,
     ].filter(Boolean);
     const ledgerBits = [
-      ledger.updateStatus ? `update ${ledger.updateStatus}` : '',
+      ledger.updateStatus ? `post-reply update ${ledger.updateStatus}` : '',
       ledger.topicLabel || ledger.topicId || '',
     ].filter(Boolean);
     return `
@@ -834,7 +866,7 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
     <div class="section-label" style="margin-top:12px;">Recent audit trail</div>
     ${renderRecentAuditTrail(viewModel.recentAuditTrail, escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Last retrieval for Penny's reply</div>
-    ${renderItems([...(viewModel.retrieval.session || []), ...(viewModel.retrieval.global || [])], 'No archive memories were used on the last reply.', escapeHtmlFn)}
+    ${renderItems([...(viewModel.retrieval.session || []), ...(viewModel.retrieval.global || [])], 'No archive memories were retrieved for the last reply.', escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Active contradictions</div>
     ${renderActiveContradictions(viewModel.activeContradictions, escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Matched memory books</div>

@@ -42,6 +42,7 @@
 - per-channel `candidateCount`, `renderedCount`, `candidateSourceIds`, `renderedSourceIds`, and `heldBackReason`
 - In current Penny law, `stableFacts` represents canonical explicit-memory prompt context, while `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger` are advisory channels.
 - In current Penny law, `researchLedgerPromptInjected` may only mean that `promptTruth.channels.researchLedger.renderedCount > 0`.
+- In current Penny law, retrieval-trace `injected` and `authorityPressure.advisoryChannelsInjected` / `advisoryItemsInjected` remain compatibility aliases for rendered prompt context. They must not be narrated as broader selection state.
 
 ## Holdback rules
 
@@ -56,6 +57,16 @@
 - Penny does not currently store turn metadata like `turnId`, `promptBuiltAt`, `lane`, or `model` inside `promptTruth` itself. Those belong to the surrounding runtime artifact.
 - Penny does not currently store `postReplyUpdates` inside `promptTruth`. Post-turn archive and ledger outcomes belong to `sideEffects`, `recentAuditTrail`, and `researchLedgerUpdate`.
 - Penny does not currently treat verified tool evidence as a first-class `promptTruth` channel. Tool evidence belongs to artifact evidence/provenance surfaces unless that evidence was also literally rendered into the prompt.
+- Penny does not currently store rendered-only IDs inside `recentAuditTrail.retrieval.selected*Ids`. Those audit fields are candidate-selection summaries, not prompt-visibility receipts.
+
+## Deferred v2 hooks
+
+- This section is non-binding. It records future-plan seams without promoting them into current law.
+- If runtime code begins to distinguish `unavailable` from `excluded-before-candidate`, a future `promptTruth` revision may add explicit receipt states or bounded exclusion reasons for those cases.
+- If Penny ever renders verified tool evidence into the live prompt as its own truth-bearing channel, a future `promptTruth` revision may add a first-class rendered tool-evidence receipt instead of inferring that state from provenance.
+- If audit consumers need rendered-only source identities, a future audit shape may add dedicated rendered-ID fields rather than reinterpreting `recentAuditTrail.retrieval.selected*Ids`.
+- If compatibility consumers can migrate cleanly, a future versioned cleanup pass may rename rendered-only aliases such as `researchLedgerPromptInjected`, retrieval-trace `injected`, `authorityPressure.*Injected`, and QA compare `promptInjectedCases` into rendered terminology.
+- If turn-level receipt metadata becomes necessary, a future revision may add an outer PromptTruth envelope for fields like turn, lane, build time, and model instead of overloading per-channel rows.
 
 ## Boundaries
 

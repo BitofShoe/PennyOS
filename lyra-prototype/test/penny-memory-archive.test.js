@@ -1137,8 +1137,10 @@ test('archiveCompletedTurn preserves held-back prompt-truth reasons inside compa
 
     assert.equal(slice.promptTruth.channels.sessionArchive.heldBackReason, 'canon-priority-suppression');
     assert.equal(slice.promptTruth.channels.researchLedger.heldBackReason, 'canon-priority-suppression');
+    assert.equal(slice.promptTruth.channels.researchLedger.renderedCount, 0);
     assert.equal(slice.retrieval.selectedSessionIds[0], 'session-held');
     assert.equal(slice.artifactSummary.researchLedgerPromptInjected, false);
+    assert.equal(slice.researchLedger.updateStatus, 'skipped');
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
@@ -1202,6 +1204,7 @@ test('archiveCompletedTurn can store truthful empty-advisory audit slices for de
     assert.equal(slice.executionPath, 'deterministic-tool');
     assert.equal(slice.promptTruth.channels.sessionArchive.candidateCount, 0);
     assert.equal(slice.promptTruth.channels.researchLedger.renderedCount, 0);
+    assert.equal(slice.researchLedger.updateStatus, 'applied');
     assert.deepEqual(slice.retrieval.selectedSessionIds, []);
     assert.equal(slice.artifactSummary.kind, 'tool-turn');
     assert.equal(inspector.archive.session.lastRetrieval.summary.selectedSessionIds.length, 0);

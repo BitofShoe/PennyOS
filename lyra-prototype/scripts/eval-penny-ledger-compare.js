@@ -44,6 +44,7 @@ const MODEL_TTL_SECONDS = Number(process.env.PENNY_LEDGER_COMPARE_MODEL_TTL_SECO
 const MAX_OUTPUT_TOKENS = String(process.env.PENNY_LEDGER_COMPARE_MAX_OUTPUT_TOKENS || 160).trim() || '160';
 const LOAD_EMBED_MODEL = String(process.env.PENNY_LEDGER_COMPARE_LOAD_EMBED_MODEL || '0').trim() === '1';
 const CASE_PROMPT_SUFFIX = ' Keep it to 2 short sentences max.';
+// Compatibility note: the expectation key keeps the older "injection" name, but the runtime truth is rendered-vs-not-rendered.
 const PROMPT_INJECTION_EXPECTED = Object.freeze({
   'ledger-on': true,
   'ledger-off': false,
@@ -232,11 +233,11 @@ function detectMockCase(promptText = '') {
 
 function buildMockReply(body = {}) {
   const promptText = flattenPromptText(body);
-  const ledgerInjected = /Wake state - ongoing investigations \(advisory\):/i.test(promptText);
+  const ledgerRendered = /Wake state - ongoing investigations \(advisory\):/i.test(promptText);
   const caseName = detectMockCase(promptText);
   const reply = caseName ? MOCK_CASE_REPLIES[caseName] : null;
   if (!reply) return 'Mock Penny reply.';
-  return ledgerInjected ? reply.on : reply.off;
+  return ledgerRendered ? reply.on : reply.off;
 }
 
 async function createMockLmStudioServer() {
@@ -643,7 +644,7 @@ async function runMode(modeConfig, lmStudio, index = 0) {
       .length;
     if (promptMismatchCount > 0) {
       result.environment.valid = false;
-      result.environment.reasons.push(`research-ledger prompt injection mismatched expectation on ${promptMismatchCount} case(s)`);
+      result.environment.reasons.push(`research-ledger prompt render state mismatched expectation on ${promptMismatchCount} case(s)`);
     }
     return result;
   } finally {
@@ -833,6 +834,7 @@ function buildLedgerCompareTrace(payload = {}) {
       compareModes: modes.length,
       chatLaneTurns: allCases.filter((item) => item?.artifactSummary?.selectedLane === 'chat').length,
       toolLaneTurns: allCases.filter((item) => item?.artifactSummary?.selectedLane === 'tool').length,
+      // Compatibility aliases: these keys are kept stable for old traces, but they count rendered-vs-not-rendered cases.
       promptInjectedCases: allCases.filter((item) => item?.artifactSummary?.researchLedgerPromptInjected === true).length,
       promptHeldCases: allCases.filter((item) => item?.artifactSummary?.researchLedgerPromptInjected === false).length,
     },

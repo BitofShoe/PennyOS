@@ -769,7 +769,8 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /salvage-reconstruction/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Authority pressure:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /canon present/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /same session 1 \| cross session 1/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /advisory rendered 2 item\(s\) across 2 channel\(s\)/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /same session rendered 1 \| cross session rendered 1/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Prompt composition:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /voiceBlend:filled/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Reasoning policy:/);
@@ -800,12 +801,18 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Trace reasoning:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /mode verifier-first/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Retrieval channels: 2/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /archive-session:rendered:archive-session/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /archive-chapter:not-rendered:chapter/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Evidence accepted: 2/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /accepted 2 .* not rendered 1/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Check whether the red glove is still on dryer three/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Recency protection/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Recent audit trail/);
   assert.match(els.memoryInspectorPanel.innerHTML, /canon-priority-suppression/);
   assert.match(els.memoryInspectorPanel.innerHTML, /ledger 1/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /ledger held back/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /post-reply update skipped/i);
+  assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /supported the reply/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Protected ids:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /thread thread-demo/i);
 });
@@ -866,6 +873,7 @@ test('renderMemoryInspector shows when background vectorization status came from
   });
 
   assert.match(els.memoryInspectorPanel.innerHTML, /source other-session/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /No archive memories were retrieved for the last reply\./i);
 });
 
 test('buildBrainModeNote keeps local, shadow, and fallback explanations stable', async () => {
@@ -1131,8 +1139,11 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
   assert.match(els.memoryInspectorPanel.innerHTML, /Reasoning policy: <strong>verifier-first/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /short circuit semantic-render-held-back/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Trace reasoning: <strong>verifier-first/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>held back/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /Ledger update <strong>applied/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>absent/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Post-reply ledger update <strong>applied/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /No research-ledger prompt candidates were selected for this turn\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /No archive memories were retrieved for the last reply\./i);
+  assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /supported the reply/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /manual fallback final-before-write/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /rescue manual non-tool-decision/i);
 });

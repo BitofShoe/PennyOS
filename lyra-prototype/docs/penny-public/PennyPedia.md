@@ -232,6 +232,8 @@ This distinction matters because a memory can exist without influencing the answ
 
 The key terms are candidate and rendered. Candidate means 'this was considered.' Rendered means 'this was actually included in the prompt.' Held back means 'this was considered but withheld for a reason.' That is how Penny avoids implying advisory support she did not actually use.
 
+Prompt-slot composition is related but separate. A slot can be eligible, filled, or held back without proving that truth-bearing memory or research context rendered into the model prompt. Prompt composition describes slot state. PromptTruth describes admitted prompt context.
+
 ## Canon-first holdback
 
 Canon-first holdback means that if canonical memory already answers the question, weaker advisory sources may be withheld so they do not muddy the reply.
@@ -245,6 +247,8 @@ This is one of the most important anti-haunting rules. Advisory memory should en
 A runtime artifact is a recorded object describing what happened during a turn. It can include selected lane, model used, execution path, tools used, memory retrieved, promptTruth, provenance, cleanup behavior, ledger context, latency, policy receipts, fallback status, and archive update status.
 
 This is not private chain-of-thought. It is an operational receipt. It tells you what the system did, not the model's hidden inner monologue. Think of it as a flight recorder or kitchen ticket, not a diary.
+
+Post-reply updates are separate from prompt-time influence. A research-ledger topic can be updated after the reply without meaning that the ledger supported the reply that was just produced.
 
 Runtime artifacts matter because they let the project debug behavior instead of mystifying it. If Penny gives a weird answer, you can ask whether the wrong memory rendered, the wrong lane was selected, a tool result was absent, cleanup overreached, or the model simply wandered.
 
