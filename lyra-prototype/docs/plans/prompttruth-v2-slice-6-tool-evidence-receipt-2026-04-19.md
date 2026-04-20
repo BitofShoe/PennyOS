@@ -2,9 +2,10 @@
 
 > Category: Implementation plan
 > Authority: Implementation plan
-> Status: Draft
+> Status: Historical
 > Use this for: the sibling runtime-artifact receipt for post-tool evidence visibility, render form, and prompt-hop shape.
 > Do not use this for: changing PromptTruth, changing runtime semantics, or treating tool evidence as a first-class PromptTruth channel.
+> Follow-up status: Implemented through PromptTruth v2 slices 6.1-6.8. Use the current-law contracts plus live tests for current behavior; this doc remains the original design snapshot.
 
 ## Goal and success criteria
 

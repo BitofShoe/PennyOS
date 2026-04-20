@@ -1178,3 +1178,32 @@ test('normalizeRuntimeArtifact keeps old artifacts without a tool evidence recei
 
   assert.equal(artifact.toolEvidenceReceipt, null);
 });
+
+test('buildRuntimeArtifact does not infer tool evidence receipt from generic tool records without source facts', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'tool-records-only',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'llm-tool-loop',
+    toolsUsed: [{
+      name: 'read_project_file',
+      ok: true,
+      label: 'read README.md',
+    }],
+    toolRecords: [{
+      name: 'read_project_file',
+      args: { path: 'README.md' },
+      result: {
+        ok: true,
+        label: 'read README.md',
+        data: {
+          path: 'README.md',
+          textPreview: '# Penny',
+        },
+      },
+    }],
+  });
+
+  assert.equal(artifact.toolEvidenceReceipt, null);
+});
