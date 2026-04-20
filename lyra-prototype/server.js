@@ -473,6 +473,9 @@ async function buildRuntimeMemoryContext({
     includeChatDirectives: true,
     memoryLimit: budget.memoryPromptLimit,
     fallbackMemory: '- Nothing stored yet.',
+    promptTruthHints: {
+      archiveEligible: archiveLane === 'chat',
+    },
   });
   const promptComposition = promptContext.slotSummary;
   const promptTruth = promptContext.promptTruth || null;
@@ -1239,6 +1242,7 @@ function buildPennyPromptContextBlocks({
   includeChatDirectives = true,
   memoryLimit = MEMORY_PROMPT_LIMIT,
   fallbackMemory = '',
+  promptTruthHints = null,
 } = {}) {
   return buildPromptStack({
     assets: getPennyVoiceAssets(),
@@ -1251,6 +1255,7 @@ function buildPennyPromptContextBlocks({
     includeChatDirectives,
     memoryLimit,
     fallbackMemory,
+    promptTruthHints,
   });
 }
 function buildShadowPrompt({ userText, messages, memories }) {

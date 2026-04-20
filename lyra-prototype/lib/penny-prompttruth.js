@@ -15,6 +15,22 @@ const PROMPT_TRUTH_ADVISORY_CHANNEL_KEYS = Object.freeze([
   'researchLedger',
 ]);
 
+const PROMPT_TRUTH_CHANNEL_STATES = Object.freeze([
+  'rendered',
+  'held_back',
+  'candidate',
+  'no_candidate',
+  'ineligible',
+  'disabled',
+  'unavailable',
+  'unknown',
+]);
+
+const PROMPT_TRUTH_HOLDBACK_REASONS = Object.freeze({
+  CANON_PRIORITY: 'canon-priority-suppression',
+  LEDGER_DISABLED: 'ledger-prompt-disabled',
+});
+
 const PROMPT_TRUTH_AUDIT_LIMITS = Object.freeze({
   sessionArchive: 6,
   globalArchive: 6,
@@ -37,9 +53,29 @@ function uniqueStrings(values = [], limit = 12) {
   return output;
 }
 
+function normalizePromptTruthChannelState(value = '') {
+  const text = String(value || '').trim().toLowerCase();
+  return PROMPT_TRUTH_CHANNEL_STATES.includes(text) ? text : '';
+}
+
+function derivePromptTruthChannelState(raw = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const explicitState = normalizePromptTruthChannelState(value.state);
+  if (explicitState) return explicitState;
+  const candidateCount = Math.max(0, Number(value.candidateCount || 0) || 0);
+  const renderedCount = Math.max(0, Number(value.renderedCount || 0) || 0);
+  const heldBackReason = String(value.heldBackReason || '').trim();
+  if (renderedCount > 0) return 'rendered';
+  if (heldBackReason === PROMPT_TRUTH_HOLDBACK_REASONS.LEDGER_DISABLED) return 'disabled';
+  if (candidateCount > 0 && heldBackReason) return 'held_back';
+  if (candidateCount > 0) return 'candidate';
+  return 'unknown';
+}
+
 function normalizePromptTruthChannel(raw = {}) {
   const value = raw && typeof raw === 'object' ? raw : {};
   return {
+    state: derivePromptTruthChannelState(value),
     candidateCount: Math.max(0, Number(value.candidateCount || 0) || 0),
     renderedCount: Math.max(0, Number(value.renderedCount || 0) || 0),
     candidateSourceIds: uniqueStrings(value.candidateSourceIds || [], 12),
@@ -88,6 +124,10 @@ function promptTruthHeldBackReason(promptTruth = null, channel = '') {
   return String(promptTruthChannel(promptTruth, channel).heldBackReason || '').trim();
 }
 
+function promptTruthChannelState(promptTruth = null, channel = '') {
+  return normalizePromptTruthChannelState(promptTruthChannel(promptTruth, channel).state) || 'unknown';
+}
+
 function advisoryPromptTruthChannels() {
   return [...PROMPT_TRUTH_ADVISORY_CHANNEL_KEYS];
 }
@@ -101,6 +141,13 @@ function hasPromptTruthReceipt(promptTruth = null) {
     || (Array.isArray(channel?.candidateSourceIds) && channel.candidateSourceIds.length > 0)
     || (Array.isArray(channel?.renderedSourceIds) && channel.renderedSourceIds.length > 0)
     || !!String(channel?.heldBackReason || '').trim()
+    || normalizePromptTruthChannelState(channel?.state) === 'rendered'
+    || normalizePromptTruthChannelState(channel?.state) === 'held_back'
+    || normalizePromptTruthChannelState(channel?.state) === 'candidate'
+    || normalizePromptTruthChannelState(channel?.state) === 'no_candidate'
+    || normalizePromptTruthChannelState(channel?.state) === 'ineligible'
+    || normalizePromptTruthChannelState(channel?.state) === 'disabled'
+    || normalizePromptTruthChannelState(channel?.state) === 'unavailable'
   ));
 }
 
@@ -128,7 +175,11 @@ module.exports = {
   PROMPT_TRUTH_SCHEMA,
   PROMPT_TRUTH_CHANNEL_KEYS,
   PROMPT_TRUTH_ADVISORY_CHANNEL_KEYS,
+  PROMPT_TRUTH_CHANNEL_STATES,
+  PROMPT_TRUTH_HOLDBACK_REASONS,
   PROMPT_TRUTH_AUDIT_LIMITS,
+  normalizePromptTruthChannelState,
+  derivePromptTruthChannelState,
   normalizePromptTruthChannel,
   normalizePromptTruth,
   promptTruthChannel,
@@ -137,6 +188,7 @@ module.exports = {
   promptTruthRenderedCount,
   promptTruthCandidateCount,
   promptTruthHeldBackReason,
+  promptTruthChannelState,
   advisoryPromptTruthChannels,
   hasPromptTruthReceipt,
   deriveResearchLedgerPromptInjected,

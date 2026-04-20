@@ -274,14 +274,112 @@ test('buildPromptTruth records canon-first holdback receipts for direct authorit
 
   assert.equal(promptTruth.canonicalFactsPresent, true);
   assert.equal(promptTruth.canonicalOverrideActive, true);
+  assert.equal(promptTruth.channels.stableFacts.state, 'rendered');
   assert.equal(promptTruth.channels.sessionArchive.candidateCount, 1);
+  assert.equal(promptTruth.channels.sessionArchive.state, 'held_back');
   assert.equal(promptTruth.channels.sessionArchive.renderedCount, 0);
   assert.equal(promptTruth.channels.sessionArchive.heldBackReason, 'canon-priority-suppression');
   assert.equal(promptTruth.channels.globalArchive.candidateCount, 1);
+  assert.equal(promptTruth.channels.globalArchive.state, 'held_back');
   assert.equal(promptTruth.channels.globalArchive.renderedCount, 0);
   assert.equal(promptTruth.channels.researchLedger.candidateCount, 1);
+  assert.equal(promptTruth.channels.researchLedger.state, 'held_back');
   assert.equal(promptTruth.channels.researchLedger.renderedCount, 0);
   assert.equal(promptTruth.channels.researchLedger.heldBackReason, 'canon-priority-suppression');
+});
+
+test('buildPromptTruth records rendered advisory states when channels actually render', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const promptTruth = buildPromptTruth({
+    memories: [
+      { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: now },
+    ],
+    memoryBookContext: {
+      matches: [
+        { id: 'book-1', text: 'Keep laundromat continuity', priority: 50, score: 50 },
+      ],
+    },
+    archiveContext: {
+      reasonCode: 'semantic_query',
+      session: [
+        { id: 'session-1', text: 'Favorite tea used to be oolong.', sourceLabel: 'archive-session' },
+      ],
+      global: [
+        { id: 'global-1', text: 'They keep returning to midnight rain.', sourceLabel: 'archive-global' },
+      ],
+    },
+    researchLedgerContext: {
+      topics: [
+        {
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+          status: 'open',
+          summary: 'open follow-up - verify whether the Vitest migration is still pending.',
+        },
+      ],
+    },
+  }, 'What should we verify next?', 3, '- Nothing yet.', now, { archiveEligible: true });
+
+  assert.equal(promptTruth.channels.stableFacts.state, 'rendered');
+  assert.equal(promptTruth.channels.memoryBooks.state, 'rendered');
+  assert.equal(promptTruth.channels.sessionArchive.state, 'rendered');
+  assert.equal(promptTruth.channels.globalArchive.state, 'rendered');
+  assert.equal(promptTruth.channels.researchLedger.state, 'rendered');
+});
+
+test('buildPromptTruth records no-candidate states only when the runtime can prove selection ran', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const promptTruth = buildPromptTruth({
+    memories: [],
+    memoryBookContext: {
+      matches: [],
+    },
+    archiveContext: {
+      reasonCode: 'semantic_query',
+      session: [],
+      global: [],
+    },
+    researchLedgerContext: {
+      topics: [],
+    },
+  }, 'What should we verify next?', 3, '- Nothing yet.', now, { archiveEligible: true });
+
+  assert.equal(promptTruth.channels.stableFacts.state, 'no_candidate');
+  assert.equal(promptTruth.channels.memoryBooks.state, 'no_candidate');
+  assert.equal(promptTruth.channels.sessionArchive.state, 'no_candidate');
+  assert.equal(promptTruth.channels.globalArchive.state, 'no_candidate');
+  assert.equal(promptTruth.channels.researchLedger.state, 'no_candidate');
+});
+
+test('buildPromptTruth records disabled, ineligible, and unknown fallback states conservatively', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const disabled = buildPromptTruth({
+    researchLedgerPromptEnabled: false,
+    researchLedgerContext: {
+      topics: [
+        {
+          topicId: 'path-package-json',
+          topicLabel: 'package.json',
+          status: 'open',
+          summary: 'open follow-up - verify whether the Vitest migration is still pending.',
+        },
+      ],
+    },
+  }, 'What should we verify next?', 3, '- Nothing yet.', now, { archiveEligible: true });
+  const ineligible = buildPromptTruth({
+    memoryBookContext: { matches: [] },
+    researchLedgerContext: { topics: [] },
+  }, 'Open the file for me.', 3, '- Nothing yet.', now, { archiveEligible: false });
+  const unknown = buildPromptTruth({}, 'Open the file for me.', 3, '- Nothing yet.', now);
+
+  assert.equal(disabled.channels.researchLedger.state, 'disabled');
+  assert.equal(disabled.channels.researchLedger.heldBackReason, 'ledger-prompt-disabled');
+  assert.equal(ineligible.channels.sessionArchive.state, 'ineligible');
+  assert.equal(ineligible.channels.globalArchive.state, 'ineligible');
+  assert.equal(unknown.channels.sessionArchive.state, 'unknown');
+  assert.equal(unknown.channels.globalArchive.state, 'unknown');
+  assert.equal(unknown.channels.researchLedger.state, 'unknown');
+  assert.equal(unknown.channels.memoryBooks.state, 'unknown');
 });
 
 test('formatPromptMemories keeps direct memory-authority questions canon-first under advisory pressure', () => {

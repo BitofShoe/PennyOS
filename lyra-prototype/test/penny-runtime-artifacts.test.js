@@ -558,8 +558,8 @@ test('buildRuntimeArtifact does not claim additive archive support when no advis
   assert.equal(artifact.modelAdvisory.reasoningPolicy.mode, 'minimal');
   assert.equal(artifact.trace.reasoningPolicy.mode, 'minimal');
   assert.equal(artifact.summary.text, 'Minimal ordinary turn without rendered advisory context.');
-  assert.equal(artifact.trace.wakeHierarchy[1].detail, 'No session archive hits were selected for this turn.');
-  assert.equal(artifact.trace.wakeHierarchy[4].detail, 'No ongoing investigation topics were active for this turn.');
+  assert.equal(artifact.trace.wakeHierarchy[1].detail, 'Prompt-truth state for this channel is unknown for this turn.');
+  assert.equal(artifact.trace.wakeHierarchy[4].detail, 'Prompt-truth state for this channel is unknown for this turn.');
 });
 
 test('buildRuntimeArtifact marks image-heavy turns as attachment-bounded without exposing reasoning text', () => {

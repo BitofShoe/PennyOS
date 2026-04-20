@@ -40,6 +40,7 @@
 - top-level `schema` marker, currently `penny-prompttruth.v1`
 - top-level flags `canonicalFactsPresent` and `canonicalOverrideActive`
 - per-channel receipts for `stableFacts`, `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger`
+- per-channel `state` using the bounded vocabulary `rendered`, `held_back`, `candidate`, `no_candidate`, `ineligible`, `disabled`, `unknown`, with `unavailable` reserved for future code that can prove it honestly
 - per-channel `candidateCount`, `renderedCount`, `candidateSourceIds`, `renderedSourceIds`, and `heldBackReason`
 - In current Penny law, `stableFacts` represents canonical explicit-memory prompt context, while `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger` are advisory channels.
 - In current Penny law, `researchLedgerPromptInjected` may only mean that `promptTruth.channels.researchLedger.renderedCount > 0`.
@@ -54,7 +55,9 @@
 
 ## Current limits
 
-- Penny does not currently record a separate per-channel `unavailable` or `excluded-before-candidate` state inside `promptTruth`. If a channel has zero candidates, the current receipt can say it was absent, but not always why.
+- Penny does not currently emit a live per-channel `unavailable` or `excluded-before-candidate` receipt. Those states remain deferred until runtime code can prove them honestly.
+- `unknown` is required when zero-candidate state cannot be justified from real runtime context. Zero counts alone are not enough to infer `no_candidate`.
+- In current live code, `ineligible` is only proven for archive channels when the turn never ran archive recall, and `disabled` is only proven for the prompt-disabled research-ledger channel.
 - Penny does not currently store turn metadata like `turnId`, `promptBuiltAt`, `lane`, or `model` inside `promptTruth` itself. Those belong to the surrounding runtime artifact.
 - Penny does not currently store `postReplyUpdates` inside `promptTruth`. Post-turn archive and ledger outcomes belong to `sideEffects`, `recentAuditTrail`, and `researchLedgerUpdate`.
 - Penny does not currently treat verified tool evidence as a first-class `promptTruth` channel. Tool evidence belongs to artifact evidence/provenance surfaces unless that evidence was also literally rendered into the prompt.

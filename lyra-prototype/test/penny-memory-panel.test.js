@@ -1148,9 +1148,9 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
   assert.match(els.memoryInspectorPanel.innerHTML, /Reasoning policy: <strong>verifier-first/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /short circuit semantic-render-held-back/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Trace reasoning: <strong>verifier-first/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>absent/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>unknown/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Post-reply ledger update <strong>applied/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /No research-ledger prompt candidates were selected for this turn\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Research-ledger prompt state is unknown for this turn\./i);
   assert.match(els.memoryInspectorPanel.innerHTML, /No archive memories were retrieved for the last reply\./i);
   assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /supported the reply/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /manual fallback final-before-write/i);

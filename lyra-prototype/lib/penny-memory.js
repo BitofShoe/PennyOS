@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const {
   normalizePromptTruth,
   PROMPT_TRUTH_SCHEMA,
+  PROMPT_TRUTH_HOLDBACK_REASONS,
 } = require('./penny-prompttruth');
 
 const MEMORY_ENTRY_LIMIT = 30;
@@ -42,11 +43,6 @@ const CANONICAL_MEMORY_QUESTION_PATTERNS = [
   /\bwhat(?:'s| is| are| was| were)\s+my\b.+\bagain\b/,
   /\bwhat(?:'s| is| are| was| were)\s+my\b.+\bnow\b/,
 ];
-const PROMPT_TRUTH_HOLDBACK_REASONS = Object.freeze({
-  CANON_PRIORITY: 'canon-priority-suppression',
-  LEDGER_DISABLED: 'ledger-prompt-disabled',
-});
-
 function normalizeText(text = '') {
   return String(text).replace(/\s+/g, ' ').trim().replace(/[.!?;,\s]+$/g, '');
 }
@@ -270,12 +266,51 @@ function researchLedgerPromptTruthSourceId(item = {}) {
   return String(item?.topicId || '').trim() || stablePromptTruthSourceId('research-ledger', item?.topicLabel || item?.summary || item?.question || '');
 }
 
-function buildPromptMemoryContext(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
+function normalizePromptTruthHints(raw = null) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  return {
+    archiveEligible: value.archiveEligible === true
+      ? true
+      : (value.archiveEligible === false ? false : null),
+  };
+}
+
+function determinePromptTruthChannelState({
+  renderedCount = 0,
+  candidateCount = 0,
+  heldBackReason = '',
+  noCandidateKnown = false,
+  ineligible = false,
+  disabled = false,
+} = {}) {
+  const safeRenderedCount = Math.max(0, Number(renderedCount || 0));
+  const safeCandidateCount = Math.max(0, Number(candidateCount || 0));
+  const reason = String(heldBackReason || '').trim();
+  if (safeRenderedCount > 0) return 'rendered';
+  if (disabled === true || reason === PROMPT_TRUTH_HOLDBACK_REASONS.LEDGER_DISABLED) return 'disabled';
+  if (safeCandidateCount > 0 && reason) return 'held_back';
+  if (safeCandidateCount > 0) return 'candidate';
+  if (ineligible === true) return 'ineligible';
+  if (noCandidateKnown === true) return 'no_candidate';
+  return 'unknown';
+}
+
+function buildPromptMemoryContext(
+  memories = {},
+  userText = '',
+  limit = MEMORY_PROMPT_LIMIT,
+  fallback = '',
+  now = Date.now(),
+  promptTruthHints = null,
+) {
+  const normalizedPromptTruthHints = normalizePromptTruthHints(promptTruthHints);
   const selected = selectMemoriesForPrompt(memories, userText, limit, now);
   const memoryBooks = selectMemoryBooksForPrompt(memories, MEMORY_BOOK_PROMPT_LIMIT);
+  const memoryBookContextAvailable = !!(memories?.memoryBookContext && typeof memories.memoryBookContext === 'object');
   const archiveContext = memories?.archiveContext && typeof memories.archiveContext === 'object'
     ? memories.archiveContext
     : null;
+  const archiveContextAvailable = !!(archiveContext && typeof archiveContext === 'object');
   const activeContradictions = Array.isArray(archiveContext?.activeContradictions)
     ? archiveContext.activeContradictions
       .map((item) => ({
@@ -309,6 +344,7 @@ function buildPromptMemoryContext(memories = {}, userText = '', limit = MEMORY_P
   const researchLedgerContext = memories?.researchLedgerContext && typeof memories.researchLedgerContext === 'object'
     ? memories.researchLedgerContext
     : null;
+  const researchLedgerContextAvailable = !!(researchLedgerContext && typeof researchLedgerContext === 'object');
   const researchLedgerPromptEnabled = memories?.researchLedgerPromptEnabled !== false;
   const retrievalHints = [];
   const retrievalReason = normalizeText(archiveContext?.reasonCode || '');
@@ -400,6 +436,19 @@ function buildPromptMemoryContext(memories = {}, userText = '', limit = MEMORY_P
   if (!suppressArchiveForDirectAuthority && investigationsSection) sections.push(investigationsSection);
   if (!suppressArchiveForDirectAuthority && retrievalHintsSection) sections.push(retrievalHintsSection);
 
+  const sessionArchiveHeldBackReason = suppressArchiveForDirectAuthority && sessionContextEntries.length
+    ? PROMPT_TRUTH_HOLDBACK_REASONS.CANON_PRIORITY
+    : '';
+  const globalArchiveHeldBackReason = suppressArchiveForDirectAuthority && globalArchiveEntries.length
+    ? PROMPT_TRUTH_HOLDBACK_REASONS.CANON_PRIORITY
+    : '';
+  const researchLedgerHeldBackReason = researchLedgerEntries.length
+    ? (!researchLedgerPromptEnabled
+      ? PROMPT_TRUTH_HOLDBACK_REASONS.LEDGER_DISABLED
+      : (suppressArchiveForDirectAuthority ? PROMPT_TRUTH_HOLDBACK_REASONS.CANON_PRIORITY : ''))
+    : '';
+  const archivePromptIneligible = normalizedPromptTruthHints.archiveEligible === false && !archiveContextAvailable;
+
   return {
     text: sections.length ? sections.join('\n') : fallback,
     promptTruth: normalizePromptTruth({
@@ -408,59 +457,82 @@ function buildPromptMemoryContext(memories = {}, userText = '', limit = MEMORY_P
       canonicalOverrideActive: suppressArchiveForDirectAuthority,
       channels: {
         stableFacts: {
+          state: determinePromptTruthChannelState({
+            candidateCount: stableFactLines.length,
+            renderedCount: stableFactLines.length,
+            noCandidateKnown: true,
+          }),
           candidateCount: stableFactLines.length,
           renderedCount: stableFactLines.length,
           candidateSourceIds: selected.map(memoryPromptTruthSourceId),
           renderedSourceIds: selected.map(memoryPromptTruthSourceId),
         },
         memoryBooks: {
+          state: determinePromptTruthChannelState({
+            candidateCount: memoryBooks.length,
+            renderedCount: memoryBooks.length,
+            noCandidateKnown: memoryBookContextAvailable,
+          }),
           candidateCount: memoryBooks.length,
           renderedCount: memoryBooks.length,
           candidateSourceIds: memoryBooks.map(memoryBookPromptTruthSourceId),
           renderedSourceIds: memoryBooks.map(memoryBookPromptTruthSourceId),
         },
         sessionArchive: {
+          state: determinePromptTruthChannelState({
+            candidateCount: sessionContextEntries.length,
+            renderedCount: suppressArchiveForDirectAuthority ? 0 : sessionContextEntries.length,
+            heldBackReason: sessionArchiveHeldBackReason,
+            noCandidateKnown: archiveContextAvailable,
+            ineligible: archivePromptIneligible,
+          }),
           candidateCount: sessionContextEntries.length,
           renderedCount: suppressArchiveForDirectAuthority ? 0 : sessionContextEntries.length,
           candidateSourceIds: sessionContextEntries.map((item) => item.sourceId),
           renderedSourceIds: suppressArchiveForDirectAuthority ? [] : sessionContextEntries.map((item) => item.sourceId),
-          heldBackReason: suppressArchiveForDirectAuthority && sessionContextEntries.length
-            ? PROMPT_TRUTH_HOLDBACK_REASONS.CANON_PRIORITY
-            : '',
+          heldBackReason: sessionArchiveHeldBackReason,
         },
         globalArchive: {
+          state: determinePromptTruthChannelState({
+            candidateCount: globalArchiveEntries.length,
+            renderedCount: suppressArchiveForDirectAuthority ? 0 : globalArchiveEntries.length,
+            heldBackReason: globalArchiveHeldBackReason,
+            noCandidateKnown: archiveContextAvailable,
+            ineligible: archivePromptIneligible,
+          }),
           candidateCount: globalArchiveEntries.length,
           renderedCount: suppressArchiveForDirectAuthority ? 0 : globalArchiveEntries.length,
           candidateSourceIds: globalArchiveEntries.map((item) => item.sourceId),
           renderedSourceIds: suppressArchiveForDirectAuthority ? [] : globalArchiveEntries.map((item) => item.sourceId),
-          heldBackReason: suppressArchiveForDirectAuthority && globalArchiveEntries.length
-            ? PROMPT_TRUTH_HOLDBACK_REASONS.CANON_PRIORITY
-            : '',
+          heldBackReason: globalArchiveHeldBackReason,
         },
         researchLedger: {
+          state: determinePromptTruthChannelState({
+            candidateCount: researchLedgerEntries.length,
+            renderedCount: (!researchLedgerPromptEnabled || suppressArchiveForDirectAuthority) ? 0 : researchLedgerEntries.length,
+            heldBackReason: researchLedgerHeldBackReason,
+            noCandidateKnown: researchLedgerPromptEnabled && researchLedgerContextAvailable,
+            disabled: !researchLedgerPromptEnabled,
+          }),
           candidateCount: researchLedgerEntries.length,
           renderedCount: (!researchLedgerPromptEnabled || suppressArchiveForDirectAuthority) ? 0 : researchLedgerEntries.length,
           candidateSourceIds: researchLedgerEntries.map((item) => item.sourceId),
           renderedSourceIds: (!researchLedgerPromptEnabled || suppressArchiveForDirectAuthority)
             ? []
             : researchLedgerEntries.map((item) => item.sourceId),
-          heldBackReason: researchLedgerEntries.length
-            ? (!researchLedgerPromptEnabled
-              ? PROMPT_TRUTH_HOLDBACK_REASONS.LEDGER_DISABLED
-              : (suppressArchiveForDirectAuthority ? PROMPT_TRUTH_HOLDBACK_REASONS.CANON_PRIORITY : ''))
-            : '',
+          heldBackReason: researchLedgerHeldBackReason,
         },
       },
     }),
   };
 }
 
-function buildPromptTruth(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
-  return buildPromptMemoryContext(memories, userText, limit, fallback, now).promptTruth;
+function buildPromptTruth(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now(), promptTruthHints = null) {
+  return buildPromptMemoryContext(memories, userText, limit, fallback, now, promptTruthHints).promptTruth;
 }
 
-function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now()) {
-  return buildPromptMemoryContext(memories, userText, limit, fallback, now).text;
+function formatPromptMemories(memories = {}, userText = '', limit = MEMORY_PROMPT_LIMIT, fallback = '', now = Date.now(), promptTruthHints = null) {
+  return buildPromptMemoryContext(memories, userText, limit, fallback, now, promptTruthHints).text;
 }
 
 function injectRelevantMemoryContext(text = '', memories = {}, userText = '', limit = MEMORY_RELEVANT_LIMIT, now = Date.now()) {

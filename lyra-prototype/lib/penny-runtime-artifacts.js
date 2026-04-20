@@ -17,6 +17,7 @@ const {
   promptTruthRenderedCount,
   promptTruthCandidateCount,
   promptTruthHeldBackReason,
+  promptTruthChannelState,
   hasPromptTruthReceipt,
   deriveResearchLedgerPromptInjected,
 } = require('./penny-prompttruth');
@@ -833,6 +834,7 @@ function formatHeldBackReason(value = '') {
 }
 
 function describePromptTruthLayer({
+  state = 'unknown',
   renderedCount = 0,
   candidateCount = 0,
   heldBackReason = '',
@@ -843,25 +845,56 @@ function describePromptTruthLayer({
   const safeRenderedCount = Math.max(0, Number(renderedCount || 0));
   const safeCandidateCount = Math.max(0, Number(candidateCount || 0));
   const reason = formatHeldBackReason(heldBackReason);
-  if (safeRenderedCount > 0) {
+  const normalizedState = String(state || '').trim().toLowerCase() || 'unknown';
+  if (normalizedState === 'rendered' || safeRenderedCount > 0) {
     return {
       detail: `${formatCountLabel(safeRenderedCount, singular, plural)} ${safeRenderedCount === 1 ? 'was' : 'were'} rendered into the prompt.`,
       status: 'present',
       count: safeRenderedCount,
     };
   }
-  if (safeCandidateCount > 0 && reason) {
+  if (normalizedState === 'disabled') {
     return {
-      detail: `${formatCountLabel(safeCandidateCount, singular, plural)} ${safeCandidateCount === 1 ? 'was' : 'were'} selected but held back (${reason}).`,
+      detail: safeCandidateCount > 0
+        ? `${formatCountLabel(safeCandidateCount, singular, plural)} ${safeCandidateCount === 1 ? 'was' : 'were'} selected but the channel was disabled${reason ? ` (${reason})` : ''}.`
+        : 'This prompt channel was disabled for this turn.',
+      status: 'disabled',
+      count: safeCandidateCount,
+    };
+  }
+  if (normalizedState === 'held_back') {
+    return {
+      detail: `${formatCountLabel(safeCandidateCount, singular, plural)} ${safeCandidateCount === 1 ? 'was' : 'were'} selected but held back${reason ? ` (${reason})` : ''}.`,
       status: 'held-back',
       count: safeCandidateCount,
     };
   }
-  if (safeCandidateCount > 0) {
+  if (normalizedState === 'candidate' || safeCandidateCount > 0) {
     return {
       detail: `${formatCountLabel(safeCandidateCount, singular, plural)} ${safeCandidateCount === 1 ? 'was' : 'were'} selected but not rendered into the prompt.`,
       status: 'candidate-only',
       count: safeCandidateCount,
+    };
+  }
+  if (normalizedState === 'ineligible') {
+    return {
+      detail: 'This prompt channel was ineligible for this turn.',
+      status: 'ineligible',
+      count: 0,
+    };
+  }
+  if (normalizedState === 'unavailable') {
+    return {
+      detail: 'This prompt channel was unavailable for this turn.',
+      status: 'unavailable',
+      count: 0,
+    };
+  }
+  if (normalizedState === 'unknown') {
+    return {
+      detail: 'Prompt-truth state for this channel is unknown for this turn.',
+      status: 'unknown',
+      count: 0,
     };
   }
   return {
@@ -885,11 +918,23 @@ function promptTruthHeldBackChannels(promptTruth = null) {
   return advisoryPromptTruthChannels()
     .map((channel) => ({
       channel,
+      state: promptTruthChannelState(promptTruth, channel),
       reason: promptTruthHeldBackReason(promptTruth, channel),
       candidateCount: promptTruthCandidateCount(promptTruth, channel),
       renderedCount: promptTruthRenderedCount(promptTruth, channel),
     }))
-    .filter((item) => item.candidateCount > 0 && item.renderedCount === 0 && item.reason);
+    .filter((item) => item.state === 'held_back');
+}
+
+function promptTruthDisabledChannels(promptTruth = null) {
+  return advisoryPromptTruthChannels()
+    .map((channel) => ({
+      channel,
+      state: promptTruthChannelState(promptTruth, channel),
+      reason: promptTruthHeldBackReason(promptTruth, channel),
+      candidateCount: promptTruthCandidateCount(promptTruth, channel),
+    }))
+    .filter((item) => item.state === 'disabled');
 }
 
 function buildLaneAdvisorySummaryText({
@@ -936,6 +981,10 @@ function buildLaneAdvisorySummaryText({
     return canonOnly
       ? `${modeLabel} with advisory context held back canon-first.`
       : `${modeLabel} with advisory context held back by policy.`;
+  }
+  const disabledChannels = promptTruthDisabledChannels(promptTruth);
+  if (disabledChannels.length) {
+    return `${modeLabel} with advisory prompt channels disabled by policy.`;
   }
   const candidateCount = promptTruthAdvisoryCandidateCount(promptTruth);
   if (candidateCount > 0) {
@@ -1356,6 +1405,7 @@ function buildRuntimeTraceState({
   const ongoingInvestigations = Array.isArray(researchLedgerContext?.topics) ? researchLedgerContext.topics : [];
   const promptTruthAvailable = hasPromptTruthReceipt(promptTruth);
   const sessionLayer = describePromptTruthLayer({
+    state: promptTruthAvailable ? promptTruthChannelState(promptTruth, 'sessionArchive') : 'unknown',
     renderedCount: promptTruthAvailable
       ? promptTruthRenderedCount(promptTruth, 'sessionArchive')
       : (Array.isArray(retrieval?.session) ? retrieval.session.length : 0),
@@ -1368,6 +1418,7 @@ function buildRuntimeTraceState({
     emptyText: 'No session archive hits were selected for this turn.',
   });
   const ledgerLayer = describePromptTruthLayer({
+    state: promptTruthAvailable ? promptTruthChannelState(promptTruth, 'researchLedger') : 'unknown',
     renderedCount: promptTruthAvailable
       ? promptTruthRenderedCount(promptTruth, 'researchLedger')
       : ongoingInvestigations.length,

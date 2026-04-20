@@ -840,6 +840,7 @@ function createMemoryArchiveApi({
         ? normalized.channels[key]
         : {};
       channels[key] = {
+        state: String(channel.state || '').trim() || 'unknown',
         candidateCount: Math.max(0, Number(channel.candidateCount || 0)),
         renderedCount: Math.max(0, Number(channel.renderedCount || 0)),
         heldBackReason: trimText(channel.heldBackReason || '', 120),

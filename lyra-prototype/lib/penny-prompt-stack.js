@@ -266,6 +266,7 @@ function buildPromptStack({
   includeExamples = false,
   memoryLimit = 12,
   fallbackMemory = '',
+  promptTruthHints = null,
 } = {}) {
   const overlays = resolvePromptOverlays(assets.overlays || [], {
     lane,
@@ -314,7 +315,7 @@ function buildPromptStack({
     }
     return acc;
   }, []);
-  const promptMemoryContext = buildPromptMemoryContext(memories, userText, memoryLimit, fallbackMemory);
+  const promptMemoryContext = buildPromptMemoryContext(memories, userText, memoryLimit, fallbackMemory, Date.now(), promptTruthHints);
   const memoryBlock = promptMemoryContext.text;
   const promptTruth = promptMemoryContext.promptTruth;
   if (memoryBlock) filledSlotIds.push('memory');

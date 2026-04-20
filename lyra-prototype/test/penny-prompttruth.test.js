@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 
 const {
   deriveResearchLedgerPromptInjected,
+  hasPromptTruthReceipt,
+  normalizePromptTruth,
   projectAuditRetrievalFromPromptTruth,
 } = require('../lib/penny-prompttruth');
 
@@ -80,4 +82,44 @@ test('deriveResearchLedgerPromptInjected reads rendered prompt truth, not candid
       },
     },
   }, false), true);
+});
+
+test('normalizePromptTruth keeps legacy zero-count channels unknown instead of inventing no-candidate state', () => {
+  const normalized = normalizePromptTruth({
+    schema: 'penny-prompttruth.v1',
+    channels: {
+      sessionArchive: {
+        candidateCount: 0,
+        renderedCount: 0,
+        candidateSourceIds: [],
+        renderedSourceIds: [],
+      },
+      researchLedger: {
+        candidateCount: 0,
+        renderedCount: 0,
+        candidateSourceIds: [],
+        renderedSourceIds: [],
+      },
+    },
+  });
+
+  assert.equal(normalized.channels.sessionArchive.state, 'unknown');
+  assert.equal(normalized.channels.researchLedger.state, 'unknown');
+  assert.equal(hasPromptTruthReceipt(normalized), false);
+});
+
+test('hasPromptTruthReceipt treats explicit no-candidate state as a real receipt', () => {
+  const normalized = normalizePromptTruth({
+    schema: 'penny-prompttruth.v1',
+    channels: {
+      stableFacts: {
+        state: 'no_candidate',
+        candidateCount: 0,
+        renderedCount: 0,
+      },
+    },
+  });
+
+  assert.equal(normalized.channels.stableFacts.state, 'no_candidate');
+  assert.equal(hasPromptTruthReceipt(normalized), true);
 });

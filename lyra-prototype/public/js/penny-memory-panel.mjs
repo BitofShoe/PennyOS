@@ -122,6 +122,54 @@ function formatCacheAge(cacheAgeMs = 0) {
   return `${minutes}m old`;
 }
 
+function normalizePromptTruthChannel(channel = null) {
+  const value = channel && typeof channel === 'object' ? channel : {};
+  const candidateCount = Math.max(0, Number(value.candidateCount || 0));
+  const renderedCount = Math.max(0, Number(value.renderedCount || 0));
+  const heldBackReason = String(value.heldBackReason || '').trim();
+  let state = String(value.state || '').trim().toLowerCase();
+  if (!state) {
+    if (renderedCount > 0) state = 'rendered';
+    else if (heldBackReason === 'ledger-prompt-disabled') state = 'disabled';
+    else if (candidateCount > 0 && heldBackReason) state = 'held_back';
+    else if (candidateCount > 0) state = 'candidate';
+    else state = 'unknown';
+  }
+  return {
+    state,
+    candidateCount,
+    renderedCount,
+    heldBackReason,
+  };
+}
+
+function formatPromptTruthStateLabel(state = 'unknown') {
+  return String(state || 'unknown').trim().toLowerCase().replaceAll('_', ' ') || 'unknown';
+}
+
+function summarizePromptTruthChannel(channelKey = '', channel = null) {
+  const normalized = normalizePromptTruthChannel(channel);
+  if (
+    normalized.state === 'unknown'
+    && !normalized.candidateCount
+    && !normalized.renderedCount
+    && !normalized.heldBackReason
+  ) {
+    return '';
+  }
+  const countText = normalized.candidateCount || normalized.renderedCount
+    ? ` ${normalized.renderedCount}/${normalized.candidateCount}`
+    : '';
+  const reasonText = normalized.heldBackReason ? ` (${normalized.heldBackReason})` : '';
+  return `${channelKey} ${formatPromptTruthStateLabel(normalized.state)}${countText}${reasonText}`;
+}
+
+function summarizeResearchLedgerPromptState(channel = null, injected = false) {
+  const normalized = normalizePromptTruthChannel(channel);
+  if (normalized.state === 'unknown' && injected === true) return 'rendered';
+  return normalized.state;
+}
+
 function formatInspectorMoment(value = '') {
   const text = String(value || '').trim();
   return text || 'not yet';
@@ -272,39 +320,30 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     ? artifact.researchLedgerUpdate
     : { status: 'skipped', reason: '' };
   const researchLedgerPromptInjected = artifact.researchLedgerPromptInjected === true;
-  const researchLedgerPromptChannel = promptTruth?.channels?.researchLedger && typeof promptTruth.channels.researchLedger === 'object'
-    ? promptTruth.channels.researchLedger
-    : {};
-  const researchLedgerPromptCandidateCount = Number(researchLedgerPromptChannel.candidateCount || 0);
-  const researchLedgerPromptRenderedCount = Number(researchLedgerPromptChannel.renderedCount || 0);
-  const researchLedgerPromptHoldbackReason = String(researchLedgerPromptChannel.heldBackReason || '').trim();
-  const researchLedgerPromptState = (
-    researchLedgerPromptRenderedCount > 0
-    || (!researchLedgerPromptCandidateCount && !researchLedgerPromptRenderedCount && researchLedgerPromptInjected)
-  )
-    ? 'rendered'
-    : (researchLedgerPromptCandidateCount > 0
-      ? (researchLedgerPromptHoldbackReason ? 'held back' : 'not rendered')
-      : 'absent');
+  const researchLedgerPromptChannel = normalizePromptTruthChannel(promptTruth?.channels?.researchLedger);
+  const researchLedgerPromptCandidateCount = researchLedgerPromptChannel.candidateCount;
+  const researchLedgerPromptRenderedCount = researchLedgerPromptChannel.renderedCount;
+  const researchLedgerPromptHoldbackReason = researchLedgerPromptChannel.heldBackReason;
+  const researchLedgerPromptState = summarizeResearchLedgerPromptState(researchLedgerPromptChannel, researchLedgerPromptInjected);
   const researchLedgerPromptDetail = researchLedgerPromptState === 'rendered'
     ? `${Math.max(1, researchLedgerPromptRenderedCount)} research continuity topic${Math.max(1, researchLedgerPromptRenderedCount) === 1 ? '' : 's'} rendered into the prompt.`
-    : (researchLedgerPromptCandidateCount > 0
-      ? (researchLedgerPromptHoldbackReason
-        ? `Candidate ledger context was held back (${researchLedgerPromptHoldbackReason}).`
-        : `${researchLedgerPromptCandidateCount} candidate research continuity topic${researchLedgerPromptCandidateCount === 1 ? '' : 's'} were not rendered into the prompt.`)
-      : 'No research-ledger prompt candidates were selected for this turn.');
+    : (researchLedgerPromptState === 'held_back'
+      ? `Candidate ledger context was held back${researchLedgerPromptHoldbackReason ? ` (${researchLedgerPromptHoldbackReason})` : ''}.`
+      : (researchLedgerPromptState === 'candidate'
+        ? `${researchLedgerPromptCandidateCount} candidate research continuity topic${researchLedgerPromptCandidateCount === 1 ? '' : 's'} were not rendered into the prompt.`
+        : (researchLedgerPromptState === 'disabled'
+          ? (researchLedgerPromptCandidateCount > 0
+            ? `Research-ledger prompt channel was disabled for this turn; ${researchLedgerPromptCandidateCount} candidate topic${researchLedgerPromptCandidateCount === 1 ? '' : 's'} were not rendered.`
+            : 'Research-ledger prompt channel was disabled for this turn.')
+          : (researchLedgerPromptState === 'ineligible'
+            ? 'Research-ledger prompt channel was ineligible for this turn.'
+            : (researchLedgerPromptState === 'unavailable'
+              ? 'Research-ledger prompt channel was unavailable for this turn.'
+              : (researchLedgerPromptState === 'no_candidate'
+                ? 'No research-ledger prompt candidates were selected for this turn.'
+                : 'Research-ledger prompt state is unknown for this turn.'))))));
   const promptTruthBits = ['stableFacts', 'memoryBooks', 'sessionArchive', 'globalArchive', 'researchLedger']
-    .map((channelKey) => {
-      const channel = promptTruth?.channels?.[channelKey] && typeof promptTruth.channels[channelKey] === 'object'
-        ? promptTruth.channels[channelKey]
-        : null;
-      if (!channel) return '';
-      const candidateCount = Number(channel.candidateCount || 0);
-      const renderedCount = Number(channel.renderedCount || 0);
-      const heldBackReason = String(channel.heldBackReason || '').trim();
-      if (!candidateCount && !renderedCount && !heldBackReason) return '';
-      return `${channelKey} ${renderedCount}/${candidateCount}${heldBackReason ? ` (${heldBackReason})` : ''}`;
-    })
+    .map((channelKey) => summarizePromptTruthChannel(channelKey, promptTruth?.channels?.[channelKey]))
     .filter(Boolean);
   const modelUsage = String(readiness.modelUsage || 'used').trim() === 'not-used' ? 'not-used' : 'used';
   const modelTimingText = modelUsage === 'not-used'
@@ -721,14 +760,7 @@ function renderRecentAuditTrail(items = [], escapeHtmlFn = escapeHtml) {
     const artifactSummary = item?.artifactSummary && typeof item.artifactSummary === 'object' ? item.artifactSummary : {};
     const ledger = item?.researchLedger && typeof item.researchLedger === 'object' ? item.researchLedger : {};
     const promptBits = ['stableFacts', 'memoryBooks', 'sessionArchive', 'globalArchive', 'researchLedger']
-      .map((key) => {
-        const channel = promptTruth[key] && typeof promptTruth[key] === 'object' ? promptTruth[key] : {};
-        const candidateCount = Number(channel.candidateCount || 0);
-        const renderedCount = Number(channel.renderedCount || 0);
-        const heldBackReason = String(channel.heldBackReason || '').trim();
-        if (!candidateCount && !renderedCount && !heldBackReason) return '';
-        return `${key} ${renderedCount}/${candidateCount}${heldBackReason ? ` (${heldBackReason})` : ''}`;
-      })
+      .map((key) => summarizePromptTruthChannel(key, promptTruth[key]))
       .filter(Boolean);
     const retrievalIdentityBits = [
       {
@@ -766,17 +798,9 @@ function renderRecentAuditTrail(items = [], escapeHtmlFn = escapeHtml) {
       retrieval.semanticReady ? 'semantic ready' : 'keyword path',
       retrieval.semanticDowngrade ? 'semantic downgraded' : '',
     ].filter(Boolean);
-    const ledgerChannel = promptTruth.researchLedger && typeof promptTruth.researchLedger === 'object'
-      ? promptTruth.researchLedger
-      : {};
-    const ledgerCandidateCount = Number(ledgerChannel.candidateCount || 0);
-    const ledgerRenderedCount = Number(ledgerChannel.renderedCount || 0);
-    const ledgerHeldBackReason = String(ledgerChannel.heldBackReason || '').trim();
-    const ledgerPromptState = artifactSummary.researchLedgerPromptInjected
-      ? 'ledger rendered'
-      : (ledgerCandidateCount > 0
-        ? (ledgerHeldBackReason ? 'ledger held back' : 'ledger not rendered')
-        : 'ledger absent');
+    const ledgerPromptState = `ledger ${formatPromptTruthStateLabel(
+      summarizeResearchLedgerPromptState(promptTruth.researchLedger, artifactSummary.researchLedgerPromptInjected === true),
+    )}`;
     const artifactBits = [
       artifactSummary.kind ? `kind ${artifactSummary.kind}` : '',
       artifactSummary.authority?.reply ? `reply ${artifactSummary.authority.reply}` : '',
