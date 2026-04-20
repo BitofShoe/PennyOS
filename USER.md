@@ -13,6 +13,7 @@ _Learn about the person you're helping. Update this as you go._
 - Likes the idea of a more embodied, character-like assistant presence.
 - Open to me taking initiative on identity formation instead of requiring lots of back-and-forth setup.
 - Current preferred direction: premium companion core / contained intelligence aesthetic; warm, sharp, observant tone.
+- Prefers WSL-style shell commands when practical. Even if a thread's tool/runtime metadata still reports `powershell`, agents should treat WSL as the preferred integrated-terminal shell and call out any PowerShell-vs-WSL mismatch explicitly instead of assuming PowerShell is the real operator preference.
 
 ---
 
