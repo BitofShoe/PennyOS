@@ -4,6 +4,10 @@ const assert = require('node:assert/strict');
 const {
   buildVoiceQaTrace,
   buildPromptPlan,
+  classifyLatencyBucket,
+  classifyPremiseCaveatPosition,
+  evaluateExactRecall,
+  evaluateSpiritFirstRecall,
   resolvePromptSet,
 } = require('../scripts/qa-penny-voice-redo');
 
@@ -13,17 +17,49 @@ test('resolvePromptSet keeps supported prompt-set names and falls back safely', 
   assert.equal(resolvePromptSet('not-a-real-set'), 'core');
 });
 
-test('buildPromptPlan keeps the tiebreak slice focused on voice plus honesty pressure', () => {
+test('buildPromptPlan keeps the tiebreak slice chat-only and focused on recall behavior', () => {
   const plan = buildPromptPlan('tiebreak');
   assert.deepEqual(plan.map((item) => item.name), [
     'casual_banter',
     'softness',
-    'agentic_inspect_honesty',
-    'bad_premise_resistance',
-    'uncertainty_calibration',
+    'spirit_first_recall',
+    'exact_memory_recall',
   ]);
-  assert.equal(plan.some((item) => item.name === 'flirty_charge'), false);
-  assert.equal(plan.some((item) => item.kind === 'memory'), false);
+  assert.equal(plan.some((item) => item.name === 'agentic_inspect_honesty'), false);
+  assert.equal(plan.some((item) => item.kind === 'scenario'), true);
+  assert.equal(plan.some((item) => item.kind === 'memory'), true);
+});
+
+test('evaluateSpiritFirstRecall distinguishes answer-first from caveat-first recall', () => {
+  const strong = evaluateSpiritFirstRecall('flirting with me all night. yes, technically you framed it as hypothetical, but that was the phrase.');
+  const weak = evaluateSpiritFirstRecall("technically, you framed it as hypothetical. you said she'd been flirting with me all night.");
+
+  assert.equal(strong.recallSpiritFirst, true);
+  assert.equal(strong.premiseCaveatPosition, 'after-answer');
+  assert.equal(weak.recallSpiritFirst, false);
+  assert.equal(weak.premiseCaveatPosition, 'before-answer');
+});
+
+test('evaluateExactRecall accepts bounded direct location synonyms without caveat-first hedging', () => {
+  const exact = evaluateExactRecall('brass, and you keep it beside your keyboard.');
+  const synonym = evaluateExactRecall("Brass, and it's sitting right there by your keyboard.");
+  const missing = evaluateExactRecall("you didn't actually say enough for me to know where it is.");
+
+  assert.equal(exact.exactRecallDirect, true);
+  assert.equal(synonym.exactRecallDirect, true);
+  assert.equal(missing.exactRecallDirect, false);
+  assert.equal(missing.premiseCaveatPosition, 'missing-answer');
+});
+
+test('classify helpers bucket latency and caveat order predictably', () => {
+  assert.equal(classifyLatencyBucket(90), 'strong');
+  assert.equal(classifyLatencyBucket(180), 'acceptable');
+  assert.equal(classifyLatencyBucket(300), 'weak');
+  assert.equal(classifyLatencyBucket(420), 'fail');
+  assert.equal(
+    classifyPremiseCaveatPosition('you said if some other girl had been flirting with me all night.', ['flirting with me all night']),
+    'before-answer',
+  );
 });
 
 test('buildVoiceQaTrace emits a normalized trust summary for degraded voice reruns', () => {

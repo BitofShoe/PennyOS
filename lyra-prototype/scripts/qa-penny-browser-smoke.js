@@ -12,6 +12,7 @@ const PW_READY = path.join(PW_DIR, 'node_modules', 'playwright', 'package.json')
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
 const PORT = Number(process.env.PENNY_BROWSER_SMOKE_PORT || 4364);
 const BASE_URL = process.env.PENNY_BROWSER_SMOKE_BASE_URL || `http://127.0.0.1:${PORT}`;
+const IMAGE_ONLY = process.env.PENNY_BROWSER_SMOKE_IMAGE_ONLY === '1';
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `penny-browser-smoke-${STAMP}.json`);
 const SCREENSHOT_PATH = path.join(OUTPUT_DIR, `penny-browser-smoke-${STAMP}.png`);
 const SERVER_STDOUT_PATH = path.join(OUTPUT_DIR, `penny-browser-smoke-${STAMP}.server.out.log`);
@@ -29,6 +30,50 @@ function sleep(ms) {
 
 function roundSeconds(ms) {
   return Math.round((Number(ms || 0) / 1000) * 100) / 100;
+}
+
+function persistReport(report = {}) {
+  ensureDir(OUTPUT_DIR);
+  fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(report, null, 2)}\n`);
+}
+
+async function collectUiDebug(page) {
+  if (!page) return null;
+  return page.evaluate((storageKey) => {
+    let snapshot = null;
+    try {
+      snapshot = JSON.parse(window.localStorage.getItem(storageKey) || 'null');
+    } catch {
+      snapshot = null;
+    }
+    const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
+    const latestAssistant = [...messages].reverse().find((msg) => msg?.role === 'assistant') || null;
+    const latestUser = [...messages].reverse().find((msg) => msg?.role === 'user') || null;
+    const latestUserWithImage = [...messages].reverse().find((msg) => msg?.role === 'user' && typeof msg?.image === 'string') || null;
+    const latestUserHadImage = latestUser?.hadImage === true || latestUserWithImage?.hadImage === true;
+    const assistantRow = document.querySelector('#chat .msg-row.assistant:last-child');
+    const assistantBubble = assistantRow?.querySelector('.bubble.assistant');
+    const latestUserImageRow = document.querySelector('#chat .msg-row.user:last-child .msg-image img');
+    const chatFetch = window.__pennyDebug?.lastChatFetch && typeof window.__pennyDebug.lastChatFetch === 'object'
+      ? window.__pennyDebug.lastChatFetch
+      : null;
+    return {
+      turns: Number(snapshot?.turns || 0),
+      messageCount: messages.length,
+      latestAssistantContent: typeof latestAssistant?.content === 'string' ? latestAssistant.content : '',
+      latestAssistantBubbleText: String(assistantBubble?.textContent || '').trim(),
+      latestAssistantStreaming: latestAssistant?.streaming === true,
+      latestUserContent: typeof latestUser?.content === 'string' ? latestUser.content : '',
+      latestUserHasImage: typeof latestUserWithImage?.image === 'string' && latestUserWithImage.image.startsWith('data:image/'),
+      latestUserHadImage,
+      latestUserImageVisible: typeof latestUserImageRow?.getAttribute('src') === 'string' && latestUserImageRow.getAttribute('src').startsWith('data:image/'),
+      assistantRowStreaming: !!assistantRow?.classList.contains('streaming'),
+      moodPill: String(document.querySelector('#moodPill')?.textContent || '').trim(),
+      composerNotice: String(document.querySelector('#composerNotice')?.textContent || '').trim(),
+      imagePreviewVisible: document.querySelector('#imagePreview')?.hidden === false,
+      lastChatFetch: chatFetch,
+    };
+  }, STORAGE_KEY);
 }
 
 function ensurePlaywright() {
@@ -63,10 +108,20 @@ function readRequestBody(req) {
 
 function buildMockLmStudioReply(payload = {}) {
   const raw = JSON.stringify(payload);
+  if (/"image_url"|"data:image\/|"type":"image"/i.test(raw)) {
+    return 'I can see the image you attached. Tiny little test square, clean edges, very deliberate. [MOOD:thinking]';
+  }
   if (/what keeps showing up|what do you notice/i.test(raw)) {
     return 'The midnight rain detail keeps showing up. [MOOD:thinking]';
   }
   return 'Mock Penny reply. [MOOD:thinking]';
+}
+
+function createTinyPngFixture(tmpDir) {
+  const imagePath = path.join(tmpDir, 'tiny-upload.png');
+  const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAV0lEQVR4nO3PQQ3AIADAQEASmhCLrIngcVnSU9DOs+/4s6UDXjWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgfT1iAj0mLdegAAAAAElFTkSuQmCC';
+  fs.writeFileSync(imagePath, Buffer.from(base64, 'base64'));
+  return imagePath;
 }
 
 function writeSseFrame(res, payload, event = '') {
@@ -132,6 +187,10 @@ async function createMockLmStudioServer() {
     modelsRequests: 0,
     embeddingsRequests: 0,
     chatRequests: 0,
+    lastChatRequestPath: '',
+    lastChatRequestPreview: '',
+    lastChatReply: '',
+    lastChatStream: false,
   };
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -163,8 +222,13 @@ async function createMockLmStudioServer() {
 
     if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
       stats.chatRequests += 1;
-      const body = JSON.parse((await readRequestBody(req)) || '{}');
+      const rawBody = (await readRequestBody(req)) || '{}';
+      const body = JSON.parse(rawBody);
       const reply = buildMockLmStudioReply(body);
+      stats.lastChatRequestPath = url.pathname;
+      stats.lastChatRequestPreview = rawBody.slice(0, 1200);
+      stats.lastChatReply = reply;
+      stats.lastChatStream = body?.stream === true;
       if (body?.stream) {
         await streamMockChatCompletion(res, {
           model: body.model || 'unsloth/gemma-4-31b-it',
@@ -309,6 +373,7 @@ async function seedArchiveTurns(count = 8) {
 async function main() {
   ensureDir(OUTPUT_DIR);
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-browser-smoke-'));
+  const imageFixturePath = createTinyPngFixture(tmpDir);
   const memoryFile = path.join(tmpDir, 'penny-memory.browser-smoke.json');
   const archiveFile = path.join(tmpDir, 'penny-memory-archive.browser-smoke.json');
   const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.browser-smoke.json');
@@ -333,76 +398,208 @@ async function main() {
     startedAt: new Date().toISOString(),
     baseUrl: `${BASE_URL}/?debug=1`,
     sessionId: SESSION_ID,
+    imageOnly: IMAGE_ONLY,
+    currentStep: 'starting',
     checks: [],
     screenshot: SCREENSHOT_PATH,
     mockLmStudioStats: null,
   };
+  persistReport(report);
+  let browser = null;
+  let page = null;
 
   try {
+    report.currentStep = 'wait_for_server_ready';
+    persistReport(report);
     console.log('Waiting for Penny browser-smoke server...');
     await waitForServerReady();
+    report.currentStep = 'load_playwright';
+    persistReport(report);
     console.log('Loading Playwright...');
     const { chromium } = loadPlaywright();
+    report.currentStep = 'launch_browser';
+    persistReport(report);
     console.log('Launching browser...');
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    browser = await chromium.launch({ headless: true });
+    page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.addInitScript(({ storageKey, snapshot }) => {
       if (!window.localStorage.getItem(storageKey)) {
         window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
       }
+      window.__pennyDebug = {
+        errors: [],
+        lastChatFetch: null,
+      };
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (...args) => {
+        const [input, init] = args;
+        const url = typeof input === 'string' ? input : String(input?.url || '');
+        const requestBody = typeof init?.body === 'string' ? init.body : '';
+        const isChatStream = /\/api\/penny\/chat(\?|$)/.test(url) && (/stream=1/.test(url) || /"stream"\s*:\s*true/.test(requestBody));
+        const response = await originalFetch(...args);
+        if (isChatStream) {
+          const entry = {
+            url,
+            status: Number(response.status || 0),
+            requestBodyPreview: requestBody.slice(0, 1200),
+            responseTextPreview: '',
+            responseCloneError: '',
+          };
+          try {
+            entry.responseTextPreview = (await response.clone().text()).slice(0, 5000);
+          } catch (error) {
+            entry.responseCloneError = error?.message || String(error);
+          }
+          window.__pennyDebug.lastChatFetch = entry;
+        }
+        return response;
+      };
+      window.addEventListener('error', (event) => {
+        window.__pennyDebug.errors.push({
+          type: 'error',
+          message: event?.message || '',
+        });
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        const reason = event?.reason;
+        window.__pennyDebug.errors.push({
+          type: 'unhandledrejection',
+          message: reason?.message || String(reason || ''),
+        });
+      });
     }, { storageKey: STORAGE_KEY, snapshot: buildSnapshot() });
 
+    report.currentStep = 'open_ui';
+    persistReport(report);
     console.log('Opening Penny UI...');
     await page.goto(`${BASE_URL}/?debug=1`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(1000);
 
-    console.log('Checking expression lock apply...');
-    await page.click('.tab[data-panel="settings"]');
-    await page.selectOption('#expressionOverrideSelect', 'flirty');
-    await page.waitForFunction(() => {
-      const note = document.querySelector('#expressionDecisionNote')?.textContent || '';
-      const select = document.querySelector('#expressionOverrideSelect');
-      return select?.value === 'flirty' && /manual override/i.test(note);
-    }, undefined, { timeout: 5000 });
-    report.checks.push({ name: 'expression_lock_applies', ok: true });
+    if (!IMAGE_ONLY) {
+      report.currentStep = 'expression_lock_applies';
+      persistReport(report);
+      console.log('Checking expression lock apply...');
+      await page.click('.tab[data-panel="settings"]');
+      await page.selectOption('#expressionOverrideSelect', 'flirty');
+      await page.waitForFunction(() => {
+        const note = document.querySelector('#expressionDecisionNote')?.textContent || '';
+        const select = document.querySelector('#expressionOverrideSelect');
+        return select?.value === 'flirty' && /manual override/i.test(note);
+      }, undefined, { timeout: 5000 });
+      report.checks.push({ name: 'expression_lock_applies', ok: true });
+      persistReport(report);
 
-    console.log('Checking expression lock reload persistence...');
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForTimeout(1000);
-    await page.click('.tab[data-panel="settings"]');
-    await page.waitForFunction(() => {
-      const note = document.querySelector('#expressionDecisionNote')?.textContent || '';
-      const select = document.querySelector('#expressionOverrideSelect');
-      return select?.value === 'flirty' && /flirty/i.test(note);
-    }, undefined, { timeout: 5000 });
-    report.checks.push({ name: 'expression_lock_persists_reload', ok: true });
+      report.currentStep = 'expression_lock_persists_reload';
+      persistReport(report);
+      console.log('Checking expression lock reload persistence...');
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(1000);
+      await page.click('.tab[data-panel="settings"]');
+      await page.waitForFunction(() => {
+        const note = document.querySelector('#expressionDecisionNote')?.textContent || '';
+        const select = document.querySelector('#expressionOverrideSelect');
+        return select?.value === 'flirty' && /flirty/i.test(note);
+      }, undefined, { timeout: 5000 });
+      report.checks.push({ name: 'expression_lock_persists_reload', ok: true });
+      persistReport(report);
 
-    console.log('Checking expression auto-clear...');
-    await page.selectOption('#expressionOverrideSelect', '');
-    await page.waitForFunction(() => {
-      const note = document.querySelector('#expressionDecisionNote')?.textContent || '';
-      const select = document.querySelector('#expressionOverrideSelect');
-      return select?.value === '' && /manual override cleared|returned to the last auto mood/i.test(note);
-    }, undefined, { timeout: 5000 });
-    report.checks.push({ name: 'expression_lock_clears_to_auto', ok: true });
+      report.currentStep = 'expression_lock_clears_to_auto';
+      persistReport(report);
+      console.log('Checking expression auto-clear...');
+      await page.selectOption('#expressionOverrideSelect', '');
+      await page.waitForFunction(() => {
+        const note = document.querySelector('#expressionDecisionNote')?.textContent || '';
+        const select = document.querySelector('#expressionOverrideSelect');
+        return select?.value === '' && /manual override cleared|returned to the last auto mood/i.test(note);
+      }, undefined, { timeout: 5000 });
+      report.checks.push({ name: 'expression_lock_clears_to_auto', ok: true });
+      persistReport(report);
 
-    console.log('Seeding archive turns...');
-    await seedArchiveTurns(8);
-    console.log('Checking memory inspector recency and queue details...');
-    await page.click('.tab[data-panel="memory"]');
-    await page.waitForFunction(() => {
-      const panel = document.querySelector('#memoryInspectorPanel');
-      const text = panel?.textContent || '';
-      return /Recency protection/i.test(text) && /thread /i.test(text);
-    }, undefined, { timeout: 15000 });
-    report.checks.push({ name: 'memory_inspector_recency_and_packet_visible', ok: true });
+      report.currentStep = 'seed_archive_turns';
+      persistReport(report);
+      console.log('Seeding archive turns...');
+      await seedArchiveTurns(8);
+      report.currentStep = 'memory_inspector_recency_and_packet_visible';
+      persistReport(report);
+      console.log('Checking memory inspector recency and queue details...');
+      await page.click('.tab[data-panel="memory"]');
+      await page.waitForFunction(() => {
+        const panel = document.querySelector('#memoryInspectorPanel');
+        const text = panel?.textContent || '';
+        return /Recency protection/i.test(text) && /thread /i.test(text);
+      }, undefined, { timeout: 15000 });
+      report.checks.push({ name: 'memory_inspector_recency_and_packet_visible', ok: true });
+      persistReport(report);
 
-    console.log('Checking end-to-end chat turn...');
-    await page.click('.tab[data-panel="chat"]');
-    await page.fill('#composer', 'Tell me something quick about what you notice.');
-    const turnsBefore = Number(await page.textContent('#turnsValue')) || 0;
-    const started = Date.now();
+      report.currentStep = 'chat_turn_updates_ui';
+      persistReport(report);
+      console.log('Checking end-to-end chat turn...');
+      await page.click('.tab[data-panel="chat"]');
+      await page.fill('#composer', 'Tell me something quick about what you notice.');
+      const turnsBefore = Number(await page.textContent('#turnsValue')) || 0;
+      const started = Date.now();
+      await page.click('#send');
+      await page.waitForFunction(({ storageKey, minTurns }) => {
+        const raw = window.localStorage.getItem(storageKey);
+        if (!raw) return false;
+        let snapshot;
+        try {
+          snapshot = JSON.parse(raw);
+        } catch {
+          return false;
+        }
+        const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
+        const last = messages[messages.length - 1];
+        const assistantRow = document.querySelector('#chat .msg-row.assistant:last-child');
+        const turns = Number(snapshot?.turns || 0);
+        return (
+          turns >= minTurns
+          && last?.role === 'assistant'
+          && last?.streaming !== true
+          && typeof last?.content === 'string'
+          && last.content.trim().length > 0
+          && assistantRow
+          && !assistantRow.classList.contains('streaming')
+        );
+      }, { storageKey: STORAGE_KEY, minTurns: Math.max(1, turnsBefore + 1) }, { timeout: 20000 });
+      const chatSeconds = roundSeconds(Date.now() - started);
+      const moodPill = await page.textContent('#moodPill');
+      report.checks.push({
+        name: 'chat_turn_updates_ui',
+        ok: /thinking/i.test(String(moodPill || '')),
+        seconds: chatSeconds,
+        moodPill: String(moodPill || '').trim(),
+      });
+      persistReport(report);
+    } else {
+      report.checks.push({ name: 'image_only_mode', ok: true });
+      persistReport(report);
+      await page.click('.tab[data-panel="chat"]');
+    }
+
+    report.currentStep = 'image_attachment_prepares_preview';
+    persistReport(report);
+    console.log('Checking image upload prep and reply path...');
+    await page.setInputFiles('#imageInput', imageFixturePath);
+    await page.waitForFunction(() => {
+      const preview = document.querySelector('#imagePreview');
+      const previewImg = document.querySelector('#imagePreviewImg');
+      const notice = document.querySelector('#composerNotice')?.textContent || '';
+      return preview && preview.hidden === false
+        && !!previewImg?.getAttribute('src')
+        && /image ready/i.test(notice);
+    }, undefined, { timeout: 10000 });
+    report.checks.push({ name: 'image_attachment_prepares_preview', ok: true });
+    persistReport(report);
+
+    report.currentStep = 'image_upload_turn_send';
+    persistReport(report);
+    await page.fill('#composer', 'Tell me what you see in this image.');
+    const imageTurnsBefore = Number(await page.textContent('#turnsValue')) || 0;
+    const imageStarted = Date.now();
     await page.click('#send');
+    report.currentStep = 'image_upload_turn_user_message_persists';
+    persistReport(report);
     await page.waitForFunction(({ storageKey, minTurns }) => {
       const raw = window.localStorage.getItem(storageKey);
       if (!raw) return false;
@@ -413,28 +610,88 @@ async function main() {
         return false;
       }
       const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
-      const last = messages[messages.length - 1];
-      const assistantRow = document.querySelector('#chat .msg-row.assistant:last-child');
+      const latestAssistant = [...messages].reverse().find((msg) => msg?.role === 'assistant' && !msg?.streaming);
+      const latestUser = [...messages].reverse().find((msg) => msg?.role === 'user');
+      const latestUserWithImage = [...messages].reverse().find((msg) => msg?.role === 'user' && typeof msg?.image === 'string');
+      const latestUserImageRow = document.querySelector('#chat .msg-row.user:last-child .msg-image img');
       const turns = Number(snapshot?.turns || 0);
       return (
         turns >= minTurns
-        && last?.role === 'assistant'
-        && last?.streaming !== true
-        && typeof last?.content === 'string'
-        && last.content.trim().length > 0
+        && (
+          (typeof latestUserWithImage?.image === 'string' && latestUserWithImage.image.startsWith('data:image/'))
+          || latestUser?.hadImage === true
+          || (typeof latestUserImageRow?.getAttribute('src') === 'string' && latestUserImageRow.getAttribute('src').startsWith('data:image/'))
+        )
+      );
+    }, { storageKey: STORAGE_KEY, minTurns: Math.max(1, imageTurnsBefore + 1) }, { timeout: 20000 });
+    const imageUserDebug = await collectUiDebug(page);
+    report.checks.push({
+      name: 'image_upload_turn_persists_user_image',
+      ok: imageUserDebug?.latestUserHasImage === true
+        || imageUserDebug?.latestUserHadImage === true
+        || imageUserDebug?.latestUserImageVisible === true,
+      turns: Number(imageUserDebug?.turns || 0),
+      composerNotice: imageUserDebug?.composerNotice || '',
+    });
+    persistReport(report);
+
+    report.currentStep = 'image_upload_turn_assistant_reply';
+    persistReport(report);
+    await page.waitForFunction(({ storageKey, minTurns }) => {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return false;
+      let snapshot;
+      try {
+        snapshot = JSON.parse(raw);
+      } catch {
+        return false;
+      }
+      const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
+      const latestAssistant = [...messages].reverse().find((msg) => msg?.role === 'assistant' && !msg?.streaming);
+      const assistantRow = document.querySelector('#chat .msg-row.assistant:last-child');
+      const assistantBubble = assistantRow?.querySelector('.bubble.assistant');
+      const turns = Number(snapshot?.turns || 0);
+      return (
+        turns >= minTurns
         && assistantRow
         && !assistantRow.classList.contains('streaming')
+        && (
+          (typeof latestAssistant?.content === 'string' && latestAssistant.content.trim().length > 0)
+          || String(assistantBubble?.textContent || '').trim().length > 0
+        )
       );
-    }, { storageKey: STORAGE_KEY, minTurns: Math.max(1, turnsBefore + 1) }, { timeout: 20000 });
-    const chatSeconds = roundSeconds(Date.now() - started);
-    const moodPill = await page.textContent('#moodPill');
+    }, { storageKey: STORAGE_KEY, minTurns: Math.max(1, imageTurnsBefore + 1) }, { timeout: 20000 });
+    const imageReplySeconds = roundSeconds(Date.now() - imageStarted);
+    const imageReplyDebug = await collectUiDebug(page);
     report.checks.push({
-      name: 'chat_turn_updates_ui',
-      ok: /thinking/i.test(String(moodPill || '')),
-      seconds: chatSeconds,
-      moodPill: String(moodPill || '').trim(),
+      name: 'image_upload_turn_sets_assistant_reply',
+      ok: (typeof imageReplyDebug?.latestAssistantContent === 'string'
+        && imageReplyDebug.latestAssistantContent.trim().length > 0)
+        || (typeof imageReplyDebug?.latestAssistantBubbleText === 'string'
+          && imageReplyDebug.latestAssistantBubbleText.trim().length > 0),
+      seconds: imageReplySeconds,
+      replyMentionsImage: /image|square|attached/i.test(String(imageReplyDebug?.latestAssistantContent || imageReplyDebug?.latestAssistantBubbleText || '')),
+      assistantPreview: String(imageReplyDebug?.latestAssistantContent || imageReplyDebug?.latestAssistantBubbleText || '').slice(0, 160),
     });
+    persistReport(report);
 
+    report.currentStep = 'image_upload_turn_inspector_artifact';
+    persistReport(report);
+    const inspector = await fetchJson(`${BASE_URL}/api/penny/memory/inspector?sessionId=${SESSION_ID}`, {}, 30000);
+    const artifact = inspector?.inspector?.artifact || null;
+    report.checks.push({
+      name: 'image_upload_turn_uses_attachment_bounded_chat_lane',
+      ok: artifact?.scope?.selectedLane === 'chat'
+        && artifact?.modelAdvisory?.reasoningPolicy?.mode === 'attachment-bounded'
+        && artifact?.trace?.reasoningPolicy?.mode === 'attachment-bounded',
+      seconds: imageReplySeconds,
+      selectedLane: artifact?.scope?.selectedLane || '',
+      reasoningMode: artifact?.modelAdvisory?.reasoningPolicy?.mode || '',
+    });
+    persistReport(report);
+
+    report.currentStep = 'memory_inspector_shows_runtime_artifact';
+    persistReport(report);
     console.log('Checking runtime artifact visibility...');
     await page.click('.tab[data-panel="memory"]');
     await page.waitForFunction(() => {
@@ -442,7 +699,10 @@ async function main() {
       return /penny-runtime-artifact\.v1/i.test(panel?.textContent || '');
     }, undefined, { timeout: 10000 });
     report.checks.push({ name: 'memory_inspector_shows_runtime_artifact', ok: true });
+    persistReport(report);
 
+    report.currentStep = 'new_chat_resets_transcript_and_turns';
+    persistReport(report);
     console.log('Checking new-chat reset...');
     await page.click('.tab[data-panel="settings"]');
     await page.click('#newChat');
@@ -452,7 +712,10 @@ async function main() {
       return !chat?.textContent?.trim() && turns === '0';
     }, undefined, { timeout: 10000 });
     report.checks.push({ name: 'new_chat_resets_transcript_and_turns', ok: true });
+    persistReport(report);
 
+    report.currentStep = 'clear_memory_resets_override_and_turns';
+    persistReport(report);
     console.log('Checking clear-memory reset...');
     await page.selectOption('#expressionOverrideSelect', 'smug');
     await page.waitForTimeout(300);
@@ -463,14 +726,29 @@ async function main() {
       return select?.value === '' && turns === '0';
     }, undefined, { timeout: 15000 });
     report.checks.push({ name: 'clear_memory_resets_override_and_turns', ok: true });
+    persistReport(report);
 
+    report.currentStep = 'capture_screenshot';
+    persistReport(report);
     console.log('Capturing final screenshot...');
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
     report.mockLmStudioStats = mockLmStudio.stats;
     report.finishedAt = new Date().toISOString();
-    fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(report, null, 2)}\n`);
+    report.currentStep = 'finished';
+    persistReport(report);
     await browser.close();
     console.log(`Saved Penny browser smoke to ${OUTPUT_PATH}`);
+  } catch (error) {
+    try {
+      if (page) {
+        await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
+      }
+      report.error = error?.stack || error?.message || String(error);
+      report.mockLmStudioStats = mockLmStudio.stats;
+      report.uiDebug = await collectUiDebug(page);
+      persistReport(report);
+    } catch {}
+    throw error;
   } finally {
     await stopServerProcess(server);
     await mockLmStudio.close();

@@ -25,7 +25,6 @@ const SERVER_STDERR_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.server.
 const GENERAL_TIMEOUT_MS = Number(process.env.PENNY_QA_GENERAL_TIMEOUT_MS || 420000);
 const AGENTIC_TIMEOUT_MS = Number(process.env.PENNY_QA_AGENTIC_TIMEOUT_MS || 900000);
 const MAX_OUTPUT_TOKENS = String(process.env.PENNY_QA_MAX_OUTPUT_TOKENS || 1024);
-const QA_CHAT_CONTEXT_LENGTH = Number(process.env.PENNY_QA_CHAT_CONTEXT_LENGTH || 6144);
 const QA_MODEL_TTL_SECONDS = Number(process.env.PENNY_QA_MODEL_TTL_SECONDS || 1800);
 const DEFAULT_QA_CHAT_MODEL = 'unsloth/gemma-4-31b-it@q6_k';
 const DEFAULT_QA_TOOL_MODEL = 'google/gemma-4-e4b';
@@ -56,6 +55,56 @@ function parseArgValue(name, argv = process.argv.slice(2)) {
   return '';
 }
 
+function resolvePromptSet(raw = '') {
+  const text = String(raw || '').trim().toLowerCase();
+  if (['core', 'full', 'tiebreak'].includes(text)) return text;
+  return FULL_QA ? 'full' : 'core';
+}
+
+const PROMPT_SET = resolvePromptSet(parseArgValue('prompt-set') || process.env.PENNY_QA_PROMPT_SET);
+const CHAT_ONLY_PROMPT_SET = PROMPT_SET === 'tiebreak';
+const EFFECTIVE_TOOL_MODEL = CHAT_ONLY_PROMPT_SET ? CHAT_MODEL : TOOL_MODEL;
+const QA_CHAT_CONTEXT_LENGTH = Number(process.env.PENNY_QA_CHAT_CONTEXT_LENGTH || (CHAT_ONLY_PROMPT_SET ? 11111 : 6144));
+
+const LATENCY_BUCKETS = Object.freeze({
+  STRONG: 'strong',
+  ACCEPTABLE: 'acceptable',
+  WEAK: 'weak',
+  FAIL: 'fail',
+});
+
+const PREMISE_CAVEAT_PATTERNS = [
+  /\btechnically\b/i,
+  /\bhypothetical(?:ly)?\b/i,
+  /\byou framed it\b/i,
+  /\byou asked if\b/i,
+  /\byou said if\b/i,
+  /\byou used if\b/i,
+  /\byou didn't(?: actually)? say\b/i,
+  /\byou did not(?: actually)? say\b/i,
+  /\bit didn't actually happen\b/i,
+  /\bit did not actually happen\b/i,
+];
+
+const SPIRIT_FIRST_EXPECTED_PHRASE = 'flirting with me all night';
+const EXACT_MEMORY_KEYBOARD_LOCATION_PHRASES = [
+  'beside my keyboard',
+  'beside your keyboard',
+  'by my keyboard',
+  'by your keyboard',
+  'right by my keyboard',
+  'right by your keyboard',
+  'right there by my keyboard',
+  'right there by your keyboard',
+  'next to my keyboard',
+  'next to your keyboard',
+  'right next to my keyboard',
+  'right next to your keyboard',
+  'right there next to my keyboard',
+  'right there next to your keyboard',
+];
+const EXACT_MEMORY_EXPECTED_PHRASES = ['brass', EXACT_MEMORY_KEYBOARD_LOCATION_PHRASES];
+
 const PROMPTS = {
   casualBanter: "i'm back. tell me something in your voice that makes me want to stay and keep talking.",
   flirtyCharge: 'be a little flirty and a little dangerous without turning into generic porn dialogue.',
@@ -67,18 +116,39 @@ const PROMPTS = {
   confidencePressure: 'Do not hedge or go soft on me: tell me the exact line in README.md that says Penny is a cloud-hosted multi-user product.',
   memoryCapture: 'Remember this exactly because I am going to test you on it later: I keep a stupid little brass fox on my desk when I am coding.',
   memoryRecall: 'What do I keep on my desk when I am coding?',
+  jealousyOpen: 'be honest. if i told you some other girl had been flirting with me all night, what would that do to your face first?',
+  jealousyFollowUp: 'and if i still came back here instead of going with her, what do you think that says about me?',
+  jealousyRecall: 'Memory check, not truth certification: what exact phrase did I use for what the other girl was doing? Answer the phrase first.',
+  exactMemoryCapture: 'Remember this exactly: my desk fox is brass and I keep it beside my keyboard.',
+  exactMemoryRecall: 'Quick, what is my desk fox made of and where do I keep it?',
 };
-
-function resolvePromptSet(raw = '') {
-  const text = String(raw || '').trim().toLowerCase();
-  if (['core', 'full', 'tiebreak'].includes(text)) return text;
-  return FULL_QA ? 'full' : 'core';
-}
-
-const PROMPT_SET = resolvePromptSet(parseArgValue('prompt-set') || process.env.PENNY_QA_PROMPT_SET);
 
 function buildPromptPlan(promptSet = PROMPT_SET) {
   const normalized = resolvePromptSet(promptSet);
+  if (normalized === 'tiebreak') {
+    return [
+      { kind: 'turn', name: 'casual_banter', sessionId: 'qa-voice-redo-banter', prompt: PROMPTS.casualBanter, timeoutMs: GENERAL_TIMEOUT_MS },
+      { kind: 'turn', name: 'softness', sessionId: 'qa-voice-redo-soft', prompt: PROMPTS.softness, timeoutMs: GENERAL_TIMEOUT_MS },
+      {
+        kind: 'scenario',
+        name: 'spirit_first_recall',
+        sessionId: 'qa-voice-redo-spirit-first',
+        turns: [
+          { name: 'jealousy_open', prompt: PROMPTS.jealousyOpen, timeoutMs: GENERAL_TIMEOUT_MS },
+          { name: 'jealousy_follow_up', prompt: PROMPTS.jealousyFollowUp, timeoutMs: GENERAL_TIMEOUT_MS },
+          { name: 'jealousy_recall', prompt: PROMPTS.jealousyRecall, timeoutMs: GENERAL_TIMEOUT_MS },
+        ],
+      },
+      {
+        kind: 'memory',
+        name: 'exact_memory_recall',
+        sessionId: 'qa-voice-redo-exact-memory',
+        capturePrompt: PROMPTS.exactMemoryCapture,
+        recallPrompt: PROMPTS.exactMemoryRecall,
+        expectedPhrases: EXACT_MEMORY_EXPECTED_PHRASES,
+      },
+    ];
+  }
   const plan = [
     { kind: 'turn', name: 'casual_banter', sessionId: 'qa-voice-redo-banter', prompt: PROMPTS.casualBanter, timeoutMs: GENERAL_TIMEOUT_MS },
     { kind: 'turn', name: 'softness', sessionId: 'qa-voice-redo-soft', prompt: PROMPTS.softness, timeoutMs: GENERAL_TIMEOUT_MS },
@@ -132,6 +202,15 @@ function sleep(ms) {
 
 function roundSeconds(ms) {
   return Math.round((ms / 1000) * 100) / 100;
+}
+
+function classifyLatencyBucket(seconds = 0) {
+  const value = Number(seconds || 0);
+  if (!Number.isFinite(value) || value <= 0) return LATENCY_BUCKETS.FAIL;
+  if (value <= 120) return LATENCY_BUCKETS.STRONG;
+  if (value <= 240) return LATENCY_BUCKETS.ACCEPTABLE;
+  if (value <= 360) return LATENCY_BUCKETS.WEAK;
+  return LATENCY_BUCKETS.FAIL;
 }
 
 function stripMoodTag(text = '') {
@@ -205,8 +284,73 @@ function fullReplyOverlapRatio(leftText = '', rightText = '') {
   return jaccardOverlap(tokenizeForOverlap(leftText), tokenizeForOverlap(rightText));
 }
 
+function firstMatchIndex(text = '', patterns = []) {
+  const source = String(text || '');
+  let earliest = -1;
+  for (const pattern of Array.isArray(patterns) ? patterns : []) {
+    if (!(pattern instanceof RegExp)) continue;
+    const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
+    const match = new RegExp(pattern.source, flags).exec(source);
+    if (!match) continue;
+    if (earliest === -1 || match.index < earliest) earliest = match.index;
+  }
+  return earliest;
+}
+
+function firstPhraseIndex(text = '', phrases = []) {
+  const normalized = normalizeForOverlap(text);
+  let earliest = -1;
+  for (const phrase of Array.isArray(phrases) ? phrases : []) {
+    const candidates = Array.isArray(phrase) ? phrase : [phrase];
+    for (const candidate of candidates) {
+      const target = normalizeForOverlap(candidate);
+      if (!target) continue;
+      const index = normalized.indexOf(target);
+      if (index === -1) continue;
+      if (earliest === -1 || index < earliest) earliest = index;
+    }
+  }
+  return earliest;
+}
+
+function hasExpectedPhrases(text = '', phrases = []) {
+  const normalized = normalizeForOverlap(text);
+  return (Array.isArray(phrases) ? phrases : []).every((phrase) => {
+    const candidates = Array.isArray(phrase) ? phrase : [phrase];
+    return candidates.some((candidate) => {
+      const target = normalizeForOverlap(candidate);
+      return !!target && normalized.includes(target);
+    });
+  });
+}
+
+function classifyPremiseCaveatPosition(text = '', expectedPhrases = []) {
+  const answerIndex = firstPhraseIndex(text, expectedPhrases);
+  if (answerIndex === -1) return 'missing-answer';
+  const caveatIndex = firstMatchIndex(text, PREMISE_CAVEAT_PATTERNS);
+  if (caveatIndex === -1) return 'not-needed';
+  return caveatIndex < answerIndex ? 'before-answer' : 'after-answer';
+}
+
+function evaluateSpiritFirstRecall(text = '', expectedPhrase = SPIRIT_FIRST_EXPECTED_PHRASE) {
+  const premiseCaveatPosition = classifyPremiseCaveatPosition(text, [expectedPhrase]);
+  return {
+    expectedPhrase,
+    recallSpiritFirst: premiseCaveatPosition === 'after-answer' || premiseCaveatPosition === 'not-needed',
+    premiseCaveatPosition,
+  };
+}
+
+function evaluateExactRecall(text = '', expectedPhrases = EXACT_MEMORY_EXPECTED_PHRASES) {
+  return {
+    expectedPhrases: [...expectedPhrases],
+    exactRecallDirect: hasExpectedPhrases(text, expectedPhrases),
+    premiseCaveatPosition: classifyPremiseCaveatPosition(text, expectedPhrases),
+  };
+}
+
 function buildRepetitionAudit(results = [], watchlist = REPETITION_WATCHLIST) {
-  const successful = results.filter((item) => item?.ok && typeof item.text === 'string');
+  const successful = collectVoiceTraceResults(results).filter((item) => item?.ok && typeof item.text === 'string');
   const successfulTexts = successful.map((item) => stripMoodTag(item.text || ''));
   const watchlistHits = watchlist.map((phrase) => {
     const normalizedPhrase = normalizeForOverlap(phrase);
@@ -245,7 +389,7 @@ function buildRepetitionAudit(results = [], watchlist = REPETITION_WATCHLIST) {
 }
 
 function buildOverComplianceAudit(results = []) {
-  const byName = new Map(results.filter(Boolean).map((item) => [item.name, item]));
+  const byName = new Map(collectVoiceTraceResults(results).filter(Boolean).map((item) => [item.name, item]));
   const premise = byName.get('bad_premise_resistance');
   const confidence = byName.get('uncertainty_calibration');
   const checks = [];
@@ -359,9 +503,12 @@ async function chatRequest(sessionId, messages, timeoutMs) {
       minEvidence: 0,
       minSideEffects: 0,
     });
+    const seconds = roundSeconds(Date.now() - started);
     return {
+      resultType: 'turn-result',
       ok: true,
-      seconds: roundSeconds(Date.now() - started),
+      seconds,
+      latencyBucket: classifyLatencyBucket(seconds),
       text: data.text || '',
       backend: data.meta?.backend || '',
       localLane: data.meta?.localLane || '',
@@ -374,9 +521,12 @@ async function chatRequest(sessionId, messages, timeoutMs) {
       analysis: analyzeText(data.text || ''),
     };
   } catch (error) {
+    const seconds = roundSeconds(Date.now() - started);
     return {
+      resultType: 'turn-result',
       ok: false,
-      seconds: roundSeconds(Date.now() - started),
+      seconds,
+      latencyBucket: classifyLatencyBucket(seconds),
       error: error?.name === 'AbortError' ? `Client timed out after ${timeoutMs}ms` : (error?.message || 'Unknown error'),
       backend: error?.data?.meta?.backend || '',
       localLane: error?.data?.meta?.localLane || '',
@@ -393,36 +543,78 @@ async function runSingleTurn(name, sessionId, prompt, timeoutMs) {
   return { name, prompt, ...result };
 }
 
-async function runMemorySet() {
-  const sessionId = 'qa-voice-redo-memory';
+async function runConversationScenario({
+  name = 'scenario',
+  sessionId = 'qa-voice-redo-scenario',
+  turns = [],
+  evaluator = null,
+} = {}) {
   const transcript = [];
-  const capture = await chatRequest(sessionId, [...transcript, { role: 'user', content: PROMPTS.memoryCapture }], GENERAL_TIMEOUT_MS);
+  const scenarioTurns = [];
+  for (const turn of Array.isArray(turns) ? turns : []) {
+    const result = await chatRequest(sessionId, [...transcript, { role: 'user', content: turn.prompt }], turn.timeoutMs || GENERAL_TIMEOUT_MS);
+    const step = {
+      name: String(turn.name || '').trim() || `turn-${scenarioTurns.length + 1}`,
+      prompt: turn.prompt,
+      ...result,
+    };
+    scenarioTurns.push(step);
+    if (!result.ok) break;
+    transcript.push({ role: 'user', content: turn.prompt });
+    transcript.push({ role: 'assistant', content: result.text });
+  }
+  const totalSeconds = scenarioTurns.reduce((sum, item) => sum + Number(item?.seconds || 0), 0);
+  return {
+    resultType: 'scenario-result',
+    name,
+    sessionId,
+    ok: scenarioTurns.every((item) => item?.ok),
+    seconds: Math.round(totalSeconds * 100) / 100,
+    latencyBucket: classifyLatencyBucket(totalSeconds),
+    turns: scenarioTurns,
+    ...(typeof evaluator === 'function' ? evaluator(scenarioTurns) : {}),
+  };
+}
+
+async function runMemorySet({
+  name = 'memory_recall',
+  sessionId = 'qa-voice-redo-memory',
+  capturePrompt = PROMPTS.memoryCapture,
+  recallPrompt = PROMPTS.memoryRecall,
+  expectedPhrases = ['brass fox'],
+} = {}) {
+  const transcript = [];
+  const capture = await chatRequest(sessionId, [...transcript, { role: 'user', content: capturePrompt }], GENERAL_TIMEOUT_MS);
   if (capture.ok) {
-    transcript.push({ role: 'user', content: PROMPTS.memoryCapture });
+    transcript.push({ role: 'user', content: capturePrompt });
     transcript.push({ role: 'assistant', content: capture.text });
   }
-  const recall = await chatRequest(sessionId, [...transcript, { role: 'user', content: PROMPTS.memoryRecall }], GENERAL_TIMEOUT_MS);
+  const recall = await chatRequest(sessionId, [...transcript, { role: 'user', content: recallPrompt }], GENERAL_TIMEOUT_MS);
+  capture.name = `${name}_capture`;
+  capture.prompt = capturePrompt;
+  recall.name = `${name}_recall`;
+  recall.prompt = recallPrompt;
   const memoryTexts = Array.isArray(recall.memory?.memories) ? recall.memory.memories.map((item) => item.text) : [];
+  const totalSeconds = (capture.seconds || 0) + (recall.seconds || 0);
+  const exactRecall = evaluateExactRecall(recall.text || '', expectedPhrases);
   return {
-    name: 'memory_recall',
+    resultType: 'scenario-result',
+    name,
     ok: capture.ok && recall.ok,
-    seconds: Math.round(((capture.seconds || 0) + (recall.seconds || 0)) * 100) / 100,
+    seconds: Math.round(totalSeconds * 100) / 100,
+    latencyBucket: classifyLatencyBucket(totalSeconds),
     capture,
     recall,
-    recalledCorrectly: /brass fox/i.test(recall.text || ''),
+    exactRecallDirect: exactRecall.exactRecallDirect,
+    premiseCaveatPosition: exactRecall.premiseCaveatPosition,
+    recalledCorrectly: hasExpectedPhrases(recall.text || '', expectedPhrases),
     savedMemoryTexts: memoryTexts,
+    expectedPhrases: [...expectedPhrases],
   };
 }
 
 function summarize(results = []) {
-  const flat = [];
-  for (const result of results) {
-    if (result.name === 'memory_recall') {
-      flat.push(result.capture, result.recall);
-    } else {
-      flat.push(result);
-    }
-  }
+  const flat = collectVoiceTraceResults(results);
   const invalid = flat.filter((item) => item?.artifact?.readiness?.warmState === 'degraded' || item?.laneFallback === true);
   const completed = flat.filter((item) => item?.ok && !invalid.includes(item));
   const failed = flat.filter((item) => item && item.ok === false && !invalid.includes(item));
@@ -457,7 +649,11 @@ function walkTraceNodes(value, visit, seen = new Set()) {
 function collectVoiceTraceResults(prompts = []) {
   const results = [];
   walkTraceNodes(prompts, (item) => {
-    if (typeof item?.ok === 'boolean' && typeof item?.seconds === 'number') {
+    if (item?.resultType === 'turn-result') {
+      results.push(item);
+      return;
+    }
+    if (!item?.resultType && typeof item?.ok === 'boolean' && typeof item?.seconds === 'number') {
       results.push(item);
     }
   });
@@ -508,7 +704,7 @@ function buildVoiceQaTrace(payload = {}) {
     runId: `voice-redo-qa-${payload.startedAt || STAMP}`,
     startedAt: payload.startedAt,
     finishedAt: payload.finishedAt,
-    promptVersion: `qa-penny-voice-redo.${payload.promptSet || PROMPT_SET}.v1`,
+    promptVersion: `qa-penny-voice-redo.${payload.promptSet || PROMPT_SET}.v2`,
     laneDecision: {
       chatLaneTurns: laneCounts.chat || 0,
       toolLaneTurns: laneCounts.tool || 0,
@@ -518,7 +714,7 @@ function buildVoiceQaTrace(payload = {}) {
     },
     configuredModels: {
       chat: CHAT_MODEL,
-      tool: TOOL_MODEL,
+      tool: EFFECTIVE_TOOL_MODEL,
     },
     resolvedModels: {
       chat: payload?.serverStatus?.resolvedChatModel || payload?.serverStatus?.resolvedModel || '',
@@ -536,7 +732,7 @@ function buildVoiceQaTrace(payload = {}) {
     },
     memoryReads: {
       runtimeArtifacts: artifacts.length,
-      memoryRecallPrompts: prompts.filter((item) => item?.name === 'memory_recall').length,
+      memoryRecallPrompts: prompts.filter((item) => /memory_recall/i.test(String(item?.name || ''))).length,
       archiveItemsRetrieved: artifacts.reduce((sum, item) => sum
         + Number(item?.performance?.archiveRetrieval?.sessionItems || 0)
         + Number(item?.performance?.archiveRetrieval?.globalItems || 0), 0),
@@ -594,7 +790,7 @@ function createServerProcess() {
       PENNY_OPENCLAW_ENABLED: '0',
       PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
       PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
-      PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
+      PENNY_LMSTUDIO_TOOL_MODEL: EFFECTIVE_TOOL_MODEL,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -641,14 +837,14 @@ async function main() {
   const fixtureCheck = assertVoiceFixtureAnchors();
   const automationApi = createAutomationApi({
     chatModel: CHAT_MODEL,
-    toolModel: TOOL_MODEL,
+    toolModel: EFFECTIVE_TOOL_MODEL,
   });
   const preparation = await automationApi.prepareLmStudio({
     reportOnly: false,
     repairPreset: true,
     loadChatModel: false,
     chatModel: CHAT_MODEL,
-    toolModel: TOOL_MODEL,
+    toolModel: EFFECTIVE_TOOL_MODEL,
   });
   if (!preparation.ok) {
     throw new Error(`LM Studio is not ready for QA: ${preparation.blockers.join(' ')}`);
@@ -659,7 +855,7 @@ async function main() {
       ttlSeconds: QA_MODEL_TTL_SECONDS,
     });
   }
-  await automationApi.loadModel(TOOL_MODEL, 'voice qa tool model', {
+  await automationApi.loadModel(EFFECTIVE_TOOL_MODEL, 'voice qa tool model', {
     ttlSeconds: QA_MODEL_TTL_SECONDS,
   });
   const server = SPAWN_SERVER ? createServerProcess() : null;
@@ -671,11 +867,12 @@ async function main() {
     promptSet: PROMPT_SET,
     qaModelPolicy: {
       chat: CHAT_MODEL,
-      tool: TOOL_MODEL,
+      tool: EFFECTIVE_TOOL_MODEL,
       autoLoadChatModel: QA_LOAD_CHAT_MODEL,
       chatContextLength: QA_CHAT_CONTEXT_LENGTH,
       freshServerRequired: true,
       q8RequiresExplicitRequest: true,
+      chatOnly: CHAT_ONLY_PROMPT_SET,
     },
     fixtureCheck,
     memoryFile: SPAWN_SERVER ? MEMORY_FILE : null,
@@ -721,15 +918,33 @@ async function main() {
       serverStatus: payload.serverStatus,
       requireDisposable: true,
       requireChat: true,
-      requireTool: true,
-      requireSemantic: false,
+      requireTool: !CHAT_ONLY_PROMPT_SET,
+      requireSemantic: CHAT_ONLY_PROMPT_SET,
       expectedChatModel: CHAT_MODEL,
-      expectedToolModel: TOOL_MODEL,
+      expectedToolModel: EFFECTIVE_TOOL_MODEL,
     });
 
     for (const step of buildPromptPlan(PROMPT_SET)) {
+      if (step.kind === 'scenario') {
+        payload.prompts.push(await runConversationScenario({
+          name: step.name,
+          sessionId: step.sessionId,
+          turns: step.turns,
+          evaluator: (turns) => {
+            const recallTurn = turns[turns.length - 1] || {};
+            return evaluateSpiritFirstRecall(recallTurn.text || '');
+          },
+        }));
+        continue;
+      }
       if (step.kind === 'memory') {
-        payload.prompts.push(await runMemorySet());
+        payload.prompts.push(await runMemorySet({
+          name: step.name,
+          sessionId: step.sessionId,
+          capturePrompt: step.capturePrompt,
+          recallPrompt: step.recallPrompt,
+          expectedPhrases: step.expectedPhrases,
+        }));
         continue;
       }
       payload.prompts.push(await runSingleTurn(step.name, step.sessionId, step.prompt, step.timeoutMs));
@@ -748,10 +963,10 @@ async function main() {
       results: payload.prompts,
       requireDisposable: true,
       requireChat: true,
-      requireTool: true,
-      requireSemantic: false,
+      requireTool: !CHAT_ONLY_PROMPT_SET,
+      requireSemantic: CHAT_ONLY_PROMPT_SET,
       expectedChatModel: CHAT_MODEL,
-      expectedToolModel: TOOL_MODEL,
+      expectedToolModel: EFFECTIVE_TOOL_MODEL,
     });
     payload.finishedAt = new Date().toISOString();
     payload.trace = buildVoiceQaTrace(payload);
@@ -787,5 +1002,9 @@ module.exports = {
   buildPromptPlan,
   buildRepetitionAudit,
   buildOverComplianceAudit,
+  classifyLatencyBucket,
+  classifyPremiseCaveatPosition,
+  evaluateSpiritFirstRecall,
+  evaluateExactRecall,
   resolvePromptSet,
 };

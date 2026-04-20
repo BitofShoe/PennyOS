@@ -565,3 +565,427 @@ test('chat route threads successful write intent into ledger scheduling so gener
   assert.equal(saved.lastRoute.researchLedgerUpdate.reason, 'generic-write-turn');
   assert.equal(saved.lastRoute.toolOutcome.writeIntentSatisfied, true);
 });
+
+test('chat route keeps image uploads on the chat lane and records attachment-bounded reasoning', async () => {
+  const memoryStore = new Map();
+  let response = null;
+  let runtimeContextArgs = null;
+  let localSmartArgs = null;
+
+  const handlers = createPennyRouteHandlers({
+    sendJson(_res, statusCode, json) {
+      response = { statusCode, json };
+    },
+    async safeReadBody() {
+      return JSON.stringify({
+        sessionId: 'image-upload-session',
+        messages: [
+          {
+            role: 'user',
+            content: 'Tell me what you see in this image.',
+          },
+        ],
+        image: 'data:image/jpeg;base64,abc123',
+        memories: { brainMode: 'local', memories: [] },
+      });
+    },
+    buildLastRouteInfo,
+    buildChatMemoryState(_sessionId, memories = {}) {
+      return {
+        memory: {
+          brainMode: memories.brainMode || 'local',
+          memories: Array.isArray(memories.memories) ? memories.memories : [],
+        },
+        patch: {
+          provenance: [],
+          reviewCandidates: [],
+        },
+      };
+    },
+    sanitizeChatMessages(messages = []) {
+      return Array.isArray(messages) ? messages : [];
+    },
+    sanitizeImageDataUrl(value = '') {
+      return value ? { dataUrl: value } : null;
+    },
+    sanitizeFileAttachment() {
+      return null;
+    },
+    appendAttachmentContext(text = '') {
+      return text;
+    },
+    async buildRuntimeMemoryContext(args = {}) {
+      runtimeContextArgs = args;
+      return {
+        memories: [],
+        retrieval: null,
+        archiveContext: null,
+        researchLedger: null,
+        promptComposition: null,
+        promptTruth: null,
+        latencyBudget: {
+          latencyClass: 'image-heavy',
+          policyMode: 'attachment-bounded',
+          allowSemanticQuery: false,
+          allowArchiveCompression: false,
+          allowSemanticRender: false,
+        },
+        semanticMemory: {
+          ready: false,
+          mode: 'disabled',
+        },
+      };
+    },
+    selectLocalLane(args = {}) {
+      assert.equal(typeof args.image, 'string');
+      return {
+        localLane: 'chat',
+        directIntent: null,
+        needsTools: false,
+        reason: 'image-chat',
+      };
+    },
+    async runLmStudioLocalSmart(args = {}) {
+      localSmartArgs = args;
+      return {
+        text: 'i can see the image you attached. tiny little test square.\n[MOOD:thinking]',
+        toolsUsed: [],
+        toolRecords: [],
+        toolOutcome: null,
+        localLane: 'chat',
+        requestedModel: 'qwen/qwen3.6-35b-a3b',
+        resolvedModel: 'qwen/qwen3.6-35b-a3b',
+        executionPath: 'llm-chat',
+        laneFallback: false,
+        modelUsed: true,
+        canonicalFactsPresent: false,
+        canonicalOverrideActive: false,
+      };
+    },
+    async streamLmStudioLocalSmart() {
+      throw new Error('stream path should not be used in this test');
+    },
+    scheduleResearchLedgerUpdate() {
+      return {
+        status: 'skipped',
+        reason: 'ordinary-chat-turn',
+        context: null,
+        topic: null,
+      };
+    },
+    scheduleArchiveConsolidation() {},
+    saveStoredMemory(sessionId, memory) {
+      memoryStore.set(sessionId, memory);
+      return memory;
+    },
+    getStoredMemory(sessionId) {
+      return {
+        memory: memoryStore.get(sessionId) || { memories: [] },
+      };
+    },
+    mergeMemoryItems(items = []) {
+      return items;
+    },
+    mergeMemoryState(existing = {}, patch = {}) {
+      return { ...existing, ...patch };
+    },
+    reviewPromotion() {
+      return null;
+    },
+    purgeArchiveMemory() {
+      return null;
+    },
+    purgeResearchLedger() {
+      return null;
+    },
+    buildCombinedMemoryInspector() {
+      return {};
+    },
+    buildPennyReply() {
+      return '';
+    },
+    runOpenClawShadow() {
+      return '';
+    },
+    retagAssistantReply(text = '') {
+      return text;
+    },
+    extractReplyMoodTag() {
+      return 'thinking';
+    },
+    pickMood() {
+      return 'thinking';
+    },
+    stripReplyMoodTags(text = '') {
+      return String(text || '').replace(/\s*\[MOOD:[^\]]+\]\s*/gi, '').trim();
+    },
+    beginEventStream() {},
+    sendEventStream() {},
+    startEventStreamKeepAlive() {
+      return null;
+    },
+    describeLocalBrainFailure(error) {
+      return String(error?.message || error || 'local failure');
+    },
+    getLmStudioConnectionStatus() {
+      return {};
+    },
+    getSemanticMemoryStatus() {
+      return {};
+    },
+    setRuntimePreferredChatModel() {},
+    getRuntimePreferredChatModel() {
+      return '';
+    },
+    sessionState: {
+      turns: 0,
+      lastMood: 'calm',
+      memory: [],
+    },
+    constants: {
+      OPENCLAW_ENABLED: false,
+      OPENCLAW_TIMEOUT_MS: 0,
+      PENNY_LMSTUDIO_EMBED_MODEL: 'text-embedding-nomic-embed-text-v1.5',
+      LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+      LMSTUDIO_NATIVE_BASE: 'http://127.0.0.1:1234/api/v1',
+      LMSTUDIO_MODEL: 'qwen/qwen3.6-35b-a3b',
+      LOCAL_LLM_TRANSPORT: 'chat-completions',
+      RESPONSES_THEN_CHAT_FALLBACK: false,
+      LMSTUDIO_MAX_OUTPUT_TOKENS: 1024,
+      MEMORY_FILE: 'data/penny-memory.json',
+      MEMORY_ARCHIVE_FILE: 'data/penny-memory-archive.json',
+      MEMORY_EMBEDDINGS_FILE: 'data/penny-memory-embeddings.json',
+      WEB_SEARCH_ENABLED: true,
+    },
+  });
+
+  const handled = await handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/chat'),
+  });
+
+  assert.equal(handled, true);
+  assert.ok(response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(runtimeContextArgs.attachmentType, 'image');
+  assert.equal(localSmartArgs.image, 'data:image/jpeg;base64,abc123');
+  assert.equal(localSmartArgs.laneSelection.localLane, 'chat');
+  assert.equal(response.json.meta.localLane, 'chat');
+  assert.equal(response.json.meta.artifact.scope.selectedLane, 'chat');
+  assert.equal(response.json.meta.artifact.modelAdvisory.reasoningPolicy.mode, 'attachment-bounded');
+  assert.equal(response.json.meta.artifact.trace.reasoningPolicy.mode, 'attachment-bounded');
+});
+
+test('streamed chat route sends image replies through message.delta and done events', async () => {
+  const events = [];
+
+  const handlers = createPennyRouteHandlers({
+    async safeReadBody() {
+      return JSON.stringify({
+        sessionId: 'image-upload-stream-session',
+        messages: [
+          {
+            role: 'user',
+            content: 'Tell me what you see in this image.',
+          },
+        ],
+        image: 'data:image/jpeg;base64,abc123',
+        memories: { brainMode: 'local', memories: [] },
+      });
+    },
+    buildLastRouteInfo,
+    buildChatMemoryState(_sessionId, memories = {}) {
+      return {
+        memory: {
+          brainMode: memories.brainMode || 'local',
+          memories: Array.isArray(memories.memories) ? memories.memories : [],
+        },
+        patch: {
+          provenance: [],
+          reviewCandidates: [],
+        },
+      };
+    },
+    sanitizeChatMessages(messages = []) {
+      return Array.isArray(messages) ? messages : [];
+    },
+    sanitizeImageDataUrl(value = '') {
+      return value ? { dataUrl: value } : null;
+    },
+    sanitizeFileAttachment() {
+      return null;
+    },
+    appendAttachmentContext(text = '') {
+      return text;
+    },
+    async buildRuntimeMemoryContext() {
+      return {
+        memories: [],
+        retrieval: null,
+        archiveContext: null,
+        researchLedger: null,
+        promptComposition: null,
+        promptTruth: null,
+        latencyBudget: {
+          latencyClass: 'image-heavy',
+          policyMode: 'attachment-bounded',
+          allowSemanticQuery: false,
+          allowArchiveCompression: false,
+          allowSemanticRender: false,
+        },
+        semanticMemory: {
+          ready: false,
+          mode: 'disabled',
+        },
+      };
+    },
+    selectLocalLane() {
+      return {
+        localLane: 'chat',
+        directIntent: null,
+        needsTools: false,
+        reason: 'image-chat',
+      };
+    },
+    async runLmStudioLocalSmart() {
+      return {
+        text: 'I can see the image you attached. Tiny little test square.\n[MOOD:thinking]',
+        toolsUsed: [],
+        toolRecords: [],
+        toolOutcome: null,
+        localLane: 'chat',
+        requestedModel: 'qwen/qwen3.6-35b-a3b',
+        resolvedModel: 'qwen/qwen3.6-35b-a3b',
+        executionPath: 'llm-chat',
+        laneFallback: false,
+        modelUsed: true,
+        canonicalFactsPresent: false,
+        canonicalOverrideActive: false,
+      };
+    },
+    async streamLmStudioLocalSmart() {
+      throw new Error('stream path should not be used for image turns');
+    },
+    scheduleResearchLedgerUpdate() {
+      return {
+        status: 'skipped',
+        reason: 'ordinary-chat-turn',
+        context: null,
+        topic: null,
+      };
+    },
+    scheduleArchiveConsolidation() {},
+    saveStoredMemory(_sessionId, memory) {
+      return memory;
+    },
+    getStoredMemory() {
+      return { memory: { memories: [] } };
+    },
+    mergeMemoryItems(items = []) {
+      return items;
+    },
+    mergeMemoryState(existing = {}, patch = {}) {
+      return { ...existing, ...patch };
+    },
+    reviewPromotion() {
+      return null;
+    },
+    purgeArchiveMemory() {
+      return null;
+    },
+    purgeResearchLedger() {
+      return null;
+    },
+    buildCombinedMemoryInspector() {
+      return {};
+    },
+    buildPennyReply() {
+      return '';
+    },
+    runOpenClawShadow() {
+      return '';
+    },
+    retagAssistantReply(text = '') {
+      return text;
+    },
+    extractReplyMoodTag() {
+      return 'thinking';
+    },
+    pickMood() {
+      return 'thinking';
+    },
+    stripReplyMoodTags(text = '') {
+      return String(text || '').replace(/\s*\[MOOD:[^\]]+\]\s*/gi, '').trim();
+    },
+    beginEventStream() {},
+    sendEventStream(_res, event, data) {
+      events.push({ event, data });
+    },
+    startEventStreamKeepAlive() {
+      return () => {};
+    },
+    bindClientDisconnectAbort() {
+      return {
+        isClosed() {
+          return false;
+        },
+      };
+    },
+    describeLocalBrainFailure(error) {
+      return String(error?.message || error || 'local failure');
+    },
+    getLmStudioConnectionStatus() {
+      return {};
+    },
+    getSemanticMemoryStatus() {
+      return {};
+    },
+    setRuntimePreferredChatModel() {},
+    getRuntimePreferredChatModel() {
+      return '';
+    },
+    sessionState: {
+      turns: 0,
+      lastMood: 'calm',
+      memory: [],
+    },
+    constants: {
+      OPENCLAW_ENABLED: false,
+      OPENCLAW_TIMEOUT_MS: 0,
+      PENNY_LMSTUDIO_EMBED_MODEL: 'text-embedding-nomic-embed-text-v1.5',
+      LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+      LMSTUDIO_NATIVE_BASE: 'http://127.0.0.1:1234/api/v1',
+      LMSTUDIO_MODEL: 'qwen/qwen3.6-35b-a3b',
+      LOCAL_LLM_TRANSPORT: 'chat-completions',
+      RESPONSES_THEN_CHAT_FALLBACK: false,
+      LMSTUDIO_MAX_OUTPUT_TOKENS: 1024,
+      MEMORY_FILE: 'data/penny-memory.json',
+      MEMORY_ARCHIVE_FILE: 'data/penny-memory-archive.json',
+      MEMORY_EMBEDDINGS_FILE: 'data/penny-memory-embeddings.json',
+      WEB_SEARCH_ENABLED: true,
+    },
+  });
+
+  const req = {
+    method: 'POST',
+    setTimeout() {},
+    socket: {
+      setTimeout() {},
+    },
+  };
+  const res = {
+    setTimeout() {},
+    end() {},
+  };
+
+  const handled = await handlers.handleApiRoute({
+    req,
+    res,
+    url: new URL('http://127.0.0.1/api/penny/chat?stream=1'),
+  });
+
+  assert.equal(handled, true);
+  assert.equal(events.some((item) => item.event === 'message.delta' && /tiny little test square/i.test(String(item.data?.text || ''))), true);
+  assert.equal(events.some((item) => item.event === 'done' && /tiny little test square/i.test(String(item.data?.text || ''))), true);
+});

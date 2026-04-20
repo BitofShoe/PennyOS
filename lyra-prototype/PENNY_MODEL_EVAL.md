@@ -45,6 +45,27 @@ $env:PENNY_QA_FULL='1'
 npm run qa:voice-redo
 ```
 
+For the narrower April 18, 2026 chat-lane follow-through, use the dedicated tiebreak slice instead:
+
+```powershell
+npm run qa:voice:tiebreak
+```
+
+Current working ranking for Penny chat, based on the April 18 live QA already recorded in the workspace, is:
+
+- `Q8 thinking-off`: leading premium chat candidate
+- `Q6`: safe fallback / baseline
+- `Q8 thinking-on`: control or non-default chat mode
+
+That tiebreak run is now intentionally chat-only. It focuses on casual banter, softness, spirit-first recall, exact recall directness, caveat order, and latency feel. Keep the compare bounded:
+
+- primary compare: `Q8 thinking-off` vs `Q6`
+- control only: `Q8 thinking-on` once after harness changes
+- one heavy model loaded at a time
+- embed model loaded
+- clean blank Penny state before the run
+- same pacing and long timeout budget across candidates
+
 If you explicitly want an isolated disposable server for the run:
 
 ```powershell
@@ -78,6 +99,7 @@ Use this order so future reruns stay apples-to-apples:
 3. Run `lms ps --json` and make sure you are not already sitting on multiple loaded models.
 4. Pick the lane/model split you actually intend to test:
    - routine voice + memory QA: Q6 chat/memory + E4B tooling
+   - targeted chat-lane tiebreaks: `npm run qa:voice:tiebreak` with one heavy chat model loaded at a time; prefer `Q8 thinking-off` vs `Q6`, and use `Q8 thinking-on` only as control
    - tool probes: E4B tooling, with Q6 as the chat-side fallback if a prompt routes conversationally
    - broader chat-model comparisons: opt into non-Q6 candidates explicitly instead of letting them sneak in as defaults
 5. Run the eval harness:
