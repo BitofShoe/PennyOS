@@ -45,10 +45,11 @@ Read these in order if you need the current truth:
   - the archive layer is additive and reviewable; it does not silently overwrite explicit facts
 - The archive layer can do bounded post-turn shadow vector prewarm for recent chat history, but only when explicitly enabled and only off the reply-latency path. It still shares the same process, embedding backend, and cache/store.
 - The backend memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, bounded background-vectorization telemetry, compact prompt-slot composition, prompt-truth receipts, cleanup-transform class/materiality, reasoning-policy receipts, approximate-path policy, and advisory-merge provenance summaries. The in-app panel surfaces these as compact debugging summaries instead of raw dumps.
+- Runtime artifacts now keep prompt-time `promptTruth` separate from sibling `toolEvidenceReceipt`: `promptTruth` covers candidate-vs-rendered memory/research context plus holdback truth, while `toolEvidenceReceipt` covers deterministic-only, provenance-only, prompt-visible raw JSON, auto-verification, and summarized tool-evidence paths without widening PromptTruth.
 - The research continuity ledger is question-scoped instead of file-scoped: one repo anchor can hold multiple bounded topics, and the inspector exposes each topic's anchor/scope identity instead of flattening them together.
 - Question-scoped ledger topics only settle when verified non-`query` evidence supports an evidence-tight summary. Otherwise Penny keeps the topic provisional, leaves the durable conclusion empty, and falls back to the question or open follow-up instead of laundering assistant wording into continuity.
 - Generic authored file-write turns stay out of the research ledger unless the turn was genuinely research-shaped and anchored by verified read evidence. Penny's Playground free-writing can matter to archive/audit continuity without pretending it was research provenance.
-- Session archive buckets keep a bounded `recentAuditTrail` with compact turn slices: selected lane/mode/path, compact retrieval ids, prompt-truth counts/holdbacks, artifact summary, and post-turn ledger update status. `lastRetrieval` keeps its old compatibility role but now carries the same compact summary so the two views stay aligned.
+- Session archive buckets keep a bounded `recentAuditTrail` with compact turn slices: selected lane/mode/path, selected-vs-rendered retrieval ids, prompt-truth counts/holdbacks, artifact summary, and post-turn ledger update status. `lastRetrieval` keeps its old compatibility role but now carries the same compact summary so the two views stay aligned.
 - Canon-first recall handling covers more natural personal-memory shapes like "What color is my..." or "What do I like again?", but it is gated by question phrasing plus actual explicit-memory overlap so repo/file questions do not get misclassified as personal recall.
 
 ## Project layout
@@ -150,7 +151,9 @@ Penny's runtime memory is hybrid:
 - Research continuity ledger in `data/penny-memory-ledger.json`
   This stores bounded advisory topics, evidence refs, open follow-ups, source session/turn identity, additive topic identity metadata (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`), and ledger truth metadata (`sourceClass`, `summaryClass`, `summaryEvidenceRefs`) so Penny can keep multiple distinct questions about the same file or repo area separate without overstating what has actually been verified.
 - Prompt-truth receipts in runtime artifacts
-  These record what advisory context was selected, what was actually rendered into the prompt, what was held back canon-first, and which post-turn ledger changes happened after the reply instead of before it.
+  These record what advisory context was selected as candidate, what was actually rendered into the prompt, what was held back canon-first or disabled, and which rendered-only audit ids were prompt-visible for the turn.
+- Tool-evidence receipts in runtime artifacts
+  These stay sibling to `promptTruth` and record deterministic-only, provenance-only, raw-json, auto-verification, write-rescue, and semantic-render tool-evidence paths without inferring from coarse tool metadata alone.
 - Bounded reasoning-policy receipts in runtime artifacts
   Penny records whether a turn was `minimal`, `deliberate`, `verifier-first`, or `attachment-bounded`, whether verifier-style evidence actually drove the turn, and whether the runtime short-circuited early. This is a policy/execution receipt, not exposed chain-of-thought.
 - Artifact prose derived from prompt truth

@@ -363,6 +363,7 @@ Likely modules you will touch:
 - shared packet normalization in `lib/penny-knowledge-contracts.js`
 - prompt-slot registry and composition summaries in `lib/penny-prompt-stack.js`
 - prompt-truth receipt generation in `lib/penny-memory.js` and `lib/penny-prompt-stack.js`
+- tool-evidence receipt build/normalize in `lib/penny-runtime-artifacts.js`, with source facts emitted by `lib/penny-direct-tool-assist.js`, `lib/penny-tool-loop.js`, and the semantic-render seam in `server.js`
 - bounded reasoning-policy receipt generation in `lib/penny-runtime-artifacts.js`
 - research-ledger identity/settled-state rules in `lib/penny-research-ledger.js`
 - route assembly in `lib/penny-route-handlers.js`
@@ -379,7 +380,7 @@ Start here:
 
 Memory inspector note:
 
-- the debug Memory tab now shows canonical explicit memory plus archive inspector data, runtime artifacts, trace provenance, reasoning-policy summaries, research continuity topics, recency protection, prompt-slot composition, prompt-truth receipts, cleanup-transform metadata, approximate-path policy, and advisory-merge summaries
+- the debug Memory tab now shows canonical explicit memory plus archive inspector data, runtime artifacts, trace provenance, reasoning-policy summaries, research continuity topics, recency protection, prompt-slot composition, prompt-truth receipts, tool-evidence receipts, cleanup-transform metadata, approximate-path policy, and advisory-merge summaries
 - research-ledger rows now expose anchor/scope identity plus `sourceClass`, `summaryClass`, and `summaryEvidenceRefs`
 - archive review/purge actions still live in `public/js/penny-app.js`, while rendering logic now lives in `public/js/penny-memory-panel.mjs`
 - `public/js/penny-storage.js` still sends only explicit browser memory settings to the server; archive state is not browser-owned

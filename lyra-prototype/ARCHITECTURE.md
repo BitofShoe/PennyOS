@@ -261,17 +261,22 @@ The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
 - cleanup metadata split into legacy visible-reply cleanup plus a typed `cleanupTransform` summary
 - compact prompt-slot composition from `PROMPT_SLOT_REGISTRY`
 - prompt-time `promptTruth` receipts for `stableFacts`, `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger`, including candidate vs rendered ids/counts plus holdback reasons
+- sibling `toolEvidenceReceipt` items for deterministic-only, provenance-only, prompt-visible raw JSON, prompt-visible auto-verification JSON, summarized write-rescue context, and summarized semantic-render context
 - a bounded `reasoningPolicy` receipt derived from latency budget plus execution path, with `minimal`, `deliberate`, `verifier-first`, and `attachment-bounded` modes instead of any raw reasoning text surface
 - explicit approximate-path policy metadata from the latency budget and runtime fallback state
 - advisory-merge summaries that distinguish lossy merge pressure from canonical memory authority
 - a bounded session `recentAuditTrail` that freezes compact prompt-time/runtime-turn truth before post-turn ledger mutation and keeps `lastRetrieval` summary fields aligned with the newest slice
+- additive rendered-only audit ids (`renderedSessionIds`, `renderedGlobalIds`, `renderedBookIds`, `renderedLedgerIds`) alongside candidate continuity ids, so prompt-visible identity does not get inferred from broader retrieval payloads
 - headline summary text and wake-hierarchy prose derived from rendered `promptTruth`, so zero-rendered advisory channels are described as held back or not rendered instead of sounding like silent support
 
 Important receipt rule:
 
 - prompt assembly is the source of truth for advisory usage
+- `promptTruth` stays narrow to prompt-time memory/research context; `toolEvidenceReceipt` is a sibling artifact receipt, not a PromptTruth channel
 - `researchLedgerPromptInjected` now means the ledger was actually rendered into the prompt
+- `selected*Ids` stay candidate continuity fields, while additive `rendered*Ids` carry prompt-visible identity
 - post-reply ledger mutation stays in `researchLedgerUpdate` instead of being backfilled into prompt-use receipts
+- `server.js` only owns the semantic-render source-fact seam here; shared PromptTruth and generic tool-evidence semantics live in helper modules
 - direct canon-authority questions share one detector across latency policy, prompt/history suppression, and memory-state writes
 - that detector now covers broader personal recall shapes such as preference, attribute, and location questions, but it is still gated by question phrasing, possessive framing, and explicit-memory overlap so repo questions do not bleed into canon recall
 - verifier-first exactness is explicit for deterministic tool paths and other short-circuited verified turns, but Penny still does not expose chain-of-thought as a runtime trust surface
