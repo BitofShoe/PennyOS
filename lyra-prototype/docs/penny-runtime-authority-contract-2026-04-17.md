@@ -19,8 +19,11 @@ For the narrow prompt-time receipt law, use [penny-prompttruth-contract-2026-04-
 - Prompt-slot truth now comes from `PROMPT_SLOT_REGISTRY`: slot ownership, precedence, lane eligibility, empty-slot behavior, and hold-back/no-op outcomes are compactly surfaced into runtime artifacts and the inspector.
 - `promptTruth` is now the literal prompt-time receipt for advisory usage. It records per-channel state plus candidate vs rendered counts/source ids and any holdback reason for `stableFacts`, `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger`.
 - `promptTruth` now also carries a lightweight schema marker, currently `promptTruth.schema = "penny-prompttruth.v1"`. This marks the receipt shape only; it is not a standalone turn envelope and does not replace runtime-artifact versioning.
-- `researchLedgerPromptInjected` remains for compatibility, but it now means "research-ledger content was actually rendered into the prompt," not merely selected before the turn.
-- Retrieval-trace `injected` plus `authorityPressure.advisoryChannelsInjected` / `advisoryItemsInjected` also remain as compatibility aliases, but they count rendered prompt context only.
+- `researchLedgerRendered` is now the canonical rendered-name boolean for whether research-ledger content actually rendered into the prompt.
+- `researchLedgerPromptInjected` remains for compatibility, but it now means exactly the same thing as `researchLedgerRendered`, not merely selected-before-the-turn ledger context.
+- Retrieval-trace `rendered` plus `authorityPressure.advisoryChannelsRendered` / `advisoryItemsRendered` are now the canonical rendered-name fields for prompt-visible advisory context.
+- Retrieval-trace `injected` plus `authorityPressure.advisoryChannelsInjected` / `advisoryItemsInjected` remain compatibility aliases, but they count rendered prompt context only.
+- QA compare traces now serialize additive `promptRenderedCases` / `promptNotRenderedCases` counts while keeping `promptInjectedCases` / `promptHeldCases` as compatibility aliases.
 - Authority-pressure, advisory-merge, retrieval-trace rendered/not-rendered compatibility fields, QA witness traces, and inspector summaries should be derived from rendered `promptTruth` receipts only. Post-reply ledger mutation belongs in `researchLedgerUpdate`, not in prompt-use receipts.
 - `server.js` no longer owns a standalone semantic read of PromptTruth. It forwards `promptTruth`, and compatibility booleans such as `researchLedgerPromptInjected` are derived downstream from shared PromptTruth readers.
 - Canon-question handling is now shared across latency policy, prompt/history suppression, and memory-state writes so natural questions like "What tea do I like again?" still take the canon-first path.

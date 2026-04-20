@@ -14,6 +14,7 @@
  * @property {boolean} [laneFallback]
  * @property {boolean} [semanticMemoryReady]
  * @property {string} [semanticMemoryMode]
+ * @property {boolean} [researchLedgerRendered] Canonical field; true only when research-ledger context actually rendered into prompt context.
  * @property {boolean} [researchLedgerPromptInjected] Compatibility alias; true only when research-ledger context actually rendered into prompt context.
  * @property {Object|null} [researchLedgerUpdate]
  * @property {Object|null} [promptTruth]
@@ -33,6 +34,7 @@ const {
   buildRuntimeStatusPerformance,
 } = require('./penny-runtime-artifacts');
 const {
+  deriveResearchLedgerRendered,
   deriveResearchLedgerPromptInjected,
   projectAuditRetrievalFromPromptTruth,
 } = require('./penny-prompttruth');
@@ -283,6 +285,10 @@ function createPennyRouteHandlers(deps = {}) {
     promptTruth = null,
     shadowError = '',
   }) {
+    const effectiveResearchLedgerRendered = deriveResearchLedgerRendered(
+      promptTruth || artifact?.promptTruth || artifact?.modelAdvisory?.promptTruth || null,
+      artifact?.researchLedgerRendered === true || researchLedgerPromptInjected === true,
+    );
     /** @type {ChatResponseMeta} */
     const meta = {
       mood,
@@ -299,7 +305,8 @@ function createPennyRouteHandlers(deps = {}) {
       laneFallback,
       semanticMemoryReady,
       semanticMemoryMode,
-      researchLedgerPromptInjected,
+      researchLedgerRendered: effectiveResearchLedgerRendered,
+      researchLedgerPromptInjected: effectiveResearchLedgerRendered,
       researchLedgerUpdate,
       promptTruth,
       toolsUsed,
@@ -425,6 +432,10 @@ function createPennyRouteHandlers(deps = {}) {
     const usedAt = String(artifact?.timestamps?.usedAt || retrieval?.usedAt || '').trim() || isoNow();
     const mode = String(retrieval?.mode || '').trim() || 'keyword';
     const promptTruthAuditProjection = projectAuditRetrievalFromPromptTruth(promptTruth);
+    const researchLedgerRendered = deriveResearchLedgerRendered(
+      promptTruth || artifact?.promptTruth || artifact?.modelAdvisory?.promptTruth || null,
+      artifact?.researchLedgerRendered === true || artifact?.researchLedgerPromptInjected === true,
+    );
     // `selected*Ids` are candidate-selection summaries for audit continuity, not rendered-only prompt receipts.
     return {
       turnId: `${String(sessionId || 'default').trim() || 'default'}:${usedAt}`,
@@ -453,7 +464,8 @@ function createPennyRouteHandlers(deps = {}) {
         approximatePath: {
           status: artifact?.modelAdvisory?.approximatePath?.status || '',
         },
-        researchLedgerPromptInjected: artifact?.researchLedgerPromptInjected === true,
+        researchLedgerRendered,
+        researchLedgerPromptInjected: researchLedgerRendered,
       },
       researchLedger: {
         updateStatus: researchLedgerUpdate?.status || 'skipped',

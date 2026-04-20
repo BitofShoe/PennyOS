@@ -19,7 +19,7 @@ const {
   promptTruthHeldBackReason,
   promptTruthChannelState,
   hasPromptTruthReceipt,
-  deriveResearchLedgerPromptInjected,
+  deriveResearchLedgerRendered,
 } = require('./penny-prompttruth');
 const {
   LATENCY_CLASSES,
@@ -381,8 +381,11 @@ function normalizeRetrievalTraceEntry(raw = {}) {
   const sourceLabel = trimText(raw.sourceLabel || raw.source || channel, 140);
   const reason = trimText(raw.reason || '', 140);
   const contradictionState = trimText(raw.contradictionState || 'none', 80) || 'none';
+  const rendered = raw.rendered === true
+    ? true
+    : (raw.rendered === false ? false : raw.injected !== false);
   // Compatibility alias: `injected` stays serialized, but true means the item actually rendered into prompt context.
-  const injected = raw.injected !== false;
+  const injected = rendered;
   const score = Number.isFinite(Number(raw.score)) ? Math.round(Number(raw.score) * 1000) / 1000 : 0;
   const sourceType = trimText(raw.sourceType || '', 80);
   const scope = trimText(raw.scope || raw.sourceScope || '', 80);
@@ -421,6 +424,7 @@ function normalizeRetrievalTraceEntry(raw = {}) {
     score,
     reason,
     contradictionState,
+    rendered,
     injected,
     sourceType,
     scope,
@@ -529,6 +533,11 @@ function normalizeTraceState(raw = {}, defaults = {}) {
   const value = raw && typeof raw === 'object' ? raw : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
   const laneChoiceRaw = { ...(fallback.laneChoice || {}), ...(value.laneChoice || {}) };
+  const researchLedgerRendered = laneChoiceRaw.researchLedgerRendered === true
+    ? true
+    : (laneChoiceRaw.researchLedgerRendered === false
+      ? false
+      : laneChoiceRaw.researchLedgerPromptInjected === true);
   return {
     laneChoice: {
       requestedMode: String(laneChoiceRaw.requestedMode || '').trim() || 'local',
@@ -540,7 +549,8 @@ function normalizeTraceState(raw = {}, defaults = {}) {
       executionPath: normalizeExecutionPath(laneChoiceRaw.executionPath, 'llm-chat'),
       usedFallback: laneChoiceRaw.usedFallback === true,
       laneFallback: laneChoiceRaw.laneFallback === true,
-      researchLedgerPromptInjected: laneChoiceRaw.researchLedgerPromptInjected === true,
+      researchLedgerRendered,
+      researchLedgerPromptInjected: researchLedgerRendered,
       researchLedgerUpdateStatus: String(laneChoiceRaw.researchLedgerUpdateStatus || '').trim() || 'skipped',
     },
     reasoningPolicy: normalizeReasoningPolicy(value.reasoningPolicy, fallback.reasoningPolicy),
@@ -813,12 +823,22 @@ function normalizeAdvisoryMergeSummary(value = {}, defaults = {}) {
 function normalizeAuthorityPressure(value = {}, defaults = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const advisoryChannelsRendered = normalizeNonNegativeNumber(
+    raw.advisoryChannelsRendered,
+    fallback.advisoryChannelsRendered ?? raw.advisoryChannelsInjected ?? fallback.advisoryChannelsInjected ?? 0,
+  );
+  const advisoryItemsRendered = normalizeNonNegativeNumber(
+    raw.advisoryItemsRendered,
+    fallback.advisoryItemsRendered ?? raw.advisoryItemsInjected ?? fallback.advisoryItemsInjected ?? 0,
+  );
   return {
     canonicalFactsPresent: raw.canonicalFactsPresent === true || fallback.canonicalFactsPresent === true,
     canonicalOverrideActive: raw.canonicalOverrideActive === true || fallback.canonicalOverrideActive === true,
+    advisoryChannelsRendered,
+    advisoryItemsRendered,
     // Compatibility aliases: these counts stay serialized as `*Injected`, but they count rendered advisory prompt context only.
-    advisoryChannelsInjected: normalizeNonNegativeNumber(raw.advisoryChannelsInjected, fallback.advisoryChannelsInjected || 0),
-    advisoryItemsInjected: normalizeNonNegativeNumber(raw.advisoryItemsInjected, fallback.advisoryItemsInjected || 0),
+    advisoryChannelsInjected: advisoryChannelsRendered,
+    advisoryItemsInjected: advisoryItemsRendered,
     sameSessionAdvisoryItems: normalizeNonNegativeNumber(raw.sameSessionAdvisoryItems, fallback.sameSessionAdvisoryItems || 0),
     crossSessionAdvisoryItems: normalizeNonNegativeNumber(raw.crossSessionAdvisoryItems, fallback.crossSessionAdvisoryItems || 0),
   };
@@ -1000,7 +1020,7 @@ function buildAuthorityPressure({
   canonicalOverrideActive = false,
 } = {}) {
   const renderedAdvisoryItems = (Array.isArray(retrievalTrace) ? retrievalTrace : [])
-    .filter((item) => item?.injected !== false)
+    .filter((item) => item?.rendered !== false)
     .filter((item) => ['archive-session', 'archive-global', 'archive-chapter', 'memory-book', 'research-ledger'].includes(String(item?.channel || '').trim()));
   const renderedAdvisoryChannelCount = new Set(
     renderedAdvisoryItems
@@ -1032,6 +1052,8 @@ function buildAuthorityPressure({
   return normalizeAuthorityPressure({
     canonicalFactsPresent,
     canonicalOverrideActive,
+    advisoryChannelsRendered: renderedAdvisoryChannelCount,
+    advisoryItemsRendered: renderedAdvisoryItems.length,
     advisoryChannelsInjected: renderedAdvisoryChannelCount,
     advisoryItemsInjected: renderedAdvisoryItems.length,
     sameSessionAdvisoryItems,
@@ -1158,6 +1180,7 @@ function buildRetrievalTraceState(
       score: item?.score,
       reason: reason || 'archive-session',
       contradictionState,
+      rendered: renderedSessionIds.has(String(item?.id || '').trim()),
       injected: renderedSessionIds.has(String(item?.id || '').trim()),
       sourceType: item?.sourceType || 'archive',
       scope: item?.scope || 'session',
@@ -1180,6 +1203,7 @@ function buildRetrievalTraceState(
       score: item?.score,
       reason: reason || 'archive-global',
       contradictionState,
+      rendered: renderedGlobalIds.has(String(item?.id || '').trim()),
       injected: renderedGlobalIds.has(String(item?.id || '').trim()),
       sourceType: item?.sourceType || 'archive',
       scope: item?.scope || 'global',
@@ -1202,6 +1226,7 @@ function buildRetrievalTraceState(
       score: item?.confidence,
       reason: String(retrieval?.compression?.reasonCode || '').trim() || 'chapter-compression',
       contradictionState,
+      rendered: false,
       injected: false,
       sourceType: item?.sourceType || 'chapter',
       scope: 'chapter',
@@ -1233,6 +1258,7 @@ function buildRetrievalTraceState(
       score: item?.score,
       reason: 'memory-book-match',
       contradictionState: 'none',
+      rendered: renderedBookIds.has(String(item?.id || '').trim()),
       injected: renderedBookIds.has(String(item?.id || '').trim()),
       sourceType: 'memory-book',
       scope: item?.placement || 'memory',
@@ -1248,6 +1274,7 @@ function buildRetrievalTraceState(
       score: item?.status === 'open' ? 1 : item?.status === 'provisional' ? 0.75 : 0.5,
       reason: 'research-continuity-ledger',
       contradictionState: Array.isArray(item?.contradictions) && item.contradictions.length ? 'tracked' : 'none',
+      rendered: renderedLedgerIds.has(String(item?.topicId || '').trim()),
       injected: renderedLedgerIds.has(String(item?.topicId || '').trim()),
       sourceType: 'research-ledger',
       scope: 'research-ledger',
@@ -1383,6 +1410,7 @@ function buildRuntimeTraceState({
   executionPath = '',
   usedFallback = false,
   laneFallback = false,
+  researchLedgerRendered = false,
   researchLedgerPromptInjected = false,
   researchLedgerUpdate = null,
   retrievalTrace = [],
@@ -1442,8 +1470,8 @@ function buildRuntimeTraceState({
   const writeRescueDebug = toolDebug.writeRescue && typeof toolDebug.writeRescue === 'object'
     ? toolDebug.writeRescue
     : {};
-  const renderedRetrievalCount = retrievalTrace.filter((item) => item?.injected !== false).length;
-  const notRenderedRetrievalCount = retrievalTrace.filter((item) => item?.injected === false).length;
+  const renderedRetrievalCount = retrievalTrace.filter((item) => item?.rendered !== false).length;
+  const notRenderedRetrievalCount = retrievalTrace.filter((item) => item?.rendered === false).length;
   const channelCount = new Set(retrievalTrace.map((item) => String(item?.channel || '').trim()).filter(Boolean)).size;
   const evidenceAccepted = [
     {
@@ -1461,7 +1489,7 @@ function buildRuntimeTraceState({
       status: 'verified',
     })),
     ...retrievalTrace
-      .filter((item) => item?.injected !== false)
+      .filter((item) => item?.rendered !== false)
       .map((item) => ({
         type: 'retrieval',
         channel: item.channel,
@@ -1471,7 +1499,7 @@ function buildRuntimeTraceState({
       })),
   ].map(normalizeTraceEvidenceEntry).filter(Boolean).slice(0, 8);
   const evidenceRejected = retrievalTrace
-    .filter((item) => item?.injected === false)
+    .filter((item) => item?.rendered === false)
     .map((item) => ({
       type: 'retrieval',
       channel: item.channel,
@@ -1513,7 +1541,8 @@ function buildRuntimeTraceState({
       executionPath: normalizeExecutionPath(executionPath, requestedMode === 'shadow' ? 'shadow' : (selectedLane === 'tool' ? 'deterministic-tool' : 'llm-chat')),
       usedFallback,
       laneFallback,
-      researchLedgerPromptInjected: researchLedgerPromptInjected === true,
+      researchLedgerRendered: researchLedgerRendered === true,
+      researchLedgerPromptInjected: researchLedgerRendered === true,
       researchLedgerUpdateStatus: normalizeResearchLedgerUpdate(researchLedgerUpdate).status,
     },
     reasoningPolicy,
@@ -1636,6 +1665,7 @@ function buildRuntimeArtifact({
   promptComposition = null,
   promptTruth = null,
   latencyBudget = null,
+  researchLedgerRendered = false,
   researchLedgerPromptInjected = false,
   researchLedgerUpdate = null,
 } = {}) {
@@ -1655,9 +1685,9 @@ function buildRuntimeArtifact({
   const normalizedEpistemics = normalizeEpistemicCaution(epistemics);
   const normalizedSynthesis = normalizeArchiveSynthesis(synthesis);
   const normalizedPromptTruth = normalizePromptTruth(promptTruth);
-  const effectiveResearchLedgerPromptInjected = deriveResearchLedgerPromptInjected(
+  const effectiveResearchLedgerRendered = deriveResearchLedgerRendered(
     normalizedPromptTruth,
-    researchLedgerPromptInjected === true,
+    researchLedgerRendered === true || researchLedgerPromptInjected === true,
   );
   const toolState = buildToolArtifactState(toolRecords, toolsUsed);
   const normalizedToolOutcome = normalizeToolOutcome(toolOutcome);
@@ -1772,7 +1802,8 @@ function buildRuntimeArtifact({
     executionPath: normalizedExecutionPath,
     usedFallback,
     laneFallback,
-    researchLedgerPromptInjected: effectiveResearchLedgerPromptInjected,
+    researchLedgerRendered: effectiveResearchLedgerRendered,
+    researchLedgerPromptInjected: effectiveResearchLedgerRendered,
     researchLedgerUpdate: normalizedLedgerUpdate,
     retrievalTrace,
     toolState,
@@ -1793,7 +1824,8 @@ function buildRuntimeArtifact({
     kind,
     executionPath: normalizedExecutionPath,
     promptTruth: normalizedPromptTruth,
-    researchLedgerPromptInjected: effectiveResearchLedgerPromptInjected,
+    researchLedgerRendered: effectiveResearchLedgerRendered,
+    researchLedgerPromptInjected: effectiveResearchLedgerRendered,
     researchLedgerUpdate: normalizedLedgerUpdate,
     scope: {
       sessionId,
@@ -1890,9 +1922,12 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
     raw.executionPath || fallback.executionPath,
     kind === 'shadow-turn' ? 'shadow' : (kind === 'tool-turn' ? 'deterministic-tool' : 'llm-chat'),
   );
-  const researchLedgerPromptInjected = deriveResearchLedgerPromptInjected(
+  const researchLedgerRendered = deriveResearchLedgerRendered(
     promptTruth,
-    raw.researchLedgerPromptInjected === true || fallback.researchLedgerPromptInjected === true,
+    raw.researchLedgerRendered === true
+      || fallback.researchLedgerRendered === true
+      || raw.researchLedgerPromptInjected === true
+      || fallback.researchLedgerPromptInjected === true,
   );
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(raw.researchLedgerUpdate, fallback.researchLedgerUpdate);
   const toolOutcome = normalizeToolOutcome(raw.toolOutcome, fallback.toolOutcome);
@@ -1904,7 +1939,8 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
     kind,
     executionPath,
     promptTruth,
-    researchLedgerPromptInjected,
+    researchLedgerRendered,
+    researchLedgerPromptInjected: researchLedgerRendered,
     researchLedgerUpdate,
     scope: {
       sessionId: String(scopeRaw.sessionId || '').trim() || 'default',
@@ -2002,9 +2038,9 @@ function normalizeLastRouteInfo(value) {
     requestedMode === 'shadow' ? 'shadow' : (selectedLane === 'tool' ? 'deterministic-tool' : 'llm-chat'),
   );
   const promptTruth = normalizePromptTruth(value.promptTruth);
-  const researchLedgerPromptInjected = deriveResearchLedgerPromptInjected(
+  const researchLedgerRendered = deriveResearchLedgerRendered(
     promptTruth,
-    value.researchLedgerPromptInjected === true,
+    value.researchLedgerRendered === true || value.researchLedgerPromptInjected === true,
   );
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(value.researchLedgerUpdate);
   const toolOutcome = normalizeToolOutcome(value.toolOutcome);
@@ -2042,7 +2078,8 @@ function normalizeLastRouteInfo(value) {
       promptComposition: value.promptComposition || null,
       promptTruth,
       latencyBudget: value.latencyBudget || null,
-      researchLedgerPromptInjected,
+      researchLedgerRendered,
+      researchLedgerPromptInjected: researchLedgerRendered,
       researchLedgerUpdate,
       usedAt: String(value.usedAt || '').trim() || new Date().toISOString(),
     }),
@@ -2066,7 +2103,8 @@ function normalizeLastRouteInfo(value) {
     readiness,
     promptTruth,
     toolOutcome,
-    researchLedgerPromptInjected,
+    researchLedgerRendered,
+    researchLedgerPromptInjected: researchLedgerRendered,
     researchLedgerUpdate,
     artifact,
     usedAt: trimIso(value.usedAt, new Date().toISOString()),
@@ -2112,6 +2150,7 @@ function buildLastRouteInfo({
   promptComposition = null,
   promptTruth = null,
   latencyBudget = null,
+  researchLedgerRendered = false,
   researchLedgerPromptInjected = false,
   researchLedgerUpdate = null,
 } = {}) {
@@ -2151,6 +2190,7 @@ function buildLastRouteInfo({
     promptComposition,
     promptTruth,
     latencyBudget,
+    researchLedgerRendered,
     researchLedgerPromptInjected,
     researchLedgerUpdate,
     artifact: artifact || buildRuntimeArtifact({
@@ -2191,6 +2231,7 @@ function buildLastRouteInfo({
       promptComposition,
       promptTruth,
       latencyBudget,
+      researchLedgerRendered,
       researchLedgerPromptInjected,
       researchLedgerUpdate,
     }),
@@ -2258,6 +2299,7 @@ function buildCombinedMemoryInspector({
       repair: routingBase.repair,
       epistemics: routingBase.epistemics,
       synthesis: routingBase.synthesis,
+      researchLedgerRendered: routingBase.researchLedgerRendered === true,
       researchLedgerPromptInjected: routingBase.researchLedgerPromptInjected === true,
       researchLedgerUpdate: routingBase.researchLedgerUpdate || null,
       toolOutcome: routingBase.toolOutcome || null,
@@ -2288,6 +2330,7 @@ function buildCombinedMemoryInspector({
     repair: routing.repair,
     epistemics: routing.epistemics,
     synthesis: routing.synthesis,
+    researchLedgerRendered: routing.researchLedgerRendered === true,
     researchLedgerPromptInjected: routing.researchLedgerPromptInjected === true,
     researchLedgerUpdate: routing.researchLedgerUpdate || null,
     shadowEnabled,

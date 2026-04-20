@@ -99,6 +99,7 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
               kind: 'chat-turn',
               authority: { reply: 'explicit-canonical' },
               approximatePath: { status: 'exact' },
+              researchLedgerRendered: false,
               researchLedgerPromptInjected: false,
             },
             researchLedger: {
@@ -310,6 +311,8 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
         authorityPressure: {
           canonicalFactsPresent: false,
           canonicalOverrideActive: false,
+          advisoryChannelsRendered: 0,
+          advisoryItemsRendered: 0,
           advisoryChannelsInjected: 0,
           advisoryItemsInjected: 0,
           sameSessionAdvisoryItems: 0,
@@ -480,6 +483,7 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
                 kind: 'chat-turn',
                 authority: { reply: 'explicit-canonical' },
                 approximatePath: { status: 'exact' },
+                researchLedgerRendered: false,
                 researchLedgerPromptInjected: false,
               },
               researchLedger: {
@@ -690,6 +694,8 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
           authorityPressure: {
             canonicalFactsPresent: true,
             canonicalOverrideActive: true,
+            advisoryChannelsRendered: 2,
+            advisoryItemsRendered: 2,
             advisoryChannelsInjected: 2,
             advisoryItemsInjected: 2,
             sameSessionAdvisoryItems: 1,
@@ -992,6 +998,7 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
         version: 'penny-runtime-artifact.v1',
         kind: 'tool-turn',
         executionPath: 'deterministic-tool',
+        researchLedgerRendered: false,
         researchLedgerPromptInjected: false,
         researchLedgerUpdate: {
           status: 'applied',
@@ -1048,6 +1055,7 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
             executionPath: 'deterministic-tool',
             usedFallback: false,
             laneFallback: false,
+            researchLedgerRendered: false,
             researchLedgerPromptInjected: false,
             researchLedgerUpdateStatus: 'applied',
           },
@@ -1095,6 +1103,8 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
           authorityPressure: {
             canonicalFactsPresent: false,
             canonicalOverrideActive: false,
+            advisoryChannelsRendered: 0,
+            advisoryItemsRendered: 0,
             advisoryChannelsInjected: 0,
             advisoryItemsInjected: 0,
             sameSessionAdvisoryItems: 0,

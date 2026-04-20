@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  deriveResearchLedgerRendered,
   deriveResearchLedgerPromptInjected,
   hasPromptTruthReceipt,
   normalizePromptTruth,
@@ -58,7 +59,7 @@ test('projectAuditRetrievalFromPromptTruth keeps selected ids separate from rend
 });
 
 test('deriveResearchLedgerPromptInjected reads rendered prompt truth, not candidate-only ledger context', () => {
-  assert.equal(deriveResearchLedgerPromptInjected({
+  const heldBackPromptTruth = {
     schema: 'penny-prompttruth.v1',
     channels: {
       researchLedger: {
@@ -69,9 +70,8 @@ test('deriveResearchLedgerPromptInjected reads rendered prompt truth, not candid
         heldBackReason: 'canon-priority-suppression',
       },
     },
-  }, true), false);
-
-  assert.equal(deriveResearchLedgerPromptInjected({
+  };
+  const renderedPromptTruth = {
     schema: 'penny-prompttruth.v1',
     channels: {
       researchLedger: {
@@ -81,7 +81,12 @@ test('deriveResearchLedgerPromptInjected reads rendered prompt truth, not candid
         renderedSourceIds: ['path-package-json'],
       },
     },
-  }, false), true);
+  };
+
+  assert.equal(deriveResearchLedgerRendered(heldBackPromptTruth, true), false);
+  assert.equal(deriveResearchLedgerPromptInjected(heldBackPromptTruth, true), false);
+  assert.equal(deriveResearchLedgerRendered(renderedPromptTruth, false), true);
+  assert.equal(deriveResearchLedgerPromptInjected(renderedPromptTruth, false), true);
 });
 
 test('normalizePromptTruth keeps legacy zero-count channels unknown instead of inventing no-candidate state', () => {

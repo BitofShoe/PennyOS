@@ -44,11 +44,12 @@ const MODEL_TTL_SECONDS = Number(process.env.PENNY_LEDGER_COMPARE_MODEL_TTL_SECO
 const MAX_OUTPUT_TOKENS = String(process.env.PENNY_LEDGER_COMPARE_MAX_OUTPUT_TOKENS || 160).trim() || '160';
 const LOAD_EMBED_MODEL = String(process.env.PENNY_LEDGER_COMPARE_LOAD_EMBED_MODEL || '0').trim() === '1';
 const CASE_PROMPT_SUFFIX = ' Keep it to 2 short sentences max.';
-// Compatibility note: the expectation key keeps the older "injection" name, but the runtime truth is rendered-vs-not-rendered.
-const PROMPT_INJECTION_EXPECTED = Object.freeze({
+const PROMPT_RENDER_EXPECTED = Object.freeze({
   'ledger-on': true,
   'ledger-off': false,
 });
+// Compatibility note: the older "injection" name is kept as an internal alias only.
+const PROMPT_INJECTION_EXPECTED = PROMPT_RENDER_EXPECTED;
 const PAIR_DELTA_AMBIGUOUS_THRESHOLD = Number(process.env.PENNY_LEDGER_COMPARE_AMBIGUOUS_DELTA || 0.5);
 const HUMAN_OBSERVABLE_DELTA = Number(process.env.PENNY_LEDGER_COMPARE_OBSERVABLE_DELTA || 0.5);
 
@@ -590,7 +591,8 @@ async function sendChat(baseUrl, item) {
       selectedLane: String(artifact?.scope?.selectedLane || '').trim(),
       warmState: String(artifact?.readiness?.warmState || '').trim(),
       executionPath: String(artifact?.executionPath || '').trim(),
-      researchLedgerPromptInjected: artifact?.researchLedgerPromptInjected === true,
+      researchLedgerRendered: artifact?.researchLedgerRendered === true || artifact?.researchLedgerPromptInjected === true,
+      researchLedgerPromptInjected: artifact?.researchLedgerRendered === true || artifact?.researchLedgerPromptInjected === true,
       researchLedgerUpdateStatus: String(artifact?.researchLedgerUpdate?.status || '').trim(),
     },
     analysis,
@@ -640,7 +642,7 @@ async function runMode(modeConfig, lmStudio, index = 0) {
       expectedToolModel: TOOL_MODEL,
     });
     const promptMismatchCount = result.cases
-      .filter((item) => item.artifactSummary.researchLedgerPromptInjected !== PROMPT_INJECTION_EXPECTED[modeConfig.key])
+      .filter((item) => item.artifactSummary.researchLedgerRendered !== PROMPT_RENDER_EXPECTED[modeConfig.key])
       .length;
     if (promptMismatchCount > 0) {
       result.environment.valid = false;
@@ -834,9 +836,11 @@ function buildLedgerCompareTrace(payload = {}) {
       compareModes: modes.length,
       chatLaneTurns: allCases.filter((item) => item?.artifactSummary?.selectedLane === 'chat').length,
       toolLaneTurns: allCases.filter((item) => item?.artifactSummary?.selectedLane === 'tool').length,
+      promptRenderedCases: allCases.filter((item) => item?.artifactSummary?.researchLedgerRendered === true).length,
+      promptNotRenderedCases: allCases.filter((item) => item?.artifactSummary?.researchLedgerRendered === false).length,
       // Compatibility aliases: these keys are kept stable for old traces, but they count rendered-vs-not-rendered cases.
-      promptInjectedCases: allCases.filter((item) => item?.artifactSummary?.researchLedgerPromptInjected === true).length,
-      promptHeldCases: allCases.filter((item) => item?.artifactSummary?.researchLedgerPromptInjected === false).length,
+      promptInjectedCases: allCases.filter((item) => item?.artifactSummary?.researchLedgerRendered === true).length,
+      promptHeldCases: allCases.filter((item) => item?.artifactSummary?.researchLedgerRendered === false).length,
     },
     configuredModels: {
       chat: CHAT_MODEL,

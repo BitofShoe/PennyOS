@@ -43,8 +43,10 @@
 - per-channel `state` using the bounded vocabulary `rendered`, `held_back`, `candidate`, `no_candidate`, `ineligible`, `disabled`, `unknown`, with `unavailable` reserved for future code that can prove it honestly
 - per-channel `candidateCount`, `renderedCount`, `candidateSourceIds`, `renderedSourceIds`, and `heldBackReason`
 - In current Penny law, `stableFacts` represents canonical explicit-memory prompt context, while `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger` are advisory channels.
-- In current Penny law, `researchLedgerPromptInjected` may only mean that `promptTruth.channels.researchLedger.renderedCount > 0`.
-- In current Penny law, retrieval-trace `injected` and `authorityPressure.advisoryChannelsInjected` / `advisoryItemsInjected` remain compatibility aliases for rendered prompt context. They must not be narrated as broader selection state.
+- In current Penny law, `researchLedgerRendered` is the canonical rendered-name boolean for whether research-ledger context actually rendered into the live prompt.
+- In current Penny law, `researchLedgerPromptInjected` may only mean the same thing as `researchLedgerRendered`, which in turn may only mean that `promptTruth.channels.researchLedger.renderedCount > 0`.
+- In current Penny law, retrieval-trace `rendered` and `authorityPressure.advisoryChannelsRendered` / `advisoryItemsRendered` are the canonical rendered-name compatibility surfaces for prompt-visible advisory context.
+- In current Penny law, retrieval-trace `injected`, `authorityPressure.advisoryChannelsInjected` / `advisoryItemsInjected`, and QA compare `promptInjectedCases` remain compatibility aliases for those rendered-name fields. They must not be narrated as broader selection state.
 
 ## Holdback rules
 
@@ -70,7 +72,7 @@
 - If runtime code begins to distinguish `unavailable` from `excluded-before-candidate`, a future `promptTruth` revision may add explicit receipt states or bounded exclusion reasons for those cases.
 - If Penny ever renders verified tool evidence into the live prompt as its own truth-bearing channel, a future `promptTruth` revision may add a first-class rendered tool-evidence receipt instead of inferring that state from provenance.
 - Future audit revisions may extend the additive rendered-ID receipt beyond `renderedSessionIds`, `renderedGlobalIds`, `renderedBookIds`, and `renderedLedgerIds`, but they should keep `selected*Ids` as candidate continuity rather than reinterpreting them.
-- If compatibility consumers can migrate cleanly, a future versioned cleanup pass may rename rendered-only aliases such as `researchLedgerPromptInjected`, retrieval-trace `injected`, `authorityPressure.*Injected`, and QA compare `promptInjectedCases` into rendered terminology.
+- If compatibility consumers can migrate cleanly, a future versioned cleanup pass may remove old aliases such as `researchLedgerPromptInjected`, retrieval-trace `injected`, `authorityPressure.*Injected`, and QA compare `promptInjectedCases` after the rendered-name fields have become the only canonical terms in code, inspector, QA, and docs.
 - If turn-level receipt metadata becomes necessary, a future revision may add an outer PromptTruth envelope for fields like turn, lane, build time, and model instead of overloading per-channel rows.
 
 ## Boundaries

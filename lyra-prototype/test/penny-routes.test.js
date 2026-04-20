@@ -79,6 +79,8 @@ function assertArtifactShape(artifact, { requireEvidence = true, requireSideEffe
   assert.ok(Array.isArray(artifact.modelAdvisory.cleanupTransform.operations));
   assert.equal(typeof artifact.modelAdvisory.authorityPressure.canonicalFactsPresent, 'boolean');
   assert.equal(typeof artifact.modelAdvisory.authorityPressure.canonicalOverrideActive, 'boolean');
+  assert.equal(typeof artifact.modelAdvisory.authorityPressure.advisoryChannelsRendered, 'number');
+  assert.equal(typeof artifact.modelAdvisory.authorityPressure.advisoryItemsRendered, 'number');
   assert.equal(typeof artifact.modelAdvisory.authorityPressure.advisoryChannelsInjected, 'number');
   assert.equal(typeof artifact.modelAdvisory.authorityPressure.advisoryItemsInjected, 'number');
   assert.equal(typeof artifact.modelAdvisory.authorityPressure.sameSessionAdvisoryItems, 'number');
@@ -342,7 +344,9 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(toolTurn.json.meta.requestedModel, 'google/gemma-4-e4b');
     assert.equal(toolTurn.json.meta.resolvedModel, '');
     assert.equal(toolTurn.json.meta.executionPath, 'deterministic-tool');
+    assert.equal(toolTurn.json.meta.researchLedgerRendered, false);
     assert.equal(toolTurn.json.meta.researchLedgerPromptInjected, false);
+    assert.equal(toolTurn.json.meta.researchLedgerPromptInjected, toolTurn.json.meta.researchLedgerRendered);
     assert.equal(toolTurn.json.meta.researchLedgerUpdate.status, 'applied');
     assert.equal(typeof toolTurn.json.meta.semanticMemoryReady, 'boolean');
     assert.equal(typeof toolTurn.json.meta.semanticMemoryMode, 'string');
@@ -357,7 +361,9 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(toolTurn.json.meta.artifact.scope.selectedLane, 'tool');
     assert.equal(toolTurn.json.meta.artifact.executionPath, 'deterministic-tool');
     assert.equal(toolTurn.json.meta.artifact.context.resolvedModel, '');
+    assert.equal(toolTurn.json.meta.artifact.researchLedgerRendered, false);
     assert.equal(toolTurn.json.meta.artifact.researchLedgerPromptInjected, false);
+    assert.equal(toolTurn.json.meta.artifact.researchLedgerPromptInjected, toolTurn.json.meta.artifact.researchLedgerRendered);
     assert.equal(toolTurn.json.meta.artifact.authority.reply, 'verified-tool-evidence');
     assert.equal(toolTurn.json.meta.artifact.epistemics.enabled, false);
     assert.equal(toolTurn.json.meta.artifact.synthesis.generated, false);

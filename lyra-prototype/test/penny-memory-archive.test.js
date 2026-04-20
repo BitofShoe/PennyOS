@@ -167,7 +167,8 @@ function buildAuditSlice({
       approximatePath: {
         status: artifactSummary.approximatePath?.status || 'exact',
       },
-      researchLedgerPromptInjected: artifactSummary.researchLedgerPromptInjected === true,
+      researchLedgerRendered: artifactSummary.researchLedgerRendered === true || artifactSummary.researchLedgerPromptInjected === true,
+      researchLedgerPromptInjected: artifactSummary.researchLedgerRendered === true || artifactSummary.researchLedgerPromptInjected === true,
     },
     researchLedger: {
       updateStatus: researchLedger.updateStatus || 'skipped',
@@ -1147,7 +1148,9 @@ test('archiveCompletedTurn preserves held-back prompt-truth reasons inside compa
     assert.equal(slice.promptTruth.channels.researchLedger.renderedCount, 0);
     assert.equal(slice.retrieval.selectedSessionIds[0], 'session-held');
     assert.deepEqual(slice.retrieval.renderedSessionIds, []);
+    assert.equal(slice.artifactSummary.researchLedgerRendered, false);
     assert.equal(slice.artifactSummary.researchLedgerPromptInjected, false);
+    assert.equal(slice.artifactSummary.researchLedgerPromptInjected, slice.artifactSummary.researchLedgerRendered);
     assert.equal(slice.researchLedger.updateStatus, 'skipped');
     assert.deepEqual(archive.sessions['audit-held-back'].lastRetrieval.summary.renderedSessionIds, []);
   } finally {

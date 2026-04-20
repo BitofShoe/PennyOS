@@ -151,10 +151,15 @@ function hasPromptTruthReceipt(promptTruth = null) {
   ));
 }
 
-function deriveResearchLedgerPromptInjected(promptTruth = null, fallback = false) {
+function deriveResearchLedgerRendered(promptTruth = null, fallback = false) {
   const normalized = normalizePromptTruth(promptTruth);
   if (!hasPromptTruthReceipt(normalized)) return fallback === true;
   return promptTruthRenderedCount(normalized, 'researchLedger') > 0;
+}
+
+function deriveResearchLedgerPromptInjected(promptTruth = null, fallback = false) {
+  // Compatibility alias: old "promptInjected" naming now delegates to rendered prompt truth.
+  return deriveResearchLedgerRendered(promptTruth, fallback);
 }
 
 function projectAuditRetrievalFromPromptTruth(promptTruth = null) {
@@ -191,6 +196,7 @@ module.exports = {
   promptTruthChannelState,
   advisoryPromptTruthChannels,
   hasPromptTruthReceipt,
+  deriveResearchLedgerRendered,
   deriveResearchLedgerPromptInjected,
   projectAuditRetrievalFromPromptTruth,
 };

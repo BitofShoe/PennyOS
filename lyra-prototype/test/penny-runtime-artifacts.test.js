@@ -141,7 +141,9 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.retrievalTrace[2].reason, 'compression_low_retrieval_confidence');
   assert.equal(artifact.retrievalTrace[3].reason, 'memory-book-match');
   assert.equal(artifact.retrievalTrace[4].reason, 'research-continuity-ledger');
+  assert.equal(artifact.retrievalTrace.every((item) => typeof item.rendered === 'boolean'), true);
   assert.equal(artifact.retrievalTrace.every((item) => typeof item.injected === 'boolean'), true);
+  assert.equal(artifact.retrievalTrace.every((item) => item.rendered === item.injected), true);
   assert.equal(artifact.trace.laneChoice.selectedLane, 'chat');
   assert.equal(artifact.trace.wakeHierarchy[0].label, 'Explicit facts stay canonical');
   assert.equal(artifact.trace.retrievalChannels.length, 5);
@@ -162,6 +164,10 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.modelAdvisory.promptTruth.schema, 'penny-prompttruth.v1');
   assert.equal(artifact.promptTruth.channels.sessionArchive.renderedCount, 1);
   assert.equal(artifact.promptTruth.channels.researchLedger.renderedCount, 1);
+  assert.equal(artifact.researchLedgerRendered, true);
+  assert.equal(artifact.researchLedgerPromptInjected, artifact.researchLedgerRendered);
+  assert.equal(artifact.trace.laneChoice.researchLedgerRendered, true);
+  assert.equal(artifact.trace.laneChoice.researchLedgerPromptInjected, artifact.trace.laneChoice.researchLedgerRendered);
   assert.equal(artifact.modelAdvisory.approximatePath.status, 'bounded-approximate');
   assert.equal(artifact.modelAdvisory.approximatePath.policyMode, 'recall-heavy');
   assert.equal(artifact.modelAdvisory.reasoningPolicy.mode, 'deliberate');
@@ -192,7 +198,9 @@ test('normalizeRuntimeArtifact preserves prompt truth schema during normalizatio
 
   assert.equal(artifact.promptTruth.schema, 'penny-prompttruth.v1');
   assert.equal(artifact.modelAdvisory.promptTruth.schema, 'penny-prompttruth.v1');
+  assert.equal(artifact.researchLedgerRendered, true);
   assert.equal(artifact.researchLedgerPromptInjected, true);
+  assert.equal(artifact.researchLedgerPromptInjected, artifact.researchLedgerRendered);
 });
 
 test('buildRuntimeArtifact preserves deterministic-tool truth without faking model receipts', () => {
@@ -252,18 +260,22 @@ test('buildRuntimeArtifact preserves deterministic-tool truth without faking mod
   assert.equal(artifact.executionPath, 'deterministic-tool');
   assert.equal(artifact.readiness.modelUsage, 'not-used');
   assert.equal(artifact.context.resolvedModel, '');
+  assert.equal(artifact.researchLedgerRendered, false);
   assert.equal(artifact.researchLedgerPromptInjected, false);
   assert.equal(artifact.researchLedgerUpdate.status, 'applied');
   assert.equal(artifact.promptTruth.channels.researchLedger.renderedCount, 0);
   assert.equal(artifact.trace.laneChoice.executionPath, 'deterministic-tool');
+  assert.equal(artifact.trace.laneChoice.researchLedgerRendered, false);
   assert.equal(artifact.trace.laneChoice.researchLedgerPromptInjected, false);
+  assert.equal(artifact.trace.laneChoice.researchLedgerPromptInjected, artifact.trace.laneChoice.researchLedgerRendered);
   assert.equal(artifact.trace.laneChoice.researchLedgerUpdateStatus, 'applied');
   assert.equal(artifact.modelAdvisory.reasoningPolicy.mode, 'verifier-first');
   assert.equal(artifact.modelAdvisory.reasoningPolicy.executionPreference, 'verifier-first');
   assert.equal(artifact.modelAdvisory.reasoningPolicy.verifierUsed, true);
   assert.equal(artifact.modelAdvisory.reasoningPolicy.shortCircuitApplied, true);
   assert.equal(artifact.summary.text, 'Verifier-first turn short-circuited before extra model reasoning (deterministic-tool).');
-  assert.equal(artifact.provenance.retrieval[0].injected, false);
+  assert.equal(artifact.provenance.retrieval[0].rendered, false);
+  assert.equal(artifact.provenance.retrieval[0].injected, artifact.provenance.retrieval[0].rendered);
   assert.equal(artifact.provenance.retrieval[0].sourceLabel, 'package.json');
 });
 
@@ -478,8 +490,18 @@ test('buildRuntimeArtifact records cleanup and authority-pressure summaries sepa
   });
   assert.equal(artifact.modelAdvisory.authorityPressure.canonicalFactsPresent, true);
   assert.equal(artifact.modelAdvisory.authorityPressure.canonicalOverrideActive, true);
+  assert.equal(artifact.modelAdvisory.authorityPressure.advisoryChannelsRendered, 0);
+  assert.equal(artifact.modelAdvisory.authorityPressure.advisoryItemsRendered, 0);
   assert.equal(artifact.modelAdvisory.authorityPressure.advisoryChannelsInjected, 0);
   assert.equal(artifact.modelAdvisory.authorityPressure.advisoryItemsInjected, 0);
+  assert.equal(
+    artifact.modelAdvisory.authorityPressure.advisoryChannelsInjected,
+    artifact.modelAdvisory.authorityPressure.advisoryChannelsRendered,
+  );
+  assert.equal(
+    artifact.modelAdvisory.authorityPressure.advisoryItemsInjected,
+    artifact.modelAdvisory.authorityPressure.advisoryItemsRendered,
+  );
   assert.equal(artifact.modelAdvisory.authorityPressure.sameSessionAdvisoryItems, 0);
   assert.equal(artifact.modelAdvisory.authorityPressure.crossSessionAdvisoryItems, 0);
   assert.equal(artifact.modelAdvisory.repair.scope, 'semantic-render');
@@ -490,7 +512,9 @@ test('buildRuntimeArtifact records cleanup and authority-pressure summaries sepa
   assert.equal(artifact.promptTruth.channels.sessionArchive.candidateCount, 1);
   assert.equal(artifact.promptTruth.channels.sessionArchive.renderedCount, 0);
   assert.equal(artifact.promptTruth.channels.sessionArchive.heldBackReason, 'canon-priority-suppression');
+  assert.equal(artifact.researchLedgerRendered, false);
   assert.equal(artifact.researchLedgerPromptInjected, false);
+  assert.equal(artifact.researchLedgerPromptInjected, artifact.researchLedgerRendered);
   assert.equal(artifact.modelAdvisory.approximatePath.status, 'bounded-approximate');
   assert.equal(artifact.modelAdvisory.approximatePath.reasons.includes('semantic-query-held-back'), true);
   assert.equal(artifact.modelAdvisory.reasoningPolicy.mode, 'minimal');

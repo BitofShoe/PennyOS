@@ -164,10 +164,28 @@ function summarizePromptTruthChannel(channelKey = '', channel = null) {
   return `${channelKey} ${formatPromptTruthStateLabel(normalized.state)}${countText}${reasonText}`;
 }
 
-function summarizeResearchLedgerPromptState(channel = null, injected = false) {
+function summarizeResearchLedgerPromptState(channel = null, rendered = false) {
   const normalized = normalizePromptTruthChannel(channel);
-  if (normalized.state === 'unknown' && injected === true) return 'rendered';
+  if (normalized.state === 'unknown' && rendered === true) return 'rendered';
   return normalized.state;
+}
+
+function isResearchLedgerRendered(value = null) {
+  if (!value || typeof value !== 'object') return false;
+  return value.researchLedgerRendered === true || value.researchLedgerPromptInjected === true;
+}
+
+function renderedAdvisoryCount(value = null, key = 'items') {
+  const source = value && typeof value === 'object' ? value : {};
+  if (key === 'channels') {
+    return Number(source.advisoryChannelsRendered ?? source.advisoryChannelsInjected ?? 0);
+  }
+  return Number(source.advisoryItemsRendered ?? source.advisoryItemsInjected ?? 0);
+}
+
+function isRetrievalTraceRendered(item = null) {
+  const value = item && typeof item === 'object' ? item : {};
+  return value.rendered === true || (value.rendered !== false && value.injected !== false);
 }
 
 function formatInspectorMoment(value = '') {
@@ -319,12 +337,14 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   const researchLedgerUpdate = artifact.researchLedgerUpdate && typeof artifact.researchLedgerUpdate === 'object'
     ? artifact.researchLedgerUpdate
     : { status: 'skipped', reason: '' };
-  const researchLedgerPromptInjected = artifact.researchLedgerPromptInjected === true;
+  const researchLedgerPromptRendered = isResearchLedgerRendered(artifact);
   const researchLedgerPromptChannel = normalizePromptTruthChannel(promptTruth?.channels?.researchLedger);
   const researchLedgerPromptCandidateCount = researchLedgerPromptChannel.candidateCount;
   const researchLedgerPromptRenderedCount = researchLedgerPromptChannel.renderedCount;
   const researchLedgerPromptHoldbackReason = researchLedgerPromptChannel.heldBackReason;
-  const researchLedgerPromptState = summarizeResearchLedgerPromptState(researchLedgerPromptChannel, researchLedgerPromptInjected);
+  const researchLedgerPromptState = summarizeResearchLedgerPromptState(researchLedgerPromptChannel, researchLedgerPromptRendered);
+  const advisoryItemsRendered = renderedAdvisoryCount(authorityPressure, 'items');
+  const advisoryChannelsRendered = renderedAdvisoryCount(authorityPressure, 'channels');
   const researchLedgerPromptDetail = researchLedgerPromptState === 'rendered'
     ? `${Math.max(1, researchLedgerPromptRenderedCount)} research continuity topic${Math.max(1, researchLedgerPromptRenderedCount) === 1 ? '' : 's'} rendered into the prompt.`
     : (researchLedgerPromptState === 'held_back'
@@ -455,7 +475,7 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     </div>
     <div class="list-item">
       <div class="memory-copy">
-        Authority pressure: <strong>${escapeHtmlFn(canonicalSummary)}</strong> &middot; ${escapeHtmlFn(overrideSummary)} &middot; advisory rendered ${escapeHtmlFn(String(Number(authorityPressure.advisoryItemsInjected || 0)))} item(s) across ${escapeHtmlFn(String(Number(authorityPressure.advisoryChannelsInjected || 0)))} channel(s)
+        Authority pressure: <strong>${escapeHtmlFn(canonicalSummary)}</strong> &middot; ${escapeHtmlFn(overrideSummary)} &middot; advisory rendered ${escapeHtmlFn(String(advisoryItemsRendered))} item(s) across ${escapeHtmlFn(String(advisoryChannelsRendered))} channel(s)
         <small>${escapeHtmlFn(`same session rendered ${Number(authorityPressure.sameSessionAdvisoryItems || 0)} | cross session rendered ${Number(authorityPressure.crossSessionAdvisoryItems || 0)}`)}</small>
       </div>
     </div>
@@ -562,7 +582,7 @@ function renderTraceArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) 
     .filter(Boolean);
   const retrievalSummary = retrievalChannels
     .slice(0, 4)
-    .map((item) => `${item?.channel || 'archive'}:${item?.injected === false ? 'not-rendered' : 'rendered'}:${item?.sourceLabel || item?.sourceId || 'source'}`)
+    .map((item) => `${item?.channel || 'archive'}:${isRetrievalTraceRendered(item) ? 'rendered' : 'not-rendered'}:${item?.sourceLabel || item?.sourceId || 'source'}`)
     .filter(Boolean);
   const contradictionSummary = contradictions
     .slice(0, 2)
@@ -667,9 +687,9 @@ function renderTraceProvenance(artifact = null, escapeHtmlFn = escapeHtml) {
     acceptedEvidence.length ? `accepted ${acceptedEvidence.length}` : '',
     rejectedEvidence.length ? `not rendered ${rejectedEvidence.length}` : '',
   ].filter(Boolean).join(' · ');
-  const retrievalRows = retrieval.slice(0, 6).map((item) => {
-    const identity = [
-      item?.injected === false ? 'not rendered' : 'rendered',
+    const retrievalRows = retrieval.slice(0, 6).map((item) => {
+      const identity = [
+      isRetrievalTraceRendered(item) ? 'rendered' : 'not rendered',
       item?.channel || '',
       item?.scope || '',
       item?.reason || '',
@@ -799,7 +819,7 @@ function renderRecentAuditTrail(items = [], escapeHtmlFn = escapeHtml) {
       retrieval.semanticDowngrade ? 'semantic downgraded' : '',
     ].filter(Boolean);
     const ledgerPromptState = `ledger ${formatPromptTruthStateLabel(
-      summarizeResearchLedgerPromptState(promptTruth.researchLedger, artifactSummary.researchLedgerPromptInjected === true),
+      summarizeResearchLedgerPromptState(promptTruth.researchLedger, isResearchLedgerRendered(artifactSummary)),
     )}`;
     const artifactBits = [
       artifactSummary.kind ? `kind ${artifactSummary.kind}` : '',

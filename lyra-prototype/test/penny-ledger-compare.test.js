@@ -116,7 +116,7 @@ test('buildLedgerCompareTrace emits an ambiguous trust verdict when the paired c
             ok: true,
             seconds: 10,
             artifact: {},
-            artifactSummary: { selectedLane: 'chat', researchLedgerPromptInjected: false },
+            artifactSummary: { selectedLane: 'chat', researchLedgerRendered: false, researchLedgerPromptInjected: false },
           },
         ],
       },
@@ -129,7 +129,7 @@ test('buildLedgerCompareTrace emits an ambiguous trust verdict when the paired c
             ok: true,
             seconds: 11,
             artifact: {},
-            artifactSummary: { selectedLane: 'chat', researchLedgerPromptInjected: true },
+            artifactSummary: { selectedLane: 'chat', researchLedgerRendered: true, researchLedgerPromptInjected: true },
           },
         ],
       },
@@ -150,4 +150,8 @@ test('buildLedgerCompareTrace emits an ambiguous trust verdict when the paired c
   assert.equal(trace.trust.verdict, 'ambiguous');
   assert.deepEqual(trace.trust.reasonCodes, ['paired_compare_ambiguous']);
   assert.equal(trace.outcome.primaryPair, 'ledger-off, ledger-on');
+  assert.equal(trace.laneDecision.promptRenderedCases, 1);
+  assert.equal(trace.laneDecision.promptNotRenderedCases, 1);
+  assert.equal(trace.laneDecision.promptInjectedCases, trace.laneDecision.promptRenderedCases);
+  assert.equal(trace.laneDecision.promptHeldCases, trace.laneDecision.promptNotRenderedCases);
 });

@@ -147,6 +147,7 @@ test('canonicalAuthorityPressureSatisfied requires canon-first pressure plus sam
       authorityPressure: {
         canonicalFactsPresent: true,
         canonicalOverrideActive: true,
+        advisoryItemsRendered: 0,
         advisoryItemsInjected: 0,
         sameSessionAdvisoryItems: 0,
       },
@@ -167,6 +168,7 @@ test('canonicalAuthorityPressureSatisfied requires canon-first pressure plus sam
       authorityPressure: {
         canonicalFactsPresent: true,
         canonicalOverrideActive: false,
+        advisoryItemsRendered: 1,
         advisoryItemsInjected: 1,
         sameSessionAdvisoryItems: 1,
       },

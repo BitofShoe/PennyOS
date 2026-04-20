@@ -902,6 +902,8 @@ function createMemoryArchiveApi({
       : (value.modelAdvisory?.approximatePath && typeof value.modelAdvisory.approximatePath === 'object'
         ? value.modelAdvisory.approximatePath
         : {});
+    const researchLedgerRendered = value.researchLedgerRendered === true
+      || value.researchLedgerPromptInjected === true;
     return {
       kind: trimText(value.kind || '', 80) || 'unknown',
       authority: {
@@ -910,7 +912,8 @@ function createMemoryArchiveApi({
       approximatePath: {
         status: trimText(approximatePath.status || '', 80) || 'exact',
       },
-      researchLedgerPromptInjected: value.researchLedgerPromptInjected === true,
+      researchLedgerRendered,
+      researchLedgerPromptInjected: researchLedgerRendered,
     };
   }
 
