@@ -2,9 +2,45 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  appendToolEvidenceFact,
   buildRuntimeArtifact,
   normalizeRuntimeArtifact,
 } = require('../lib/penny-runtime-artifacts');
+
+test('appendToolEvidenceFact deduplicates equivalent tool-evidence facts without changing order', () => {
+  const firstFact = {
+    path: 'semantic_render',
+    promptVisibility: 'prompt_visible',
+    nonPromptUse: 'none',
+    renderForm: 'summarized_semantic_core',
+    modelHop: 'single',
+    toolRecordIndexes: [0, 1],
+  };
+  const duplicateFact = {
+    path: 'semantic_render',
+    promptVisibility: 'prompt_visible',
+    nonPromptUse: 'none',
+    renderForm: 'summarized_semantic_core',
+    modelHop: 'single',
+    toolRecordIndexes: [0, 1],
+  };
+  const secondFact = {
+    path: 'write_rescue',
+    promptVisibility: 'prompt_visible',
+    nonPromptUse: 'none',
+    renderForm: 'summarized_write_rescue',
+    modelHop: 'single',
+    toolRecordIndexes: [0, 1],
+  };
+
+  const appendedOnce = appendToolEvidenceFact([], firstFact);
+  const deduped = appendToolEvidenceFact(appendedOnce, duplicateFact);
+  const appendedTwice = appendToolEvidenceFact(deduped, secondFact);
+
+  assert.deepEqual(appendedOnce, [firstFact]);
+  assert.equal(deduped, appendedOnce);
+  assert.deepEqual(appendedTwice, [firstFact, secondFact]);
+});
 
 test('buildRuntimeArtifact records a compact retrieval trace for inspector and QA consumers', () => {
   const artifact = buildRuntimeArtifact({

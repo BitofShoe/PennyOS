@@ -230,6 +230,48 @@ test('maybeRenderHardTurnReply appends semantic_render evidence only after summa
   }
 });
 
+test('maybeRenderHardTurnReply does not duplicate an existing semantic_render evidence fact', async () => {
+  const mockLmStudio = await createMockSemanticRenderServer();
+  const { serverModule, cleanup } = loadServerModuleForSemanticRender(mockLmStudio.baseUrl);
+  try {
+    const result = await serverModule.maybeRenderHardTurnReply(buildSemanticRenderArgs({
+      toolEvidenceFacts: [
+        {
+          path: 'native_tool_loop',
+          promptVisibility: 'prompt_visible',
+          nonPromptUse: 'none',
+          renderForm: 'raw_json',
+          modelHop: 'multi',
+          toolRecordIndexes: [0, 1],
+        },
+        {
+          path: 'semantic_render',
+          promptVisibility: 'prompt_visible',
+          nonPromptUse: 'none',
+          renderForm: 'summarized_semantic_core',
+          modelHop: 'single',
+          toolRecordIndexes: [0, 1],
+        },
+      ],
+    }));
+
+    assert.equal(mockLmStudio.stats.chatRequests, 1);
+    assert.equal(result.toolEvidenceFacts.length, 2);
+    assert.equal(result.toolEvidenceFacts.filter((fact) => fact.path === 'semantic_render').length, 1);
+    assert.deepEqual(result.toolEvidenceFacts[1], {
+      path: 'semantic_render',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'summarized_semantic_core',
+      modelHop: 'single',
+      toolRecordIndexes: [0, 1],
+    });
+  } finally {
+    cleanup();
+    await mockLmStudio.close();
+  }
+});
+
 test('maybeRenderHardTurnReply leaves semantic_render evidence absent when semantic rendering is skipped before prompt assembly', async () => {
   const mockLmStudio = await createMockSemanticRenderServer();
   const { serverModule, cleanup } = loadServerModuleForSemanticRender(mockLmStudio.baseUrl);

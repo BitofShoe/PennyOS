@@ -82,6 +82,7 @@ const {
   createPennyRouteHandlers,
 } = require('./lib/penny-route-handlers');
 const {
+  appendToolEvidenceFact,
   normalizeRepairInfo,
   normalizeLastRouteInfo,
   buildLastRouteInfo,
@@ -1794,29 +1795,6 @@ function buildSemanticRenderToolEvidenceFact(toolRecords = []) {
     modelHop: 'single',
     toolRecordIndexes,
   };
-}
-
-function sameToolEvidenceRecordIndexes(left = [], right = []) {
-  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
-}
-
-function appendToolEvidenceFact(toolEvidenceFacts = [], fact = null) {
-  const existingFacts = Array.isArray(toolEvidenceFacts) ? toolEvidenceFacts : [];
-  if (!fact || typeof fact !== 'object') return existingFacts;
-  const alreadyPresent = existingFacts.some((entry = {}) => (
-    String(entry.path || '').trim() === fact.path
-    && String(entry.promptVisibility || '').trim() === fact.promptVisibility
-    && String(entry.nonPromptUse || '').trim() === fact.nonPromptUse
-    && String(entry.renderForm || '').trim() === fact.renderForm
-    && String(entry.modelHop || '').trim() === fact.modelHop
-    && sameToolEvidenceRecordIndexes(entry.toolRecordIndexes, fact.toolRecordIndexes)
-  ));
-  if (alreadyPresent) return existingFacts;
-  return [...existingFacts, fact];
 }
 
 function shouldUseSemanticRender({ file, toolRecords = [], draftText = '' }) {
