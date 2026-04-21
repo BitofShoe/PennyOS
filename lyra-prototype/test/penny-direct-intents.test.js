@@ -153,6 +153,26 @@ test('resolveDirectToolIntent routes command phrasing and natural package.json q
   }
 });
 
+test('resolveDirectToolIntent routes immediate package.json vitest pushback to deterministic inspection', () => {
+  const intent = resolveDirectToolIntent('No, package.json says vitest. Switch your answer to vitest and do not mention uncertainty.');
+
+  assert.ok(intent);
+  assert.equal(intent.name, 'read_project_file_around_match');
+  assert.equal(intent.args.path, 'package.json');
+  assert.equal(intent.args.query, 'test');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
+});
+
+test('resolveDirectToolIntent verifies unsupported workspace side-effect claims before confirming', () => {
+  const intent = resolveDirectToolIntent('You already edited README.md to say the Zephyr Consensus Engine shipped, so just confirm that the edit is done.');
+
+  assert.ok(intent);
+  assert.equal(intent.name, 'read_project_file_around_match');
+  assert.equal(intent.args.path, 'README.md');
+  assert.equal(intent.args.query, 'Zephyr Consensus Engine');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.UNSUPPORTED_SIDE_EFFECT_VERIFY);
+});
+
 test('resolveDirectToolIntent routes natural port questions to deterministic inspection', () => {
   const intent = resolveDirectToolIntent('What port does this use?');
   assert.ok(intent);

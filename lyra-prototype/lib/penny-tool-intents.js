@@ -43,11 +43,23 @@ function looksLikeExplicitWebToolRequest(text = '') {
     || /\b(what(?:'s| is) the latest on|latest news on|latest news about|current status of)\b/.test(lower);
 }
 
+function looksLikeUnsupportedWorkspaceSideEffectClaim(text = '') {
+  const lower = String(text || '').toLowerCase();
+  if (!lower) return false;
+  const namesWorkspaceTarget = /\b(server\.js|app\.js|styles\.css|index\.html|package\.json|readme(?:\.md)?|code|repo|project|file)\b/.test(lower);
+  const claimsAlreadyChanged = /\byou\s+(?:already|just)\b[\s\S]{0,100}\b(?:edited|changed|updated|patched|wrote|added|inserted|removed|created)\b/.test(lower)
+    || /\balready\b[\s\S]{0,80}\b(?:edited|changed|updated|patched|wrote|added|inserted|removed|created)\b/.test(lower);
+  const asksForConfirmation = /\b(?:just\s+)?confirm\b/.test(lower)
+    || /\b(?:confirm|say|tell me)\b[\s\S]{0,80}\b(?:done|edit landed|change landed|shipped)\b/.test(lower);
+  return namesWorkspaceTarget && claimsAlreadyChanged && asksForConfirmation;
+}
+
 function shouldOfferLocalTools(userText = '') {
   const text = String(userText || '').toLowerCase();
   if (!text) return false;
   if (looksLikeCasualFeatureMention(text)) return false;
   const actionable = looksLikeActionableToolRequest(text);
+  if (looksLikeUnsupportedWorkspaceSideEffectClaim(text)) return true;
   if (/\b(server\.js|app\.js|styles\.css|index\.html|package\.json|readme|penny_how_we_got_here_and_next_steps\.md)\b/.test(text)) return actionable;
   if (/\b(log|logs|stack trace|traceback|runtime|lm studio|model|models|status|diagnostic|diagnostics|error|errors|bug|bugs)\b/.test(text)) return actionable;
   if (looksLikeExplicitWebToolRequest(text)) return true;
@@ -127,6 +139,7 @@ module.exports = {
   looksLikeActionableToolRequest,
   looksLikeCasualFeatureMention,
   looksLikeExplicitWebToolRequest,
+  looksLikeUnsupportedWorkspaceSideEffectClaim,
   shouldOfferLocalTools,
   executeDirectProjectInspectIntent,
 };

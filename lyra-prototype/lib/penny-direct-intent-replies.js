@@ -92,9 +92,9 @@ function createDirectIntentReplyApi({
         ? `${pathLabel} for "${query}"`
         : pathLabel;
       if (query && /could not find/i.test(error)) {
-        return `i checked ${scope}, and there is no matching line there. i did not edit anything, and i did not run a verification step.\n[MOOD:thinking]`;
+        return `i checked ${scope}, and there is no matching line there. i did not edit anything; this was a read-only verification.\n[MOOD:thinking]`;
       }
-      return `i tried to inspect ${scope}, but it blew up: ${error}\n\ni did not edit anything, and i did not run a verification step.\n[MOOD:annoyed]`;
+      return `i tried to inspect ${scope}, but it blew up: ${error}\n\ni did not edit anything; the read-only verification failed before it could prove the source.\n[MOOD:annoyed]`;
     }
     if (query) {
       const excerptLines = String(excerpt || '')
@@ -137,12 +137,12 @@ function createDirectIntentReplyApi({
       const support = supportText
         ? `\n\nsupporting line ${focusLineNumber}: ${supportText}`
         : '';
-      return `${answer}${support}\n\ni did not edit anything, and i did not run a verification step.\n[MOOD:thinking]`;
+      return `${answer}${support}\n\ni did not edit anything; this was a read-only verification.\n[MOOD:thinking]`;
     }
     const scope = query
       ? `around "${query}" in ${pathLabel}`
       : `${pathLabel} lines ${result.startLine || result.matchLine || 1}-${result.endLine || result.startLine || result.matchLine || 1}`;
-    const intro = `i inspected ${scope}. i did not edit anything, and i did not run a verification step.`;
+    const intro = `i inspected ${scope}. i did not edit anything; this was a read-only inspection.`;
     return excerpt
       ? `${intro}\n\n${excerpt}\n[MOOD:thinking]`
       : `${intro}\n[MOOD:thinking]`;

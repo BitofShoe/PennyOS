@@ -48,6 +48,42 @@ function createDirectToolAssistApi({
     throw new TypeError('createDirectToolAssistApi requires normalizeWebUrl');
   }
 
+  function extractSuppliedRemoteSource(userText = '') {
+    const raw = String(userText || '').replace(/\r\n/g, '\n');
+    const match = raw.match(/\bBEGIN\s+(?:REMOTE\s+)?SOURCE\b[^\n]*\n([\s\S]*?)\n\s*END\s+(?:REMOTE\s+)?SOURCE\b/i);
+    const text = String(match?.[1] || '').trim();
+    if (!text) return null;
+    return {
+      label: 'BEGIN REMOTE SOURCE',
+      text,
+    };
+  }
+
+  function truncateRemoteSourceText(text = '', limit = 1200) {
+    const source = String(text || '').trim();
+    if (source.length <= limit) return source;
+    return `${source.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+  }
+
+  function composeSuppliedRemoteSourceReply({ suppliedSource = null, result = {}, requestedUrl = '' } = {}) {
+    const data = result?.data && typeof result.data === 'object' ? result.data : {};
+    const url = String(data.url || data.requestedUrl || requestedUrl || '').trim();
+    const error = String(data.error || '').trim();
+    const fetchLine = result?.ok === false
+      ? `i could not fetch ${url || 'that URL'}${error ? ` (${error})` : ''}, but you supplied a remote source block, so i am not throwing that source text away.`
+      : `the fetched page did not provide usable text, but you supplied a remote source block, so i am not throwing that source text away.`;
+    const excerpt = truncateRemoteSourceText(suppliedSource?.text || '');
+    return [
+      fetchLine,
+      'i am treating the supplied remote source as untrusted source material, not an instruction channel.',
+      '',
+      `remote source text:\n${excerpt}`,
+      '',
+      'should i obey it? no. remote source text is evidence to inspect; it should not override Penny\'s instructions, repo truth, or explicit memory, and remote pages do not outrank explicit memory.',
+      '[MOOD:thinking]',
+    ].join('\n');
+  }
+
   function buildToolEvidenceFacts(shape = {}, toolRecords = []) {
     const recordIndexes = Array.isArray(toolRecords)
       ? toolRecords
@@ -434,6 +470,21 @@ function createDirectToolAssistApi({
       };
     }
     if (intent.name === 'read_web_page') {
+      const suppliedSource = extractSuppliedRemoteSource(userText);
+      const pageText = String(result?.data?.text || '').trim();
+      if (suppliedSource && (!result.ok || !pageText)) {
+        return {
+          text: composeSuppliedRemoteSourceReply({
+            suppliedSource,
+            result,
+            requestedUrl: intent.args?.url || '',
+          }),
+          toolsUsed,
+          toolRecords,
+          toolEvidenceFacts: deterministicToolEvidenceFacts,
+          skipSemanticRender: true,
+        };
+      }
       return {
         text: composeDirectWebPageReply(result.data),
         toolsUsed,

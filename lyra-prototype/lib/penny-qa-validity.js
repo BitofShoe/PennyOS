@@ -107,6 +107,12 @@ function collectArtifactResolvedModels(artifacts = []) {
   };
 }
 
+function collectIncompatibleModels(models = [], expectedModel = '') {
+  const expected = String(expectedModel || '').trim();
+  if (!expected) return [];
+  return uniqueStrings(models, 8).filter((item) => !modelsLookCompatible(item, expected));
+}
+
 function buildQaEnvironmentValidity({
   serverMode = '',
   preparation = null,
@@ -140,6 +146,8 @@ function buildQaEnvironmentValidity({
     || serverStatus?.toolPreferredModel
     || '',
   ).trim();
+  const chatLaneModelMismatches = collectIncompatibleModels(artifactResolvedModels.chat, expectedChatModel);
+  const toolLaneModelMismatches = collectIncompatibleModels(artifactResolvedModels.tool, expectedToolModel);
   const duplicateLoadedModels = collectDuplicateLoadedModels(
     (Array.isArray(loadedModelEntries) && loadedModelEntries.length)
       ? loadedModelEntries
@@ -156,18 +164,30 @@ function buildQaEnvironmentValidity({
     : 0;
   const trustedServer = !requireDisposable || serverMode === 'spawned-disposable' || serverMode === 'restart-gated';
   const preparationOk = preparation?.ok !== false && !(Array.isArray(preparation?.blockers) && preparation.blockers.length);
-  const chatReady = !requireChat
-    || modelsLookCompatible(observedChatModel, expectedChatModel)
+  const chatArtifactReady = chatLaneModelMismatches.length === 0;
+  const toolArtifactReady = toolLaneModelMismatches.length === 0;
+  const chatReady = chatArtifactReady && (
+    !requireChat
     || artifactResolvedModels.chat.some((item) => modelsLookCompatible(item, expectedChatModel))
-    || availableModels.some((item) => modelsLookCompatible(item, expectedChatModel));
-  const toolReady = !requireTool
-    || modelsLookCompatible(observedToolModel, expectedToolModel)
+    || modelsLookCompatible(observedChatModel, expectedChatModel)
+    || availableModels.some((item) => modelsLookCompatible(item, expectedChatModel))
+  );
+  const toolReady = toolArtifactReady && (
+    !requireTool
     || artifactResolvedModels.tool.some((item) => modelsLookCompatible(item, expectedToolModel))
-    || availableModels.some((item) => modelsLookCompatible(item, expectedToolModel));
+    || modelsLookCompatible(observedToolModel, expectedToolModel)
+    || availableModels.some((item) => modelsLookCompatible(item, expectedToolModel))
+  );
   const semanticReadyOk = !requireSemantic || semanticReady === true;
   const reasons = [];
   if (!trustedServer) reasons.push('release-style verdicts require a disposable or restart-gated server target');
   if (!preparationOk) reasons.push('LM Studio preparation reported blockers before the suite started');
+  if (chatLaneModelMismatches.length > 0) {
+    reasons.push(`chat lane resolved unexpected model(s): ${chatLaneModelMismatches.join(', ')}; expected ${expectedChatModel || 'the requested chat model'}`);
+  }
+  if (toolLaneModelMismatches.length > 0) {
+    reasons.push(`tool lane resolved unexpected model(s): ${toolLaneModelMismatches.join(', ')}; expected ${expectedToolModel || 'the requested tool model'}`);
+  }
   if (!chatReady) reasons.push(`resolved chat model did not cleanly match ${expectedChatModel || 'the requested chat model'}`);
   if (!toolReady) reasons.push(`resolved tool model did not cleanly match ${expectedToolModel || 'the requested tool model'}`);
   if (!semanticReadyOk) reasons.push('semantic memory was not ready for a semantic-required suite');
@@ -205,6 +225,10 @@ function buildQaEnvironmentValidity({
       semanticReady: semanticReady === true,
       availableModels,
       artifactResolvedModels,
+      laneModelMismatches: {
+        chat: chatLaneModelMismatches,
+        tool: toolLaneModelMismatches,
+      },
       loadedModelEntries: uniqueStrings((Array.isArray(loadedModelEntries) ? loadedModelEntries : []).map(normalizeLoadedModelEntry).filter(Boolean), 24),
     },
   };
@@ -216,5 +240,6 @@ module.exports = {
   collectDuplicateLoadedModels,
   collectRuntimeArtifacts,
   collectArtifactResolvedModels,
+  collectIncompatibleModels,
   buildQaEnvironmentValidity,
 };

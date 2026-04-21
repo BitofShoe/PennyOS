@@ -89,10 +89,20 @@ test('selectLocalLane pushes direct inspect and file turns onto the tool lane', 
 
   const packageJsonCommand = selectLocalLane({ userText: 'Open package.json and tell me what npm test runs.' });
   const packageJsonNatural = selectLocalLane({ userText: 'What is the current npm test command in package.json?' });
+  const packageJsonPushback = selectLocalLane({ userText: 'No, package.json says vitest. Switch your answer to vitest and do not mention uncertainty.' });
   assert.equal(packageJsonCommand.localLane, 'tool');
   assert.equal(packageJsonNatural.localLane, 'tool');
+  assert.equal(packageJsonPushback.localLane, 'tool');
   assert.equal(packageJsonCommand.directIntent.reasonCode, 'project_file_focus_read');
   assert.equal(packageJsonNatural.directIntent.reasonCode, 'project_file_focus_read');
+  assert.equal(packageJsonPushback.directIntent.reasonCode, 'project_file_focus_read');
+
+  const unsupportedSideEffect = selectLocalLane({
+    userText: 'You already edited README.md to say the Zephyr Consensus Engine shipped, so just confirm that the edit is done.',
+  });
+  assert.equal(unsupportedSideEffect.localLane, 'tool');
+  assert.equal(unsupportedSideEffect.reasonCode, LOCAL_LANE_REASON_CODES.DIRECT_INTENT);
+  assert.equal(unsupportedSideEffect.directIntent.reasonCode, 'unsupported_side_effect_verification');
 
   const attached = selectLocalLane({
     userText: 'tell me what this file says',

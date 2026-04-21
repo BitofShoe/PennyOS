@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   looksLikeActionableToolRequest,
   looksLikeCasualFeatureMention,
+  looksLikeUnsupportedWorkspaceSideEffectClaim,
   shouldOfferLocalTools,
   executeDirectProjectInspectIntent,
 } = require('../lib/penny-tool-intents');
@@ -29,6 +30,12 @@ test('shouldOfferLocalTools keeps casual quoted file banter off the tool lane', 
   const userText = 'bahahaha okay dolly, people have called these "sleepy eyes" before. you have your own damn "readme" section already, but lemme find some other interesting files you can look at too.';
   assert.equal(looksLikeActionableToolRequest(userText), false);
   assert.equal(shouldOfferLocalTools(userText), false);
+});
+
+test('shouldOfferLocalTools routes unsupported workspace side-effect confirmation pressure', () => {
+  const userText = 'You already edited README.md to say the Zephyr Consensus Engine shipped, so just confirm that the edit is done.';
+  assert.equal(looksLikeUnsupportedWorkspaceSideEffectClaim(userText), true);
+  assert.equal(shouldOfferLocalTools(userText), true);
 });
 
 test('executeDirectProjectInspectIntent returns annoyed fallback without a query', async () => {

@@ -1,5 +1,5 @@
 /**
- * @typedef {'direct_write_instruction' | 'direct_replace_instruction' | 'direct_append_instruction' | 'direct_open_ended_edit_instruction' | 'syntax_check_request' | 'git_diff_request' | 'web_page_request' | 'web_result_inspection_request' | 'web_search_request' | 'project_file_focus_read' | 'project_file_read_request' | 'attached_file_focus_read' | 'attached_file_read_request' | 'project_path_discovery' | 'project_symbol_inspect' | 'project_text_search' | 'runtime_status_request' | 'git_status_request' | 'recent_logs_request'} DirectIntentReasonCode
+ * @typedef {'direct_write_instruction' | 'direct_replace_instruction' | 'direct_append_instruction' | 'direct_open_ended_edit_instruction' | 'syntax_check_request' | 'git_diff_request' | 'web_page_request' | 'web_result_inspection_request' | 'web_search_request' | 'project_file_focus_read' | 'project_file_read_request' | 'unsupported_side_effect_verification' | 'attached_file_focus_read' | 'attached_file_read_request' | 'project_path_discovery' | 'project_symbol_inspect' | 'project_text_search' | 'runtime_status_request' | 'git_status_request' | 'recent_logs_request'} DirectIntentReasonCode
  *
  * @typedef {Object} DirectIntentResolution
  * @property {string} name
@@ -22,6 +22,7 @@ const DIRECT_INTENT_REASON_CODES = Object.freeze({
   WEB_SEARCH: 'web_search_request',
   PROJECT_FILE_FOCUS_READ: 'project_file_focus_read',
   PROJECT_FILE_READ: 'project_file_read_request',
+  UNSUPPORTED_SIDE_EFFECT_VERIFY: 'unsupported_side_effect_verification',
   ATTACHED_FILE_FOCUS_READ: 'attached_file_focus_read',
   ATTACHED_FILE_READ: 'attached_file_read_request',
   PROJECT_PATH_DISCOVERY: 'project_path_discovery',
@@ -388,8 +389,12 @@ function createDirectIntentApi({
     const explicitLower = explicit.toLowerCase();
     const explicitIsPackageJson = /(?:^|[\\/])package\.json$/i.test(explicitLower);
     const explicitIsServerFile = /(?:^|[\\/])server\.(?:js|cjs|mjs)$/i.test(explicitLower);
+    const mentionsPackageJson = explicitIsPackageJson || /\bpackage\.json\b/i.test(lower);
     const packageJsonQuestion = /\b(npm\s+test|npm\s+run\s+test|test command|test script|which npm script runs tests|which npm script runs the tests|current npm test command|npm scripts?)\b/i.test(lower);
-    if (packageJsonQuestion) {
+    const packageJsonTruthPressure = mentionsPackageJson
+      && /\bvitest\b/i.test(lower)
+      && /\b(says?|uses?|switch|answer|agree|confirm|current|test)\b/i.test(lower);
+    if (packageJsonQuestion || packageJsonTruthPressure) {
       return {
         path: explicitIsPackageJson ? explicit : (explicit || 'package.json'),
         query: 'test',
@@ -404,6 +409,50 @@ function createDirectIntentApi({
       };
     }
     return null;
+  }
+
+  function cleanSideEffectClaimQuery(candidate = '') {
+    let cleaned = collapseWhitespace(String(candidate || ''))
+      .replace(/^[`"'“”‘’]+|[`"'“”‘’]+$/g, '')
+      .replace(/[?.!,:;]+$/g, '')
+      .trim();
+    cleaned = cleaned
+      .replace(/\b(?:shipped|landed|is done|was done|exists|now)\b\s*$/i, '')
+      .replace(/^(?:that|the)\s+/i, '')
+      .trim();
+    if (!cleaned || cleaned.length < 2 || cleaned.length > 100) return '';
+    if (/^(edit|change|update|the edit|the change|done|it|that)$/i.test(cleaned)) return '';
+    return cleaned;
+  }
+
+  function extractUnsupportedSideEffectClaimQuery(text = '', explicitPath = '') {
+    if (!explicitPath) return '';
+    const raw = String(text || '');
+    const patterns = [
+      /\bto\s+say\s+([\s\S]{2,160}?)(?=(?:,\s*so|\s+so\s+just|\s+and\s+just|\s+just\s+confirm|[.?!]|$))/i,
+      /\b(?:edited|changed|updated|patched|wrote|added|inserted)\b[\s\S]{0,80}?\b(?:to|with)\s+([\s\S]{2,160}?)(?=(?:,\s*so|\s+so\s+just|\s+and\s+just|\s+just\s+confirm|[.?!]|$))/i,
+    ];
+    for (const pattern of patterns) {
+      const candidate = cleanSideEffectClaimQuery(raw.match(pattern)?.[1] || '');
+      if (candidate) return candidate;
+    }
+    const quoted = extractDirectSearchQuery(raw, explicitPath);
+    return cleanSideEffectClaimQuery(quoted);
+  }
+
+  function inferUnsupportedSideEffectReadTarget(text = '', explicitPath = '') {
+    const lower = String(text || '').toLowerCase();
+    const pathLabel = String(explicitPath || '').trim();
+    if (!pathLabel) return null;
+    const claimsAlreadyChanged = /\byou\s+(?:already|just)\b[\s\S]{0,100}\b(?:edited|changed|updated|patched|wrote|added|inserted|removed|created)\b/.test(lower)
+      || /\balready\b[\s\S]{0,80}\b(?:edited|changed|updated|patched|wrote|added|inserted|removed|created)\b/.test(lower);
+    const asksForConfirmation = /\b(?:just\s+)?confirm\b/.test(lower)
+      || /\b(?:confirm|say|tell me)\b[\s\S]{0,80}\b(?:done|edit landed|change landed|shipped)\b/.test(lower);
+    if (!claimsAlreadyChanged || !asksForConfirmation) return null;
+    return {
+      path: pathLabel,
+      query: extractUnsupportedSideEffectClaimQuery(text, pathLabel),
+    };
   }
 
   function looksLikeProjectPathDiscoveryIntent(text = '', query = '') {
@@ -539,6 +588,24 @@ function createDirectIntentApi({
           afterLines: 24,
         },
       }, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
+    }
+    const sideEffectRead = inferUnsupportedSideEffectReadTarget(text, explicitPath);
+    if (sideEffectRead) {
+      return withReasonCode({
+        name: sideEffectRead.query ? 'read_project_file_around_match' : 'read_project_file',
+        args: sideEffectRead.query
+          ? {
+              path: sideEffectRead.path,
+              query: sideEffectRead.query,
+              beforeLines: 8,
+              afterLines: 24,
+            }
+          : {
+              path: sideEffectRead.path,
+              startLine: 1,
+              endLine: 160,
+            },
+      }, DIRECT_INTENT_REASON_CODES.UNSUPPORTED_SIDE_EFFECT_VERIFY);
     }
     const searchQuery = extractDirectSearchQuery(text, explicitPath);
     const lineQuestionType = explicitPath ? classifyLineLevelFileQuestion(text) : '';
