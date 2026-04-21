@@ -162,6 +162,9 @@ test('buildQaEnvironmentValidity allows co-loaded chat and tool models when lane
 
   assert.equal(environment.valid, true);
   assert.deepEqual(environment.observed.laneModelMismatches, { chat: [], tool: [] });
+  assert.equal(environment.readinessSummary.state, 'healthy');
+  assert.equal(environment.readinessSummary.coLoadedChatTool, true);
+  assert.match(environment.readinessSummary.policy.coLoading, /Q6 \+ E4B co-loading is okay/i);
 });
 
 test('buildQaEnvironmentValidity rejects lane-resolved model swaps even when both models are loaded', () => {
@@ -199,6 +202,8 @@ test('buildQaEnvironmentValidity rejects lane-resolved model swaps even when bot
     chat: ['google/gemma-4-e4b'],
     tool: ['unsloth/gemma-4-31b-it'],
   });
+  assert.equal(environment.readinessSummary.state, 'invalid');
+  assert.match(environment.readinessSummary.headline, /Needs attention/i);
   assert.match(environment.reasons.join(' '), /chat lane resolved unexpected model/i);
   assert.match(environment.reasons.join(' '), /tool lane resolved unexpected model/i);
 });

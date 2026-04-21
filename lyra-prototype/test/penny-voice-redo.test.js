@@ -328,10 +328,25 @@ test('buildVoiceQaTrace emits a normalized trust summary for degraded voice reru
       valid: false,
       degradedArtifacts: 1,
       reasons: ['runtime artifacts reported degraded readiness on 1 turn(s)'],
+      readinessSummary: {
+        state: 'degraded',
+        headline: 'Degraded: chat -> Q6; resolved Q6.',
+        policy: {
+          chat: 'chat -> Q6',
+          tool: 'tool -> E4B',
+        },
+        semanticMemory: {
+          message: 'semantic memory -> Nomic embed; ready',
+        },
+        coLoadedChatTool: true,
+      },
     },
   });
 
   assert.equal(trace.trust.verdict, 'degraded');
   assert.match(trace.trust.reasonCodes.join(','), /runtime_degraded/);
   assert.equal(trace.trust.environmentValid, false);
+  assert.equal(trace.runIdentity.readinessState, 'degraded');
+  assert.match(trace.runIdentity.lanePolicy, /chat -> Q6/);
+  assert.equal(trace.runIdentity.coLoadedChatTool, true);
 });

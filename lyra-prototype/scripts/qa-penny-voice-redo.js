@@ -11,6 +11,9 @@ const {
   buildQaEnvironmentValidity,
   modelsLookCompatible,
 } = require('../lib/penny-qa-validity');
+const {
+  buildLocalReadinessSummary,
+} = require('../lib/penny-local-readiness-summary');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
@@ -1131,12 +1134,25 @@ function buildVoiceQaTrace(payload = {}) {
       payload?.overComplianceAudit?.passed === false ? 'Over-compliance audit flagged the current prompt set.' : '',
     ].filter(Boolean),
   });
+  const readinessSummary = payload?.environment?.readinessSummary || payload?.preparation?.readinessSummary || {};
 
   return validateQaTrace(buildQaTrace({
     runId: `voice-redo-qa-${payload.startedAt || STAMP}`,
     startedAt: payload.startedAt,
     finishedAt: payload.finishedAt,
     promptVersion: `qa-penny-voice-redo.${payload.promptSet || PROMPT_SET}.v2`,
+    runIdentity: {
+      readinessState: readinessSummary.state || '',
+      readinessHeadline: readinessSummary.headline || '',
+      lanePolicy: [
+        readinessSummary?.policy?.chat || '',
+        readinessSummary?.policy?.tool || '',
+      ].filter(Boolean).join('; '),
+      semanticMemory: readinessSummary?.semanticMemory?.message || '',
+      coLoadedChatTool: readinessSummary.coLoadedChatTool === true,
+      strictNoModelOps: payload?.qaModelPolicy?.strictNoModelOps === true,
+      loadStrategy: payload?.qaModelPolicy?.loadStrategy || '',
+    },
     laneDecision: {
       chatLaneTurns: laneCounts.chat || 0,
       toolLaneTurns: laneCounts.tool || 0,
@@ -1300,6 +1316,29 @@ async function buildStrictNoModelOpsPreparation() {
   if (!hasExpectedTool) {
     blockers.push(`Strict no-model-ops mode requires the tool model to already be loaded: ${EFFECTIVE_TOOL_MODEL}.`);
   }
+  const resolvedChatModel = loadedModels.find((model) => modelsLookCompatible(model, CHAT_MODEL)) || '';
+  const resolvedToolModel = CHAT_ONLY_PROMPT_SET
+    ? ''
+    : (loadedModels.find((model) => modelsLookCompatible(model, EFFECTIVE_TOOL_MODEL)) || '');
+  const semanticLoaded = !!(EMBED_MODEL && loadedModels.some((model) => modelsLookCompatible(model, EMBED_MODEL)));
+  const readinessSummary = buildLocalReadinessSummary({
+    requestedChatModel: CHAT_MODEL,
+    requestedToolModel: EFFECTIVE_TOOL_MODEL,
+    requestedEmbedModel: EMBED_MODEL,
+    resolvedChatModel,
+    resolvedToolModel,
+    loadedModels,
+    semanticReady: semanticLoaded,
+    semanticKnown: true,
+    requireTool: REQUIRE_TOOL_MODEL,
+    requireSemantic: CHAT_ONLY_PROMPT_SET,
+    strictLanePolicy: true,
+    blockers,
+    warnings,
+    strictNoModelOps: true,
+    manageModels: false,
+    loadStrategy: 'strict-no-model-ops',
+  });
   return {
     ok: blockers.length === 0,
     requestedChatModel: CHAT_MODEL,
@@ -1309,6 +1348,7 @@ async function buildStrictNoModelOpsPreparation() {
     strictNoModelOps: true,
     loadedModels,
     loadedModelEntries,
+    readinessSummary,
     warnings,
     blockers,
   };
@@ -1431,6 +1471,7 @@ async function main() {
       requestedToolModel: preparation.requestedToolModel,
       loadedModels: preparation.loadedModels,
       loadedModelEntries: preparation.loadedModelEntries || [],
+      readinessSummary: preparation.readinessSummary || null,
       warnings: preparation.warnings,
       blockers: preparation.blockers,
     },
@@ -1525,6 +1566,12 @@ async function main() {
     payload.trace = buildVoiceQaTrace(payload);
     payload.trust = payload.trace.trust;
     fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
+    if (payload.environment?.readinessSummary?.headline) {
+      console.log(`Readiness: ${payload.environment.readinessSummary.headline}`);
+    }
+    if (payload.trust?.verdict) {
+      console.log(`Trust: ${payload.trust.verdict} (${(payload.trust.reasonCodes || []).join(', ') || 'no reason codes'})`);
+    }
     console.log(`Saved voice redo QA to ${OUTPUT_PATH}`);
   } finally {
     await stopServerProcess(server);

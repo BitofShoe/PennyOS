@@ -5,6 +5,10 @@ const {
   checkNodeVersion,
   runPrepare,
 } = require('./penny-lmstudio-prepare');
+const {
+  buildPreparationReadinessSummary,
+  formatLocalReadinessSummary,
+} = require('../lib/penny-local-readiness-summary');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PACKAGE_JSON_PATH = path.join(ROOT_DIR, 'package.json');
@@ -141,7 +145,9 @@ async function runPreflight({
 
   const loadedModels = Array.isArray(report.loadedModels) ? report.loadedModels : [];
   const installedModels = Array.isArray(report.installedModels) ? report.installedModels : [];
-  const readinessDetail = [
+  const readinessSummary = report.readinessSummary || buildPreparationReadinessSummary(report);
+  report.readinessSummary = readinessSummary;
+  const routingDetail = [
     `requested chat=${report.requestedChatModel}`,
     `requested tool=${report.requestedToolModel}`,
     `requested embed=${report.requestedEmbedModel || '(none)'}`,
@@ -150,6 +156,7 @@ async function runPreflight({
     `semantic memory=${report.semanticMemoryReady ? 'ready' : 'fallback'}`,
     `loaded=${loadedModels.join(', ') || '(none)'}`,
   ].join('; ');
+  const readinessDetail = `${formatLocalReadinessSummary(readinessSummary, { includeLoaded: false })} ${routingDetail}`.trim();
   checks.push(summarizeCheck(
     'lmstudio-readiness',
     report.blockers.length === 0,
@@ -184,6 +191,7 @@ async function runPreflight({
     status,
     installedModels,
     loadedModels,
+    readinessSummary,
   };
 }
 

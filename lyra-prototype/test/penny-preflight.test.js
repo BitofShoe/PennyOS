@@ -75,6 +75,8 @@ test('runPreflight passes with dual-lane models ready and preset wiring present'
     assert.equal(report.ok, true);
     assert.equal(report.checks.find(check => check.name === 'lmstudio-readiness').ok, true);
     assert.equal(report.checks.find(check => check.name === 'lmstudio-preset').level, 'pass');
+    assert.equal(report.readinessSummary.coLoadedChatTool, true);
+    assert.match(report.readinessSummary.policy.coLoading, /co-loading is okay/i);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -189,6 +191,8 @@ test('runPreflight reports semantic memory fallback when embedding model is not 
     assert.equal(report.ok, true);
     const readiness = report.checks.find(check => check.name === 'lmstudio-readiness');
     assert.match(readiness.detail, /semantic memory=fallback/i);
+    assert.equal(report.readinessSummary.state, 'ready_with_optional_fallback');
+    assert.match(report.readinessSummary.semanticMemory.message, /optional fallback/i);
     assert.match(report.report.warnings.join('\n'), /embedding model .*not installed/i);
   } finally {
     await new Promise((resolve) => server.close(resolve));

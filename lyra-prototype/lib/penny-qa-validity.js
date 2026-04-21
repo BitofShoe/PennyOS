@@ -1,3 +1,7 @@
+const {
+  buildLocalReadinessSummary,
+} = require('./penny-local-readiness-summary');
+
 function normalizeModelKey(value = '') {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -196,6 +200,42 @@ function buildQaEnvironmentValidity({
   if (usedFallbackArtifacts > 0) reasons.push(`runtime artifacts reported fallback on ${usedFallbackArtifacts} turn(s)`);
   if (semanticMismatchArtifacts > 0) reasons.push(`semantic-required turns reported missing semantic readiness on ${semanticMismatchArtifacts} artifact(s)`);
   if (duplicateLoadedModels.length > 0) reasons.push(`LM Studio reported duplicate loaded models: ${duplicateLoadedModels.join(', ')}`);
+  const blockingReasons = [
+    !trustedServer ? 'release-style verdicts require a disposable or restart-gated server target' : '',
+    !preparationOk ? 'LM Studio preparation reported blockers before the suite started' : '',
+    !chatReady ? `resolved chat model did not cleanly match ${expectedChatModel || 'the requested chat model'}` : '',
+    !toolReady ? `resolved tool model did not cleanly match ${expectedToolModel || 'the requested tool model'}` : '',
+    !semanticReadyOk ? 'semantic memory was not ready for a semantic-required suite' : '',
+  ].filter(Boolean);
+  const readinessSummary = buildLocalReadinessSummary({
+    requestedChatModel: expectedChatModel,
+    requestedToolModel: expectedToolModel,
+    requestedEmbedModel: serverStatus?.semanticMemory?.configuredModel || preparation?.requestedEmbedModel || '',
+    resolvedChatModel: observedChatModel,
+    resolvedToolModel: observedToolModel,
+    loadedModels: [
+      ...availableModels,
+      ...((Array.isArray(loadedModelEntries) ? loadedModelEntries : []).map(normalizeLoadedModelEntry)),
+    ],
+    semanticReady: semanticReady === true,
+    semanticKnown: true,
+    semanticReason: serverStatus?.semanticMemory?.reason || '',
+    requireChat: requireChat === true,
+    requireTool: requireTool === true,
+    requireSemantic: requireSemantic === true,
+    strictLanePolicy: true,
+    laneMismatches: {
+      chat: chatLaneModelMismatches,
+      tool: toolLaneModelMismatches,
+    },
+    blockers: blockingReasons,
+    degradedArtifacts,
+    laneFallbackArtifacts,
+    usedFallbackArtifacts,
+    semanticMismatchArtifacts,
+    duplicateLoadedModels,
+    serverMode,
+  });
   return {
     valid: reasons.length === 0,
     trustedServer,
@@ -208,6 +248,7 @@ function buildQaEnvironmentValidity({
     usedFallbackArtifacts,
     semanticMismatchArtifacts,
     duplicateLoadedModels,
+    readinessSummary,
     artifactsInspected: artifacts.length,
     reasons,
     expected: {

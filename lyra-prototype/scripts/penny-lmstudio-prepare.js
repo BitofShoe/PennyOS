@@ -4,6 +4,9 @@ const { execFile } = require('child_process');
 const { URL } = require('url');
 const { createLmStudioStatusApi } = require('../lib/penny-lmstudio-status');
 const { createLmStudioAutomationApi } = require('../lib/penny-lmstudio-automation');
+const {
+  buildPreparationReadinessSummary,
+} = require('../lib/penny-local-readiness-summary');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PACKAGE_JSON_PATH = path.join(ROOT_DIR, 'package.json');
@@ -104,6 +107,7 @@ function parseArgs(argv = process.argv.slice(2)) {
 function formatPrepareReport(report, nodeCheck) {
   const lines = [];
   const push = (text) => lines.push(String(text || '').trim());
+  const readinessSummary = report?.readinessSummary || buildPreparationReadinessSummary(report);
   if (nodeCheck) push(`[${nodeCheck.ok ? 'PASS' : 'FAIL'}] node: ${nodeCheck.detail}`);
   push(`[${report.cliCheck?.ok ? 'PASS' : 'FAIL'}] lms-cli: ${report.cliCheck?.detail || 'Unknown LM Studio CLI status.'}`);
   const status = report.statusAfter || report.statusBefore || {};
@@ -118,6 +122,10 @@ function formatPrepareReport(report, nodeCheck) {
   push(`[INFO] resolved runtime: ${status.resolvedModel || '(none)'}`);
   push(`[INFO] routing mode: ${status.routingMode || 'auto'}`);
   push(`[INFO] semantic memory: ${report.semanticMemoryReady ? 'ready' : 'fallback'}`);
+  push(`[INFO] readiness: ${readinessSummary.headline}`);
+  for (const detail of (readinessSummary.details || []).slice(0, 3)) {
+    push(`[INFO] readiness detail: ${detail}`);
+  }
   if (report.preset) {
     push(`[INFO] preset identifier: ${report.preset.presetIdentifier}`);
     push(`[INFO] preset conversation: ${report.preset.selectedConversation?.presetOk ? 'ok' : 'not fully wired'}`);
@@ -170,6 +178,7 @@ async function runPrepare({
     toolModel,
     embedModel,
   });
+  report.readinessSummary = buildPreparationReadinessSummary(report);
   return {
     ok: nodeCheck.ok && report.ok,
     nodeCheck,
