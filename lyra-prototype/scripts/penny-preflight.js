@@ -9,6 +9,13 @@ const {
   buildPreparationReadinessSummary,
   formatLocalReadinessSummary,
 } = require('../lib/penny-local-readiness-summary');
+const {
+  buildGemmaRuntimeWatchArtifact,
+} = require('../lib/penny-gemma-runtime-watch');
+const {
+  buildLmStudioChatSamplingWatch,
+  normalizeLmStudioTransportForWatch,
+} = require('../lib/penny-lmstudio-transports');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PACKAGE_JSON_PATH = path.join(ROOT_DIR, 'package.json');
@@ -31,6 +38,68 @@ function summarizeCheck(name, ok, detail, level = ok ? 'pass' : 'fail') {
     detail: String(detail || '').trim(),
     level,
   };
+}
+
+function numberFromEnv(value, fallback = null) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function buildGemmaRuntimeWatchForPreflight({
+  generatedAt = new Date().toISOString(),
+  preflightReport = null,
+  status = null,
+  env = process.env,
+  chatModel = '',
+} = {}) {
+  const report = preflightReport?.report || preflightReport || {};
+  const safeStatus = status || preflightReport?.status || report.statusAfter || report.statusBefore || {};
+  const watchStatus = {
+    ...safeStatus,
+    localTransport: safeStatus.localTransport
+      || normalizeLmStudioTransportForWatch(env.PENNY_LOCAL_LLM_TRANSPORT || env.PENNY_LMSTUDIO_TRANSPORT || 'chat'),
+    chatPreferredModel: safeStatus.chatPreferredModel || report.requestedChatModel || chatModel,
+    configuredChatModel: safeStatus.configuredChatModel || report.requestedChatModel || chatModel,
+    resolvedChatModel: safeStatus.resolvedChatModel || safeStatus.resolvedModel || '',
+  };
+  const contextLength = numberFromEnv(
+    env.PENNY_LMSTUDIO_CONTEXT_LENGTH
+      || env.PENNY_RUNTIME_FIT_CONTEXT_DEFAULT
+      || env.PENNY_LMSTUDIO_CHAT_CONTEXT_LENGTH,
+    null,
+  );
+
+  return buildGemmaRuntimeWatchArtifact({
+    generatedAt,
+    measurementMode: 'status-only',
+    status: watchStatus,
+    transport: watchStatus.localTransport,
+    requestedModel: watchStatus.chatPreferredModel || chatModel,
+    resolvedModel: watchStatus.resolvedChatModel || watchStatus.resolvedModel || '',
+    visionBudget: {
+      exposed: false,
+      adoptionStatus: 'not-adopted',
+      knobNames: [],
+      notes: 'Preflight/status data does not expose max_soft_tokens or a separate Gemma vision-budget knob.',
+    },
+    imagePolicy: {
+      currentTurnImageOnly: true,
+      imagePartBeforeText: true,
+    },
+    thinkingControls: {
+      exposed: null,
+      notes: 'Preflight records the watch item only; companion chat thinking stays off by default.',
+    },
+    promptCacheRamRisk: {
+      contextLength,
+      notes: 'Preflight does not change context length or measure prompt-cache RAM pressure.',
+    },
+    chatSampling: buildLmStudioChatSamplingWatch({
+      temperature: env.PENNY_LMSTUDIO_CHAT_TEMPERATURE || 1.0,
+      topP: env.PENNY_LMSTUDIO_CHAT_TOP_P || 0.95,
+      topK: env.PENNY_LMSTUDIO_CHAT_TOP_K || 64,
+    }),
+  });
 }
 
 function checkLmsCli(spawnSyncImpl = spawnSync) {
@@ -179,6 +248,15 @@ async function runPreflight({
     presetIssues.length ? 'warn' : 'pass',
   ));
 
+  const gemmaRuntimeWatch = buildGemmaRuntimeWatchForPreflight({
+    preflightReport: {
+      report,
+      status,
+    },
+    env,
+    chatModel,
+  });
+
   const assumptions = [
     'QA scripts assume local Windows + PowerShell launcher behavior.',
     'Voice QA and probes expect LM Studio to be running before they start.',
@@ -192,6 +270,7 @@ async function runPreflight({
     installedModels,
     loadedModels,
     readinessSummary,
+    gemmaRuntimeWatch,
   };
 }
 
@@ -220,5 +299,6 @@ module.exports = {
   checkNodeVersion,
   checkLmsCli,
   checkLmStudioApi,
+  buildGemmaRuntimeWatchForPreflight,
   runPreflight,
 };

@@ -6,6 +6,7 @@ const path = require('node:path');
 const http = require('node:http');
 
 const {
+  buildGemmaRuntimeWatchForPreflight,
   runPreflight,
 } = require('../scripts/penny-preflight');
 
@@ -77,9 +78,43 @@ test('runPreflight passes with dual-lane models ready and preset wiring present'
     assert.equal(report.checks.find(check => check.name === 'lmstudio-preset').level, 'pass');
     assert.equal(report.readinessSummary.coLoadedChatTool, true);
     assert.match(report.readinessSummary.policy.coLoading, /co-loading is okay/i);
+    assert.equal(report.gemmaRuntimeWatch.schema, 'penny-gemma-runtime-watch.v1');
+    assert.equal(report.gemmaRuntimeWatch.measurementMode, 'status-only');
+    assert.equal(report.gemmaRuntimeWatch.liveModelCalls, false);
+    assert.equal(report.gemmaRuntimeWatch.behaviorChanged, false);
+    assert.equal(report.gemmaRuntimeWatch.watchItems.visionBudget.exposed, false);
+    assert.equal(report.gemmaRuntimeWatch.watchItems.visionBudget.adoptionStatus, 'not-adopted');
+    assert.equal(report.gemmaRuntimeWatch.defaultsUnchanged.memoryFilesTouched, false);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test('buildGemmaRuntimeWatchForPreflight records unknown knob exposure as not adopted, not failed', () => {
+  const watch = buildGemmaRuntimeWatchForPreflight({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+    preflightReport: {
+      report: { requestedChatModel: 'google/gemma-4-31b' },
+      status: {
+        localTransport: 'stateful',
+        resolvedChatModel: 'unsloth/gemma-4-31b-it@q6_k',
+      },
+    },
+    env: {
+      PENNY_LMSTUDIO_CHAT_TEMPERATURE: '1',
+      PENNY_LMSTUDIO_CHAT_TOP_P: '0.95',
+      PENNY_LMSTUDIO_CHAT_TOP_K: '64',
+    },
+  });
+
+  assert.equal(watch.measurementMode, 'status-only');
+  assert.equal(watch.servingPath.transport, 'stateful-chat');
+  assert.equal(watch.watchItems.visionBudget.exposed, false);
+  assert.equal(watch.watchItems.visionBudget.adoptionStatus, 'not-adopted');
+  assert.match(watch.watchItems.visionBudget.notes, /max_soft_tokens|vision-budget/i);
+  assert.notEqual(watch.watchItems.visionBudget.adoptionStatus, 'failed');
+  assert.equal(watch.watchItems.loadedModelIdentity.compatibleMatch, true);
+  assert.deepEqual(watch.watchItems.chatSampling, { temperature: 1, topP: 0.95, topK: 64 });
 });
 
 test('runPreflight fails clearly when LM Studio reports zero loaded models', async () => {

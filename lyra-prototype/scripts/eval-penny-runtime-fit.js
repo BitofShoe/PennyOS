@@ -3,6 +3,10 @@ const path = require('path');
 const { spawn, execFile } = require('child_process');
 const { createAutomationApi } = require('./penny-lmstudio-prepare');
 const {
+  buildGemmaRuntimeWatchForPreflight,
+  runPreflight,
+} = require('./penny-preflight');
+const {
   buildContextPressureMarkdownSummary,
   buildContextPressureQaArtifact,
   extractRuntimeContextMetrics,
@@ -38,6 +42,7 @@ const OUTPUT_PATH = path.join(OUTPUT_DIR, `runtime-fit-${STAMP}.json`);
 const SUMMARY_PATH = path.join(OUTPUT_DIR, `runtime-fit-${STAMP}.md`);
 const CONTEXT_PRESSURE_OUTPUT_PATH = path.join(OUTPUT_DIR, `runtime-fit-context-pressure-${STAMP}.json`);
 const CONTEXT_PRESSURE_SUMMARY_PATH = path.join(OUTPUT_DIR, `runtime-fit-context-pressure-${STAMP}.md`);
+const GEMMA_RUNTIME_WATCH_OUTPUT_PATH = path.join(OUTPUT_DIR, `gemma-runtime-watch-${STAMP}.json`);
 
 const SCENARIOS = [
   {
@@ -71,14 +76,18 @@ const SCENARIOS = [
 
 function parseRuntimeFitArgs(argv = process.argv.slice(2)) {
   let contextPressureFixture = process.env.PENNY_RUNTIME_FIT_CONTEXT_PRESSURE_FIXTURE === '1';
+  let gemmaRuntimeWatch = process.env.PENNY_RUNTIME_FIT_GEMMA_WATCH === '1';
   for (const rawArg of argv) {
     const arg = String(rawArg || '').trim();
     if (!arg) continue;
     if (arg === '--context-pressure-fixture' || arg === '--fixture-context-pressure') {
       contextPressureFixture = true;
     }
+    if (arg === '--gemma-runtime-watch' || arg === '--runtime-watch-gemma') {
+      gemmaRuntimeWatch = true;
+    }
   }
-  return { contextPressureFixture };
+  return { contextPressureFixture, gemmaRuntimeWatch };
 }
 
 const RUNTIME_FIT_ARGS = parseRuntimeFitArgs(process.argv.slice(2));
@@ -123,6 +132,88 @@ function buildGemmaRuntimeWatchForRuntimeFit({
       topK: CHAT_TOP_K,
     }),
   });
+}
+
+function summarizeGemmaRuntimeWatchPreflight(preflightReport = null, preflightError = null) {
+  if (!preflightReport) {
+    return {
+      attempted: true,
+      ok: false,
+      error: String(preflightError?.message || preflightError || 'Preflight did not return a report.').trim(),
+      checks: [],
+      loadedModels: [],
+      installedModelCount: null,
+      semanticMemory: 'unknown',
+    };
+  }
+  const checks = Array.isArray(preflightReport.checks)
+    ? preflightReport.checks.map((check) => ({
+        name: String(check?.name || '').trim(),
+        ok: check?.ok === true,
+        level: String(check?.level || (check?.ok ? 'pass' : 'fail')).trim(),
+        detail: String(check?.detail || '').trim(),
+      }))
+    : [];
+  return {
+    attempted: true,
+    ok: preflightReport.ok === true,
+    checks,
+    loadedModels: Array.isArray(preflightReport.loadedModels) ? preflightReport.loadedModels.slice() : [],
+    installedModelCount: Array.isArray(preflightReport.installedModels) ? preflightReport.installedModels.length : null,
+    semanticMemory: preflightReport.report?.semanticMemoryReady === true ? 'ready' : 'fallback-or-unknown',
+    readinessState: preflightReport.readinessSummary?.state || null,
+  };
+}
+
+function buildGemmaRuntimeWatchRunnerArtifact({
+  generatedAt = new Date().toISOString(),
+  preflightReport = null,
+  preflightError = null,
+} = {}) {
+  const watch = buildGemmaRuntimeWatchForPreflight({
+    generatedAt,
+    preflightReport,
+    status: preflightReport?.status || null,
+    env: process.env,
+    chatModel: CHAT_MODEL,
+  });
+  return {
+    ...watch,
+    runner: {
+      command: 'npm run eval:runtime-fit:gemma-watch',
+      source: preflightReport ? 'preflight-status' : 'fallback-status',
+      liveChatGenerationRequired: false,
+      changesLoadedModel: false,
+      changesThinkingDefault: false,
+      changesContextLength: false,
+      touchesMemoryFiles: false,
+    },
+    readOnlyChecks: {
+      preflight: summarizeGemmaRuntimeWatchPreflight(preflightReport, preflightError),
+    },
+  };
+}
+
+async function runGemmaRuntimeWatchRunner({
+  runPreflightImpl = runPreflight,
+  outputPath = GEMMA_RUNTIME_WATCH_OUTPUT_PATH,
+} = {}) {
+  ensureDir(OUTPUT_DIR);
+  const generatedAt = new Date().toISOString();
+  let preflightReport = null;
+  let preflightError = null;
+  try {
+    preflightReport = await runPreflightImpl();
+  } catch (error) {
+    preflightError = error;
+  }
+  const artifact = buildGemmaRuntimeWatchRunnerArtifact({
+    generatedAt,
+    preflightReport,
+    preflightError,
+  });
+  writeJsonFile(outputPath, artifact);
+  return { artifact, outputPath };
 }
 
 function ensureDir(dirPath) {
@@ -603,6 +694,11 @@ async function runScenario(scenario) {
 
 async function main() {
   ensureDir(OUTPUT_DIR);
+  if (RUNTIME_FIT_ARGS.gemmaRuntimeWatch) {
+    const result = await runGemmaRuntimeWatchRunner();
+    process.stdout.write(`\nSaved Gemma runtime watch JSON to ${result.outputPath}\n`);
+    return;
+  }
   if (RUNTIME_FIT_ARGS.contextPressureFixture) {
     const generatedAt = new Date().toISOString();
     const report = buildContextPressureQaArtifact({
@@ -687,5 +783,8 @@ module.exports = {
   buildRecommendations,
   buildMarkdownSummary,
   buildGemmaRuntimeWatchForRuntimeFit,
+  buildGemmaRuntimeWatchRunnerArtifact,
+  runGemmaRuntimeWatchRunner,
+  summarizeGemmaRuntimeWatchPreflight,
   normalizeScenarioSummary,
 };

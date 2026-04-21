@@ -20,6 +20,12 @@ const SERVING_TRANSPORTS = new Set([
   'unknown',
 ]);
 
+const ADOPTION_STATUSES = new Set([
+  'adopted',
+  'not-adopted',
+  'unknown',
+]);
+
 function cleanString(value = '') {
   return String(value ?? '').trim();
 }
@@ -67,6 +73,12 @@ function normalizeExposed(value, knobNames = [], { knownMissing = false } = {}) 
   if (explicit !== null) return explicit;
   if (knobNames.length > 0) return true;
   return knownMissing ? false : null;
+}
+
+function normalizeAdoptionStatus(value = '', fallback = 'not-adopted') {
+  const status = cleanString(value).toLowerCase();
+  if (ADOPTION_STATUSES.has(status)) return status;
+  return ADOPTION_STATUSES.has(fallback) ? fallback : 'not-adopted';
 }
 
 function normalizeGemmaModelAlias(value = '') {
@@ -191,6 +203,34 @@ function buildGemmaRuntimeWatchArtifact({
   const visionKnobNames = cleanStringArray(visionInput.knobNames);
   const visionKnownMissing = Object.prototype.hasOwnProperty.call(visionInput, 'knobNames') && visionKnobNames.length === 0;
   const contextLength = finiteNumberOrNull(promptCacheInput.contextLength);
+  const normalizedWatchItems = {
+    visionBudget: {
+      exposed: normalizeExposed(visionInput.exposed, visionKnobNames, { knownMissing: visionKnownMissing }),
+      adoptionStatus: normalizeAdoptionStatus(visionInput.adoptionStatus),
+      knobNames: visionKnobNames,
+      notes: cleanString(visionInput.notes),
+    },
+    currentTurnImageOnly: {
+      expected: true,
+      observed: boolOrNull(imageInput.currentTurnImageOnly ?? imageInput.observed),
+    },
+    imagePartBeforeText: {
+      expected: true,
+      observed: boolOrNull(imageInput.imagePartBeforeText),
+    },
+    thinkingControls: {
+      exposed: boolOrNull(thinkingInput.exposed),
+      defaultForCompanionChat: 'off',
+      notes: cleanString(thinkingInput.notes),
+    },
+    promptCacheRamRisk: {
+      status: 'watch',
+      contextLength: contextLength === null ? null : Math.max(0, Math.round(contextLength)),
+      notes: cleanString(promptCacheInput.notes),
+    },
+    loadedModelIdentity: buildLoadedModelIdentity(identityInput),
+    chatSampling: normalizeChatSampling(chatSampling || safeWatchItems.chatSampling || {}),
+  };
 
   return {
     schema: GEMMA_RUNTIME_WATCH_SCHEMA,
@@ -206,33 +246,16 @@ function buildGemmaRuntimeWatchArtifact({
       openAiCompatible: true,
     },
 
-    watchItems: {
-      visionBudget: {
-        exposed: normalizeExposed(visionInput.exposed, visionKnobNames, { knownMissing: visionKnownMissing }),
-        knobNames: visionKnobNames,
-        notes: cleanString(visionInput.notes),
-      },
-      currentTurnImageOnly: {
-        expected: true,
-        observed: boolOrNull(imageInput.currentTurnImageOnly ?? imageInput.observed),
-      },
-      imagePartBeforeText: {
-        expected: true,
-        observed: boolOrNull(imageInput.imagePartBeforeText),
-      },
-      thinkingControls: {
-        exposed: boolOrNull(thinkingInput.exposed),
-        defaultForCompanionChat: 'off',
-        notes: cleanString(thinkingInput.notes),
-      },
-      promptCacheRamRisk: {
-        status: 'watch',
-        contextLength: contextLength === null ? null : Math.max(0, Math.round(contextLength)),
-        notes: cleanString(promptCacheInput.notes),
-      },
-      loadedModelIdentity: buildLoadedModelIdentity(identityInput),
-      chatSampling: normalizeChatSampling(chatSampling || safeWatchItems.chatSampling || {}),
+    knownRuntimeWatchItems: Object.keys(normalizedWatchItems),
+    defaultsUnchanged: {
+      lmStudioDefaults: true,
+      companionThinkingDefault: 'off',
+      imagePayloadPolicy: 'current-turn-only',
+      contextLengthChanged: false,
+      chatSamplingChanged: false,
+      memoryFilesTouched: false,
     },
+    watchItems: normalizedWatchItems,
 
     limits: GEMMA_RUNTIME_WATCH_LIMITS.slice(),
   };

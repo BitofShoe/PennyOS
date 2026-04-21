@@ -651,8 +651,9 @@ function createLmStudioStatusApi({
       status: value,
       visionBudget: {
         exposed: false,
+        adoptionStatus: 'not-adopted',
         knobNames: [],
-        notes: 'LM Studio status does not expose a separate Gemma vision-budget knob.',
+        notes: 'LM Studio status does not expose max_soft_tokens or a separate Gemma vision-budget knob.',
       },
       imagePolicy: {
         currentTurnImageOnly: true,

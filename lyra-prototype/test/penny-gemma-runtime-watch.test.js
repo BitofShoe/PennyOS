@@ -69,8 +69,12 @@ test('Gemma runtime watch records missing vision knob as watch data, not failure
   assert.equal(artifact.behaviorChanged, false);
   assert.equal(artifact.servingPath.transport, 'chat-completions');
   assert.equal(artifact.watchItems.visionBudget.exposed, false);
+  assert.equal(artifact.watchItems.visionBudget.adoptionStatus, 'not-adopted');
   assert.deepEqual(artifact.watchItems.visionBudget.knobNames, []);
   assert.match(artifact.watchItems.visionBudget.notes, /vision budget/i);
+  assert.equal(artifact.defaultsUnchanged.contextLengthChanged, false);
+  assert.equal(artifact.defaultsUnchanged.memoryFilesTouched, false);
+  assert.ok(artifact.knownRuntimeWatchItems.includes('visionBudget'));
   assert.ok(artifact.limits.includes('This watch artifact does not change LM Studio defaults.'));
 });
 

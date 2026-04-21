@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  buildGemmaRuntimeWatchRunnerArtifact,
   buildScenarioEnv,
   buildScenarioPaths,
   buildMarkdownSummary,
@@ -14,6 +15,8 @@ test('parseRuntimeFitArgs enables the cheap context-pressure fixture mode', () =
   assert.equal(parseRuntimeFitArgs([]).contextPressureFixture, false);
   assert.equal(parseRuntimeFitArgs(['--context-pressure-fixture']).contextPressureFixture, true);
   assert.equal(parseRuntimeFitArgs(['--fixture-context-pressure']).contextPressureFixture, true);
+  assert.equal(parseRuntimeFitArgs(['--gemma-runtime-watch']).gemmaRuntimeWatch, true);
+  assert.equal(parseRuntimeFitArgs(['--runtime-watch-gemma']).gemmaRuntimeWatch, true);
 });
 
 test('normalizeScenarioSummary includes prompt-context pressure metrics for runtime turns', () => {
@@ -160,4 +163,41 @@ test('runtime-fit disposable environment isolates the memory ledger file', () =>
   assert.equal(env.PENNY_MEMORY_LEDGER_FILE, paths.ledgerFile);
   assert.equal(env.PENNY_LOCAL_LLM_TRANSPORT, 'responses');
   assert.equal(disposableFiles.includes(paths.ledgerFile), true);
+});
+
+test('Gemma runtime watch runner artifact is status/preflight only', () => {
+  const artifact = buildGemmaRuntimeWatchRunnerArtifact({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+    preflightReport: {
+      ok: true,
+      checks: [{ name: 'lmstudio-api', ok: true, level: 'pass', detail: 'reachable' }],
+      loadedModels: ['unsloth/gemma-4-31b-it@q6_k'],
+      installedModels: ['unsloth/gemma-4-31b-it@q6_k', 'google/gemma-4-e4b'],
+      readinessSummary: { state: 'ready' },
+      report: {
+        requestedChatModel: 'google/gemma-4-31b',
+        semanticMemoryReady: false,
+      },
+      status: {
+        localTransport: 'stateful',
+        resolvedChatModel: 'unsloth/gemma-4-31b-it@q6_k',
+      },
+    },
+  });
+
+  assert.equal(artifact.schema, 'penny-gemma-runtime-watch.v1');
+  assert.equal(artifact.measurementMode, 'status-only');
+  assert.equal(artifact.liveModelCalls, false);
+  assert.equal(artifact.runner.liveChatGenerationRequired, false);
+  assert.equal(artifact.runner.changesLoadedModel, false);
+  assert.equal(artifact.runner.changesThinkingDefault, false);
+  assert.equal(artifact.runner.changesContextLength, false);
+  assert.equal(artifact.runner.touchesMemoryFiles, false);
+  assert.equal(artifact.readOnlyChecks.preflight.ok, true);
+  assert.equal(artifact.readOnlyChecks.preflight.installedModelCount, 2);
+  assert.equal(artifact.watchItems.visionBudget.exposed, false);
+  assert.equal(artifact.watchItems.visionBudget.adoptionStatus, 'not-adopted');
+  assert.equal(artifact.watchItems.thinkingControls.defaultForCompanionChat, 'off');
+  assert.equal(artifact.defaultsUnchanged.chatSamplingChanged, false);
+  assert.equal(artifact.watchItems.loadedModelIdentity.compatibleMatch, true);
 });

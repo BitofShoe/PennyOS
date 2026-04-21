@@ -37,6 +37,7 @@
     "eval:ledger-compare": "node scripts/eval-penny-ledger-compare.js",
     "eval:runtime-fit": "node scripts/eval-penny-runtime-fit.js",
     "eval:runtime-fit:context-pressure": "node scripts/eval-penny-runtime-fit.js --context-pressure-fixture",
+    "eval:runtime-fit:gemma-watch": "node scripts/eval-penny-runtime-fit.js --gemma-runtime-watch",
     "eval:models": "node scripts/eval-penny-models.js",
     "ingest:conversations": "node scripts/import-penny-conversations.js",
     "preset:lmstudio": "node scripts/ensure-lmstudio-penny-preset.js",
