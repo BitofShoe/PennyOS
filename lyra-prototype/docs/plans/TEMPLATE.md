@@ -59,6 +59,23 @@ Use this template for cross-cutting Penny work that needs a written plan before 
   - Explicit memory versus archive, ledger, or embedding artifacts:
 - Known risks:
 
+## External link review / source batch
+
+Use this section when a plan is driven by external URLs, repos, papers, docs, posts, or link batches. For full workflow guidance, use [penny-link-review](../../.codex/skills/penny-link-review/SKILL.md).
+
+- Source health:
+- Already landed:
+- Strengthen now:
+- Maybe later:
+- Do not add:
+- License/access risk:
+- Privacy/local-data risk:
+- Platformization risk:
+- Current-law conflict:
+- Owner seams:
+- Verification commands:
+- Artifact scope/limits:
+
 ## Safe-refactor map
 
 - Thin shell or orchestration file involved:

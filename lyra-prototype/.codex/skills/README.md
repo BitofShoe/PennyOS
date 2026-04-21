@@ -12,6 +12,8 @@ Use them when the task clearly matches the workflow instead of re-discovering th
   - Use for Penny's hybrid memory model: explicit memory, archive memory, embeddings, promotion review, and purge scope.
 - [penny-qa-release](./penny-qa-release/SKILL.md)
   - Use for Penny release-style QA, artifact interpretation, and safe test ordering.
+- [penny-link-review](./penny-link-review/SKILL.md)
+  - Use for external link batches, source-health checks, repo-fit synthesis, risk buckets, and bounded next-slice planning.
 
 ## Ground Rules
 
@@ -19,6 +21,7 @@ Use them when the task clearly matches the workflow instead of re-discovering th
 - Favor progressive disclosure. Read the `SKILL.md` first, then load its `references/REFERENCE.md` only if needed.
 - Before implementation work, make a task-fit pass: name blockers, complexity, confidence, touched owners, verification cost, and cleanup risk.
 - Treat runtime code, tests, live command output, and generated artifacts as stronger implementation evidence than planning prose.
+- For external source batches, verify source health first and keep `already landed`, `strengthen now`, `maybe later`, and `do not add` separate.
 - When a task crosses backend, frontend, tests, or docs, start from [docs/plans/TEMPLATE.md](../../docs/plans/TEMPLATE.md) and capture landed, verified, deferred, and cleanup results there.
 - Do not run heavy local evals in parallel.
 - Respect the current local model split:
