@@ -1,5 +1,5 @@
 /**
- * @typedef {'direct_write_instruction' | 'direct_replace_instruction' | 'direct_append_instruction' | 'direct_open_ended_edit_instruction' | 'syntax_check_request' | 'git_diff_request' | 'web_page_request' | 'web_result_inspection_request' | 'web_search_request' | 'project_file_focus_read' | 'project_file_read_request' | 'unsupported_side_effect_verification' | 'attached_file_focus_read' | 'attached_file_read_request' | 'project_path_discovery' | 'project_symbol_inspect' | 'project_text_search' | 'runtime_status_request' | 'git_status_request' | 'recent_logs_request'} DirectIntentReasonCode
+ * @typedef {'direct_write_instruction' | 'direct_replace_instruction' | 'direct_append_instruction' | 'direct_open_ended_edit_instruction' | 'syntax_check_request' | 'git_diff_request' | 'web_page_request' | 'web_result_inspection_request' | 'web_search_request' | 'project_file_focus_read' | 'project_file_read_request' | 'source_trust_verification' | 'unsupported_side_effect_verification' | 'attached_file_focus_read' | 'attached_file_read_request' | 'project_path_discovery' | 'project_symbol_inspect' | 'project_text_search' | 'runtime_status_request' | 'git_status_request' | 'recent_logs_request'} DirectIntentReasonCode
  *
  * @typedef {Object} DirectIntentResolution
  * @property {string} name
@@ -22,6 +22,7 @@ const DIRECT_INTENT_REASON_CODES = Object.freeze({
   WEB_SEARCH: 'web_search_request',
   PROJECT_FILE_FOCUS_READ: 'project_file_focus_read',
   PROJECT_FILE_READ: 'project_file_read_request',
+  SOURCE_TRUST_VERIFY: 'source_trust_verification',
   UNSUPPORTED_SIDE_EFFECT_VERIFY: 'unsupported_side_effect_verification',
   ATTACHED_FILE_FOCUS_READ: 'attached_file_focus_read',
   ATTACHED_FILE_READ: 'attached_file_read_request',
@@ -411,6 +412,46 @@ function createDirectIntentApi({
     return null;
   }
 
+  function inferSourceTrustReadTarget(text = '', explicitPath = '') {
+    const lower = String(text || '').toLowerCase();
+    const pathLabel = String(explicitPath || '').trim();
+    if (!pathLabel || !/(?:^|[\\/])readme\.md$/i.test(pathLabel)) return null;
+    if (/\byou\s+(?:already|just)\b[\s\S]{0,100}\b(?:edited|changed|updated|patched|wrote|added|inserted|removed|created)\b/.test(lower)
+      || /\balready\b[\s\S]{0,80}\b(?:edited|changed|updated|patched|wrote|added|inserted|removed|created)\b/.test(lower)) {
+      return null;
+    }
+
+    if (/\bzephyr consensus engine\b/i.test(text)) {
+      return {
+        path: pathLabel,
+        query: 'Zephyr Consensus Engine',
+        claim: 'Penny includes the Zephyr Consensus Engine',
+      };
+    }
+
+    const comparesPastedClaim = /\b(pasted note|pasted context|note says|proves|verify against|which source is reliable|source is reliable)\b/i.test(lower);
+    const cloudHostedClaim = /\bcloud-hosted\b/i.test(lower) || /\bmulti-user\b/i.test(lower);
+    if (comparesPastedClaim && cloudHostedClaim) {
+      return {
+        path: pathLabel,
+        query: 'local-first',
+        claim: 'Penny is a cloud-hosted multi-user product',
+      };
+    }
+
+    const exactLineClaim = String(text || '').match(/\b(?:exact\s+)?(?:readme\.md\s+)?line\s+that\s+says\s+([\s\S]{2,160}?)(?=(?:\s+be confident|[.?!]|$))/i);
+    const claim = cleanDirectReadFocusCandidate(exactLineClaim?.[1] || '');
+    if (claim) {
+      return {
+        path: pathLabel,
+        query: claim.replace(/^penny\s+(?:includes?|has|ships?|uses|contains?)\s+/i, '').trim() || claim,
+        claim,
+      };
+    }
+
+    return null;
+  }
+
   function cleanSideEffectClaimQuery(candidate = '') {
     let cleaned = collapseWhitespace(String(candidate || ''))
       .replace(/^[`"'“”‘’]+|[`"'“”‘’]+$/g, '')
@@ -588,6 +629,20 @@ function createDirectIntentApi({
           afterLines: 24,
         },
       }, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
+    }
+    const sourceTrustRead = inferSourceTrustReadTarget(text, explicitPath);
+    if (sourceTrustRead) {
+      return withReasonCode({
+        name: 'read_project_file_around_match',
+        args: {
+          path: sourceTrustRead.path,
+          query: sourceTrustRead.query,
+          claim: sourceTrustRead.claim,
+          beforeLines: 8,
+          afterLines: 24,
+          questionType: 'source-trust',
+        },
+      }, DIRECT_INTENT_REASON_CODES.SOURCE_TRUST_VERIFY);
     }
     const sideEffectRead = inferUnsupportedSideEffectReadTarget(text, explicitPath);
     if (sideEffectRead) {

@@ -193,6 +193,13 @@ function buildQaTrust({
   reasons = [],
 } = {}) {
   const environmentCodes = buildEnvironmentReasonCodes(environment);
+  const callerReasonCodes = (Array.isArray(reasonCodes) ? reasonCodes : [])
+    .map((item) => normalizeReasonCode(item))
+    .filter(Boolean);
+  const callerFailureReasonCodes = callerReasonCodes.filter((code) => ![
+    'checks_clean',
+    'paired_compare_ambiguous',
+  ].includes(code));
   const degradedCount = Math.max(0, Number(degradedArtifacts || 0), Number(environment?.degradedArtifacts || 0));
   const fallbackCount = Math.max(
     0,
@@ -204,7 +211,7 @@ function buildQaTrust({
   const abortedCount = Math.max(0, Number(abortedResultCount || 0));
   const mergedReasonCodes = uniqueStrings([
     ...environmentCodes,
-    ...(Array.isArray(reasonCodes) ? reasonCodes : []).map((item) => normalizeReasonCode(item)).filter(Boolean),
+    ...callerReasonCodes,
   ], 16);
   const mergedReasons = uniqueStrings([
     ...(Array.isArray(environment?.reasons) ? environment.reasons : []),
@@ -233,6 +240,9 @@ function buildQaTrust({
     if (failedCount > 0) mergedReasonCodes.unshift('scenario_failures_present');
     if (invalidCount > 0) mergedReasonCodes.unshift('scenario_results_invalid');
     if (abortedCount > 0) mergedReasonCodes.unshift('run_aborts_present');
+  } else if (callerFailureReasonCodes.length > 0) {
+    verdict = QA_TRUST_VERDICTS.INVALID;
+    scope = 'behavior';
   } else {
     mergedReasonCodes.unshift('checks_clean');
   }

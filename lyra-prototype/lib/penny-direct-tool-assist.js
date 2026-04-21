@@ -444,6 +444,7 @@ function createDirectToolAssistApi({
         text: composeDirectReadReply({
           ...(result.data || {}),
           questionType: intent.args?.questionType || result.data?.questionType || '',
+          claim: intent.args?.claim || result.data?.claim || '',
         }),
         toolsUsed,
         toolRecords,

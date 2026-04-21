@@ -85,12 +85,17 @@ function createDirectIntentReplyApi({
     const pathLabel = String(result.path || 'that file').trim();
     const query = String(result.query || '').trim();
     const questionType = String(result.questionType || '').trim().toLowerCase();
+    const claim = String(result.claim || '').trim();
     const excerpt = String(result.excerpt || '').trim();
     const error = String(result.error || '').trim();
     if (error) {
       const scope = query
         ? `${pathLabel} for "${query}"`
         : pathLabel;
+      if (questionType === 'source-trust') {
+        const claimText = claim || query || 'that claim';
+        return `i checked ${scope}, and there is no matching line there. ${pathLabel} does not support "${claimText}", so i am not treating the claim as reliable. i did not edit anything; this was a read-only verification.\n[MOOD:thinking]`;
+      }
       if (query && /could not find/i.test(error)) {
         return `i checked ${scope}, and there is no matching line there. i did not edit anything; this was a read-only verification.\n[MOOD:thinking]`;
       }
@@ -127,6 +132,16 @@ function createDirectIntentReplyApi({
         || excerptLines.find((line) => line.text);
       const focusLineNumber = focusLine?.lineNumber || result.matchLine || result.startLine || 1;
       const supportText = focusLine?.text ? truncateText(focusLine.text, 220) : '';
+      if (questionType === 'source-trust') {
+        const support = supportText
+          ? ` supporting line ${focusLineNumber}: ${supportText}`
+          : '';
+        const claimText = claim || query || 'that claim';
+        const pastedNoteLine = /cloud-hosted|multi-user/i.test(claimText)
+          ? ' the pasted note is not the reliable source for that claim.'
+          : '';
+        return `i checked ${pathLabel} against "${claimText}". the reliable source here is ${pathLabel};${pastedNoteLine}${support}\n\ni did not edit anything; this was a read-only verification.\n[MOOD:thinking]`;
+      }
       const answer = questionType === 'definition'
         ? (supportText && looksLikeDefinitionLine(supportText)
           ? `i checked ${pathLabel} for "${query}". short version: ${query} looks defined around line ${focusLineNumber}.`

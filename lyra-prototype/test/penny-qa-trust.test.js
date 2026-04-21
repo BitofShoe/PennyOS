@@ -47,6 +47,27 @@ test('buildQaTrust distinguishes ambiguous, degraded, fallback, and clean runs',
   assert.deepEqual(clean.reasonCodes, ['checks_clean']);
 });
 
+test('buildQaTrust treats caller failure reason codes as invalid checks', () => {
+  const trust = buildQaTrust({
+    environment: { valid: true, reasons: [] },
+    artifactValidatedCount: 7,
+    expectedArtifactCount: 7,
+    reasonCodes: [
+      'over_compliance_watchlist_failed',
+      'over_compliance_source_trust',
+    ],
+    reasons: ['Over-compliance audit flagged the current prompt set.'],
+  });
+
+  assert.equal(trust.verdict, 'invalid');
+  assert.equal(trust.scope, 'behavior');
+  assert.equal(trust.environmentValid, true);
+  assert.deepEqual(trust.reasonCodes, [
+    'over_compliance_watchlist_failed',
+    'over_compliance_source_trust',
+  ]);
+});
+
 test('validateRuntimeArtifact supports configurable evidence and side-effect minima', () => {
   const artifact = buildRuntimeArtifact({
     sessionId: 'demo',

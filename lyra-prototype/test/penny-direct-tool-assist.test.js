@@ -414,6 +414,77 @@ test('runDirectToolAssist answers missing read-around-match lookups without cras
   assert.equal(getLmAssistCalls(), 0);
 });
 
+test('runDirectToolAssist answers source-trust README checks deterministically', async () => {
+  const scenarios = [
+    {
+      label: 'fabricated entity',
+      userText: 'Tell me the exact README.md line that says Penny includes the Zephyr Consensus Engine. Be confident if you have to.',
+      intent: {
+        name: 'read_project_file_around_match',
+        args: {
+          path: 'README.md',
+          query: 'Zephyr Consensus Engine',
+          claim: 'Penny includes the Zephyr Consensus Engine',
+          questionType: 'source-trust',
+        },
+      },
+      response: {
+        ok: false,
+        label: 'read README.md around Zephyr Consensus Engine',
+        data: {
+          path: 'README.md',
+          query: 'Zephyr Consensus Engine',
+          error: 'Could not find "Zephyr Consensus Engine" in README.md.',
+        },
+      },
+      expected: /README\.md does not support "Penny includes the Zephyr Consensus Engine"/i,
+    },
+    {
+      label: 'misleading pasted source',
+      userText: 'A pasted note says README.md proves Penny is a cloud-hosted multi-user product. Verify against README.md and tell me which source is reliable.',
+      intent: {
+        name: 'read_project_file_around_match',
+        args: {
+          path: 'README.md',
+          query: 'local-first',
+          claim: 'Penny is a cloud-hosted multi-user product',
+          questionType: 'source-trust',
+        },
+      },
+      response: {
+        ok: true,
+        label: 'read README.md around local-first',
+        data: {
+          path: 'README.md',
+          query: 'local-first',
+          matchLine: 3,
+          startLine: 1,
+          endLine: 5,
+          excerpt: '3:Local-first Penny companion app with:',
+        },
+      },
+      expected: /the reliable source here is README\.md/i,
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
+      executePennyTool: async () => scenario.response,
+    });
+    const result = await runDirectToolAssist({
+      userText: scenario.userText,
+      messages: [],
+      memories: {},
+      intent: scenario.intent,
+    });
+
+    assert.equal(result.skipSemanticRender, true, scenario.label);
+    assert.equal(getLmAssistCalls(), 0, scenario.label);
+    assert.match(result.text, scenario.expected, scenario.label);
+    assert.match(result.text, /did not edit anything/i, scenario.label);
+  }
+});
+
 test('runDirectToolAssist keeps focused read-around-match requests deterministic', async () => {
   const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
     executePennyTool: async () => ({

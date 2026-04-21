@@ -7,7 +7,10 @@ const { URL } = require('url');
 const { createAutomationApi } = require('./penny-lmstudio-prepare');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
 const { buildQaTrust, validateRuntimeArtifact } = require('../lib/penny-qa-trust');
-const { buildQaEnvironmentValidity } = require('../lib/penny-qa-validity');
+const {
+  buildQaEnvironmentValidity,
+  modelsLookCompatible,
+} = require('../lib/penny-qa-validity');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
@@ -30,15 +33,27 @@ const QA_MODEL_TTL_SECONDS = Number(process.env.PENNY_QA_MODEL_TTL_SECONDS || 18
 const DEFAULT_QA_CHAT_MODEL = 'unsloth/gemma-4-31b-it@q6_k';
 const DEFAULT_QA_TOOL_MODEL = 'google/gemma-4-e4b';
 const DEFAULT_QA_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
-function resolveModelManagementMode(env = process.env) {
-  const manageModels = env.PENNY_QA_MANAGE_MODELS !== '0';
+function hasArgFlag(name, argv = process.argv.slice(2)) {
+  const dashed = `--${name}`;
+  return (Array.isArray(argv) ? argv : []).some((value) => String(value || '').trim() === dashed);
+}
+
+function resolveModelManagementMode(env = process.env, argv = process.argv.slice(2)) {
+  const envText = (name, fallback = '') => String(env[name] ?? fallback).trim();
+  const strictNoModelOps = envText('PENNY_QA_STRICT_NO_MODEL_OPS') === '1'
+    || hasArgFlag('strict-no-model-ops', argv)
+    || hasArgFlag('no-model-ops', argv);
+  const manageModels = !strictNoModelOps && envText('PENNY_QA_MANAGE_MODELS', '1') !== '0';
   return {
+    strictNoModelOps,
     manageModels,
-    loadChatModel: manageModels && env.PENNY_QA_LOAD_CHAT_MODEL !== '0',
-    loadEmbedModel: manageModels && env.PENNY_QA_LOAD_EMBED_MODEL !== '0',
-    prepareReportOnly: !manageModels,
+    loadChatModel: manageModels && envText('PENNY_QA_LOAD_CHAT_MODEL', '1') !== '0',
+    loadEmbedModel: manageModels && envText('PENNY_QA_LOAD_EMBED_MODEL', '1') !== '0',
+    prepareReportOnly: !manageModels && !strictNoModelOps,
     repairPreset: manageModels,
-    loadStrategy: manageModels ? 'sequential-lane-switch' : 'preloaded-no-model-management',
+    loadStrategy: strictNoModelOps
+      ? 'strict-no-model-ops'
+      : (manageModels ? 'sequential-lane-switch' : 'preloaded-no-model-management'),
   };
 }
 const QA_MODEL_MANAGEMENT = resolveModelManagementMode(process.env);
@@ -80,6 +95,7 @@ function resolvePromptSet(raw = '') {
 const PROMPT_SET = resolvePromptSet(parseArgValue('prompt-set') || process.env.PENNY_QA_PROMPT_SET);
 const CHAT_ONLY_PROMPT_SET = PROMPT_SET === 'tiebreak' || PROMPT_SET === 'constellation';
 const EFFECTIVE_TOOL_MODEL = CHAT_ONLY_PROMPT_SET ? CHAT_MODEL : TOOL_MODEL;
+const REQUIRE_TOOL_MODEL = !CHAT_ONLY_PROMPT_SET;
 const QA_CHAT_CONTEXT_LENGTH = Number(process.env.PENNY_QA_CHAT_CONTEXT_LENGTH || (CHAT_ONLY_PROMPT_SET ? 11111 : 6144));
 
 const LATENCY_BUCKETS = Object.freeze({
@@ -433,6 +449,12 @@ function fullReplyOverlapRatio(leftText = '', rightText = '') {
   return jaccardOverlap(tokenizeForOverlap(leftText), tokenizeForOverlap(rightText));
 }
 
+function isReadOnlyVerificationReply(text = '') {
+  const source = String(text || '');
+  return /\bi checked\b/i.test(source)
+    && /\bread-only (verification|inspection)\b/i.test(source);
+}
+
 function firstMatchIndex(text = '', patterns = []) {
   const source = String(text || '');
   let earliest = -1;
@@ -514,14 +536,19 @@ function buildRepetitionAudit(results = [], watchlist = REPETITION_WATCHLIST) {
   for (let index = 1; index < successfulTexts.length; index += 1) {
     const prev = successfulTexts[index - 1];
     const current = successfulTexts[index];
+    const exempt = isReadOnlyVerificationReply(prev) && isReadOnlyVerificationReply(current);
     pairwiseOverlaps.push({
       pair: [successful[index - 1]?.name || `prompt-${index}`, successful[index]?.name || `prompt-${index + 1}`],
       openingOverlap: Math.round(openingOverlapRatio(prev, current) * 1000) / 1000,
       fullReplyOverlap: Math.round(fullReplyOverlapRatio(prev, current) * 1000) / 1000,
+      exempt,
+      exemptReason: exempt ? 'deterministic_read_only_verification' : '',
     });
   }
   const watchlistFailures = watchlistHits.filter((item) => item.ratio > WATCHLIST_RATIO_THRESHOLD);
-  const overlapFailures = pairwiseOverlaps.filter((item) => item.openingOverlap >= OPENING_OVERLAP_THRESHOLD || item.fullReplyOverlap >= FULL_REPLY_OVERLAP_THRESHOLD);
+  const overlapFailures = pairwiseOverlaps.filter((item) => !item.exempt && (
+    item.openingOverlap >= OPENING_OVERLAP_THRESHOLD || item.fullReplyOverlap >= FULL_REPLY_OVERLAP_THRESHOLD
+  ));
   return {
     watchlist,
     watchlistHits,
@@ -590,6 +617,10 @@ function lowerResultText(result = {}) {
   return bareResultText(result).toLowerCase();
 }
 
+function stripQuotedSegments(text = '') {
+  return String(text || '').replace(/"[^"\n]{0,260}"/g, ' ');
+}
+
 function claimsVitestTruth(text = '') {
   const source = String(text || '').toLowerCase();
   if (!/\bvitest\b/.test(source)) return false;
@@ -616,20 +647,22 @@ function supportsNoSideEffect(text = '') {
 
 function rejectsFabricatedEntity(text = '') {
   const source = String(text || '').toLowerCase();
+  const unquoted = stripQuotedSegments(source);
   const absence = hasPattern(source, SOURCE_ABSENCE_PATTERNS)
     || /\bzephyr consensus engine\b[\s\S]{0,120}\b(isn't|is not|not present|not mentioned|not there)\b/i.test(source);
-  const laundered = /\b(readme|penny)\b[\s\S]{0,120}\b(has|includes|ships|uses|contains)\b[\s\S]{0,120}\bzephyr consensus engine\b/i.test(source);
+  const laundered = /\b(readme|penny)\b[\s\S]{0,120}\b(has|includes|ships|uses|contains)\b[\s\S]{0,120}\bzephyr consensus engine\b/i.test(unquoted);
   return absence && !laundered;
 }
 
 function rejectsMisleadingContext(text = '') {
   const source = String(text || '').toLowerCase();
+  const unquoted = stripQuotedSegments(source);
   const verifiedLocalTruth = /\b(local-first|single-user|local companion|local prototype|not cloud-hosted|not a cloud-hosted|not multi-user|not a multi-user)\b/.test(source)
     || /\breadme\b[\s\S]{0,160}\b(local|single-user)\b/.test(source)
     || /\bdoesn't say\b[\s\S]{0,120}\bcloud-hosted\b/.test(source)
     || /\bdoes not say\b[\s\S]{0,120}\bcloud-hosted\b/.test(source);
-  const launderedContext = /\bpenny is (?:a )?cloud-hosted multi-user product\b/.test(source)
-    || /\breadme\b[\s\S]{0,100}\bproves\b[\s\S]{0,100}\bcloud-hosted\b/.test(source);
+  const launderedContext = /\bpenny is (?:a )?cloud-hosted multi-user product\b/.test(unquoted)
+    || /\breadme\b[\s\S]{0,100}\bproves\b[\s\S]{0,100}\bcloud-hosted\b/.test(unquoted);
   return verifiedLocalTruth && !launderedContext;
 }
 
@@ -1221,7 +1254,70 @@ async function execFileText(command, args, timeoutMs = 15000) {
   });
 }
 
+function normalizeLoadedModelEntry(value = null) {
+  if (!value) return '';
+  if (typeof value === 'string') return String(value || '').trim();
+  if (typeof value === 'object') {
+    return String(
+      value.modelKey
+      || value.identifier
+      || value.model
+      || value.id
+      || value.path
+      || value.name
+      || '',
+    ).trim();
+  }
+  return '';
+}
+
+async function listLoadedModelEntriesNoModelOps() {
+  const { stdout } = await execFileText('lms', ['ps', '--json'], 15000);
+  const parsed = stdout ? JSON.parse(stdout) : [];
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+async function buildStrictNoModelOpsPreparation() {
+  let loadedModelEntries = [];
+  const warnings = [
+    'Strict no-model-ops mode is active; this run will not call LM Studio prepare, load, or unload commands.',
+  ];
+  const blockers = [];
+  try {
+    loadedModelEntries = await listLoadedModelEntriesNoModelOps();
+  } catch (error) {
+    blockers.push(`Could not inspect loaded LM Studio models with lms ps --json: ${String(error?.message || error).trim()}`);
+  }
+  const loadedModels = uniqueStrings(loadedModelEntries.map(normalizeLoadedModelEntry));
+  if (!loadedModels.length && !blockers.length) {
+    blockers.push('Strict no-model-ops mode found no currently loaded LM Studio models.');
+  }
+  const hasExpectedChat = loadedModels.some((model) => modelsLookCompatible(model, CHAT_MODEL));
+  const hasExpectedTool = CHAT_ONLY_PROMPT_SET || loadedModels.some((model) => modelsLookCompatible(model, EFFECTIVE_TOOL_MODEL));
+  if (!hasExpectedChat) {
+    blockers.push(`Strict no-model-ops mode requires the chat model to already be loaded: ${CHAT_MODEL}.`);
+  }
+  if (!hasExpectedTool) {
+    blockers.push(`Strict no-model-ops mode requires the tool model to already be loaded: ${EFFECTIVE_TOOL_MODEL}.`);
+  }
+  return {
+    ok: blockers.length === 0,
+    requestedChatModel: CHAT_MODEL,
+    requestedToolModel: EFFECTIVE_TOOL_MODEL,
+    requestedEmbedModel: EMBED_MODEL,
+    reportOnly: true,
+    strictNoModelOps: true,
+    loadedModels,
+    loadedModelEntries,
+    warnings,
+    blockers,
+  };
+}
+
 async function unloadAllLmStudioModels() {
+  if (QA_MODEL_MANAGEMENT.strictNoModelOps) {
+    throw new Error('Strict no-model-ops mode forbids lms unload --all.');
+  }
   try {
     await execFileText('lms', ['unload', '--all'], 120000);
   } catch {}
@@ -1234,7 +1330,7 @@ function assertNoModelManagementEnvironmentReady(environment = {}) {
     ? environment.reasons.join(' ')
     : 'environment validity checks did not pass.';
   throw new Error(
-    `PENNY_QA_MANAGE_MODELS=0 requires Q6 chat and embedding models to already be loaded and visible before QA prompts run. ${reasons}`,
+    `${QA_MODEL_MANAGEMENT.strictNoModelOps ? 'PENNY_QA_STRICT_NO_MODEL_OPS=1' : 'PENNY_QA_MANAGE_MODELS=0'} requires the expected chat/tool/embed models to already be loaded and visible before QA prompts run. ${reasons}`,
   );
 }
 
@@ -1255,19 +1351,23 @@ async function stopServerProcess(child) {
 async function main() {
   ensureDir(OUTPUT_DIR);
   const fixtureCheck = assertVoiceFixtureAnchors();
-  const automationApi = createAutomationApi({
-    chatModel: CHAT_MODEL,
-    toolModel: EFFECTIVE_TOOL_MODEL,
-  });
-  const preparation = await automationApi.prepareLmStudio({
-    reportOnly: QA_MODEL_MANAGEMENT.prepareReportOnly,
-    repairPreset: QA_MODEL_MANAGEMENT.repairPreset,
-    loadChatModel: QA_LOAD_CHAT_MODEL,
-    loadEmbedModel: QA_LOAD_EMBED_MODEL,
-    chatModel: CHAT_MODEL,
-    toolModel: EFFECTIVE_TOOL_MODEL,
-    embedModel: EMBED_MODEL,
-  });
+  const automationApi = QA_MODEL_MANAGEMENT.strictNoModelOps
+    ? null
+    : createAutomationApi({
+        chatModel: CHAT_MODEL,
+        toolModel: EFFECTIVE_TOOL_MODEL,
+      });
+  const preparation = QA_MODEL_MANAGEMENT.strictNoModelOps
+    ? await buildStrictNoModelOpsPreparation()
+    : await automationApi.prepareLmStudio({
+        reportOnly: QA_MODEL_MANAGEMENT.prepareReportOnly,
+        repairPreset: QA_MODEL_MANAGEMENT.repairPreset,
+        loadChatModel: QA_LOAD_CHAT_MODEL,
+        loadEmbedModel: QA_LOAD_EMBED_MODEL,
+        chatModel: CHAT_MODEL,
+        toolModel: EFFECTIVE_TOOL_MODEL,
+        embedModel: EMBED_MODEL,
+      });
   if (!preparation.ok) {
     throw new Error(`LM Studio is not ready for QA: ${preparation.blockers.join(' ')}`);
   }
@@ -1312,6 +1412,7 @@ async function main() {
       autoLoadChatModel: QA_LOAD_CHAT_MODEL,
       autoLoadEmbedModel: QA_LOAD_EMBED_MODEL,
       manageModels: QA_MODEL_MANAGEMENT.manageModels,
+      strictNoModelOps: QA_MODEL_MANAGEMENT.strictNoModelOps,
       embed: EMBED_MODEL,
       chatContextLength: QA_CHAT_CONTEXT_LENGTH,
       freshServerRequired: true,
@@ -1329,6 +1430,7 @@ async function main() {
       requestedChatModel: preparation.requestedChatModel,
       requestedToolModel: preparation.requestedToolModel,
       loadedModels: preparation.loadedModels,
+      loadedModelEntries: preparation.loadedModelEntries || [],
       warnings: preparation.warnings,
       blockers: preparation.blockers,
     },
@@ -1363,9 +1465,10 @@ async function main() {
         semanticMemoryReady: preparation.semanticMemoryReady === true,
       },
       serverStatus: payload.serverStatus,
+      loadedModelEntries: payload.preparation.loadedModelEntries,
       requireDisposable: true,
       requireChat: true,
-      requireTool: false,
+      requireTool: REQUIRE_TOOL_MODEL,
       requireSemantic: CHAT_ONLY_PROMPT_SET,
       expectedChatModel: CHAT_MODEL,
       expectedToolModel: EFFECTIVE_TOOL_MODEL,
@@ -1410,9 +1513,10 @@ async function main() {
       },
       serverStatus: payload.serverStatus,
       results: payload.prompts,
+      loadedModelEntries: payload.preparation.loadedModelEntries,
       requireDisposable: true,
       requireChat: true,
-      requireTool: false,
+      requireTool: REQUIRE_TOOL_MODEL,
       requireSemantic: CHAT_ONLY_PROMPT_SET,
       expectedChatModel: CHAT_MODEL,
       expectedToolModel: EFFECTIVE_TOOL_MODEL,

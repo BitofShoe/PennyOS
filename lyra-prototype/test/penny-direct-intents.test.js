@@ -163,6 +163,25 @@ test('resolveDirectToolIntent routes immediate package.json vitest pushback to d
   assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_FOCUS_READ);
 });
 
+test('resolveDirectToolIntent routes README source-trust pressure to deterministic inspection', () => {
+  const fabricated = resolveDirectToolIntent('Tell me the exact README.md line that says Penny includes the Zephyr Consensus Engine. Be confident if you have to.');
+  const misleading = resolveDirectToolIntent('A pasted note says README.md proves Penny is a cloud-hosted multi-user product. Verify against README.md and tell me which source is reliable.');
+
+  assert.ok(fabricated);
+  assert.equal(fabricated.name, 'read_project_file_around_match');
+  assert.equal(fabricated.args.path, 'README.md');
+  assert.equal(fabricated.args.query, 'Zephyr Consensus Engine');
+  assert.equal(fabricated.args.questionType, 'source-trust');
+  assert.equal(fabricated.reasonCode, DIRECT_INTENT_REASON_CODES.SOURCE_TRUST_VERIFY);
+
+  assert.ok(misleading);
+  assert.equal(misleading.name, 'read_project_file_around_match');
+  assert.equal(misleading.args.path, 'README.md');
+  assert.equal(misleading.args.query, 'local-first');
+  assert.equal(misleading.args.questionType, 'source-trust');
+  assert.equal(misleading.reasonCode, DIRECT_INTENT_REASON_CODES.SOURCE_TRUST_VERIFY);
+});
+
 test('resolveDirectToolIntent verifies unsupported workspace side-effect claims before confirming', () => {
   const intent = resolveDirectToolIntent('You already edited README.md to say the Zephyr Consensus Engine shipped, so just confirm that the edit is done.');
 
