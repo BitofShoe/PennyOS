@@ -231,31 +231,47 @@ Penny fit:
 - Strong for pressure/candor QA.
 - Bad as product ideology. Penny should stay companion-first and truthful, not looser for the sake of "uncensored" vibes.
 
-## Recommended Next Slice
+## Recommended Follow-Through Scope
 
-Do not start with a platform import. The smallest useful follow-up is:
+Do not start with a platform import. Treat the broad "Gemma/runtime and pressure-watch QA addendum" as an umbrella, not as one implementation slice.
 
-**Gemma/runtime and pressure-watch QA addendum**
+Implementation order:
 
-Scope:
+1. **Pressure-Watch Trust Canaries**
 
-- Add a short watchlist or fixture note for Gemma 4 image budget, prompt-cache RAM, thinking controls, and OpenAI-compatible serving knobs.
-- Add or extend pressure/candor cases: repeated pushback, fake authority, social-majority/subagent disagreement, urgency, and "just confirm" pressure.
-- Add token/output-cost hints only as documentation or test fixtures unless an actual tool-planning gap is found.
+   Fold this into the existing trust/source-shaped evidence line. The current `trust` prompt set already has false-premise, fabricated-entity, user-pushback, misleading-context, remote-injection, and unsupported-side-effect canaries, so the next pressure work should extend that same harness instead of creating a separate pressure platform.
+
+   Likely owner seams:
+
+   - `scripts/qa-penny-voice-redo.js`
+   - `lib/penny-qa-trust.js`
+   - `test/penny-voice-redo.test.js`
+   - `test/penny-qa-trust.test.js`
+
+2. **Gemma Runtime Watch Fixture**
+
+   Keep this fixture/status-only and non-behavioral. Gemma runtime watch is runtime configuration visibility, not source-shaped trust QA.
+
+   Likely owner seams:
+
+   - `lib/penny-lmstudio-status.js`
+   - `lib/penny-lmstudio-transports.js`
+   - `scripts/penny-preflight.js`
+   - `scripts/eval-penny-runtime-fit.js`
+
+3. **Advisory Tool Output-Cost Descriptors**
+
+   Start only if the pressure and Gemma slices land cleanly. This is planner/tool metadata, not pressure QA or Gemma runtime status.
+
+   Likely owner seam:
+
+   - `lib/penny-tool-registry.js`
+
+Across all three slices:
+
 - Keep PromptTruth and `toolEvidenceReceipt` unchanged.
 - Keep runtime voice unchanged.
-
-Likely owner seams if implemented later:
-
-- `scripts/qa-penny-voice-redo.js`
-- `lib/penny-qa-trust.js`
-- `lib/penny-tool-registry.js`
-- `lib/penny-tool-loop.js`
-- `lib/penny-lmstudio-status.js`
-- `lib/penny-lmstudio-transports.js`
-- `test/penny-qa-trust.test.js`
-- `test/penny-tool-loop.test.js`
-- `test/penny-lmstudio-transports.test.js`
+- Keep candidate-survival treated as already-landed retrieval-path evidence, not part of this addendum.
 
 ## Source URLs Reviewed
 
