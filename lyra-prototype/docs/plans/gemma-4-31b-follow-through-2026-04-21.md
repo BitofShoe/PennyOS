@@ -27,6 +27,8 @@
 - Do not enable thinking for normal companion chat.
 - A later thinking-on verifier/control eval can test `reasoning=low` or equivalent thinking modes after the leak and tool-loop cleanup regressions remain green.
 
+Slice 2 follow-through lives in `docs/plans/gemma-4-31b-slice-2-investigation-2026-04-21.md`.
+
 ## Verification
 
 - Targeted slice:
