@@ -884,6 +884,113 @@ test('buildArchiveContext active hybrid-v1 demotes stale contradiction-only cand
   }
 });
 
+test('buildArchiveContext pins source-sensitive archive correction survival cases', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false, archiveScoringProfile: 'hybrid-v1' });
+
+  const cases = [
+    {
+      sessionId: 'coding',
+      query: 'What is the coding mascot now?',
+      currentId: 'coding-current',
+      staleId: 'coding-stale',
+      currentText: 'Correction: my coding mascot is a copper rabbit now, not a brass fox.',
+      staleText: 'Remember this exactly: my coding mascot is a brass fox.',
+      oldText: 'Coding mascot is a brass fox',
+      newText: 'Coding mascot is a copper rabbit',
+      conflictKey: 'coding mascot',
+    },
+    {
+      sessionId: 'watch',
+      query: 'What color is the cashier watch now?',
+      currentId: 'watch-current',
+      staleId: 'watch-stale',
+      currentText: 'Correction: the arcade cashier watch is gold now, not silver.',
+      staleText: 'My first anchor detail: the arcade cashier wore a silver watch with a cracked face.',
+      oldText: 'Arcade cashier watch is silver',
+      newText: 'Arcade cashier watch is gold',
+      conflictKey: 'arcade cashier watch',
+    },
+  ];
+
+  try {
+    const archive = api.buildArchiveStore();
+    for (const [index, item] of cases.entries()) {
+      archive.sessions[item.sessionId] = {
+        sessionId: item.sessionId,
+        episodes: [
+          {
+            id: item.staleId,
+            type: 'episode',
+            text: item.staleText,
+            excerpt: item.staleText,
+            userText: item.staleText,
+            createdAt: `2026-04-13T12:0${index}:00.000Z`,
+            sensitivity: 'normal',
+          },
+          {
+            id: item.currentId,
+            type: 'episode',
+            text: item.currentText,
+            excerpt: item.currentText,
+            userText: item.currentText,
+            createdAt: `2026-04-13T12:1${index}:00.000Z`,
+            sensitivity: 'normal',
+          },
+        ],
+        summaries: [],
+        chapters: [],
+        provenance: [],
+        activeContradictions: [
+          {
+            id: `contr-${item.sessionId}`,
+            oldText: item.oldText,
+            newText: item.newText,
+            conflictKey: item.conflictKey,
+            status: 'active',
+            createdAt: `2026-04-13T12:1${index}:00.000Z`,
+            sourceEpisodeId: item.currentId,
+          },
+        ],
+        openLoops: [],
+        lastRetrieval: null,
+        lastArchivedAt: '',
+        updatedAt: '',
+      };
+    }
+    api.writeArchiveStore(archive);
+
+    for (const item of cases) {
+      const result = await api.buildArchiveContext({
+        sessionId: item.sessionId,
+        userText: item.query,
+        lane: 'chat',
+        now: Date.parse('2026-04-13T12:30:00.000Z'),
+        sessionPromptLimit: 1,
+        globalPromptLimit: 0,
+        allowArchiveCompression: false,
+        includeCandidateTrace: true,
+        candidateTraceLimit: 4,
+      });
+
+      assert.deepEqual(result.archiveContext.session.map((entry) => entry.id), [item.currentId]);
+      const current = result.retrieval.candidateTrace.find((entry) => entry.id === item.currentId);
+      const stale = result.retrieval.candidateTrace.find((entry) => entry.id === item.staleId);
+      assert.ok(current);
+      assert.ok(stale);
+      assert.equal(current.rank <= 1, true);
+      assert.equal(current.selected, true);
+      assert.equal(current.rendered, true);
+      assert.equal(stale.selected, false);
+      assert.equal(stale.rendered, false);
+      assert.ok(current.activeScoreComponents.contradictionRepairScore > 0);
+      assert.ok(stale.activeScoreComponents.contradictionRepairScore < 0);
+    }
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('buildArchiveContext suppresses weak sensitive matches instead of surfacing nonsense', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi({ ...files, embedReady: false });

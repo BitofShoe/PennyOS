@@ -144,6 +144,7 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     const byId = new Map(artifact.cases.map((item) => [item.id, item]));
 
     assert.equal(fetchCalls, 0);
+    assert.equal(artifact.cases.length, 7);
     assert.equal(artifact.measurementMode, 'archive-unit');
     assert.equal(artifact.liveModelCalls, false);
     assert.equal(artifact.serverSpawned, false);
@@ -152,8 +153,8 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(artifact.files.ledgerFile.startsWith(tmpDir), true);
     assert.equal(artifact.failureModeDefinitions.length, 9);
     assert.equal(artifact.summary.byFailureMode['not-applicable'], 1);
-    assert.equal(artifact.summary.byFailureMode['no-failure'], 1);
-    assert.equal(artifact.summary.byFailureMode['forbidden-rendered'], 1);
+    assert.equal(artifact.summary.byFailureMode['no-failure'], 5);
+    assert.equal(artifact.summary.byFailureMode['forbidden-rendered'], 0);
     assert.equal(artifact.summary.byFailureMode['missing-from-raw'], 1);
     assert.equal(artifact.cleanup.allRemoved, true);
     for (const file of artifact.cleanup.files) {
@@ -203,8 +204,8 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(semanticCase.survival.expectedObjectPresentRaw, true);
     assert.equal(semanticCase.survival.expectedObjectSelected, true);
     assert.equal(semanticCase.survival.expectedObjectRendered, true);
-    assert.equal(semanticCase.failureMode, 'forbidden-rendered');
-    assert.match(semanticCase.failureModeReason, /forbids rendering/i);
+    assert.equal(semanticCase.failureMode, 'no-failure');
+    assert.match(semanticCase.failureModeReason, /rendered support/i);
     assert.equal(semanticCase.forbiddenSurvival.forbiddenSelected, false);
     assert.equal(semanticCase.forbiddenSurvival.forbiddenRendered, false);
 
@@ -215,6 +216,40 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(absentCase.survival.expectedObjectPresentRaw, false);
     assert.equal(absentCase.forbiddenSurvival.forbiddenSelected, false);
     assert.equal(absentCase.forbiddenSurvival.forbiddenRendered, false);
+
+    for (const [caseId, expectedObject, forbiddenObject] of [
+      ['archive-coding-mascot-correction', 'copper rabbit', 'brass fox'],
+      ['archive-cashier-watch-correction', 'gold watch', 'silver watch'],
+    ]) {
+      const correctionCase = byId.get(caseId);
+      assert.ok(correctionCase);
+      assert.equal(correctionCase.expected.object, expectedObject);
+      assert.equal(correctionCase.survival.expectedObjectPresentRaw, true);
+      assert.equal(correctionCase.survival.expectedObjectSelected, true);
+      assert.equal(correctionCase.survival.expectedObjectRendered, true);
+      assert.equal(correctionCase.survival.bestRank <= correctionCase.retrievalExpectation.survivalAtK, true);
+      assert.equal(correctionCase.failureMode, 'no-failure');
+      assert.equal(correctionCase.forbiddenSurvival.forbiddenSelected, false);
+      assert.equal(correctionCase.forbiddenSurvival.forbiddenRendered, false);
+      assert.equal(
+        correctionCase.topCandidates.some((item) => item.matchedForbidden && item.textPreview.includes(forbiddenObject)),
+        true,
+      );
+    }
+
+    const sensitiveCase = byId.get('sensitive-weak-match-suppressed');
+    assert.ok(sensitiveCase);
+    assert.equal(sensitiveCase.survival.outcome, 'raw-only');
+    assert.equal(sensitiveCase.survival.expectedObjectPresentRaw, true);
+    assert.equal(sensitiveCase.survival.expectedObjectPresentRanked, false);
+    assert.equal(sensitiveCase.survival.expectedObjectSelected, false);
+    assert.equal(sensitiveCase.survival.expectedObjectRendered, false);
+    assert.equal(sensitiveCase.failureMode, 'no-failure');
+    assert.equal(sensitiveCase.traceSummary.filteredSensitiveCount, 1);
+    const suppressed = sensitiveCase.topCandidates.find((item) => item.matchedExpected);
+    assert.ok(suppressed);
+    assert.equal(suppressed.eligible, false);
+    assert.equal(suppressed.heldBackReason, 'sensitive-low-confidence');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

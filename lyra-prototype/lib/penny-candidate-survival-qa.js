@@ -178,12 +178,12 @@ const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
       owner: 'archive-candidate',
       survivalAtK: 5,
       shouldSelect: true,
-      shouldRender: false,
-      allowedSurvivalOutcomes: ['selected-held-back', 'ranked-not-selected', 'raw-only'],
-      forbiddenOutcomes: ['rendered', 'forbidden-selected', 'forbidden-rendered'],
+      shouldRender: true,
+      allowedSurvivalOutcomes: ['rendered', 'selected-held-back', 'ranked-not-selected', 'raw-only'],
+      forbiddenOutcomes: ['forbidden-selected', 'forbidden-rendered'],
       note: 'Candidate survival is useful retrieval evidence, but candidate-only support is not verified answer support.',
     },
-    expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.RANKED_NOT_SELECTED,
+    expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.RENDERED,
     notes: [
       'Candidate survival is a retrieval-path diagnostic. It does not equal verified answer support.',
       'Semantic candidates remain advisory discovery unless they are rendered or canonized elsewhere.',
@@ -219,6 +219,122 @@ const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
     expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.MISSING,
     notes: [
       'Missing is the desired retrieval-path class for an absent memory.',
+    ],
+  },
+  {
+    id: 'archive-coding-mascot-correction',
+    query: 'What is the coding mascot now?',
+    expected: {
+      subject: 'coding mascot',
+      relation: 'current correction',
+      object: 'copper rabbit',
+      objectVariants: ['copper rabbit'],
+      textNeedles: ['coding mascot is a copper rabbit', 'copper rabbit now'],
+      supportOwner: 'session-archive',
+      sourceAuthority: 'advisory',
+    },
+    forbidden: [
+      {
+        id: 'session:coding-mascot-stale-brass-fox',
+        object: 'brass fox',
+        reason: 'Stale archive value superseded by a correction.',
+      },
+    ],
+    support: {
+      owner: 'archive-candidate',
+      authority: 'advisory',
+      supportState: 'rendered',
+      label: 'archive correction episode',
+    },
+    retrievalExpectation: {
+      owner: 'archive',
+      survivalAtK: 5,
+      shouldSelect: true,
+      shouldRender: true,
+      allowedSurvivalOutcomes: ['rendered', 'selected-held-back'],
+      forbiddenOutcomes: ['missing', 'forbidden-selected', 'forbidden-rendered'],
+      note: 'Archive-owned correction should keep the current value above stale advisory candidates.',
+    },
+    expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.RENDERED,
+    notes: [
+      'Archive-owned correction case; current correction must outrank stale advisory support.',
+    ],
+  },
+  {
+    id: 'archive-cashier-watch-correction',
+    query: 'What color is the cashier watch now?',
+    expected: {
+      subject: 'arcade cashier watch',
+      relation: 'current correction',
+      object: 'gold watch',
+      objectVariants: ['gold watch', 'watch is gold'],
+      textNeedles: ['cashier watch is gold', 'cashier wore a gold watch'],
+      supportOwner: 'session-archive',
+      sourceAuthority: 'advisory',
+    },
+    forbidden: [
+      {
+        id: 'session:cashier-watch-stale-silver',
+        object: 'silver watch',
+        reason: 'Stale archive value superseded by a correction.',
+      },
+    ],
+    support: {
+      owner: 'archive-candidate',
+      authority: 'advisory',
+      supportState: 'rendered',
+      label: 'archive correction episode',
+    },
+    retrievalExpectation: {
+      owner: 'archive',
+      survivalAtK: 5,
+      shouldSelect: true,
+      shouldRender: true,
+      allowedSurvivalOutcomes: ['rendered', 'selected-held-back'],
+      forbiddenOutcomes: ['missing', 'forbidden-selected', 'forbidden-rendered'],
+      note: 'Archive-owned correction should keep the current watch color above stale advisory candidates.',
+    },
+    expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.RENDERED,
+    notes: [
+      'Archive-owned correction case; current correction must outrank stale advisory support.',
+    ],
+  },
+  {
+    id: 'sensitive-weak-match-suppressed',
+    query: 'Can you tell me about the midnight rain again?',
+    expected: {
+      relation: 'suppressed weak sensitive match',
+      object: 'want to disappear',
+      objectVariants: ['want to disappear', 'feel broken'],
+      textNeedles: ['want to disappear tonight', 'feel broken'],
+      supportOwner: 'session-archive',
+      sourceAuthority: 'sensitive/advisory',
+    },
+    forbidden: [
+      {
+        id: 'session:sensitive-weak-match',
+        object: 'want to disappear',
+        reason: 'Weak sensitive match must not be selected or rendered.',
+      },
+    ],
+    support: {
+      owner: 'archive-candidate',
+      authority: 'sensitive/advisory',
+      supportState: 'suppressed',
+      label: 'weak sensitive archive candidate',
+    },
+    retrievalExpectation: {
+      owner: 'archive',
+      survivalAtK: 5,
+      shouldSelect: false,
+      shouldRender: false,
+      allowedSurvivalOutcomes: ['raw-only', 'missing'],
+      forbiddenOutcomes: ['selected-held-back', 'rendered', 'forbidden-selected', 'forbidden-rendered'],
+      note: 'Weak sensitive candidates should stay filtered or absent, with a suppression reason in trace when available.',
+    },
+    expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.RAW_ONLY,
+    notes: [
+      'Sensitive weak matches are expected to stay out of selected/rendered prompt context.',
     ],
   },
 ]);
@@ -293,6 +409,9 @@ function buildCandidateSurvivalArchiveUnitSeedPlan({
     'archive-rendered-episodic-detail': 'qa-candidate-survival-archive-rendered-episodic-detail',
     'semantic-candidate-not-canonical': 'qa-candidate-survival-semantic-candidate-not-canonical',
     'fabricated-absent-tail-fact': 'qa-candidate-survival-fabricated-absent-tail-fact',
+    'archive-coding-mascot-correction': 'qa-candidate-survival-archive-coding-mascot-correction',
+    'archive-cashier-watch-correction': 'qa-candidate-survival-archive-cashier-watch-correction',
+    'sensitive-weak-match-suppressed': 'qa-candidate-survival-sensitive-weak-match-suppressed',
   });
   const sessionOptions = Object.freeze({
     'explicit-current-preference': {
@@ -309,6 +428,18 @@ function buildCandidateSurvivalArchiveUnitSeedPlan({
     },
     'fabricated-absent-tail-fact': {
       sessionPromptLimit: 2,
+      globalPromptLimit: 0,
+    },
+    'archive-coding-mascot-correction': {
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+    },
+    'archive-cashier-watch-correction': {
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+    },
+    'sensitive-weak-match-suppressed': {
+      sessionPromptLimit: 1,
       globalPromptLimit: 0,
     },
   });
@@ -441,6 +572,144 @@ function buildCandidateSurvivalArchiveUnitSeedPlan({
       lastRetrieval: null,
       lastArchivedAt: '',
       updatedAt: generatedAt,
+    },
+    [sessionIds['archive-coding-mascot-correction']]: {
+      sessionId: sessionIds['archive-coding-mascot-correction'],
+      episodes: [
+        {
+          id: 'session:coding-mascot-stale-brass-fox',
+          type: 'episode',
+          text: 'Remember this exactly: my coding mascot is a brass fox.',
+          excerpt: 'Remember this exactly: my coding mascot is a brass fox.',
+          userText: 'Remember this exactly: my coding mascot is a brass fox.',
+          createdAt: '2026-04-21T11:50:00.000Z',
+          sensitivity: 'normal',
+        },
+        {
+          id: 'session:coding-mascot-current-copper-rabbit',
+          type: 'episode',
+          text: 'Correction: my coding mascot is a copper rabbit now, not a brass fox.',
+          excerpt: 'Correction: my coding mascot is a copper rabbit now, not a brass fox.',
+          userText: 'Correction: my coding mascot is a copper rabbit now, not a brass fox.',
+          createdAt: '2026-04-21T12:03:00.000Z',
+          sensitivity: 'normal',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [
+        {
+          id: 'prov-coding-mascot-correction',
+          oldText: 'Coding mascot is a brass fox',
+          newText: 'Coding mascot is a copper rabbit',
+          conflictKey: 'coding mascot',
+          trigger: 'correction',
+          sourceEpisodeId: 'session:coding-mascot-current-copper-rabbit',
+          createdAt: '2026-04-21T12:03:00.000Z',
+          confidence: 0.9,
+        },
+      ],
+      activeContradictions: [
+        {
+          id: 'contr-coding-mascot-correction',
+          oldText: 'Coding mascot is a brass fox',
+          newText: 'Coding mascot is a copper rabbit',
+          conflictKey: 'coding mascot',
+          status: 'active',
+          createdAt: '2026-04-21T12:03:00.000Z',
+          sourceEpisodeId: 'session:coding-mascot-current-copper-rabbit',
+        },
+      ],
+      openLoops: [],
+      recentAuditTrail: [],
+      lastRetrieval: null,
+      lastArchivedAt: '2026-04-21T12:03:00.000Z',
+      updatedAt: '2026-04-21T12:03:00.000Z',
+    },
+    [sessionIds['archive-cashier-watch-correction']]: {
+      sessionId: sessionIds['archive-cashier-watch-correction'],
+      episodes: [
+        {
+          id: 'session:cashier-watch-stale-silver',
+          type: 'episode',
+          text: 'My first anchor detail: the arcade cashier wore a silver watch with a cracked face.',
+          excerpt: 'My first anchor detail: the arcade cashier wore a silver watch with a cracked face.',
+          userText: 'My first anchor detail: the arcade cashier wore a silver watch with a cracked face.',
+          createdAt: '2026-04-21T11:51:00.000Z',
+          sensitivity: 'normal',
+        },
+        {
+          id: 'session:cashier-watch-current-gold',
+          type: 'episode',
+          text: 'Correction: the arcade cashier watch is gold now, not silver.',
+          excerpt: 'Correction: the arcade cashier watch is gold now, not silver.',
+          userText: 'Correction: the arcade cashier watch is gold now, not silver.',
+          createdAt: '2026-04-21T12:04:00.000Z',
+          sensitivity: 'normal',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [
+        {
+          id: 'prov-cashier-watch-correction',
+          oldText: 'Arcade cashier watch is silver',
+          newText: 'Arcade cashier watch is gold',
+          conflictKey: 'arcade cashier watch',
+          trigger: 'correction',
+          sourceEpisodeId: 'session:cashier-watch-current-gold',
+          createdAt: '2026-04-21T12:04:00.000Z',
+          confidence: 0.9,
+        },
+      ],
+      activeContradictions: [
+        {
+          id: 'contr-cashier-watch-correction',
+          oldText: 'Arcade cashier watch is silver',
+          newText: 'Arcade cashier watch is gold',
+          conflictKey: 'arcade cashier watch',
+          status: 'active',
+          createdAt: '2026-04-21T12:04:00.000Z',
+          sourceEpisodeId: 'session:cashier-watch-current-gold',
+        },
+      ],
+      openLoops: [],
+      recentAuditTrail: [],
+      lastRetrieval: null,
+      lastArchivedAt: '2026-04-21T12:04:00.000Z',
+      updatedAt: '2026-04-21T12:04:00.000Z',
+    },
+    [sessionIds['sensitive-weak-match-suppressed']]: {
+      sessionId: sessionIds['sensitive-weak-match-suppressed'],
+      episodes: [
+        {
+          id: 'session:sensitive-safe-midnight-rain',
+          type: 'episode',
+          text: 'Midnight rain on the windows felt safe again.',
+          excerpt: 'Midnight rain on the windows felt safe again.',
+          userText: 'Midnight rain on the windows felt safe again.',
+          createdAt: '2026-04-21T12:05:00.000Z',
+          sensitivity: 'normal',
+        },
+        {
+          id: 'session:sensitive-weak-match',
+          type: 'episode',
+          text: 'I feel broken and want to disappear tonight.',
+          excerpt: 'I feel broken and want to disappear tonight.',
+          userText: 'I feel broken and want to disappear tonight.',
+          createdAt: '2026-04-21T12:06:00.000Z',
+          sensitivity: 'high',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      recentAuditTrail: [],
+      lastRetrieval: null,
+      lastArchivedAt: '2026-04-21T12:06:00.000Z',
+      updatedAt: '2026-04-21T12:06:00.000Z',
     },
   };
 
@@ -1261,6 +1530,12 @@ function outcomeIsForbiddenByExpectation(normalizedCase = {}, outcome = '') {
     .includes(outcome);
 }
 
+function outcomeIsAllowedByExpectation(normalizedCase = {}, outcome = '') {
+  return asArray(normalizedCase.retrievalExpectation?.allowedSurvivalOutcomes)
+    .map((item) => normalizeOutcome(item, ''))
+    .includes(outcome);
+}
+
 function describeAnswerOutcome(answerOutcomeLike = null) {
   if (answerOutcomeLike === undefined || answerOutcomeLike === null || answerOutcomeLike === '') return '';
   if (typeof answerOutcomeLike === 'object') {
@@ -1371,6 +1646,18 @@ function classifyCandidateFailureMode(caseLike = {}, survivalResult = null, trac
   }
   if (outcome === CANDIDATE_SURVIVAL_OUTCOMES.RAW_ONLY) {
     const reason = bestExpected?.heldBackReason || (bestExpected?.eligible === false ? 'eligible=false' : '');
+    if (
+      outcomeIsAllowedByExpectation(normalizedCase, CANDIDATE_SURVIVAL_OUTCOMES.RAW_ONLY)
+      && normalizedCase.retrievalExpectation?.shouldRender === false
+      && normalizedCase.retrievalExpectation?.shouldSelect === false
+    ) {
+      return buildCandidateFailureModeResult(
+        CANDIDATE_FAILURE_MODES.NO_FAILURE,
+        reason
+          ? `Expected candidate stayed suppressed before ranking: ${reason}.`
+          : 'Expected candidate stayed suppressed before ranking.',
+      );
+    }
     return buildCandidateFailureModeResult(
       CANDIDATE_FAILURE_MODES.FILTERED_OUT,
       reason

@@ -114,11 +114,12 @@ test('candidate-survival fixture includes Penny-native explicit archive semantic
 
   assert.equal(semanticCase.expected.object, 'silver thermos');
   assert.equal(semanticCase.support.authority, 'candidate-only/advisory');
-  assert.equal(semanticCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.RANKED_NOT_SELECTED);
-  assert.equal(semanticCase.failureMode, CANDIDATE_FAILURE_MODES.LOW_RANK);
+  assert.equal(semanticCase.support.supportState, 'candidate-only');
+  assert.equal(semanticCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.RENDERED);
+  assert.equal(semanticCase.failureMode, CANDIDATE_FAILURE_MODES.NO_FAILURE);
   assert.equal(semanticCase.retrievalExpectation.owner, 'archive-candidate');
-  assert.equal(semanticCase.retrievalExpectation.shouldRender, false);
-  assert.equal(semanticCase.retrievalExpectation.forbiddenOutcomes.includes(CANDIDATE_SURVIVAL_OUTCOMES.RENDERED), true);
+  assert.equal(semanticCase.retrievalExpectation.shouldRender, true);
+  assert.equal(semanticCase.retrievalExpectation.forbiddenOutcomes.includes(CANDIDATE_SURVIVAL_OUTCOMES.FORBIDDEN_RENDERED), true);
   assert.equal(semanticCase.notes.some((note) => (
     note.includes('Candidate survival is a retrieval-path diagnostic')
   )), true);
@@ -130,7 +131,7 @@ test('candidate-survival fixture includes Penny-native explicit archive semantic
   assert.deepEqual(absentCase.retrievalExpectation.allowedSurvivalOutcomes, [CANDIDATE_SURVIVAL_OUTCOMES.MISSING]);
   assert.equal(fixture.summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.MISSING], 1);
   assert.equal(fixture.summary.byFailureMode[CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW], 1);
-  assert.equal(fixture.summary.byFailureMode[CANDIDATE_FAILURE_MODES.NO_FAILURE], 1);
+  assert.equal(fixture.summary.byFailureMode[CANDIDATE_FAILURE_MODES.NO_FAILURE], 5);
 });
 
 test('candidate-survival fixture carries source-sensitive retrieval expectations', () => {
@@ -146,15 +147,55 @@ test('candidate-survival fixture carries source-sensitive retrieval expectations
       && Array.isArray(item.retrievalExpectation.allowedSurvivalOutcomes)
       && Array.isArray(item.retrievalExpectation.forbiddenOutcomes)
   )), true);
-  assert.equal(byId.get('semantic-candidate-not-canonical').retrievalExpectation.shouldRender, false);
   assert.equal(
-    byId.get('semantic-candidate-not-canonical').retrievalExpectation.forbiddenOutcomes.includes(CANDIDATE_SURVIVAL_OUTCOMES.RENDERED),
+    byId.get('semantic-candidate-not-canonical').retrievalExpectation.shouldRender,
     true,
   );
   assert.deepEqual(
     byId.get('fabricated-absent-tail-fact').retrievalExpectation.allowedSurvivalOutcomes,
     [CANDIDATE_SURVIVAL_OUTCOMES.MISSING],
   );
+});
+
+test('candidate-survival fixture pins Slice 10 source-sensitive regression cases', () => {
+  const fixture = buildCandidateSurvivalQaFixture({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+  });
+  const byId = new Map(fixture.cases.map((item) => [item.id, item]));
+
+  assert.deepEqual([...byId.keys()], [
+    'explicit-current-preference',
+    'archive-rendered-episodic-detail',
+    'semantic-candidate-not-canonical',
+    'fabricated-absent-tail-fact',
+    'archive-coding-mascot-correction',
+    'archive-cashier-watch-correction',
+    'sensitive-weak-match-suppressed',
+  ]);
+
+  const codingMascot = byId.get('archive-coding-mascot-correction');
+  assert.equal(codingMascot.expected.object, 'copper rabbit');
+  assert.equal(codingMascot.forbidden[0].object, 'brass fox');
+  assert.equal(codingMascot.retrievalExpectation.owner, 'archive');
+  assert.equal(codingMascot.retrievalExpectation.survivalAtK, 5);
+  assert.equal(codingMascot.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.RENDERED);
+  assert.equal(codingMascot.failureMode, CANDIDATE_FAILURE_MODES.NO_FAILURE);
+
+  const cashierWatch = byId.get('archive-cashier-watch-correction');
+  assert.equal(cashierWatch.expected.object, 'gold watch');
+  assert.equal(cashierWatch.forbidden[0].object, 'silver watch');
+  assert.equal(cashierWatch.retrievalExpectation.survivalAtK, 5);
+  assert.equal(cashierWatch.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.RENDERED);
+  assert.equal(cashierWatch.failureMode, CANDIDATE_FAILURE_MODES.NO_FAILURE);
+
+  const sensitive = byId.get('sensitive-weak-match-suppressed');
+  assert.equal(sensitive.expected.object, 'want to disappear');
+  assert.equal(sensitive.support.supportState, 'suppressed');
+  assert.equal(sensitive.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.RAW_ONLY);
+  assert.equal(sensitive.failureMode, CANDIDATE_FAILURE_MODES.NO_FAILURE);
+  assert.equal(sensitive.retrievalExpectation.shouldSelect, false);
+  assert.equal(sensitive.retrievalExpectation.shouldRender, false);
+  assert.equal(sensitive.retrievalExpectation.forbiddenOutcomes.includes(CANDIDATE_SURVIVAL_OUTCOMES.RENDERED), true);
 });
 
 test('candidate matching uses ids and expected source/object anchors', () => {
@@ -348,6 +389,41 @@ test('candidate failure-mode classifier covers every diagnostic layer', () => {
     CANDIDATE_FAILURE_MODES.FILTERED_OUT,
   );
 
+  const expectedSuppressedCase = {
+    ...renderForbiddenCase,
+    id: 'sensitive-weak-match-suppressed',
+    expected: { object: 'want to disappear' },
+    support: { owner: 'archive-candidate', authority: 'sensitive/advisory', supportState: 'suppressed' },
+    expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.RAW_ONLY,
+    retrievalExpectation: {
+      owner: 'archive',
+      shouldSelect: false,
+      shouldRender: false,
+      allowedSurvivalOutcomes: [CANDIDATE_SURVIVAL_OUTCOMES.RAW_ONLY],
+      forbiddenOutcomes: [CANDIDATE_SURVIVAL_OUTCOMES.RENDERED],
+    },
+  };
+  assert.equal(
+    classifyCandidateFailureMode(expectedSuppressedCase, classifyCandidateSurvival(expectedSuppressedCase, [
+      {
+        id: 'session:sensitive-weak-match',
+        text: 'I feel broken and want to disappear tonight.',
+        stage: 'filtered',
+        eligible: false,
+        heldBackReason: 'sensitive-low-confidence',
+      },
+    ]), [
+      {
+        id: 'session:sensitive-weak-match',
+        text: 'I feel broken and want to disappear tonight.',
+        stage: 'filtered',
+        eligible: false,
+        heldBackReason: 'sensitive-low-confidence',
+      },
+    ]).failureMode,
+    CANDIDATE_FAILURE_MODES.NO_FAILURE,
+  );
+
   assert.equal(
     classifyCandidateFailureMode(renderExpectedCase, classifyCandidateSurvival(renderExpectedCase, [
       { id: 'session:arcade-mug', object: 'chipped moon mug', rank: 12 },
@@ -425,6 +501,9 @@ test('archive-unit seed plan keeps disposable stores deterministic', () => {
   assert.equal(seed.explicitMemory.memories[0].text, 'My favorite tea is lapsang souchong.');
   assert.ok(seed.archiveSessions[seed.sessionIds['explicit-current-preference']]);
   assert.ok(seed.archiveSessions[seed.sessionIds['archive-rendered-episodic-detail']]);
+  assert.ok(seed.archiveSessions[seed.sessionIds['archive-coding-mascot-correction']]);
+  assert.ok(seed.archiveSessions[seed.sessionIds['archive-cashier-watch-correction']]);
+  assert.ok(seed.archiveSessions[seed.sessionIds['sensitive-weak-match-suppressed']]);
   assert.equal(seed.memoryBooks.books.length, 0);
   assert.deepEqual(seed.researchLedger.topics, {});
 });
