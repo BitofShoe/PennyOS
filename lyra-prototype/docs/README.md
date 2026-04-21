@@ -127,6 +127,7 @@ This section keeps current law first, then follows the interpretive order from [
 | --- | --- | --- | --- | --- | --- |
 | [plans/](./plans/) and [plans/TEMPLATE.md](./plans/TEMPLATE.md) | Implementation plans | Implementation plan | Draft | bounded next slices and planning format | proof that behavior shipped |
 | [plans/penny-external-lessons-master-action-plan-2026-04-21.md](./plans/penny-external-lessons-master-action-plan-2026-04-21.md) | April 21 master action plan | Implementation plan | Current | revised slice map, fixture-only cleanup routing, landed-vs-deferred status, and next-slice routing | proof that behavior shipped without checking code, tests, and artifacts |
+| [plans/penny-deterministic-extraction-qa-plan-2026-04-21.md](./plans/penny-deterministic-extraction-qa-plan-2026-04-21.md) | Deterministic extraction QA plan | Implementation plan | Draft | later-if-needed fixture shape for source-receipted numeric/document extraction QA | permission to wire OCR, hosted document tools, CMS/source warehouse behavior, or runtime ingestion |
 | [plans/prompttruth-v2-completion-note-2026-04-19.md](./plans/prompttruth-v2-completion-note-2026-04-19.md) | Completion note | Strong guidance | Current | compact landed-vs-deferred summary for PromptTruth v2 and `toolEvidenceReceipt` | overriding contracts, code, tests, or runtime artifacts |
 
 ### 8. Public/external explanation docs
