@@ -17,10 +17,16 @@ const {
   applyPromptTruthToCandidateTrace,
   buildCandidateSurvivalArchiveUnitArtifact,
   buildCandidateSurvivalArchiveUnitCaseResult,
+  buildEmbeddingProviderComparison,
   buildCandidateSurvivalProfileComparison,
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
 } = require('../lib/penny-candidate-survival-qa');
+const {
+  STATIC_SHADOW_EMBED_PROVIDER,
+  createStaticShadowEmbeddingProvider,
+  normalizeShadowEmbedProvider,
+} = require('../lib/penny-static-shadow-embeddings');
 const {
   createMemoryArchiveApi,
   normalizeArchiveScoringProfile,
@@ -69,6 +75,7 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
   let sourceSensitiveFixtureMode = process.env.PENNY_QA_MEMORY_SOURCE_SENSITIVE_FIXTURE === '1';
   let candidateSurvivalFixtureMode = process.env.PENNY_QA_MEMORY_CANDIDATE_SURVIVAL_FIXTURE === '1';
   let candidateSurvivalArchiveUnitMode = process.env.PENNY_QA_MEMORY_CANDIDATE_SURVIVAL_ARCHIVE_UNIT === '1';
+  let shadowEmbedProvider = normalizeShadowEmbedProvider(process.env.PENNY_EMBED_SHADOW_PROVIDER || '');
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = String(argv[index] || '').trim();
@@ -79,6 +86,23 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
     }
     if (arg === '--candidate-survival-archive-unit') {
       candidateSurvivalArchiveUnitMode = true;
+      continue;
+    }
+    if (arg === '--shadow-embed-provider') {
+      const normalizedProvider = normalizeShadowEmbedProvider(argv[index + 1] || '');
+      if (!normalizedProvider) {
+        throw new Error('Unknown shadow embed provider. Expected: static');
+      }
+      shadowEmbedProvider = normalizedProvider;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--shadow-embed-provider=')) {
+      const normalizedProvider = normalizeShadowEmbedProvider(arg.slice('--shadow-embed-provider='.length));
+      if (!normalizedProvider) {
+        throw new Error('Unknown shadow embed provider. Expected: static');
+      }
+      shadowEmbedProvider = normalizedProvider;
       continue;
     }
     if (arg === '--source-sensitive-fixture' || arg === '--source-sensitive') {
@@ -171,6 +195,7 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
     sourceSensitiveFixtureMode,
     candidateSurvivalFixtureMode,
     candidateSurvivalArchiveUnitMode,
+    shadowEmbedProvider,
     runMode,
     runLabel,
   };
@@ -586,6 +611,7 @@ function buildCandidateSurvivalArchiveUnitPaths({
     memoryFile: path.join(disposableRoot, 'penny-memory.json'),
     archiveFile: path.join(disposableRoot, 'penny-memory-archive.json'),
     embeddingsFile: path.join(disposableRoot, 'penny-memory-embeddings.json'),
+    shadowEmbeddingsFile: path.join(disposableRoot, 'penny-memory-embeddings.static-shadow.json'),
     booksFile: path.join(disposableRoot, 'penny-memory-books.json'),
     ledgerFile: path.join(disposableRoot, 'penny-memory-ledger.json'),
   };
@@ -596,6 +622,7 @@ function cleanupCandidateSurvivalArchiveUnitFiles(paths = {}, fsImpl = fs) {
     ['explicitMemoryFile', paths.memoryFile],
     ['archiveFile', paths.archiveFile],
     ['embeddingsFile', paths.embeddingsFile],
+    ['shadowEmbeddingsFile', paths.shadowEmbeddingsFile],
     ['booksFile', paths.booksFile],
     ['ledgerFile', paths.ledgerFile],
   ].map(([label, filePath]) => {
@@ -655,6 +682,8 @@ async function runCandidateSurvivalArchiveUnitQa({
   fetchImpl = null,
   nowMs = null,
   archiveScoringProfile = process.env.PENNY_ARCHIVE_SCORING_PROFILE || 'baseline',
+  primaryEmbedModel = EMBED_MODEL,
+  shadowEmbedProvider = normalizeShadowEmbedProvider(process.env.PENNY_EMBED_SHADOW_PROVIDER || ''),
 } = {}) {
   fsImpl.mkdirSync(outputDir, { recursive: true });
   const paths = buildCandidateSurvivalArchiveUnitPaths({ outputDir, stamp });
@@ -667,6 +696,7 @@ async function runCandidateSurvivalArchiveUnitQa({
       })();
   const seedPlan = buildCandidateSurvivalArchiveUnitSeedPlan({ generatedAt });
   const activeScoringProfile = normalizeArchiveScoringProfile(archiveScoringProfile);
+  const activeShadowProvider = normalizeShadowEmbedProvider(shadowEmbedProvider);
   const api = createMemoryArchiveApi({
     fs: fsImpl,
     path: pathImpl,
@@ -679,7 +709,7 @@ async function runCandidateSurvivalArchiveUnitQa({
     EMBEDDINGS_FILE: paths.embeddingsFile,
     LMSTUDIO_BASE: 'http://127.0.0.1:0/v1',
     LMSTUDIO_API_KEY: 'lm-studio-local',
-    PENNY_LMSTUDIO_EMBED_MODEL: 'qa-candidate-survival-missing-embed-model',
+    PENNY_LMSTUDIO_EMBED_MODEL: primaryEmbedModel,
     PENNY_ARCHIVE_SCORING_PROFILE: activeScoringProfile,
     ENABLE_BACKGROUND_CHAT_VECTORS: false,
     BACKGROUND_CHAT_VECTOR_BATCH_LIMIT: 0,
@@ -694,42 +724,61 @@ async function runCandidateSurvivalArchiveUnitQa({
     files: [],
   };
   const caseResults = [];
+  let embeddingProviderComparison = null;
+  async function buildArchiveUnitProfileResult({
+    archiveApi,
+    caseLike,
+    sessionId,
+    sessionOptions,
+    profile,
+  }) {
+    const retrievalResult = await archiveApi.buildArchiveContext({
+      sessionId,
+      userText: caseLike.query,
+      lane: 'chat',
+      now: fixedNowMs(),
+      allowSemanticQuery: true,
+      allowArchiveCompression: true,
+      includeCandidateTrace: true,
+      candidateTraceLimit: CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
+      scoringProfile: profile,
+      ...sessionOptions,
+    });
+    const promptMemoryContext = buildPromptMemoryContext({
+      memories: seedPlan.explicitMemory.memories,
+      archiveContext: retrievalResult.archiveContext,
+      memoryBookContext: { matches: [] },
+      researchLedgerContext: { topics: [] },
+      researchLedgerPromptEnabled: false,
+    }, caseLike.query);
+    return {
+      retrievalResult,
+      promptTruth: promptMemoryContext.promptTruth,
+      trace: applyPromptTruthToCandidateTrace(
+        retrievalResult?.retrieval?.candidateTrace || [],
+        promptMemoryContext.promptTruth,
+      ),
+    };
+  }
   try {
     seedCandidateSurvivalArchiveUnitStores({ api, paths, seedPlan, fsImpl });
     for (const caseLike of CANDIDATE_SURVIVAL_FIXTURE_CASES) {
       const sessionId = seedPlan.sessionIds[caseLike.id] || `qa-candidate-survival-${caseLike.id}`;
       const sessionOptions = seedPlan.sessionOptions[caseLike.id] || {};
-      const buildProfileResult = async (profile) => {
-        const retrievalResult = await api.buildArchiveContext({
-          sessionId,
-          userText: caseLike.query,
-          lane: 'chat',
-          now: fixedNowMs(),
-          allowSemanticQuery: true,
-          allowArchiveCompression: true,
-          includeCandidateTrace: true,
-          candidateTraceLimit: CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
-          scoringProfile: profile,
-          ...sessionOptions,
-        });
-        const promptMemoryContext = buildPromptMemoryContext({
-          memories: seedPlan.explicitMemory.memories,
-          archiveContext: retrievalResult.archiveContext,
-          memoryBookContext: { matches: [] },
-          researchLedgerContext: { topics: [] },
-          researchLedgerPromptEnabled: false,
-        }, caseLike.query);
-        return {
-          retrievalResult,
-          promptTruth: promptMemoryContext.promptTruth,
-          trace: applyPromptTruthToCandidateTrace(
-            retrievalResult?.retrieval?.candidateTrace || [],
-            promptMemoryContext.promptTruth,
-          ),
-        };
-      };
-      const baselineResult = await buildProfileResult('baseline');
-      const hybridResult = await buildProfileResult('hybrid-v1');
+      const baselineResult = await buildArchiveUnitProfileResult({
+        archiveApi: api,
+        caseLike,
+        sessionId,
+        sessionOptions,
+        profile: 'baseline',
+      });
+      const hybridResult = await buildArchiveUnitProfileResult({
+        archiveApi: api,
+        caseLike,
+        sessionId,
+        sessionOptions,
+        profile: 'hybrid-v1',
+      });
       const activeResult = activeScoringProfile === 'hybrid-v1' ? hybridResult : baselineResult;
       const profileComparison = buildCandidateSurvivalProfileComparison(caseLike, {
         baselineTrace: baselineResult.trace,
@@ -742,6 +791,60 @@ async function runCandidateSurvivalArchiveUnitQa({
         profileComparison,
       }));
     }
+    if (activeShadowProvider === STATIC_SHADOW_EMBED_PROVIDER) {
+      const staticProvider = createStaticShadowEmbeddingProvider();
+      const shadowApi = createMemoryArchiveApi({
+        fs: fsImpl,
+        path: pathImpl,
+        fetch: staticProvider.fetch,
+        ARCHIVE_FILE: paths.archiveFile,
+        EMBEDDINGS_FILE: paths.shadowEmbeddingsFile,
+        LMSTUDIO_BASE: 'http://127.0.0.1:0/v1',
+        LMSTUDIO_API_KEY: 'static-shadow-local',
+        PENNY_LMSTUDIO_EMBED_MODEL: staticProvider.model,
+        PENNY_ARCHIVE_SCORING_PROFILE: activeScoringProfile,
+        ENABLE_BACKGROUND_CHAT_VECTORS: false,
+        BACKGROUND_CHAT_VECTOR_BATCH_LIMIT: 0,
+        getLmStudioConnectionStatus: staticProvider.getLmStudioConnectionStatus,
+        nowMs: fixedNowMs,
+      });
+      shadowApi.writeEmbeddingsStore(shadowApi.buildEmbeddingsStore(staticProvider.model), { replace: true });
+      const shadowCaseResults = [];
+      const started = process.hrtime.bigint();
+      for (const caseLike of CANDIDATE_SURVIVAL_FIXTURE_CASES) {
+        const sessionId = seedPlan.sessionIds[caseLike.id] || `qa-candidate-survival-${caseLike.id}`;
+        const sessionOptions = seedPlan.sessionOptions[caseLike.id] || {};
+        const shadowResult = await buildArchiveUnitProfileResult({
+          archiveApi: shadowApi,
+          caseLike,
+          sessionId,
+          sessionOptions,
+          profile: activeScoringProfile,
+        });
+        shadowCaseResults.push(buildCandidateSurvivalArchiveUnitCaseResult({
+          caseLike,
+          retrievalResult: shadowResult.retrievalResult,
+          promptTruth: shadowResult.promptTruth,
+          traceLike: shadowResult.trace,
+        }));
+      }
+      const cpuMs = Number(process.hrtime.bigint() - started) / 1000000;
+      embeddingProviderComparison = buildEmbeddingProviderComparison({
+        primary: {
+          provider: 'primary',
+          model: api.configuredEmbedModel,
+          retrievalMode: 'keyword',
+        },
+        primaryCases: caseResults,
+        shadow: {
+          provider: staticProvider.provider,
+          model: staticProvider.model,
+          retrievalMode: 'semantic-shadow',
+          cpuMs,
+        },
+        shadowCases: shadowCaseResults,
+      });
+    }
   } finally {
     cleanup = cleanupCandidateSurvivalArchiveUnitFiles(paths, fsImpl);
   }
@@ -750,6 +853,7 @@ async function runCandidateSurvivalArchiveUnitQa({
     explicitMemoryFile: paths.memoryFile,
     archiveFile: paths.archiveFile,
     embeddingsFile: paths.embeddingsFile,
+    ...(activeShadowProvider ? { shadowEmbeddingsFile: paths.shadowEmbeddingsFile } : {}),
     booksFile: paths.booksFile,
     ledgerFile: paths.ledgerFile,
     disposableRoot: paths.disposableRoot,
@@ -760,6 +864,7 @@ async function runCandidateSurvivalArchiveUnitQa({
     filePaths,
     cleanup,
     candidateTraceLimit: CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
+    embeddingProviderComparison,
   });
   writeJsonFile(artifactPath, artifact, fsImpl);
   return {
@@ -2098,6 +2203,7 @@ async function main() {
       outputPath: OUTPUT_PATH,
       outputDir: OUTPUT_DIR,
       stamp: STAMP,
+      shadowEmbedProvider: MEMORY_QA_ARGS.shadowEmbedProvider,
     });
     console.log(`Saved candidate-survival archive-unit memory QA to ${result.outputPath}`);
     return;

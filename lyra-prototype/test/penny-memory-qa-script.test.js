@@ -26,6 +26,10 @@ const {
 const {
   buildRuntimeArtifact,
 } = require('../lib/penny-runtime-artifacts');
+const {
+  STATIC_SHADOW_EMBED_MODEL,
+  createStaticShadowEmbeddingProvider,
+} = require('../lib/penny-static-shadow-embeddings');
 
 test('parseMemoryQaArgs defaults to combined mode when no flags are supplied', () => {
   const parsed = parseMemoryQaArgs([]);
@@ -80,10 +84,35 @@ test('parseMemoryQaArgs supports candidate-survival fixture and archive-unit mod
   assert.equal(archiveUnit.runLabel, 'candidate-survival-archive-unit');
   assert.equal(archiveUnit.candidateSurvivalArchiveUnitMode, true);
   assert.equal(archiveUnit.combinedMode, false);
+  assert.equal(archiveUnit.shadowEmbedProvider, '');
+
+  const shadow = parseMemoryQaArgs(['--candidate-survival-archive-unit', '--shadow-embed-provider=static']);
+  assert.equal(shadow.runMode, 'candidate-survival-archive-unit');
+  assert.equal(shadow.shadowEmbedProvider, 'static');
 
   assert.throws(() => parseMemoryQaArgs(['--candidate-survival-archive-unit', '--smoke']), /cannot combine --candidate-survival-archive-unit/i);
   assert.throws(() => parseMemoryQaArgs(['--candidate-survival-archive-unit', '--judged']), /cannot combine --candidate-survival-archive-unit/i);
   assert.throws(() => parseMemoryQaArgs(['--candidate-survival-fixture', '--source-sensitive-fixture']), /cannot combine --candidate-survival-fixture/i);
+  assert.throws(() => parseMemoryQaArgs(['--candidate-survival-archive-unit', '--shadow-embed-provider=bogus']), /Unknown shadow embed provider/i);
+});
+
+test('static shadow provider is deterministic and local-only', async () => {
+  const provider = createStaticShadowEmbeddingProvider();
+  const first = provider.createEmbedding('A copper rabbit sat beside the coding notebook.');
+  const second = provider.createEmbedding('A copper rabbit sat beside the coding notebook.');
+  const different = provider.createEmbedding('A silver watch was on the arcade cashier.');
+  const response = await provider.fetch('http://127.0.0.1:0/v1/embeddings', {
+    body: JSON.stringify({ input: 'A copper rabbit sat beside the coding notebook.' }),
+  });
+  const payload = JSON.parse(await response.text());
+
+  assert.equal(provider.provider, 'static');
+  assert.equal(provider.model, STATIC_SHADOW_EMBED_MODEL);
+  assert.deepEqual(first, second);
+  assert.notDeepEqual(first, different);
+  assert.equal(payload.data[0].model, STATIC_SHADOW_EMBED_MODEL);
+  assert.deepEqual(payload.data[0].embedding, first);
+  assert.match(provider.cacheKeyForText('same text'), /^static:penny-static-shadow-lexical-v1:/);
 });
 
 test('parseMemoryQaArgs rejects invalid segment combinations', () => {
@@ -135,6 +164,8 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
       stamp,
       generatedAt: '2026-04-21T12:00:00.000Z',
       nowMs: Date.parse('2026-04-21T12:05:00.000Z'),
+      primaryEmbedModel: 'text-embedding-nomic-embed-text-v1.5',
+      shadowEmbedProvider: 'static',
       fetchImpl: async () => {
         fetchCalls += 1;
         throw new Error('fetch should not be called in archive-unit keyword fallback');
@@ -151,6 +182,7 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(artifact.apiChatCalls, false);
     assert.equal(artifact.includeCandidateTrace, true);
     assert.equal(artifact.files.ledgerFile.startsWith(tmpDir), true);
+    assert.equal(artifact.files.shadowEmbeddingsFile.startsWith(tmpDir), true);
     assert.equal(artifact.failureModeDefinitions.length, 9);
     assert.equal(artifact.summary.byFailureMode['not-applicable'], 1);
     assert.equal(artifact.summary.byFailureMode['no-failure'], 5);
@@ -185,6 +217,15 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
       'verdict',
     ]);
     assert.equal(explicitCase.profileComparison.renderedCountDelta, 0);
+    assert.equal(artifact.embeddingProviderComparison.primary.provider, 'primary');
+    assert.equal(artifact.embeddingProviderComparison.primary.model, 'text-embedding-nomic-embed-text-v1.5');
+    assert.equal(artifact.embeddingProviderComparison.primary.survivalAtK.eligible, 4);
+    assert.equal(artifact.embeddingProviderComparison.shadow.provider, 'static');
+    assert.equal(artifact.embeddingProviderComparison.shadow.model, STATIC_SHADOW_EMBED_MODEL);
+    assert.equal(artifact.embeddingProviderComparison.shadow.survivalAtK.eligible, 4);
+    assert.equal(typeof artifact.embeddingProviderComparison.shadow.cpuMs, 'number');
+    assert.equal(artifact.embeddingProviderComparison.limits.includes('Default embedding provider unchanged.'), true);
+    assert.equal(Object.prototype.hasOwnProperty.call(artifact.embeddingProviderComparison, 'promptTruth'), false);
 
     const archiveCase = byId.get('archive-rendered-episodic-detail');
     assert.ok(archiveCase);

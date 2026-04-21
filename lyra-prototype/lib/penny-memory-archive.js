@@ -337,6 +337,30 @@ function createMemoryArchiveApi({
     return embeddingModelsLookEquivalent(itemModel, targetModel);
   }
 
+  function embeddingCacheKeyForText(text = '', model = configuredEmbedModel) {
+    const normalizedText = trimText(text, 1000);
+    const normalizedModel = normalizeEmbedModelId(model || configuredEmbedModel || '');
+    return stableHash(`${normalizedModel || 'unknown-embedding-model'}\n${normalizedText}`);
+  }
+
+  function legacyEmbeddingCacheKeyForText(text = '') {
+    return stableHash(trimText(text, 1000));
+  }
+
+  function findEmbeddingCacheEntry(store = {}, text = '', model = configuredEmbedModel) {
+    const hash = embeddingCacheKeyForText(text, model);
+    const legacyHash = legacyEmbeddingCacheKeyForText(text);
+    const direct = store?.items?.[hash];
+    if (direct?.vector?.length && embeddingItemMatchesConfiguredModel(direct, model)) {
+      return { item: direct, hash, legacyHash, migrated: false };
+    }
+    const legacy = legacyHash !== hash ? store?.items?.[legacyHash] : null;
+    if (legacy?.vector?.length && embeddingItemMatchesConfiguredModel(legacy, model)) {
+      return { item: legacy, hash, legacyHash, migrated: true };
+    }
+    return { item: null, hash, legacyHash, migrated: false };
+  }
+
   function ensureFile(filePath = '', builder = () => ({})) {
     if (!filePath) return;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -1722,20 +1746,34 @@ function createMemoryArchiveApi({
     const normalizedText = trimText(text, 1000);
     if (!normalizedText) return { embeddings: embeddingsStore || readEmbeddingsStore(), vector: null, created: false };
     const store = embeddingsStore || readEmbeddingsStore();
-    const hash = stableHash(normalizedText);
-    const existing = store.items[hash];
-    if (existing?.vector?.length && embeddingItemMatchesConfiguredModel(existing, store.meta?.embedModel || configuredEmbedModel)) {
-      return { embeddings: store, vector: existing.vector, created: false, hash };
+    const model = store.meta?.embedModel || configuredEmbedModel;
+    const { item: existing, hash, legacyHash, migrated } = findEmbeddingCacheEntry(store, normalizedText, model);
+    if (existing?.vector?.length) {
+      if (migrated && legacyHash && legacyHash !== hash) {
+        delete store.items[legacyHash];
+        store.items[hash] = {
+          ...existing,
+          hash,
+          model: normalizeEmbedModelId(existing.model || model || ''),
+        };
+        store.meta.updatedAt = new Date(nowMs()).toISOString();
+      }
+      return { embeddings: store, vector: existing.vector, created: false, hash, migrated };
     }
-    if (existing && !embeddingItemMatchesConfiguredModel(existing, store.meta?.embedModel || configuredEmbedModel)) {
+    const staleByHash = store.items[hash];
+    const staleByLegacyHash = legacyHash && legacyHash !== hash ? store.items[legacyHash] : null;
+    if (staleByHash && !embeddingItemMatchesConfiguredModel(staleByHash, model)) {
       delete store.items[hash];
+    }
+    if (staleByLegacyHash && !embeddingItemMatchesConfiguredModel(staleByLegacyHash, model)) {
+      delete store.items[legacyHash];
     }
     const vector = await createEmbedding(normalizedText, semanticStatus);
     if (!vector) return { embeddings: store, vector: null, created: false, hash };
     store.items[hash] = {
       hash,
       text: normalizedText,
-      model: configuredEmbedModel,
+      model: normalizeEmbedModelId(model || configuredEmbedModel || ''),
       updatedAt: new Date(nowMs()).toISOString(),
       vector,
       sensitivity: classifySensitivity(normalizedText),
@@ -1874,8 +1912,12 @@ function createMemoryArchiveApi({
       .map((episode) => {
         const text = trimText(episode?.text || '', 1000);
         if (!text) return null;
-        const hash = stableHash(text);
-        if (embeddingsStore?.items?.[hash]?.vector?.length) return null;
+        const { item: existing, hash } = findEmbeddingCacheEntry(
+          embeddingsStore,
+          text,
+          embeddingsStore?.meta?.embedModel || configuredEmbedModel,
+        );
+        if (existing?.vector?.length) return null;
         const contradictionLinked = activeContradictions.some((item) => (
           contradictionTouchesEpisodeIds(item, [episode?.id])
           || textReferencesContradiction(text, item)
@@ -2109,7 +2151,7 @@ function createMemoryArchiveApi({
           semanticDowngrade = true;
           semanticDowngradeReason = 'query-vector-unavailable';
         }
-        if (embedded.created) writeEmbeddingsStore(embeddings);
+        if (embedded.created || embedded.migrated) writeEmbeddingsStore(embeddings);
       } catch {
         queryVector = null;
         semanticDowngrade = true;
@@ -2911,7 +2953,8 @@ function createMemoryArchiveApi({
     for (const text of texts) {
       const normalizedText = trimText(text, 1000);
       if (!normalizedText) continue;
-      keep.add(stableHash(normalizedText));
+      keep.add(embeddingCacheKeyForText(normalizedText, embeddings?.meta?.embedModel || configuredEmbedModel));
+      keep.add(legacyEmbeddingCacheKeyForText(normalizedText));
     }
     const next = normalizeEmbeddingsStore(embeddings);
     for (const key of Object.keys(next.items)) {

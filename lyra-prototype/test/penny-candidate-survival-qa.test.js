@@ -11,6 +11,7 @@ const {
   buildCandidateSurvivalCorrelationSummary,
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
+  buildEmbeddingProviderComparison,
   classifyCandidateFailureMode,
   classifyCandidateSurvival,
   matchCandidateAgainstForbidden,
@@ -654,6 +655,54 @@ test('archive-unit artifact records no live model or server behavior', () => {
   assert.equal(artifact.candidateSurvivalCorrelation.candidateSurvival.comparisonState, 'not-run');
   assert.equal(artifact.candidateSurvivalCorrelation.contextPressure.answerDrift, 'not-run');
   assert.equal(artifact.candidateSurvivalCorrelation.latency.totalLatencyDeltaMs, null);
+});
+
+test('embedding provider comparison summarizes shadow survival without answer-quality claims', () => {
+  const comparison = buildEmbeddingProviderComparison({
+    primary: {
+      provider: 'primary',
+      model: 'text-embedding-nomic-embed-text-v1.5',
+      retrievalMode: 'keyword',
+    },
+    primaryCases: [
+      {
+        id: 'archive-coding-mascot-correction',
+        expected: { object: 'copper rabbit', supportOwner: 'session-archive' },
+        support: { owner: 'archive-candidate', authority: 'advisory', supportState: 'rendered' },
+        retrievalExpectation: { owner: 'archive', survivalAtK: 5, shouldSelect: true, shouldRender: true },
+        survival: { outcome: 'rendered', bestRank: 4, expectedObjectSelected: true, expectedObjectRendered: true },
+      },
+    ],
+    shadow: {
+      provider: 'static',
+      model: 'penny-static-shadow-lexical-v1',
+      retrievalMode: 'semantic-shadow',
+      cpuMs: 4.4,
+    },
+    shadowCases: [
+      {
+        id: 'archive-coding-mascot-correction',
+        expected: { object: 'copper rabbit', supportOwner: 'session-archive' },
+        support: { owner: 'archive-candidate', authority: 'advisory', supportState: 'rendered' },
+        retrievalExpectation: { owner: 'archive', survivalAtK: 5, shouldSelect: true, shouldRender: true },
+        survival: { outcome: 'rendered', bestRank: 1, expectedObjectSelected: true, expectedObjectRendered: true },
+      },
+    ],
+  });
+
+  assert.equal(comparison.primary.provider, 'primary');
+  assert.equal(comparison.primary.survivalAtK.eligible, 1);
+  assert.equal(comparison.primary.survivalAtK.rate, 1);
+  assert.equal(comparison.primary.averageBestRank, 4);
+  assert.equal(comparison.shadow.provider, 'static');
+  assert.equal(comparison.shadow.cpuMs, 4);
+  assert.equal(comparison.shadow.averageBestRank, 1);
+  assert.equal(comparison.verdict, 'shadow-improved-average-rank');
+  assert.deepEqual(comparison.limits, [
+    'Shadow provider is discovery-only.',
+    'Default embedding provider unchanged.',
+    'Retrieved candidates are not canonized.',
+  ]);
 });
 
 test('candidate-survival correlation summarizes archive-unit profile comparisons without live drift claims', () => {

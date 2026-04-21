@@ -1503,6 +1503,102 @@ function averageNumeric(values = []) {
   return Math.round((total / numbers.length) * 1000) / 1000;
 }
 
+function providerComparisonCaseIsEligible(normalizedCase = {}) {
+  const owner = normalizeKey(normalizedCase.retrievalExpectation?.owner || normalizedCase.support?.owner || normalizedCase.expected?.supportOwner || '');
+  if (!owner.includes('archive')) return false;
+  if (normalizedCase.retrievalExpectation?.shouldSelect === false && normalizedCase.retrievalExpectation?.shouldRender === false) return false;
+  if (normalizedCase.expectedSurvival === CANDIDATE_SURVIVAL_OUTCOMES.MISSING) return false;
+  if (normalizedCase.expectedSurvival === CANDIDATE_SURVIVAL_OUTCOMES.NOT_APPLICABLE) return false;
+  return true;
+}
+
+function buildEmbeddingProviderComparisonCase(caseLike = {}) {
+  const normalizedCase = normalizeCandidateSurvivalCase(caseLike);
+  const survival = caseLike?.survival && typeof caseLike.survival === 'object' ? caseLike.survival : {};
+  const survivalAtK = Number(normalizedCase.retrievalExpectation?.survivalAtK || 0);
+  const k = Number.isFinite(survivalAtK) && survivalAtK > 0 ? Math.round(survivalAtK) : null;
+  const bestRank = survival.bestRank === null || survival.bestRank === undefined
+    ? null
+    : normalizeRank(survival.bestRank);
+  const eligible = providerComparisonCaseIsEligible(normalizedCase);
+  return {
+    id: normalizedCase.id,
+    eligible,
+    expectedObject: normalizedCase.expected?.object || '',
+    supportOwner: normalizedCase.support?.owner || normalizedCase.expected?.supportOwner || '',
+    retrievalOwner: normalizedCase.retrievalExpectation?.owner || '',
+    outcome: survival.outcome || caseLike.outcome || normalizedCase.expectedSurvival || '',
+    failureMode: caseLike.failureMode || '',
+    bestRank,
+    survivalAtK: k,
+    survivedAtK: eligible && bestRank !== null && k !== null ? bestRank <= k : false,
+    selected: survival.expectedObjectSelected === true,
+    rendered: survival.expectedObjectRendered === true,
+  };
+}
+
+function buildEmbeddingProviderSummary(providerInfo = {}, cases = []) {
+  const provider = typeof providerInfo === 'string'
+    ? { provider: providerInfo }
+    : (providerInfo && typeof providerInfo === 'object' ? providerInfo : {});
+  const normalizedCases = asArray(cases).map((item) => buildEmbeddingProviderComparisonCase(item));
+  const eligibleCases = normalizedCases.filter((item) => item.eligible);
+  const survivedCases = eligibleCases.filter((item) => item.survivedAtK);
+  return {
+    provider: trimText(provider.provider || '', 80),
+    model: trimText(provider.model || '', 160),
+    retrievalMode: trimText(provider.retrievalMode || '', 80),
+    survivalAtK: {
+      k: averageNumeric(eligibleCases.map((item) => item.survivalAtK).filter((value) => value !== null)),
+      survived: survivedCases.length,
+      eligible: eligibleCases.length,
+      rate: eligibleCases.length ? Math.round((survivedCases.length / eligibleCases.length) * 1000) / 1000 : null,
+    },
+    averageBestRank: averageNumeric(eligibleCases.map((item) => item.bestRank).filter((value) => value !== null)),
+    cases: normalizedCases,
+  };
+}
+
+function compareEmbeddingProviderSummaries(primary = {}, shadow = {}) {
+  const primaryRate = Number(primary?.survivalAtK?.rate);
+  const shadowRate = Number(shadow?.survivalAtK?.rate);
+  const primaryRank = Number(primary?.averageBestRank);
+  const shadowRank = Number(shadow?.averageBestRank);
+  if (!Number.isFinite(primaryRate) || !Number.isFinite(shadowRate)) {
+    return 'not-enough-provider-comparison-data';
+  }
+  if (shadowRate > primaryRate) return 'shadow-improved-candidate-survival';
+  if (shadowRate < primaryRate) return 'shadow-reduced-candidate-survival';
+  if (Number.isFinite(primaryRank) && Number.isFinite(shadowRank)) {
+    if (shadowRank < primaryRank) return 'shadow-improved-average-rank';
+    if (shadowRank > primaryRank) return 'shadow-worsened-average-rank';
+  }
+  return 'same-candidate-survival';
+}
+
+function buildEmbeddingProviderComparison({
+  primary = {},
+  primaryCases = [],
+  shadow = {},
+  shadowCases = [],
+} = {}) {
+  const primarySummary = buildEmbeddingProviderSummary(primary, primaryCases);
+  const shadowSummary = {
+    ...buildEmbeddingProviderSummary(shadow, shadowCases),
+    cpuMs: Number.isFinite(Number(shadow?.cpuMs)) ? Math.max(0, Math.round(Number(shadow.cpuMs))) : null,
+  };
+  return {
+    primary: primarySummary,
+    shadow: shadowSummary,
+    verdict: compareEmbeddingProviderSummaries(primarySummary, shadowSummary),
+    limits: [
+      'Shadow provider is discovery-only.',
+      'Default embedding provider unchanged.',
+      'Retrieved candidates are not canonized.',
+    ],
+  };
+}
+
 function profileComparisonLooksImproved(comparison = {}) {
   const verdict = normalizeKey(comparison.verdict || '');
   if ([
@@ -1947,6 +2043,7 @@ function buildCandidateSurvivalArchiveUnitArtifact({
   filePaths = {},
   cleanup = {},
   candidateTraceLimit = CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
+  embeddingProviderComparison = null,
 } = {}) {
   const normalizedCases = asArray(cases)
     .filter((item) => item && typeof item === 'object')
@@ -1974,6 +2071,9 @@ function buildCandidateSurvivalArchiveUnitArtifact({
     cases: normalizedCases,
     cleanup,
     summary: summarizeCandidateSurvivalCases(normalizedCases),
+    ...(embeddingProviderComparison && typeof embeddingProviderComparison === 'object'
+      ? { embeddingProviderComparison }
+      : {}),
     candidateSurvivalCorrelation: buildCandidateSurvivalCorrelationSummary({
       generatedAt,
       measurementMode: 'archive-unit',
@@ -2045,6 +2145,7 @@ module.exports = {
   buildCandidateSurvivalProfileComparison,
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
+  buildEmbeddingProviderComparison,
   classifyCandidateFailureMode,
   classifyCandidateSurvival,
   matchCandidateAgainstForbidden,

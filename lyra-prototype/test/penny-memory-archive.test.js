@@ -295,6 +295,53 @@ test('readEmbeddingsStore drops cached vectors from a different embedding model 
   }
 });
 
+test('embedding cache keys include provider/model space for newly written vectors', async () => {
+  const text = 'The copper rabbit sat beside the coding notebook.';
+  const nomicFiles = makeTempFiles();
+  const staticFiles = makeTempFiles();
+  const nomic = buildArchiveApi({
+    ...nomicFiles,
+    embedModel: 'text-embedding-nomic-embed-text-v1.5',
+  }).api;
+  const staticShadow = buildArchiveApi({
+    ...staticFiles,
+    embedModel: 'penny-static-shadow-lexical-v1',
+    statusInstalledModels: ['penny-static-shadow-lexical-v1'],
+    statusNativeAvailableModels: ['penny-static-shadow-lexical-v1'],
+    statusAvailableModels: ['penny-static-shadow-lexical-v1'],
+  }).api;
+
+  try {
+    await nomic.archiveCompletedTurn({
+      sessionId: 'demo',
+      userText: text,
+      assistantText: 'I have the coding notebook image.',
+    });
+    await staticShadow.archiveCompletedTurn({
+      sessionId: 'demo',
+      userText: text,
+      assistantText: 'I have the coding notebook image.',
+    });
+
+    const normalizedText = text.replace(/\.$/, '');
+    const nomicEntry = Object.entries(nomic.readEmbeddingsStore().items)
+      .find(([, item]) => item.text === normalizedText);
+    const staticEntry = Object.entries(staticShadow.readEmbeddingsStore().items)
+      .find(([, item]) => item.text === normalizedText);
+
+    assert.ok(nomicEntry);
+    assert.ok(staticEntry);
+    assert.notEqual(nomicEntry[0], staticEntry[0]);
+    assert.equal(nomicEntry[1].hash, nomicEntry[0]);
+    assert.equal(staticEntry[1].hash, staticEntry[0]);
+    assert.equal(nomicEntry[1].model, 'text-embedding-nomic-embed-text-v1.5');
+    assert.equal(staticEntry[1].model, 'penny-static-shadow-lexical-v1');
+  } finally {
+    fs.rmSync(nomicFiles.root, { recursive: true, force: true });
+    fs.rmSync(staticFiles.root, { recursive: true, force: true });
+  }
+});
+
 test('archiveCompletedTurn preserves raw episodes, summaries, patterns, and promotion queue', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi(files);

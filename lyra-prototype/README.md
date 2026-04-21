@@ -168,7 +168,7 @@ Penny's runtime memory is hybrid:
 
 For memory QA, use `npm run qa:memory:smoke` for the fast regression slice, `npm run qa:memory` for the full combined release-style run, and `npm run qa:memory:judged` for the grouped `write / retrieve / forget` trust pass. On the current Q6 setup the full combined run is expected to take roughly 80-90 minutes end to end.
 Use `npm run qa:memory:source-sensitive` for the cheap fixture-only source-sensitive cases. It separates subject, relation, object, source, surface wording, retrieval expectations, and answer outcome buckets, and keeps `correct-but-unsupported` diagnostic unless support is rendered or canonical by the case contract.
-Use `npm run qa:memory:candidate-survival` for the model-answer-free archive-unit candidate survival fixture. It compares baseline archive scoring against the gated `hybrid-v1` profile on the same disposable stores, can be correlated with rendered context pressure, and treats candidate survival as retrieval-path evidence rather than answer-quality evidence.
+Use `npm run qa:memory:candidate-survival` for the model-answer-free archive-unit candidate survival fixture. It compares baseline archive scoring against the gated `hybrid-v1` profile on the same disposable stores, can be correlated with rendered context pressure, and treats candidate survival as retrieval-path evidence rather than answer-quality evidence. Add `-- --shadow-embed-provider=static` or set `PENNY_EMBED_SHADOW_PROVIDER=static` to append a deterministic static embedding comparison for disposable candidate-survival measurement only.
 For automated QA, the standard baseline is Q6 chat/memory plus `google/gemma-4-e4b` tooling. Do not treat a Q8-class chat model or a dual-lane stress setup as the default unless that is the specific thing under test.
 The QA/eval artifacts also carry a normalized trust summary (`pass`, `invalid`, `ambiguous`, `fallback`, `degraded`) so outside review can distinguish Penny-behavior failures from environment drift.
 They also carry a compact `runIdentity` canary with the resolved models, loaded-model snapshot, execution-path facts, runtime-artifact version, semantic-readiness state, and fallback/degraded counters so harness drift is easier to spot before blaming Penny.
@@ -192,6 +192,7 @@ The browser cache is not the source of truth for long-term memory.
   - `PENNY_LMSTUDIO_EMBED_MODEL` defaults to `text-embedding-nomic-embed-text-v1.5`
   - if that model is missing or unloaded, Penny falls back to keyword-style archive retrieval instead of failing chat
   - EmbeddingGemma is supported as a comparison candidate, but it is not the default; the embedding cache is model-aware so vectors from one embedding model are not reused in another model's vector space
+  - the static embedding shadow comparator is QA-only discovery machinery and does not replace the LM Studio embedding default
 - Archive retrieval scoring defaults to `PENNY_ARCHIVE_SCORING_PROFILE=baseline`.
   - `PENNY_ARCHIVE_SCORING_PROFILE=hybrid-v1` is an explicit gated profile for candidate ordering only
   - invalid or empty profile values fall back to `baseline`
