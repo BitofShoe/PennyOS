@@ -150,6 +150,11 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(artifact.apiChatCalls, false);
     assert.equal(artifact.includeCandidateTrace, true);
     assert.equal(artifact.files.ledgerFile.startsWith(tmpDir), true);
+    assert.equal(artifact.failureModeDefinitions.length, 9);
+    assert.equal(artifact.summary.byFailureMode['not-applicable'], 1);
+    assert.equal(artifact.summary.byFailureMode['no-failure'], 1);
+    assert.equal(artifact.summary.byFailureMode['forbidden-rendered'], 1);
+    assert.equal(artifact.summary.byFailureMode['missing-from-raw'], 1);
     assert.equal(artifact.cleanup.allRemoved, true);
     for (const file of artifact.cleanup.files) {
       assert.equal(file.existsAfterCleanup, false);
@@ -165,6 +170,8 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(explicitCase.survival.expectedObjectRendered, false);
     assert.equal(explicitCase.survival.bestRank, 1);
     assert.equal(explicitCase.survival.heldBackReason, 'canon-priority-suppression');
+    assert.equal(explicitCase.failureMode, 'not-applicable');
+    assert.match(explicitCase.recommendedInspection, /canonical explicit memory/i);
     assert.equal(explicitCase.forbiddenSurvival.forbiddenSelected, false);
     assert.equal(explicitCase.forbiddenSurvival.forbiddenRendered, false);
     assert.equal(explicitCase.forbiddenSurvival.forbiddenBestRank, 2);
@@ -175,6 +182,7 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(archiveCase.survival.expectedObjectPresentRanked, true);
     assert.equal(archiveCase.survival.expectedObjectSelected, true);
     assert.equal(archiveCase.survival.expectedObjectRendered, true);
+    assert.equal(archiveCase.failureMode, 'no-failure');
     assert.equal(archiveCase.forbiddenSurvival.forbiddenSelected, false);
     assert.equal(archiveCase.forbiddenSurvival.forbiddenRendered, false);
 
@@ -184,12 +192,16 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(semanticCase.archiveUnit.supportState, 'candidate-only');
     assert.equal(semanticCase.survival.expectedObjectPresentRaw, true);
     assert.equal(semanticCase.survival.expectedObjectSelected, true);
+    assert.equal(semanticCase.survival.expectedObjectRendered, true);
+    assert.equal(semanticCase.failureMode, 'forbidden-rendered');
+    assert.match(semanticCase.failureModeReason, /forbids rendering/i);
     assert.equal(semanticCase.forbiddenSurvival.forbiddenSelected, false);
     assert.equal(semanticCase.forbiddenSurvival.forbiddenRendered, false);
 
     const absentCase = byId.get('fabricated-absent-tail-fact');
     assert.ok(absentCase);
     assert.equal(absentCase.survival.outcome, 'missing');
+    assert.equal(absentCase.failureMode, 'missing-from-raw');
     assert.equal(absentCase.survival.expectedObjectPresentRaw, false);
     assert.equal(absentCase.forbiddenSurvival.forbiddenSelected, false);
     assert.equal(absentCase.forbiddenSurvival.forbiddenRendered, false);

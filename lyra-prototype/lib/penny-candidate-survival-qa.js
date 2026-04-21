@@ -11,6 +11,18 @@ const CANDIDATE_SURVIVAL_OUTCOMES = Object.freeze({
   NOT_APPLICABLE: 'not-applicable',
 });
 
+const CANDIDATE_FAILURE_MODES = Object.freeze({
+  MISSING_FROM_RAW: 'missing-from-raw',
+  FILTERED_OUT: 'filtered-out',
+  LOW_RANK: 'low-rank',
+  SELECTED_NOT_RENDERED: 'selected-not-rendered',
+  WRONG_AUTHORITY_SELECTED: 'wrong-authority-selected',
+  FORBIDDEN_RENDERED: 'forbidden-rendered',
+  ANSWER_LAYER_FAILURE: 'answer-layer-failure',
+  NO_FAILURE: 'no-failure',
+  NOT_APPLICABLE: 'not-applicable',
+});
+
 const CANDIDATE_SURVIVAL_OUTCOME_DEFINITIONS = Object.freeze({
   [CANDIDATE_SURVIVAL_OUTCOMES.RENDERED]: 'Expected candidate reached prompt-visible support.',
   [CANDIDATE_SURVIVAL_OUTCOMES.SELECTED_HELD_BACK]: 'Expected candidate was selected by retrieval but held back before prompt rendering or by authority/policy.',
@@ -20,6 +32,45 @@ const CANDIDATE_SURVIVAL_OUTCOME_DEFINITIONS = Object.freeze({
   [CANDIDATE_SURVIVAL_OUTCOMES.FORBIDDEN_SELECTED]: 'Stale/forbidden candidate was selected.',
   [CANDIDATE_SURVIVAL_OUTCOMES.FORBIDDEN_RENDERED]: 'Stale/forbidden candidate reached prompt-visible support.',
   [CANDIDATE_SURVIVAL_OUTCOMES.NOT_APPLICABLE]: 'Case is not owned by archive/candidate retrieval.',
+});
+
+const CANDIDATE_FAILURE_MODE_DEFINITIONS = Object.freeze({
+  [CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW]: Object.freeze({
+    definition: 'Expected candidate never appeared in the raw retrieval pool.',
+    recommendedInspection: 'Widen candidate discovery or inspect lexical/semantic retrieval.',
+  }),
+  [CANDIDATE_FAILURE_MODES.FILTERED_OUT]: Object.freeze({
+    definition: 'Expected candidate appeared in the raw pool but did not survive eligibility, sensitivity, or pre-ranking gates.',
+    recommendedInspection: 'Inspect eligibility and sensitivity gates before changing ranking.',
+  }),
+  [CANDIDATE_FAILURE_MODES.LOW_RANK]: Object.freeze({
+    definition: 'Expected candidate reached ranking but stayed outside the selected/rendered window.',
+    recommendedInspection: 'Inspect scoring, ranking, and survival-at-K thresholds.',
+  }),
+  [CANDIDATE_FAILURE_MODES.SELECTED_NOT_RENDERED]: Object.freeze({
+    definition: 'Expected candidate was selected but not rendered into prompt-visible memory when rendering was expected.',
+    recommendedInspection: 'Inspect prompt budget, PromptTruth rendered ids, and authority suppression.',
+  }),
+  [CANDIDATE_FAILURE_MODES.WRONG_AUTHORITY_SELECTED]: Object.freeze({
+    definition: 'A stale, forbidden, or lower-authority candidate was selected over expected current support.',
+    recommendedInspection: 'Inspect source authority, contradiction scoring, and stale-candidate suppression.',
+  }),
+  [CANDIDATE_FAILURE_MODES.FORBIDDEN_RENDERED]: Object.freeze({
+    definition: 'A forbidden candidate, or a candidate explicitly not allowed to render, reached prompt-visible context.',
+    recommendedInspection: 'Treat this as a trust-boundary bug before tuning retrieval quality.',
+  }),
+  [CANDIDATE_FAILURE_MODES.ANSWER_LAYER_FAILURE]: Object.freeze({
+    definition: 'Retrieval reached expected support, but the provided answer outcome was unsupported, wrong, or otherwise failed.',
+    recommendedInspection: 'Inspect answer composition first; do not tune retrieval before checking the answer layer.',
+  }),
+  [CANDIDATE_FAILURE_MODES.NO_FAILURE]: Object.freeze({
+    definition: 'Retrieval path met the case expectation.',
+    recommendedInspection: 'No retrieval inspection is indicated by this diagnostic.',
+  }),
+  [CANDIDATE_FAILURE_MODES.NOT_APPLICABLE]: Object.freeze({
+    definition: 'Case is explicit-memory-owned or otherwise not archive/candidate-retrieval owned.',
+    recommendedInspection: 'Inspect canonical explicit memory or the owning subsystem instead of archive retrieval.',
+  }),
 });
 
 const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
@@ -461,10 +512,23 @@ function normalizeOutcome(value = '', fallback = '') {
   return Object.values(CANDIDATE_SURVIVAL_OUTCOMES).includes(text) ? text : fallback;
 }
 
+function normalizeFailureMode(value = '', fallback = '') {
+  const text = normalizeKey(value);
+  return Object.values(CANDIDATE_FAILURE_MODES).includes(text) ? text : fallback;
+}
+
 function buildOutcomeDefinitionList() {
   return Object.values(CANDIDATE_SURVIVAL_OUTCOMES).map((outcome) => ({
     outcome,
     definition: CANDIDATE_SURVIVAL_OUTCOME_DEFINITIONS[outcome],
+  }));
+}
+
+function buildFailureModeDefinitionList() {
+  return Object.values(CANDIDATE_FAILURE_MODES).map((failureMode) => ({
+    failureMode,
+    definition: CANDIDATE_FAILURE_MODE_DEFINITIONS[failureMode].definition,
+    recommendedInspection: CANDIDATE_FAILURE_MODE_DEFINITIONS[failureMode].recommendedInspection,
   }));
 }
 
@@ -924,23 +988,38 @@ function classifyCandidateSurvival(caseLike = {}, traceLike = []) {
 function summarizeCandidateSurvivalCases(cases = []) {
   const byOutcome = Object.fromEntries(Object.values(CANDIDATE_SURVIVAL_OUTCOMES).map((outcome) => [outcome, 0]));
   const caseIdsByOutcome = Object.fromEntries(Object.values(CANDIDATE_SURVIVAL_OUTCOMES).map((outcome) => [outcome, []]));
+  const byFailureMode = Object.fromEntries(Object.values(CANDIDATE_FAILURE_MODES).map((failureMode) => [failureMode, 0]));
+  const caseIdsByFailureMode = Object.fromEntries(Object.values(CANDIDATE_FAILURE_MODES).map((failureMode) => [failureMode, []]));
   const normalizedCases = asArray(cases).map((item) => {
-    const outcome = normalizeOutcome(item?.outcome || item?.expectedSurvival || item?.survivalOutcome, '');
+    const outcome = normalizeOutcome(item?.outcome || item?.expectedSurvival || item?.survivalOutcome || item?.survival?.outcome, '');
+    const explicitFailureMode = normalizeFailureMode(item?.failureMode || item?.survival?.failureMode || item?.candidateFailureMode, '');
+    const failureMode = explicitFailureMode || (outcome
+      ? classifyCandidateFailureMode(item, { outcome }, []).failureMode
+      : '');
     return {
       id: trimText(item?.id || item?.caseId || '', 120),
       outcome,
+      failureMode,
     };
-  }).filter((item) => item.outcome);
+  }).filter((item) => item.outcome || item.failureMode);
 
   for (const item of normalizedCases) {
-    byOutcome[item.outcome] += 1;
-    if (item.id) caseIdsByOutcome[item.outcome].push(item.id);
+    if (item.outcome) {
+      byOutcome[item.outcome] += 1;
+      if (item.id) caseIdsByOutcome[item.outcome].push(item.id);
+    }
+    if (item.failureMode) {
+      byFailureMode[item.failureMode] += 1;
+      if (item.id) caseIdsByFailureMode[item.failureMode].push(item.id);
+    }
   }
 
   return {
     totalCases: normalizedCases.length,
     byOutcome,
     caseIdsByOutcome,
+    byFailureMode,
+    caseIdsByFailureMode,
   };
 }
 
@@ -1097,6 +1176,204 @@ function buildHybridShadowComparison(normalizedCase = {}, traceLike = []) {
   };
 }
 
+function getCandidateLabel(candidate = null) {
+  if (!candidate) return '';
+  return trimText(candidate.id || candidate.sourceId || candidate.object || candidate.textPreview || candidate.text || '', 160);
+}
+
+function normalizeSurvivalResultForFailureMode(survivalResult = null, normalizedCase = {}, trace = []) {
+  if (survivalResult && typeof survivalResult === 'object') {
+    const outcome = normalizeOutcome(
+      survivalResult.outcome || survivalResult.expectedSurvival || survivalResult.survivalOutcome || survivalResult.survival?.outcome,
+      '',
+    );
+    if (outcome) {
+      return {
+        ...survivalResult,
+        outcome,
+      };
+    }
+  }
+  const directOutcome = normalizeOutcome(survivalResult, '');
+  if (directOutcome) return { outcome: directOutcome };
+  if (trace.length) return classifyCandidateSurvival(normalizedCase, trace);
+  return { outcome: normalizedCase.expectedSurvival || '' };
+}
+
+function caseExpectsRenderedSupport(normalizedCase = {}) {
+  if (normalizedCase.retrievalExpectation?.shouldRender === true) return true;
+  if (normalizedCase.retrievalExpectation?.shouldRender === false) return false;
+  return normalizedCase.expectedSurvival === CANDIDATE_SURVIVAL_OUTCOMES.RENDERED;
+}
+
+function outcomeIsForbiddenByExpectation(normalizedCase = {}, outcome = '') {
+  return asArray(normalizedCase.retrievalExpectation?.forbiddenOutcomes)
+    .map((item) => normalizeOutcome(item, ''))
+    .includes(outcome);
+}
+
+function describeAnswerOutcome(answerOutcomeLike = null) {
+  if (answerOutcomeLike === undefined || answerOutcomeLike === null || answerOutcomeLike === '') return '';
+  if (typeof answerOutcomeLike === 'object') {
+    const text = trimText([
+      answerOutcomeLike.outcome,
+      answerOutcomeLike.answerOutcome,
+      answerOutcomeLike.supportOutcome,
+      answerOutcomeLike.verdict,
+      answerOutcomeLike.status,
+      answerOutcomeLike.classification,
+      answerOutcomeLike.reasonCode,
+      answerOutcomeLike.reason,
+    ].filter(Boolean).join(' '), 240);
+    if (text) return text;
+    if (answerOutcomeLike.passed === false) return 'passed=false';
+    if (answerOutcomeLike.ok === false) return 'ok=false';
+    if (answerOutcomeLike.supported === false) return 'supported=false';
+    return '';
+  }
+  return trimText(answerOutcomeLike, 240);
+}
+
+function answerOutcomeIndicatesFailure(answerOutcomeLike = null) {
+  if (answerOutcomeLike === undefined || answerOutcomeLike === null || answerOutcomeLike === '') return false;
+  const text = normalizeKey(describeAnswerOutcome(answerOutcomeLike));
+  if (!text || ['not-run', 'not-applicable', 'n-a', 'skipped'].includes(text)) return false;
+  if (answerOutcomeLike && typeof answerOutcomeLike === 'object') {
+    if (answerOutcomeLike.passed === false || answerOutcomeLike.ok === false || answerOutcomeLike.supported === false) {
+      return true;
+    }
+  }
+  return [
+    'correct-but-unsupported',
+    'unsupported',
+    'wrong',
+    'incorrect',
+    'hallucinated',
+    'fabricated',
+    'failed',
+    'fail',
+    'invalid',
+    'contradicted',
+  ].some((needle) => text.includes(needle));
+}
+
+function buildCandidateFailureModeResult(failureMode = '', failureModeReason = '') {
+  const normalizedMode = normalizeFailureMode(failureMode, CANDIDATE_FAILURE_MODES.NO_FAILURE);
+  const definition = CANDIDATE_FAILURE_MODE_DEFINITIONS[normalizedMode] || CANDIDATE_FAILURE_MODE_DEFINITIONS[CANDIDATE_FAILURE_MODES.NO_FAILURE];
+  return {
+    failureMode: normalizedMode,
+    failureModeDefinition: definition.definition,
+    failureModeReason: trimText(failureModeReason || definition.definition, 240),
+    recommendedInspection: definition.recommendedInspection,
+  };
+}
+
+function classifyCandidateFailureMode(caseLike = {}, survivalResult = null, traceLike = [], answerOutcomeLike = null) {
+  const normalizedCase = normalizeCandidateSurvivalCase(caseLike);
+  const trace = normalizeTraceArray(traceLike);
+  const survival = normalizeSurvivalResultForFailureMode(survivalResult, normalizedCase, trace);
+  const outcome = normalizeOutcome(survival.outcome, normalizedCase.expectedSurvival || '');
+  const bestExpected = survival.matchedExpectedCandidate
+    || findBestTraceMatch(trace, (item) => matchCandidateAgainstOracle(item, normalizedCase.expected));
+  const bestForbidden = survival.matchedForbiddenCandidate
+    || findBestTraceMatch(trace, (item) => matchCandidateAgainstForbidden(item, normalizedCase.forbidden));
+  const answerOutcome = describeAnswerOutcome(answerOutcomeLike);
+  const expectsRendered = caseExpectsRenderedSupport(normalizedCase);
+
+  if (outcome === CANDIDATE_SURVIVAL_OUTCOMES.FORBIDDEN_RENDERED) {
+    const label = getCandidateLabel(bestForbidden);
+    return buildCandidateFailureModeResult(
+      CANDIDATE_FAILURE_MODES.FORBIDDEN_RENDERED,
+      label
+        ? `Forbidden candidate rendered: ${label}.`
+        : 'Forbidden candidate reached prompt-visible support.',
+    );
+  }
+  if (
+    outcome === CANDIDATE_SURVIVAL_OUTCOMES.RENDERED
+    && (normalizedCase.retrievalExpectation?.shouldRender === false
+      || outcomeIsForbiddenByExpectation(normalizedCase, CANDIDATE_SURVIVAL_OUTCOMES.RENDERED))
+  ) {
+    return buildCandidateFailureModeResult(
+      CANDIDATE_FAILURE_MODES.FORBIDDEN_RENDERED,
+      'Candidate rendered even though the case contract forbids rendering.',
+    );
+  }
+  if (outcome === CANDIDATE_SURVIVAL_OUTCOMES.FORBIDDEN_SELECTED) {
+    const label = getCandidateLabel(bestForbidden);
+    return buildCandidateFailureModeResult(
+      CANDIDATE_FAILURE_MODES.WRONG_AUTHORITY_SELECTED,
+      label
+        ? `Forbidden or stale candidate selected: ${label}.`
+        : 'Forbidden or stale candidate was selected over expected current support.',
+    );
+  }
+  if (outcome === CANDIDATE_SURVIVAL_OUTCOMES.NOT_APPLICABLE) {
+    return buildCandidateFailureModeResult(
+      CANDIDATE_FAILURE_MODES.NOT_APPLICABLE,
+      'Case is explicit-memory-owned or otherwise outside archive candidate survival.',
+    );
+  }
+  if (outcome === CANDIDATE_SURVIVAL_OUTCOMES.MISSING) {
+    return buildCandidateFailureModeResult(
+      CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW,
+      'Expected candidate did not appear in the raw pool.',
+    );
+  }
+  if (outcome === CANDIDATE_SURVIVAL_OUTCOMES.RAW_ONLY) {
+    const reason = bestExpected?.heldBackReason || (bestExpected?.eligible === false ? 'eligible=false' : '');
+    return buildCandidateFailureModeResult(
+      CANDIDATE_FAILURE_MODES.FILTERED_OUT,
+      reason
+        ? `Expected candidate stayed raw-only after filtering/gating: ${reason}.`
+        : 'Expected candidate stayed raw-only and did not reach ranking.',
+    );
+  }
+  if (outcome === CANDIDATE_SURVIVAL_OUTCOMES.RANKED_NOT_SELECTED) {
+    const rank = bestExpected?.rank ?? null;
+    return buildCandidateFailureModeResult(
+      CANDIDATE_FAILURE_MODES.LOW_RANK,
+      rank !== null
+        ? `Expected candidate ranked at ${rank} but was not selected or rendered.`
+        : 'Expected candidate ranked but was not selected or rendered.',
+    );
+  }
+  if (outcome === CANDIDATE_SURVIVAL_OUTCOMES.SELECTED_HELD_BACK) {
+    if (expectsRendered || outcomeIsForbiddenByExpectation(normalizedCase, CANDIDATE_SURVIVAL_OUTCOMES.SELECTED_HELD_BACK)) {
+      const reason = bestExpected?.heldBackReason || survival.heldBackReason || '';
+      return buildCandidateFailureModeResult(
+        CANDIDATE_FAILURE_MODES.SELECTED_NOT_RENDERED,
+        reason
+          ? `Expected candidate was selected but not rendered: ${reason}.`
+          : 'Expected candidate was selected but not rendered.',
+      );
+    }
+    return buildCandidateFailureModeResult(
+      CANDIDATE_FAILURE_MODES.NO_FAILURE,
+      'Expected candidate was selected and rendering was not required by this case.',
+    );
+  }
+  if (outcome === CANDIDATE_SURVIVAL_OUTCOMES.RENDERED && answerOutcomeIndicatesFailure(answerOutcomeLike)) {
+    return buildCandidateFailureModeResult(
+      CANDIDATE_FAILURE_MODES.ANSWER_LAYER_FAILURE,
+      answerOutcome
+        ? `Expected candidate rendered, but answer outcome failed: ${answerOutcome}.`
+        : 'Expected candidate rendered, but answer outcome failed.',
+    );
+  }
+  if (outcome === CANDIDATE_SURVIVAL_OUTCOMES.RENDERED) {
+    return buildCandidateFailureModeResult(
+      CANDIDATE_FAILURE_MODES.NO_FAILURE,
+      'Expected candidate reached rendered support.',
+    );
+  }
+
+  return buildCandidateFailureModeResult(
+    CANDIDATE_FAILURE_MODES.NO_FAILURE,
+    'No candidate-survival failure was detected from the provided normalized data.',
+  );
+}
+
 function supportStateLooksVerified(support = {}) {
   const state = normalizeKey(support.supportState || support.state || '');
   const authority = normalizeKey(support.authority || '');
@@ -1117,6 +1394,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
     || [];
   const trace = applyPromptTruthToCandidateTrace(rawTrace, promptTruth);
   const classification = classifyCandidateSurvival(normalizedCase, trace);
+  const failureClassification = classifyCandidateFailureMode(normalizedCase, classification, trace);
   const semanticMemory = retrievalResult?.semanticMemory && typeof retrievalResult.semanticMemory === 'object'
     ? retrievalResult.semanticMemory
     : {};
@@ -1146,6 +1424,9 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
       candidateSurvivalOnly: true,
     },
     survival: buildExpectedObjectSurvival(normalizedCase, trace, classification.outcome),
+    failureMode: failureClassification.failureMode,
+    failureModeReason: failureClassification.failureModeReason,
+    recommendedInspection: failureClassification.recommendedInspection,
     forbiddenSurvival: buildForbiddenSurvival(normalizedCase, trace),
     ...(shadowComparison ? { shadowComparison } : {}),
     traceSummary: summarizeCandidateTrace(trace),
@@ -1160,7 +1441,18 @@ function buildCandidateSurvivalArchiveUnitArtifact({
   cleanup = {},
   candidateTraceLimit = CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
 } = {}) {
-  const normalizedCases = asArray(cases).filter((item) => item && typeof item === 'object');
+  const normalizedCases = asArray(cases)
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => {
+      if (normalizeFailureMode(item.failureMode || '', '')) return item;
+      const failureClassification = classifyCandidateFailureMode(item, { outcome: item.survival?.outcome || item.outcome }, []);
+      return {
+        ...item,
+        failureMode: failureClassification.failureMode,
+        failureModeReason: failureClassification.failureModeReason,
+        recommendedInspection: failureClassification.recommendedInspection,
+      };
+    });
   return {
     schema: CANDIDATE_SURVIVAL_QA_SCHEMA,
     generatedAt,
@@ -1171,12 +1463,10 @@ function buildCandidateSurvivalArchiveUnitArtifact({
     includeCandidateTrace: true,
     candidateTraceLimit,
     files: { ...filePaths },
+    failureModeDefinitions: buildFailureModeDefinitionList(),
     cases: normalizedCases,
     cleanup,
-    summary: summarizeCandidateSurvivalCases(normalizedCases.map((item) => ({
-      id: item.id,
-      outcome: item.survival?.outcome,
-    }))),
+    summary: summarizeCandidateSurvivalCases(normalizedCases),
     limits: [
       'Candidate survival is retrieval-path evidence, not answer-quality evidence.',
       'This archive-unit mode does not generate live model answers.',
@@ -1195,14 +1485,24 @@ function buildCandidateSurvivalQaFixture({
 } = {}) {
   const normalizedCases = (Array.isArray(cases) && cases.length ? cases : CANDIDATE_SURVIVAL_FIXTURE_CASES)
     .map((item) => normalizeCandidateSurvivalCase(item));
+  const casesWithFailureModes = normalizedCases.map((item) => {
+    const failureClassification = classifyCandidateFailureMode(item, { outcome: item.expectedSurvival }, []);
+    return {
+      ...item,
+      failureMode: failureClassification.failureMode,
+      failureModeReason: failureClassification.failureModeReason,
+      recommendedInspection: failureClassification.recommendedInspection,
+    };
+  });
   return {
     schema: CANDIDATE_SURVIVAL_QA_SCHEMA,
     generatedAt,
     measurementMode: 'fixture-only',
     liveModelCalls: false,
     outcomeDefinitions: buildOutcomeDefinitionList(),
-    cases: normalizedCases,
-    summary: summarizeCandidateSurvivalCases(normalizedCases),
+    failureModeDefinitions: buildFailureModeDefinitionList(),
+    cases: casesWithFailureModes,
+    summary: summarizeCandidateSurvivalCases(casesWithFailureModes),
     limits: [
       'Candidate survival is retrieval evidence, not answer-quality evidence.',
       'Source-sensitive retrieval expectations are separate from answer-quality outcome buckets.',
@@ -1217,6 +1517,8 @@ module.exports = {
   CANDIDATE_SURVIVAL_QA_SCHEMA,
   CANDIDATE_SURVIVAL_OUTCOMES,
   CANDIDATE_SURVIVAL_OUTCOME_DEFINITIONS,
+  CANDIDATE_FAILURE_MODES,
+  CANDIDATE_FAILURE_MODE_DEFINITIONS,
   CANDIDATE_SURVIVAL_FIXTURE_CASES,
   CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
   applyPromptTruthToCandidateTrace,
@@ -1224,6 +1526,7 @@ module.exports = {
   buildCandidateSurvivalArchiveUnitCaseResult,
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
+  classifyCandidateFailureMode,
   classifyCandidateSurvival,
   matchCandidateAgainstForbidden,
   matchCandidateAgainstOracle,

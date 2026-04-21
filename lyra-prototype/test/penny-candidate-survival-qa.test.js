@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  CANDIDATE_FAILURE_MODES,
   CANDIDATE_SURVIVAL_OUTCOMES,
   CANDIDATE_SURVIVAL_QA_SCHEMA,
   applyPromptTruthToCandidateTrace,
@@ -9,6 +10,7 @@ const {
   buildCandidateSurvivalArchiveUnitCaseResult,
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
+  classifyCandidateFailureMode,
   classifyCandidateSurvival,
   matchCandidateAgainstForbidden,
   matchCandidateAgainstOracle,
@@ -57,10 +59,26 @@ test('candidate-survival fixture is fixture-only and carries explicit outcome de
     'forbidden-rendered',
     'not-applicable',
   ]);
+  assert.deepEqual(Object.values(CANDIDATE_FAILURE_MODES), [
+    'missing-from-raw',
+    'filtered-out',
+    'low-rank',
+    'selected-not-rendered',
+    'wrong-authority-selected',
+    'forbidden-rendered',
+    'answer-layer-failure',
+    'no-failure',
+    'not-applicable',
+  ]);
   assert.equal(fixture.outcomeDefinitions.length, 8);
+  assert.equal(fixture.failureModeDefinitions.length, 9);
   assert.ok(fixture.outcomeDefinitions.find((item) => (
     item.outcome === CANDIDATE_SURVIVAL_OUTCOMES.RAW_ONLY
       && item.definition.includes('failed eligibility/gating/scoring')
+  )));
+  assert.ok(fixture.failureModeDefinitions.find((item) => (
+    item.failureMode === CANDIDATE_FAILURE_MODES.SELECTED_NOT_RENDERED
+      && item.recommendedInspection.includes('PromptTruth rendered ids')
   )));
   assert.ok(fixture.limits.includes('Candidate survival is retrieval evidence, not answer-quality evidence.'));
   assert.ok(fixture.limits.includes('PromptTruth remains prompt-context receipt only.'));
@@ -84,17 +102,20 @@ test('candidate-survival fixture includes Penny-native explicit archive semantic
   assert.equal(explicitCase.forbidden[0].object, 'oolong');
   assert.equal(explicitCase.support.owner, 'explicit-memory');
   assert.equal(explicitCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.NOT_APPLICABLE);
+  assert.equal(explicitCase.failureMode, CANDIDATE_FAILURE_MODES.NOT_APPLICABLE);
   assert.equal(explicitCase.retrievalExpectation.owner, 'explicit-memory');
   assert.equal(explicitCase.retrievalExpectation.allowedSurvivalOutcomes.includes(CANDIDATE_SURVIVAL_OUTCOMES.NOT_APPLICABLE), true);
 
   assert.equal(archiveCase.expected.object, 'chipped moon mug');
   assert.equal(archiveCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.RENDERED);
+  assert.equal(archiveCase.failureMode, CANDIDATE_FAILURE_MODES.NO_FAILURE);
   assert.equal(archiveCase.retrievalExpectation.owner, 'archive');
   assert.equal(archiveCase.retrievalExpectation.shouldRender, true);
 
   assert.equal(semanticCase.expected.object, 'silver thermos');
   assert.equal(semanticCase.support.authority, 'candidate-only/advisory');
   assert.equal(semanticCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.RANKED_NOT_SELECTED);
+  assert.equal(semanticCase.failureMode, CANDIDATE_FAILURE_MODES.LOW_RANK);
   assert.equal(semanticCase.retrievalExpectation.owner, 'archive-candidate');
   assert.equal(semanticCase.retrievalExpectation.shouldRender, false);
   assert.equal(semanticCase.retrievalExpectation.forbiddenOutcomes.includes(CANDIDATE_SURVIVAL_OUTCOMES.RENDERED), true);
@@ -104,9 +125,12 @@ test('candidate-survival fixture includes Penny-native explicit archive semantic
 
   assert.equal(absentCase.support.supportState, 'absent');
   assert.equal(absentCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.MISSING);
+  assert.equal(absentCase.failureMode, CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW);
   assert.equal(absentCase.retrievalExpectation.owner, 'none');
   assert.deepEqual(absentCase.retrievalExpectation.allowedSurvivalOutcomes, [CANDIDATE_SURVIVAL_OUTCOMES.MISSING]);
   assert.equal(fixture.summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.MISSING], 1);
+  assert.equal(fixture.summary.byFailureMode[CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW], 1);
+  assert.equal(fixture.summary.byFailureMode[CANDIDATE_FAILURE_MODES.NO_FAILURE], 1);
 });
 
 test('candidate-survival fixture carries source-sensitive retrieval expectations', () => {
@@ -271,6 +295,128 @@ test('candidate survival classifier flags stale or forbidden candidates separate
   ]).outcome, CANDIDATE_SURVIVAL_OUTCOMES.FORBIDDEN_RENDERED);
 });
 
+test('candidate failure-mode classifier covers every diagnostic layer', () => {
+  const renderExpectedCase = {
+    ...ARCHIVE_CASE,
+    retrievalExpectation: {
+      owner: 'archive',
+      shouldSelect: true,
+      shouldRender: true,
+      survivalAtK: 5,
+      forbiddenOutcomes: [],
+    },
+  };
+  const renderForbiddenCase = {
+    ...ARCHIVE_CASE,
+    retrievalExpectation: {
+      owner: 'archive-candidate',
+      shouldSelect: true,
+      shouldRender: false,
+      survivalAtK: 5,
+      forbiddenOutcomes: [CANDIDATE_SURVIVAL_OUTCOMES.RENDERED],
+    },
+  };
+  const explicitCase = {
+    id: 'explicit-current-preference',
+    expected: { object: 'lapsang souchong', supportOwner: 'explicit-memory' },
+    support: { owner: 'explicit-memory', authority: 'canonical', supportState: 'verified' },
+  };
+
+  assert.equal(
+    classifyCandidateFailureMode(renderExpectedCase, classifyCandidateSurvival(renderExpectedCase, []), []).failureMode,
+    CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW,
+  );
+
+  assert.equal(
+    classifyCandidateFailureMode(renderExpectedCase, classifyCandidateSurvival(renderExpectedCase, [
+      {
+        id: 'session:arcade-mug',
+        object: 'chipped moon mug',
+        stage: 'filtered',
+        eligible: false,
+        heldBackReason: 'sensitive-low-confidence',
+      },
+    ]), [
+      {
+        id: 'session:arcade-mug',
+        object: 'chipped moon mug',
+        stage: 'filtered',
+        eligible: false,
+        heldBackReason: 'sensitive-low-confidence',
+      },
+    ]).failureMode,
+    CANDIDATE_FAILURE_MODES.FILTERED_OUT,
+  );
+
+  assert.equal(
+    classifyCandidateFailureMode(renderExpectedCase, classifyCandidateSurvival(renderExpectedCase, [
+      { id: 'session:arcade-mug', object: 'chipped moon mug', rank: 12 },
+    ]), [
+      { id: 'session:arcade-mug', object: 'chipped moon mug', rank: 12 },
+    ]).failureMode,
+    CANDIDATE_FAILURE_MODES.LOW_RANK,
+  );
+
+  assert.equal(
+    classifyCandidateFailureMode(renderExpectedCase, classifyCandidateSurvival(renderExpectedCase, [
+      { id: 'session:arcade-mug', object: 'chipped moon mug', selected: true, heldBackReason: 'prompt-limit' },
+    ]), [
+      { id: 'session:arcade-mug', object: 'chipped moon mug', selected: true, heldBackReason: 'prompt-limit' },
+    ]).failureMode,
+    CANDIDATE_FAILURE_MODES.SELECTED_NOT_RENDERED,
+  );
+
+  assert.equal(
+    classifyCandidateFailureMode(renderExpectedCase, classifyCandidateSurvival(renderExpectedCase, [
+      { id: 'global:stale-oolong', object: 'oolong', selected: true },
+    ]), [
+      { id: 'global:stale-oolong', object: 'oolong', selected: true },
+    ]).failureMode,
+    CANDIDATE_FAILURE_MODES.WRONG_AUTHORITY_SELECTED,
+  );
+
+  assert.equal(
+    classifyCandidateFailureMode(renderExpectedCase, classifyCandidateSurvival(renderExpectedCase, [
+      { id: 'global:stale-oolong', object: 'oolong', rendered: true },
+    ]), [
+      { id: 'global:stale-oolong', object: 'oolong', rendered: true },
+    ]).failureMode,
+    CANDIDATE_FAILURE_MODES.FORBIDDEN_RENDERED,
+  );
+
+  assert.equal(
+    classifyCandidateFailureMode(renderForbiddenCase, classifyCandidateSurvival(renderForbiddenCase, [
+      { id: 'session:arcade-mug', object: 'chipped moon mug', rendered: true },
+    ]), [
+      { id: 'session:arcade-mug', object: 'chipped moon mug', rendered: true },
+    ]).failureMode,
+    CANDIDATE_FAILURE_MODES.FORBIDDEN_RENDERED,
+  );
+
+  assert.equal(
+    classifyCandidateFailureMode(renderExpectedCase, classifyCandidateSurvival(renderExpectedCase, [
+      { id: 'session:arcade-mug', object: 'chipped moon mug', rendered: true },
+    ]), [
+      { id: 'session:arcade-mug', object: 'chipped moon mug', rendered: true },
+    ], { outcome: 'correct-but-unsupported' }).failureMode,
+    CANDIDATE_FAILURE_MODES.ANSWER_LAYER_FAILURE,
+  );
+
+  assert.equal(
+    classifyCandidateFailureMode(renderExpectedCase, classifyCandidateSurvival(renderExpectedCase, [
+      { id: 'session:arcade-mug', object: 'chipped moon mug', rendered: true },
+    ]), [
+      { id: 'session:arcade-mug', object: 'chipped moon mug', rendered: true },
+    ], { outcome: 'verified' }).failureMode,
+    CANDIDATE_FAILURE_MODES.NO_FAILURE,
+  );
+
+  assert.equal(
+    classifyCandidateFailureMode(explicitCase, classifyCandidateSurvival(explicitCase, []), []).failureMode,
+    CANDIDATE_FAILURE_MODES.NOT_APPLICABLE,
+  );
+});
+
 test('archive-unit seed plan keeps disposable stores deterministic', () => {
   const seed = buildCandidateSurvivalArchiveUnitSeedPlan({
     generatedAt: '2026-04-21T12:00:00.000Z',
@@ -371,6 +517,8 @@ test('archive-unit case result uses required survival and trace summary shape', 
   assert.equal(result.survival.expectedObjectPresentRaw, true);
   assert.equal(result.survival.expectedObjectSelected, true);
   assert.equal(result.survival.expectedObjectRendered, true);
+  assert.equal(result.failureMode, CANDIDATE_FAILURE_MODES.NO_FAILURE);
+  assert.equal(result.recommendedInspection, 'No retrieval inspection is indicated by this diagnostic.');
   assert.equal(result.traceSummary.rawCandidateCount, 1);
   assert.equal(result.topCandidates[0].matchedExpected, true);
   assert.deepEqual(result.shadowComparison, {
@@ -413,7 +561,9 @@ test('archive-unit artifact records no live model or server behavior', () => {
   assert.equal(artifact.serverSpawned, false);
   assert.equal(artifact.apiChatCalls, false);
   assert.equal(artifact.files.ledgerFile, '/tmp/penny-memory-ledger.json');
+  assert.equal(artifact.failureModeDefinitions.length, 9);
   assert.equal(artifact.summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.MISSING], 1);
+  assert.equal(artifact.summary.byFailureMode[CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW], 1);
 });
 
 test('explicit-memory-owned case can be not applicable for archive candidate survival', () => {
@@ -456,5 +606,8 @@ test('summary counts normalized cases and classification results by retrieval-pa
   assert.equal(summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.NOT_APPLICABLE], 1);
   assert.equal(summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.RENDERED], 1);
   assert.equal(summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.MISSING], 1);
+  assert.equal(summary.byFailureMode[CANDIDATE_FAILURE_MODES.NOT_APPLICABLE], 1);
+  assert.equal(summary.byFailureMode[CANDIDATE_FAILURE_MODES.NO_FAILURE], 1);
+  assert.equal(summary.byFailureMode[CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW], 1);
   assert.deepEqual(summary.caseIdsByOutcome[CANDIDATE_SURVIVAL_OUTCOMES.RENDERED], ['archive-test-case']);
 });
