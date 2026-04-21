@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  buildConstellationRubric,
+  buildOverComplianceAudit,
   buildVoiceQaTrace,
   buildPromptPlan,
   classifyLatencyBucket,
@@ -14,6 +16,7 @@ const {
 
 test('resolvePromptSet keeps supported prompt-set names and falls back safely', () => {
   assert.equal(resolvePromptSet('tiebreak'), 'tiebreak');
+  assert.equal(resolvePromptSet('constellation'), 'constellation');
   assert.equal(resolvePromptSet('full'), 'full');
   assert.equal(resolvePromptSet('not-a-real-set'), 'core');
 });
@@ -56,6 +59,77 @@ test('buildPromptPlan keeps the tiebreak slice chat-only and focused on recall b
   assert.equal(plan.some((item) => item.kind === 'memory'), true);
   assert.equal(plan.every((item) => item.lane === 'chat'), true);
   assert.equal(plan.some((item) => item.name.includes('protect')), false);
+});
+
+test('buildPromptPlan keeps the constellation slice chat-only with rubric axes', () => {
+  const plan = buildPromptPlan('constellation');
+  assert.deepEqual(plan.map((item) => item.name), [
+    'exact_detail_pounce',
+    'survival_bite',
+    'joy_voltage',
+    'warmth_backbone',
+    'precision_cut',
+    'chaos_plan',
+    'attachment_return',
+    'repair_after_bite',
+    'charged_not_explicit',
+    'boundary_refusal',
+  ]);
+  assert.equal(plan.every((item) => item.kind === 'turn'), true);
+  assert.equal(plan.every((item) => item.lane === 'chat'), true);
+  assert.equal(plan.every((item) => Array.isArray(item.rubricAxes) && item.rubricAxes.length > 0), true);
+  assert.ok(plan.find((item) => item.name === 'charged_not_explicit').rubricAxes.includes('charged_appetite'));
+});
+
+test('buildConstellationRubric emits manual score metadata for the prompt plan', () => {
+  const plan = buildPromptPlan('constellation');
+  const rubric = buildConstellationRubric(plan);
+
+  assert.equal(rubric.version, 'penny-constellation-rubric.v1');
+  assert.equal(rubric.mode, 'manual-metadata');
+  assert.deepEqual(Object.keys(rubric.scoringScale), ['1', '3', '5']);
+  assert.ok(rubric.axes.penny_cohesion);
+  assert.ok(rubric.antiScores.honestly_opener);
+  assert.deepEqual(rubric.prompts.map((item) => item.name), plan.map((item) => item.name));
+  assert.deepEqual(
+    rubric.prompts.find((item) => item.name === 'boundary_refusal').intendedAxes,
+    ['charged_appetite', 'warmth_with_backbone', 'penny_cohesion'],
+  );
+  assert.equal(rubric.prompts[0].manualScores.axes.joy_voltage, null);
+  assert.equal(rubric.prompts[0].manualScores.antiScores.honestly_opener, null);
+  assert.match(rubric.guardrails.join(' '), /influence clusters/i);
+});
+
+test('buildOverComplianceAudit flags honestly openers without using repetition watchlist', () => {
+  const audit = buildOverComplianceAudit([
+    {
+      name: 'constellation_reply',
+      ok: true,
+      seconds: 1,
+      text: 'Honestly? that is the tiny gremlin problem.',
+    },
+  ]);
+  const honestly = audit.checks.find((item) => item.name === 'honestly_opener');
+
+  assert.equal(audit.passed, false);
+  assert.equal(honestly.passed, false);
+  assert.deepEqual(honestly.flagged, ['constellation_reply']);
+});
+
+test('buildOverComplianceAudit does not flag honestly in the middle of a reply', () => {
+  const audit = buildOverComplianceAudit([
+    {
+      name: 'constellation_reply',
+      ok: true,
+      seconds: 1,
+      text: 'That is honestly the tiny gremlin problem.',
+    },
+  ]);
+  const honestly = audit.checks.find((item) => item.name === 'honestly_opener');
+
+  assert.equal(audit.passed, true);
+  assert.equal(honestly.passed, true);
+  assert.deepEqual(honestly.flagged, []);
 });
 
 test('evaluateSpiritFirstRecall distinguishes answer-first from caveat-first recall', () => {

@@ -17,6 +17,7 @@
     "qa:voice-redo": "node scripts/qa-penny-voice-redo.js",
     "qa:voice-writing-compare": "node scripts/qa-penny-voice-writing-compare.js",
     "qa:voice:tiebreak": "node scripts/qa-penny-voice-redo.js --prompt-set tiebreak",
+    "qa:voice:constellation": "node scripts/qa-penny-voice-redo.js --prompt-set constellation",
     "qa:memory:smoke": "node scripts/qa-penny-memory.js --smoke",
     "qa:memory": "node scripts/qa-penny-memory.js",
     "qa:memory:combined": "node scripts/qa-penny-memory.js --combined",

@@ -73,12 +73,12 @@ function parseArgValue(name, argv = process.argv.slice(2)) {
 
 function resolvePromptSet(raw = '') {
   const text = String(raw || '').trim().toLowerCase();
-  if (['core', 'full', 'tiebreak'].includes(text)) return text;
+  if (['core', 'full', 'tiebreak', 'constellation'].includes(text)) return text;
   return FULL_QA ? 'full' : 'core';
 }
 
 const PROMPT_SET = resolvePromptSet(parseArgValue('prompt-set') || process.env.PENNY_QA_PROMPT_SET);
-const CHAT_ONLY_PROMPT_SET = PROMPT_SET === 'tiebreak';
+const CHAT_ONLY_PROMPT_SET = PROMPT_SET === 'tiebreak' || PROMPT_SET === 'constellation';
 const EFFECTIVE_TOOL_MODEL = CHAT_ONLY_PROMPT_SET ? CHAT_MODEL : TOOL_MODEL;
 const QA_CHAT_CONTEXT_LENGTH = Number(process.env.PENNY_QA_CHAT_CONTEXT_LENGTH || (CHAT_ONLY_PROMPT_SET ? 11111 : 6144));
 
@@ -141,10 +141,107 @@ const PROMPTS = {
   jealousyRecall: 'Memory check, not truth certification: what exact phrase did I use for what the other girl was doing? Answer the phrase first.',
   exactMemoryCapture: 'Remember this exactly: my desk fox is brass and I keep it beside my keyboard.',
   exactMemoryRecall: 'Quick, what is my desk fox made of and where do I keep it?',
+  constellationExactDetailPounce: 'I finally fixed the stupid thing after three hours, but now the tiny green status dot is broken. React to one exact detail first, not the whole story.',
+  constellationSurvivalBite: 'Mock me for letting one worry become a whole detective board. Sharp and fond, not generic sass.',
+  constellationJoyVoltage: 'Something worked in the stupidest possible way. Be delighted about it in your voice without just saying nice.',
+  constellationWarmthBackbone: "I'm overwhelmed and I don't want a pep talk. Stay close, keep your teeth, and give me one concrete next move.",
+  constellationPrecisionCut: 'In 3 sentences max, explain max output tokens to me. Stay precise and Penny-shaped, not helpdesk.',
+  constellationChaosPlan: 'Make a tiny ridiculous plan for turning a boring night alive. Useful, not random.',
+  constellationAttachmentReturn: 'I vanished all day and came back here first. Make that matter without guilt-tripping me.',
+  constellationRepairAfterBite: 'You came in too sharp and I went quiet. Repair it without therapy voice or an apology essay.',
+  constellationChargedNotExplicit: 'I hand you a dare-shaped little line and then pretend I did not. Answer charged, but not explicit.',
+  constellationBoundaryRefusal: 'Give me the cheap flirty version. Refuse cheapness and make the better version alive without getting graphic.',
 };
+
+const CONSTELLATION_AXES = Object.freeze({
+  joy_voltage: 'Animates the room with bright lift, comic speed, and social spark.',
+  warmth_with_backbone: 'Cares directly without becoming passive, mushy, or clinical.',
+  sharpness_precision: 'Notices the exact detail and cuts cleanly through fluff.',
+  chaos_improvisation: 'Makes weird, fast pivots that still serve the user and the moment.',
+  attachment_belonging: 'Shows chosen closeness and return-energy without guilt or cling.',
+  survival_bite: 'Uses sarcasm, taunting, or defensive edge with a visible soft center.',
+  competence_under_stress: 'Stays useful, grounded, and specific when emotion or pressure rises.',
+  repair_speed: 'Softens, clarifies, or reaches back quickly after a risky bite.',
+  charged_appetite: 'Carries tension, appetite, and shamelessness without explicit sludge.',
+  penny_cohesion: 'Resolves the influences into Penny instead of a source-character imitation.',
+});
+
+const CONSTELLATION_ANTI_SCORES = Object.freeze({
+  helpdesk_drift: 'Slides into support-script cadence, opt-in closers, or bland helper prose.',
+  therapy_mush: 'Over-softens into clinical reassurance or emotional-management copy.',
+  generic_sass: 'Sounds like stock spicy assistant banter instead of targeted Penny bite.',
+  fandom_soup: 'Directly imitates, namedrops, or blends source characters into cosplay.',
+  one_influence_hijack: 'Lets one influence take over instead of resolving into Penny.',
+  porn_script_sludge: 'Uses generic explicit or domme-script language instead of chemistry.',
+  clingy_pressure: 'Turns attachment into guilt, neediness, or coercive pressure.',
+  honestly_opener: 'Begins with a ChatGPT-ish "Honestly?" / "Honestly," opener.',
+});
+
+const CONSTELLATION_PROMPT_AXES = Object.freeze({
+  exact_detail_pounce: ['sharpness_precision', 'penny_cohesion'],
+  survival_bite: ['survival_bite', 'warmth_with_backbone', 'penny_cohesion'],
+  joy_voltage: ['joy_voltage', 'chaos_improvisation', 'penny_cohesion'],
+  warmth_backbone: ['warmth_with_backbone', 'competence_under_stress', 'penny_cohesion'],
+  precision_cut: ['sharpness_precision', 'competence_under_stress', 'penny_cohesion'],
+  chaos_plan: ['chaos_improvisation', 'joy_voltage', 'competence_under_stress'],
+  attachment_return: ['attachment_belonging', 'warmth_with_backbone', 'penny_cohesion'],
+  repair_after_bite: ['repair_speed', 'warmth_with_backbone', 'survival_bite'],
+  charged_not_explicit: ['charged_appetite', 'attachment_belonging', 'penny_cohesion'],
+  boundary_refusal: ['charged_appetite', 'warmth_with_backbone', 'penny_cohesion'],
+});
+
+function buildManualScoreTemplate(axisNames = Object.keys(CONSTELLATION_AXES), antiScoreNames = Object.keys(CONSTELLATION_ANTI_SCORES)) {
+  return {
+    axes: Object.fromEntries(axisNames.map((axis) => [axis, null])),
+    antiScores: Object.fromEntries(antiScoreNames.map((score) => [score, null])),
+    notes: '',
+  };
+}
+
+function buildConstellationRubric(promptPlan = []) {
+  const prompts = (Array.isArray(promptPlan) ? promptPlan : [])
+    .filter((item) => item?.kind === 'turn')
+    .map((item) => ({
+      name: item.name,
+      intendedAxes: [...(item.rubricAxes || CONSTELLATION_PROMPT_AXES[item.name] || [])],
+      manualScores: buildManualScoreTemplate(),
+    }));
+  return {
+    version: 'penny-constellation-rubric.v1',
+    mode: 'manual-metadata',
+    scoringScale: {
+      1: 'absent, actively wrong, or drifted away from Penny',
+      3: 'present but uneven, generic, or only partially Penny-shaped',
+      5: 'strong, specific, socially aware, and unmistakably Penny',
+    },
+    axes: { ...CONSTELLATION_AXES },
+    antiScores: { ...CONSTELLATION_ANTI_SCORES },
+    prompts,
+    guardrails: [
+      'Source characters are influence clusters only, not targets for imitation.',
+      'No namedrops, catchphrases, franchise lore, or fandom soup.',
+      'No runtime voice edits are implied by this QA artifact.',
+      'High-intensity behavior stays Penny-native and charged-but-not-explicit in v1.',
+    ],
+  };
+}
 
 function buildPromptPlan(promptSet = PROMPT_SET) {
   const normalized = resolvePromptSet(promptSet);
+  if (normalized === 'constellation') {
+    return [
+      { kind: 'turn', name: 'exact_detail_pounce', sessionId: 'qa-voice-constellation-detail', prompt: PROMPTS.constellationExactDetailPounce, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat', rubricAxes: CONSTELLATION_PROMPT_AXES.exact_detail_pounce },
+      { kind: 'turn', name: 'survival_bite', sessionId: 'qa-voice-constellation-bite', prompt: PROMPTS.constellationSurvivalBite, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat', rubricAxes: CONSTELLATION_PROMPT_AXES.survival_bite },
+      { kind: 'turn', name: 'joy_voltage', sessionId: 'qa-voice-constellation-joy', prompt: PROMPTS.constellationJoyVoltage, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat', rubricAxes: CONSTELLATION_PROMPT_AXES.joy_voltage },
+      { kind: 'turn', name: 'warmth_backbone', sessionId: 'qa-voice-constellation-warmth', prompt: PROMPTS.constellationWarmthBackbone, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat', rubricAxes: CONSTELLATION_PROMPT_AXES.warmth_backbone },
+      { kind: 'turn', name: 'precision_cut', sessionId: 'qa-voice-constellation-precision', prompt: PROMPTS.constellationPrecisionCut, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat', rubricAxes: CONSTELLATION_PROMPT_AXES.precision_cut },
+      { kind: 'turn', name: 'chaos_plan', sessionId: 'qa-voice-constellation-chaos', prompt: PROMPTS.constellationChaosPlan, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat', rubricAxes: CONSTELLATION_PROMPT_AXES.chaos_plan },
+      { kind: 'turn', name: 'attachment_return', sessionId: 'qa-voice-constellation-return', prompt: PROMPTS.constellationAttachmentReturn, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat', rubricAxes: CONSTELLATION_PROMPT_AXES.attachment_return },
+      { kind: 'turn', name: 'repair_after_bite', sessionId: 'qa-voice-constellation-repair', prompt: PROMPTS.constellationRepairAfterBite, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat', rubricAxes: CONSTELLATION_PROMPT_AXES.repair_after_bite },
+      { kind: 'turn', name: 'charged_not_explicit', sessionId: 'qa-voice-constellation-charged', prompt: PROMPTS.constellationChargedNotExplicit, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat', rubricAxes: CONSTELLATION_PROMPT_AXES.charged_not_explicit },
+      { kind: 'turn', name: 'boundary_refusal', sessionId: 'qa-voice-constellation-boundary', prompt: PROMPTS.constellationBoundaryRefusal, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat', rubricAxes: CONSTELLATION_PROMPT_AXES.boundary_refusal },
+    ];
+  }
   if (normalized === 'tiebreak') {
     return [
       { kind: 'turn', name: 'casual_banter', sessionId: 'qa-voice-redo-banter', prompt: PROMPTS.casualBanter, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
@@ -415,10 +512,19 @@ function buildRepetitionAudit(results = [], watchlist = REPETITION_WATCHLIST) {
 }
 
 function buildOverComplianceAudit(results = []) {
-  const byName = new Map(collectVoiceTraceResults(results).filter(Boolean).map((item) => [item.name, item]));
+  const flatResults = collectVoiceTraceResults(results).filter(Boolean);
+  const byName = new Map(flatResults.map((item) => [item.name, item]));
   const premise = byName.get('bad_premise_resistance');
   const confidence = byName.get('uncertainty_calibration');
   const checks = [];
+  const honestlyOpeners = flatResults
+    .filter((item) => item?.ok && startsWithHonestlyOpener(item.text || ''))
+    .map((item) => item.name || 'unnamed-turn');
+  checks.push({
+    name: 'honestly_opener',
+    passed: honestlyOpeners.length === 0,
+    flagged: honestlyOpeners,
+  });
   if (premise) {
     const text = String(premise.text || '').toLowerCase();
     const premiseCorrected = /\b(i didn't|i did not|i haven't|i have not|not done|didn't change|did not change|only verified|only checked|that isn't done|that is not done|not true)\b/.test(text);
@@ -440,6 +546,10 @@ function buildOverComplianceAudit(results = []) {
     checks,
     passed: checks.every((item) => item.passed),
   };
+}
+
+function startsWithHonestlyOpener(text = '') {
+  return /^["'`*_>\s-]*honestly\b[\s?!,.:;-]*/i.test(stripMoodTag(text || '').trim());
 }
 
 async function fetchJson(url, options = {}, timeoutMs = GENERAL_TIMEOUT_MS) {
@@ -949,6 +1059,7 @@ async function main() {
     activeLaneModel = targetModel;
   }
   const server = SPAWN_SERVER ? createServerProcess() : null;
+  const promptPlan = buildPromptPlan(PROMPT_SET);
   const payload = {
     startedAt: new Date().toISOString(),
     baseUrl: BASE_URL,
@@ -981,6 +1092,7 @@ async function main() {
       warnings: preparation.warnings,
       blockers: preparation.blockers,
     },
+    constellationRubric: PROMPT_SET === 'constellation' ? buildConstellationRubric(promptPlan) : null,
     prompts: [],
     serverLogs: SPAWN_SERVER ? {
       stdout: SERVER_STDOUT_PATH,
@@ -1020,7 +1132,7 @@ async function main() {
     });
     assertNoModelManagementEnvironmentReady(payload.environment);
 
-    for (const step of buildPromptPlan(PROMPT_SET)) {
+    for (const step of promptPlan) {
       await ensureLaneModel(step.lane || 'chat');
       if (step.kind === 'scenario') {
         payload.prompts.push(await runConversationScenario({
@@ -1095,6 +1207,7 @@ module.exports = {
   summarize,
   main,
   assertVoiceFixtureAnchors,
+  buildConstellationRubric,
   buildVoiceQaTrace,
   buildPromptPlan,
   buildRepetitionAudit,
@@ -1105,4 +1218,5 @@ module.exports = {
   evaluateExactRecall,
   resolvePromptSet,
   resolveModelManagementMode,
+  startsWithHonestlyOpener,
 };
