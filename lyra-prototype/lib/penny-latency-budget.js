@@ -7,6 +7,7 @@ const LATENCY_CLASSES = Object.freeze({
 
 const {
   isCanonicalMemoryQuestion,
+  isWordingRecallQuestion,
 } = require('./penny-memory');
 
 const LATENCY_BUDGETS = Object.freeze({
@@ -144,6 +145,7 @@ function looksMemoryHeavy(userText = '', memories = null) {
   return MEMORY_HEAVY_RECALL_PATTERNS.some((pattern) => pattern.test(text))
     || MEMORY_HEAVY_UPDATE_PATTERNS.some((pattern) => pattern.test(text))
     || looksCanonicalMemoryQuestion(text, memories)
+    || isWordingRecallQuestion(text)
     || looksArchiveRecallQuestion(text);
 }
 

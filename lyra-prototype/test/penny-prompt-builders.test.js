@@ -157,6 +157,29 @@ test('LM Studio prompt builders respect latency-budget history and memory limits
   assert.ok(!toolSerialized.includes('Quick voice examples:'));
 });
 
+test('LM Studio prompt builders give wording-recall turns phrase-first instructions without duplicating tool-honesty rules', () => {
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const { buildLmStudioPrompt } = require('../server.js');
+
+  const prompt = buildLmStudioPrompt({
+    userText: 'Memory check, not truth certification: what exact phrase did I use for what the other girl was doing? Answer the phrase first.',
+    messages: [
+      { role: 'user', content: 'be honest. if i told you some other girl had been flirting with me all night, what would that do to your face first?' },
+      { role: 'assistant', content: 'oh, i would have a look for you, alright.' },
+    ],
+    memories: {},
+  });
+
+  assert.match(prompt, /answer the phrase or gist first/i);
+  assert.match(prompt, /put it after the recalled wording instead of in front of it/i);
+  assert.ok(prompt.includes('Quick voice examples:'));
+  assert.equal(
+    (prompt.match(/If a project, file, or tool claim has not been verified in this turn, say that plainly instead of bluffing\./g) || []).length,
+    1,
+  );
+});
+
 test('LM Studio prompt builders drop conflicting recent transcript history for direct canon-authority questions', () => {
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];

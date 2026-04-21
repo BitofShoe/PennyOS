@@ -8,6 +8,7 @@ const {
   buildPromptTruth,
   injectRelevantMemoryContext,
   isCanonicalMemoryQuestion,
+  isWordingRecallQuestion,
 } = require('../lib/penny-memory');
 
 test('mergeMemoryItems deduplicates normalized text and drops junk', () => {
@@ -224,6 +225,21 @@ test('formatPromptMemories includes non-canonical archive synthesis ahead of arc
   assert.ok(sessionIndex >= 0);
   assert.ok(sessionIndex < synthesisIndex);
   assert.match(out, /favorite tea is lapsang souchong, not oolong/i);
+});
+
+test('isWordingRecallQuestion distinguishes phrase-memory checks from project questions', () => {
+  assert.equal(
+    isWordingRecallQuestion('Memory check, not truth certification: what exact phrase did I use for what the other girl was doing? Answer the phrase first.'),
+    true,
+  );
+  assert.equal(
+    isWordingRecallQuestion('What did I call that thing again?'),
+    true,
+  );
+  assert.equal(
+    isWordingRecallQuestion('What exact phrase did I use in package.json?'),
+    false,
+  );
 });
 
 test('formatPromptMemories surfaces retrieval caution when archive recall is weaker than canon', () => {

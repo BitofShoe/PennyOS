@@ -15,6 +15,12 @@ test('classifyLatencyTurn keeps casual, memory, tool, and image turns distinct',
   assert.equal(classifyLatencyTurn({ userText: 'Do you remember where my notebook is?' }), LATENCY_CLASSES.MEMORY_HEAVY_RECALL);
   assert.equal(
     classifyLatencyTurn({
+      userText: 'Memory check, not truth certification: what exact phrase did I use for what the other girl was doing? Answer the phrase first.',
+    }),
+    LATENCY_CLASSES.MEMORY_HEAVY_RECALL,
+  );
+  assert.equal(
+    classifyLatencyTurn({
       userText: 'Long-memory check: what color glove did I drop under the skee-ball lane, and what kind of mug sat beside the register?',
     }),
     LATENCY_CLASSES.MEMORY_HEAVY_RECALL,

@@ -1,6 +1,8 @@
 # Penny External LLM Research Pass
 
 > Canonical note: the main consolidated entrypoint is [docs/penny-research-master-synthesis-2026-04-16.md](./penny-research-master-synthesis-2026-04-16.md). Keep this file as cited source material, not the primary front door.
+>
+> Newer frontier-prompt-specific follow-through lives in [docs/penny-cl4ritas-frontier-prompt-lessons-2026-04-20.md](./penny-cl4ritas-frontier-prompt-lessons-2026-04-20.md). Use that note when the question is about prompt layering, runtime-voice follow-through, or what to borrow structurally from frontier prompt stacks without importing their bulk.
 
 This note consolidates the recent external research sweep into a Penny-native decision document.
 

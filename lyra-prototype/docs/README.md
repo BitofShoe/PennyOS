@@ -103,6 +103,7 @@ This section keeps current law first, then follows the interpretive order from [
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
 | dated `*-synthesis-*`, `*-lessons-*`, and `*-pass-*` docs such as [penny-memory-external-research-synthesis-2026-04-16.md](./penny-memory-external-research-synthesis-2026-04-16.md), [penny-web-source-lessons-report-2026-04-17.md](./penny-web-source-lessons-report-2026-04-17.md), and [penny-illusion-of-thinking-lessons-2026-04-18.md](./penny-illusion-of-thinking-lessons-2026-04-18.md) | Outside-source interpretation and follow-through evidence | Historical evidence | Historical | translated research takeaways and Penny-specific implications | current implementation truth without verification |
+| [penny-cl4ritas-frontier-prompt-lessons-2026-04-20.md](./penny-cl4ritas-frontier-prompt-lessons-2026-04-20.md) | Frontier-prompt structure note | Historical evidence | Current | the CL4R1T4S frontier-prompt follow-up for Penny prompt-slot structure, spirit-first recall, no-helpdesk closer guidance, and compact runtime-voice follow-through | current runtime contract or a license to import giant frontier prompt slabs |
 | [penny-sillytavern-charmemory-mnemosyne-note-2026-04-20.md](./penny-sillytavern-charmemory-mnemosyne-note-2026-04-20.md) | External-memory fit note | Historical evidence | Current | recent apply-vs-poor-fit synthesis for CharMemory and Mnemosyne-style ideas | current runtime contract or storage law |
 
 ### 6. Review/audit docs
@@ -146,6 +147,7 @@ Treat these as evidence or continuity helpers unless and until their claims are 
 - [penny-docs-and-live-qa-agent-brief.md](./penny-docs-and-live-qa-agent-brief.md)
 - [penny-secret-third-thing-bounded-third-option-design.md](./penny-secret-third-thing-bounded-third-option-design.md)
 - [penny-progress-handoff-2026-04-17.md](./penny-progress-handoff-2026-04-17.md)
+- [penny-cl4ritas-frontier-prompt-lessons-2026-04-20.md](./penny-cl4ritas-frontier-prompt-lessons-2026-04-20.md)
 - [penny_runtime_voice_memory_bounded_ambiguity_master_2026-04-17.md](./penny_runtime_voice_memory_bounded_ambiguity_master_2026-04-17.md)
 - [penny-sillytavern-charmemory-mnemosyne-note-2026-04-20.md](./penny-sillytavern-charmemory-mnemosyne-note-2026-04-20.md)
 - [../PENNY_HOW_WE_GOT_HERE_AND_NEXT_STEPS.md](../PENNY_HOW_WE_GOT_HERE_AND_NEXT_STEPS.md)

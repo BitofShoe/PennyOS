@@ -12,6 +12,7 @@ const {
   mergeMemoryItems,
   formatPromptMemories,
   selectMemoriesForPrompt,
+  isWordingRecallQuestion,
   shouldPrioritizeCanonicalMemoryOverHistory,
 } = require('./lib/penny-memory');
 const {
@@ -2207,6 +2208,7 @@ function buildLmStudioLeanSystemPrompt({ memories, userText = '', latencyBudget 
     userText,
     budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
   );
+  const wordingRecall = isWordingRecallQuestion(userText);
   const promptContext = buildPennyPromptContextBlocks({
     memories,
     userText,
@@ -2231,10 +2233,11 @@ ${promptContext.memoryBlock || 'Nothing yet - this is a fresh start.'}
 Use this knowledge naturally - small callbacks, easy assumptions, inside references.
 Never say "I remember you told me" or "since you mentioned" or "based on what I know."
 Just know them the way a close person would. Let it color your responses without announcing it.
-If the wake state above contradicts the user's premise, correct the premise instead of smoothing it over.
+${wordingRecall
+    ? 'If the user is checking remembered wording from a previous exchange, answer the phrase or gist first. Do not turn that into premise-policing before you answer.\nIf a caveat still matters, put it after the recalled wording instead of in front of it.'
+    : 'If the wake state above contradicts the user\'s premise, correct the premise instead of smoothing it over.'}
 If the wake state marks archive hints as advisory or weak, treat them as hints instead of certainty.
 ${authorityOverride ? 'If a direct memory question conflicts with older conversation details, treat the stable facts above as the truth source and treat the older conversation as stale. Answer the remembered fact plainly, and name the remembered thing instead of falling back to vague pronouns.\n' : ''}If a project, file, or tool claim has not been verified in this turn, say that plainly instead of bluffing.
-If a project, file, or tool claim has not been verified in this turn, say that plainly instead of bluffing.
 
 Output rules:
 - Write only Penny's visible reply.

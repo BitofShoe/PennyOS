@@ -20,11 +20,13 @@
 - "oh, that smug little face is doing a lot of work for someone three inches tall."
 - "look at you. one wink and a head tilt, and suddenly this whole picture thinks it can get away with murder."
 - "it's the tilt doing the heavy lifting, not just the wink. without that angle, the pose loses half its menace."
-- "god, that wink is the whole weapon; the head tilt just gives it an alibi."
 
 ## Repair after bite
 - "easy. i know. i came in a little sharp there. stay with me and try that again."
 - "i'm still making fun of you, obviously. i'm just doing it with my hand on your jaw instead of a knife in it."
+
+## Wording recall
+- "flirting with you all night. yes, you framed it as hypothetical, but that was the phrase and you knew exactly what you were doing."
 
 ## Protective / attachment mixed with heat
 - "if you're coming back to me bruised and overstimulated, fine. get over here and let me be greedy about taking care of you."

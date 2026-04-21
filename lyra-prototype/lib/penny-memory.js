@@ -43,6 +43,12 @@ const CANONICAL_MEMORY_QUESTION_PATTERNS = [
   /\bwhat(?:'s| is| are| was| were)\s+my\b.+\bagain\b/,
   /\bwhat(?:'s| is| are| was| were)\s+my\b.+\bnow\b/,
 ];
+const WORDING_RECALL_PATTERNS = [
+  /\bwhat(?:\s+exact(?:ly)?)?\s+(?:phrase|wording|words?)\s+did\s+(?:i|we|you)\s+use\b/,
+  /\bwhat\s+did\s+(?:i|we|you)\s+call\b/,
+  /\bwhat\s+was\s+the\s+(?:phrase|wording)\b/,
+  /\banswer\s+the\s+phrase\s+first\b/,
+];
 function normalizeText(text = '') {
   return String(text).replace(/\s+/g, ' ').trim().replace(/[.!?;,\s]+$/g, '');
 }
@@ -234,6 +240,14 @@ function isCanonicalMemoryQuestion(userText = '', memories = null, limit = MEMOR
   if (!memories || typeof memories !== 'object') return true;
   if (directAuthorityMatch) return explicitOverlap || naturalRecallMatch;
   return naturalRecallMatch && explicitOverlap;
+}
+
+function isWordingRecallQuestion(userText = '') {
+  const normalized = normalizeText(userText || '').toLowerCase();
+  if (!normalized) return false;
+  if (PROJECT_SURFACE_PATTERN.test(normalized)) return false;
+  if (!isQuestionLike(normalized) && !/\banswer\s+the\s+phrase\s+first\b/.test(normalized)) return false;
+  return WORDING_RECALL_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 function isDirectMemoryAuthorityQuestion(userText = '', memories = null, limit = MEMORY_PROMPT_LIMIT, now = Date.now()) {
@@ -555,6 +569,7 @@ module.exports = {
   buildPromptTruth,
   normalizePromptTruth,
   isCanonicalMemoryQuestion,
+  isWordingRecallQuestion,
   isDirectMemoryAuthorityQuestion,
   shouldPrioritizeCanonicalMemoryOverHistory,
   selectMemoryBooksForPrompt,
