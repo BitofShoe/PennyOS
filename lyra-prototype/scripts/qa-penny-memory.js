@@ -30,6 +30,7 @@ const {
 const {
   createMemoryArchiveApi,
   normalizeArchiveScoringProfile,
+  normalizeRerankShadowProvider,
 } = require('../lib/penny-memory-archive');
 const { buildPromptMemoryContext } = require('../lib/penny-memory');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
@@ -76,6 +77,7 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
   let candidateSurvivalFixtureMode = process.env.PENNY_QA_MEMORY_CANDIDATE_SURVIVAL_FIXTURE === '1';
   let candidateSurvivalArchiveUnitMode = process.env.PENNY_QA_MEMORY_CANDIDATE_SURVIVAL_ARCHIVE_UNIT === '1';
   let shadowEmbedProvider = normalizeShadowEmbedProvider(process.env.PENNY_EMBED_SHADOW_PROVIDER || '');
+  let rerankShadowProvider = normalizeRerankShadowProvider(process.env.PENNY_RERANK_SHADOW_PROVIDER || 'fixture-reranker');
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = String(argv[index] || '').trim();
@@ -103,6 +105,15 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
         throw new Error('Unknown shadow embed provider. Expected: static');
       }
       shadowEmbedProvider = normalizedProvider;
+      continue;
+    }
+    if (arg === '--rerank-shadow-provider') {
+      rerankShadowProvider = normalizeRerankShadowProvider(argv[index + 1] || '');
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--rerank-shadow-provider=')) {
+      rerankShadowProvider = normalizeRerankShadowProvider(arg.slice('--rerank-shadow-provider='.length));
       continue;
     }
     if (arg === '--source-sensitive-fixture' || arg === '--source-sensitive') {
@@ -196,6 +207,7 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
     candidateSurvivalFixtureMode,
     candidateSurvivalArchiveUnitMode,
     shadowEmbedProvider,
+    rerankShadowProvider,
     runMode,
     runLabel,
   };
@@ -684,6 +696,7 @@ async function runCandidateSurvivalArchiveUnitQa({
   archiveScoringProfile = process.env.PENNY_ARCHIVE_SCORING_PROFILE || 'baseline',
   primaryEmbedModel = EMBED_MODEL,
   shadowEmbedProvider = normalizeShadowEmbedProvider(process.env.PENNY_EMBED_SHADOW_PROVIDER || ''),
+  rerankShadowProvider = normalizeRerankShadowProvider(process.env.PENNY_RERANK_SHADOW_PROVIDER || 'fixture-reranker'),
 } = {}) {
   fsImpl.mkdirSync(outputDir, { recursive: true });
   const paths = buildCandidateSurvivalArchiveUnitPaths({ outputDir, stamp });
@@ -697,6 +710,7 @@ async function runCandidateSurvivalArchiveUnitQa({
   const seedPlan = buildCandidateSurvivalArchiveUnitSeedPlan({ generatedAt });
   const activeScoringProfile = normalizeArchiveScoringProfile(archiveScoringProfile);
   const activeShadowProvider = normalizeShadowEmbedProvider(shadowEmbedProvider);
+  const activeRerankShadowProvider = normalizeRerankShadowProvider(rerankShadowProvider);
   const api = createMemoryArchiveApi({
     fs: fsImpl,
     path: pathImpl,
@@ -711,6 +725,7 @@ async function runCandidateSurvivalArchiveUnitQa({
     LMSTUDIO_API_KEY: 'lm-studio-local',
     PENNY_LMSTUDIO_EMBED_MODEL: primaryEmbedModel,
     PENNY_ARCHIVE_SCORING_PROFILE: activeScoringProfile,
+    PENNY_RERANK_SHADOW_PROVIDER: activeRerankShadowProvider,
     ENABLE_BACKGROUND_CHAT_VECTORS: false,
     BACKGROUND_CHAT_VECTOR_BATCH_LIMIT: 0,
     nowMs: fixedNowMs,
@@ -742,6 +757,9 @@ async function runCandidateSurvivalArchiveUnitQa({
       includeCandidateTrace: true,
       candidateTraceLimit: CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
       scoringProfile: profile,
+      includeRerankShadow: true,
+      rerankShadowProvider: activeRerankShadowProvider,
+      rerankShadowInputTopK: CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
       ...sessionOptions,
     });
     const promptMemoryContext = buildPromptMemoryContext({
@@ -803,6 +821,7 @@ async function runCandidateSurvivalArchiveUnitQa({
         LMSTUDIO_API_KEY: 'static-shadow-local',
         PENNY_LMSTUDIO_EMBED_MODEL: staticProvider.model,
         PENNY_ARCHIVE_SCORING_PROFILE: activeScoringProfile,
+        PENNY_RERANK_SHADOW_PROVIDER: activeRerankShadowProvider,
         ENABLE_BACKGROUND_CHAT_VECTORS: false,
         BACKGROUND_CHAT_VECTOR_BATCH_LIMIT: 0,
         getLmStudioConnectionStatus: staticProvider.getLmStudioConnectionStatus,
@@ -2204,6 +2223,7 @@ async function main() {
       outputDir: OUTPUT_DIR,
       stamp: STAMP,
       shadowEmbedProvider: MEMORY_QA_ARGS.shadowEmbedProvider,
+      rerankShadowProvider: MEMORY_QA_ARGS.rerankShadowProvider,
     });
     console.log(`Saved candidate-survival archive-unit memory QA to ${result.outputPath}`);
     return;

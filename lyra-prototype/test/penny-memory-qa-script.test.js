@@ -85,10 +85,18 @@ test('parseMemoryQaArgs supports candidate-survival fixture and archive-unit mod
   assert.equal(archiveUnit.candidateSurvivalArchiveUnitMode, true);
   assert.equal(archiveUnit.combinedMode, false);
   assert.equal(archiveUnit.shadowEmbedProvider, '');
+  assert.equal(archiveUnit.rerankShadowProvider, 'fixture-reranker');
 
   const shadow = parseMemoryQaArgs(['--candidate-survival-archive-unit', '--shadow-embed-provider=static']);
   assert.equal(shadow.runMode, 'candidate-survival-archive-unit');
   assert.equal(shadow.shadowEmbedProvider, 'static');
+
+  const rerankUnavailable = parseMemoryQaArgs(['--candidate-survival-archive-unit', '--rerank-shadow-provider=local-cross-encoder']);
+  assert.equal(rerankUnavailable.runMode, 'candidate-survival-archive-unit');
+  assert.equal(rerankUnavailable.rerankShadowProvider, 'local-cross-encoder');
+
+  const rerankDisabled = parseMemoryQaArgs(['--candidate-survival-archive-unit', '--rerank-shadow-provider=none']);
+  assert.equal(rerankDisabled.rerankShadowProvider, '');
 
   assert.throws(() => parseMemoryQaArgs(['--candidate-survival-archive-unit', '--smoke']), /cannot combine --candidate-survival-archive-unit/i);
   assert.throws(() => parseMemoryQaArgs(['--candidate-survival-archive-unit', '--judged']), /cannot combine --candidate-survival-archive-unit/i);
@@ -175,7 +183,7 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     const byId = new Map(artifact.cases.map((item) => [item.id, item]));
 
     assert.equal(fetchCalls, 0);
-    assert.equal(artifact.cases.length, 7);
+    assert.equal(artifact.cases.length, 8);
     assert.equal(artifact.measurementMode, 'archive-unit');
     assert.equal(artifact.liveModelCalls, false);
     assert.equal(artifact.serverSpawned, false);
@@ -186,8 +194,15 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(artifact.failureModeDefinitions.length, 9);
     assert.equal(artifact.summary.byFailureMode['not-applicable'], 1);
     assert.equal(artifact.summary.byFailureMode['no-failure'], 5);
+    assert.equal(artifact.summary.byFailureMode['low-rank'], 1);
     assert.equal(artifact.summary.byFailureMode['forbidden-rendered'], 0);
     assert.equal(artifact.summary.byFailureMode['missing-from-raw'], 1);
+    assert.equal(artifact.rerankerShadow.provider, 'fixture-reranker');
+    assert.equal(artifact.rerankerShadow.measurementMode, 'shadow-fixture');
+    assert.deepEqual(artifact.rerankerShadow.improvedCases, ['archive-reranker-low-rank-shadow']);
+    assert.deepEqual(artifact.rerankerShadow.regressedCases, []);
+    assert.equal(artifact.rerankerShadow.verdict, 'shadow-improved-ordering');
+    assert.equal(typeof artifact.rerankerShadow.latencyMs, 'number');
     assert.equal(artifact.cleanup.allRemoved, true);
     for (const file of artifact.cleanup.files) {
       assert.equal(file.existsAfterCleanup, false);
@@ -219,10 +234,10 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(explicitCase.profileComparison.renderedCountDelta, 0);
     assert.equal(artifact.embeddingProviderComparison.primary.provider, 'primary');
     assert.equal(artifact.embeddingProviderComparison.primary.model, 'text-embedding-nomic-embed-text-v1.5');
-    assert.equal(artifact.embeddingProviderComparison.primary.survivalAtK.eligible, 4);
+    assert.equal(artifact.embeddingProviderComparison.primary.survivalAtK.eligible, 5);
     assert.equal(artifact.embeddingProviderComparison.shadow.provider, 'static');
     assert.equal(artifact.embeddingProviderComparison.shadow.model, STATIC_SHADOW_EMBED_MODEL);
-    assert.equal(artifact.embeddingProviderComparison.shadow.survivalAtK.eligible, 4);
+    assert.equal(artifact.embeddingProviderComparison.shadow.survivalAtK.eligible, 5);
     assert.equal(typeof artifact.embeddingProviderComparison.shadow.cpuMs, 'number');
     assert.equal(artifact.embeddingProviderComparison.limits.includes('Default embedding provider unchanged.'), true);
     assert.equal(Object.prototype.hasOwnProperty.call(artifact.embeddingProviderComparison, 'promptTruth'), false);
@@ -249,6 +264,20 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.match(semanticCase.failureModeReason, /rendered support/i);
     assert.equal(semanticCase.forbiddenSurvival.forbiddenSelected, false);
     assert.equal(semanticCase.forbiddenSurvival.forbiddenRendered, false);
+
+    const lowRankCase = byId.get('archive-reranker-low-rank-shadow');
+    assert.ok(lowRankCase);
+    assert.equal(lowRankCase.survival.outcome, 'ranked-not-selected');
+    assert.equal(lowRankCase.failureMode, 'low-rank');
+    assert.equal(lowRankCase.survival.expectedObjectPresentRaw, true);
+    assert.equal(lowRankCase.survival.expectedObjectPresentRanked, true);
+    assert.equal(lowRankCase.survival.expectedObjectSelected, false);
+    assert.equal(lowRankCase.survival.expectedObjectRendered, false);
+    assert.equal(lowRankCase.rerankerShadowComparison.provider, 'fixture-reranker');
+    assert.equal(lowRankCase.rerankerShadowComparison.activeBestRank, 2);
+    assert.equal(lowRankCase.rerankerShadowComparison.rerankBestRank, 1);
+    assert.equal(lowRankCase.rerankerShadowComparison.rerankWouldSelect, true);
+    assert.equal(lowRankCase.topCandidates.some((item) => item.matchedExpected && item.rerankShadow.outputRank === 1), true);
 
     const absentCase = byId.get('fabricated-absent-tail-fact');
     assert.ok(absentCase);

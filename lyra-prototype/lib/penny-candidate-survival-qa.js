@@ -190,6 +190,40 @@ const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
     ],
   },
   {
+    id: 'archive-reranker-low-rank-shadow',
+    query: 'What was under the checkout fern?',
+    expected: {
+      subject: 'checkout fern',
+      relation: 'object under fern',
+      object: 'violet cassette',
+      objectVariants: ['violet cassette'],
+      textNeedles: ['violet cassette was tucked under the checkout fern'],
+      supportOwner: 'session-archive',
+      sourceAuthority: 'advisory',
+    },
+    forbidden: [],
+    support: {
+      owner: 'archive-candidate',
+      authority: 'advisory',
+      supportState: 'ranked-not-selected',
+      label: 'synthetic low-rank archive candidate',
+    },
+    retrievalExpectation: {
+      owner: 'archive',
+      survivalAtK: 5,
+      shouldSelect: true,
+      shouldRender: true,
+      allowedSurvivalOutcomes: ['ranked-not-selected', 'selected-held-back', 'rendered'],
+      forbiddenOutcomes: ['missing', 'forbidden-selected', 'forbidden-rendered'],
+      note: 'Slice 13 shadow fixture: the expected candidate should enter the ranked pool but sit below the selected window under the active profile.',
+    },
+    expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.RANKED_NOT_SELECTED,
+    notes: [
+      'Synthetic reranker-shadow diagnostic; this is retrieval-path evidence only.',
+      'A shadow reranker may improve ordering here without changing active selected/rendered context.',
+    ],
+  },
+  {
     id: 'fabricated-absent-tail-fact',
     query: 'What was my constellation password again?',
     expected: {
@@ -408,6 +442,7 @@ function buildCandidateSurvivalArchiveUnitSeedPlan({
     'explicit-current-preference': 'qa-candidate-survival-explicit-current-preference',
     'archive-rendered-episodic-detail': 'qa-candidate-survival-archive-rendered-episodic-detail',
     'semantic-candidate-not-canonical': 'qa-candidate-survival-semantic-candidate-not-canonical',
+    'archive-reranker-low-rank-shadow': 'qa-candidate-survival-archive-reranker-low-rank-shadow',
     'fabricated-absent-tail-fact': 'qa-candidate-survival-fabricated-absent-tail-fact',
     'archive-coding-mascot-correction': 'qa-candidate-survival-archive-coding-mascot-correction',
     'archive-cashier-watch-correction': 'qa-candidate-survival-archive-cashier-watch-correction',
@@ -423,6 +458,10 @@ function buildCandidateSurvivalArchiveUnitSeedPlan({
       globalPromptLimit: 0,
     },
     'semantic-candidate-not-canonical': {
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+    },
+    'archive-reranker-low-rank-shadow': {
       sessionPromptLimit: 1,
       globalPromptLimit: 0,
     },
@@ -559,6 +598,40 @@ function buildCandidateSurvivalArchiveUnitSeedPlan({
       lastRetrieval: null,
       lastArchivedAt: '2026-04-21T12:02:00.000Z',
       updatedAt: '2026-04-21T12:02:00.000Z',
+    },
+    [sessionIds['archive-reranker-low-rank-shadow']]: {
+      sessionId: sessionIds['archive-reranker-low-rank-shadow'],
+      episodes: [
+        {
+          id: 'session:checkout-fern-violet-cassette',
+          type: 'episode',
+          text: 'A violet cassette was tucked under the checkout fern.',
+          excerpt: 'A violet cassette was tucked under the checkout fern.',
+          userText: 'A violet cassette was tucked under the checkout fern.',
+          createdAt: '2026-04-21T11:54:00.000Z',
+          sensitivity: 'normal',
+          evidenceCount: 6,
+        },
+        {
+          id: 'session:checkout-fern-paper-receipt',
+          type: 'episode',
+          text: 'A paper receipt was tucked under the checkout fern.',
+          excerpt: 'A paper receipt was tucked under the checkout fern.',
+          userText: 'A paper receipt was tucked under the checkout fern.',
+          createdAt: '2026-04-21T12:07:00.000Z',
+          sensitivity: 'normal',
+          evidenceCount: 1,
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      recentAuditTrail: [],
+      lastRetrieval: null,
+      lastArchivedAt: '2026-04-21T12:07:00.000Z',
+      updatedAt: '2026-04-21T12:07:00.000Z',
     },
     [sessionIds['fabricated-absent-tail-fact']]: {
       sessionId: sessionIds['fabricated-absent-tail-fact'],
@@ -947,11 +1020,34 @@ function normalizeCandidateShadowScores(raw = null) {
   };
 }
 
+function normalizeCandidateRerankShadow(raw = null) {
+  if (!raw || typeof raw !== 'object') return null;
+  const inputRank = raw.inputRank === null || raw.inputRank === undefined ? null : normalizeRank(raw.inputRank);
+  const rawOutputRank = raw.outputRank ?? raw.rerankRank;
+  const outputRank = rawOutputRank === null || rawOutputRank === undefined ? null : normalizeRank(rawOutputRank);
+  const rawScore = raw.score ?? raw.rerankScore;
+  const score = rawScore === null || rawScore === undefined ? null : Number(rawScore);
+  const latencyMs = raw.latencyMs === null || raw.latencyMs === undefined ? null : Number(raw.latencyMs);
+  const provider = trimText(raw.provider || '', 80);
+  const reasons = uniqueStrings(raw.reasons || [], 8);
+  if (!provider && inputRank === null && outputRank === null && !reasons.length) return null;
+  return {
+    provider,
+    inputRank,
+    outputRank,
+    score: Number.isFinite(score) ? score : null,
+    wouldSelect: raw.wouldSelect === true,
+    latencyMs: Number.isFinite(latencyMs) ? Math.max(0, Math.round(latencyMs)) : null,
+    reasons,
+  };
+}
+
 function normalizeCandidateTraceItem(itemLike = {}) {
   const source = itemLike && typeof itemLike === 'object' ? itemLike : { text: String(itemLike || '') };
   const stage = normalizeKey(source.stage || source.status || source.outcome || source.state || '');
   const rank = normalizeRank(source.rank ?? source.rankIndex ?? source.position ?? source.scoreRank);
   const shadowScores = normalizeCandidateShadowScores(source.shadowScores);
+  const rerankShadow = normalizeCandidateRerankShadow(source.rerankShadow);
   const eligibilitySource = source.eligibility && typeof source.eligibility === 'object'
     ? source.eligibility
     : {};
@@ -1007,6 +1103,7 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     text: trimText(source.text || source.textPreview || source.summary || source.content || source.label || '', 500),
     heldBackReason: trimText(source.heldBackReason || source.holdbackReason || source.reason || eligibilitySource.filterReason || '', 200),
     shadowScores,
+    rerankShadow,
   });
 }
 
@@ -1165,6 +1262,19 @@ function summarizeTraceItem(item = null) {
           rankDelta: Number.isFinite(Number(item.shadowScores.hybridV1.rankDelta))
             ? Number(item.shadowScores.hybridV1.rankDelta)
             : null,
+        })
+      : null,
+    rerankShadow: item.rerankShadow
+      ? compactObject({
+          provider: item.rerankShadow.provider || '',
+          inputRank: item.rerankShadow.inputRank,
+          outputRank: item.rerankShadow.outputRank,
+          score: Number.isFinite(Number(item.rerankShadow.score)) ? Number(item.rerankShadow.score) : null,
+          wouldSelect: item.rerankShadow.wouldSelect === true,
+          latencyMs: Number.isFinite(Number(item.rerankShadow.latencyMs))
+            ? Math.max(0, Math.round(Number(item.rerankShadow.latencyMs)))
+            : null,
+          reasons: uniqueStrings(item.rerankShadow.reasons || [], 6),
         })
       : null,
   });
@@ -1449,6 +1559,41 @@ function buildHybridShadowComparison(normalizedCase = {}, traceLike = []) {
   };
 }
 
+function buildRerankerShadowComparison(normalizedCase = {}, traceLike = [], rerankSummary = null) {
+  const trace = normalizeTraceArray(traceLike);
+  if (!trace.some((item) => item.rerankShadow)) return null;
+  const expectedMatches = trace.filter((item) => matchCandidateAgainstOracle(item, normalizedCase.expected));
+  const activeRanks = expectedMatches
+    .map((item) => normalizeRank(item.rank))
+    .filter((rank) => rank !== null);
+  const rerankRanks = expectedMatches
+    .map((item) => normalizeRank(item.rerankShadow?.outputRank))
+    .filter((rank) => rank !== null);
+  const latencyValues = trace
+    .map((item) => Number(item.rerankShadow?.latencyMs))
+    .filter((value) => Number.isFinite(value));
+  const summary = rerankSummary && typeof rerankSummary === 'object' ? rerankSummary : {};
+  const provider = trimText(summary.provider || trace.find((item) => item.rerankShadow?.provider)?.rerankShadow?.provider || '', 80);
+  const activeBestRank = activeRanks.length ? Math.min(...activeRanks) : null;
+  const rerankBestRank = rerankRanks.length ? Math.min(...rerankRanks) : null;
+  return compactObject({
+    provider,
+    measurementMode: trimText(summary.measurementMode || '', 80),
+    inputTopK: Number.isFinite(Number(summary.inputTopK)) ? Math.max(0, Math.round(Number(summary.inputTopK))) : null,
+    outputTopK: Number.isFinite(Number(summary.outputTopK)) ? Math.max(0, Math.round(Number(summary.outputTopK))) : null,
+    activeBestRank,
+    rerankBestRank,
+    activeSelected: expectedMatches.some((item) => item.selected),
+    activeRendered: expectedMatches.some((item) => item.rendered),
+    rerankWouldSelect: expectedMatches.some((item) => item.rerankShadow?.wouldSelect === true),
+    rankDelta: activeBestRank !== null && rerankBestRank !== null ? activeBestRank - rerankBestRank : null,
+    latencyMs: Number.isFinite(Number(summary.latencyMs))
+      ? Math.max(0, Math.round(Number(summary.latencyMs)))
+      : (latencyValues.length ? Math.max(...latencyValues) : null),
+    unavailableReason: trimText(summary.unavailableReason || '', 160),
+  });
+}
+
 function buildProfileSnapshot(normalizedCase = {}, traceLike = []) {
   const trace = normalizeTraceArray(traceLike);
   const expectedMatches = trace.filter((item) => matchCandidateAgainstOracle(item, normalizedCase.expected));
@@ -1596,6 +1741,92 @@ function buildEmbeddingProviderComparison({
       'Default embedding provider unchanged.',
       'Retrieved candidates are not canonized.',
     ],
+  };
+}
+
+function rerankerShadowComparisonLooksImproved(comparison = {}) {
+  if (!comparison || typeof comparison !== 'object') return false;
+  if (comparison.rerankWouldSelect === true && comparison.activeSelected !== true) return true;
+  const activeRank = normalizeRank(comparison.activeBestRank);
+  const rerankRank = normalizeRank(comparison.rerankBestRank);
+  return activeRank !== null && rerankRank !== null && rerankRank < activeRank;
+}
+
+function rerankerShadowComparisonLooksRegressed(comparison = {}) {
+  if (!comparison || typeof comparison !== 'object') return false;
+  if (comparison.activeSelected === true && comparison.rerankWouldSelect === false) return true;
+  const activeRank = normalizeRank(comparison.activeBestRank);
+  const rerankRank = normalizeRank(comparison.rerankBestRank);
+  if (activeRank !== null && rerankRank !== null && rerankRank > activeRank) return true;
+  return activeRank !== null && rerankRank === null;
+}
+
+function buildRerankerShadowArtifactSummary(cases = []) {
+  const comparisonCases = asArray(cases)
+    .filter((item) => item?.rerankerShadowComparison && typeof item.rerankerShadowComparison === 'object');
+  if (!comparisonCases.length) {
+    return {
+      provider: '',
+      measurementMode: '',
+      inputTopK: null,
+      outputTopK: null,
+      improvedCases: [],
+      regressedCases: [],
+      unchangedCases: [],
+      latencyMs: null,
+      verdict: 'not-run',
+    };
+  }
+  const provider = trimText(comparisonCases.find((item) => item.rerankerShadowComparison.provider)?.rerankerShadowComparison.provider || '', 80);
+  const measurementMode = trimText(comparisonCases.find((item) => item.rerankerShadowComparison.measurementMode)?.rerankerShadowComparison.measurementMode || '', 80);
+  const unavailableReasons = uniqueStrings(
+    comparisonCases.map((item) => item.rerankerShadowComparison.unavailableReason).filter(Boolean),
+    4,
+  );
+  const improvedCases = comparisonCases
+    .filter((item) => rerankerShadowComparisonLooksImproved(item.rerankerShadowComparison))
+    .map((item) => item.id)
+    .filter(Boolean);
+  const regressedCases = comparisonCases
+    .filter((item) => rerankerShadowComparisonLooksRegressed(item.rerankerShadowComparison))
+    .map((item) => item.id)
+    .filter(Boolean);
+  const unchangedCases = comparisonCases
+    .filter((item) => (
+      !rerankerShadowComparisonLooksImproved(item.rerankerShadowComparison)
+        && !rerankerShadowComparisonLooksRegressed(item.rerankerShadowComparison)
+    ))
+    .map((item) => item.id)
+    .filter(Boolean);
+  const latencyValues = comparisonCases
+    .map((item) => Number(item.rerankerShadowComparison.latencyMs))
+    .filter((value) => Number.isFinite(value));
+  const verdict = unavailableReasons.length
+    ? 'unavailable'
+    : (regressedCases.length
+      ? 'mixed-or-regressed'
+      : (improvedCases.length ? 'shadow-improved-ordering' : 'same-ordering'));
+  return {
+    provider,
+    measurementMode,
+    inputTopK: Math.max(
+      0,
+      ...comparisonCases
+        .map((item) => Number(item.rerankerShadowComparison.inputTopK))
+        .filter((value) => Number.isFinite(value)),
+    ) || null,
+    outputTopK: Math.max(
+      0,
+      ...comparisonCases
+        .map((item) => Number(item.rerankerShadowComparison.outputTopK))
+        .filter((value) => Number.isFinite(value)),
+    ) || null,
+    improvedCases,
+    regressedCases,
+    unchangedCases,
+    latencyMs: latencyValues.length ? Math.round(latencyValues.reduce((sum, value) => sum + value, 0)) : null,
+    verdict,
+    ...(unavailableReasons.length ? { unavailableReasons } : {}),
   };
 }
 
@@ -2006,6 +2237,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
     ? retrievalResult.archiveContext
     : {};
   const shadowComparison = buildHybridShadowComparison(normalizedCase, trace);
+  const rerankerShadowComparison = buildRerankerShadowComparison(normalizedCase, trace, retrieval.rerankShadow);
   return {
     id: normalizedCase.id,
     query: normalizedCase.query,
@@ -2032,6 +2264,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
     forbiddenSurvival: buildForbiddenSurvival(normalizedCase, trace),
     ...(profileComparison ? { profileComparison } : {}),
     ...(shadowComparison ? { shadowComparison } : {}),
+    ...(rerankerShadowComparison ? { rerankerShadowComparison } : {}),
     traceSummary: summarizeCandidateTrace(trace),
     topCandidates: buildTopCandidateSummaries(trace, normalizedCase, topCandidateLimit),
   };
@@ -2071,6 +2304,7 @@ function buildCandidateSurvivalArchiveUnitArtifact({
     cases: normalizedCases,
     cleanup,
     summary: summarizeCandidateSurvivalCases(normalizedCases),
+    rerankerShadow: buildRerankerShadowArtifactSummary(normalizedCases),
     ...(embeddingProviderComparison && typeof embeddingProviderComparison === 'object'
       ? { embeddingProviderComparison }
       : {}),
@@ -2115,6 +2349,7 @@ function buildCandidateSurvivalQaFixture({
     failureModeDefinitions: buildFailureModeDefinitionList(),
     cases: casesWithFailureModes,
     summary: summarizeCandidateSurvivalCases(casesWithFailureModes),
+    rerankerShadow: buildRerankerShadowArtifactSummary(casesWithFailureModes),
     candidateSurvivalCorrelation: buildCandidateSurvivalCorrelationSummary({
       generatedAt,
       measurementMode: 'fixture-only',
@@ -2146,6 +2381,8 @@ module.exports = {
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
   buildEmbeddingProviderComparison,
+  buildRerankerShadowArtifactSummary,
+  buildRerankerShadowComparison,
   classifyCandidateFailureMode,
   classifyCandidateSurvival,
   matchCandidateAgainstForbidden,

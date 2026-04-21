@@ -13,8 +13,11 @@ const {
 } = require('./penny-prompttruth');
 const {
   ARCHIVE_SCORING_PROFILES,
+  RERANK_SHADOW_MEASUREMENT_MODES,
+  RERANK_SHADOW_PROVIDERS,
   createMemoryArchivePolicyApi,
   normalizeArchiveScoringProfile,
+  normalizeRerankShadowProvider,
 } = require('./penny-memory-archive-policy');
 const {
   normalizeConsolidationPacket,
@@ -293,6 +296,7 @@ function createMemoryArchiveApi({
   LMSTUDIO_API_KEY = 'lm-studio-local',
   PENNY_LMSTUDIO_EMBED_MODEL = '',
   PENNY_ARCHIVE_SCORING_PROFILE = ARCHIVE_SCORING_PROFILES.BASELINE,
+  PENNY_RERANK_SHADOW_PROVIDER = '',
   ENABLE_BACKGROUND_CHAT_VECTORS = true,
   BACKGROUND_CHAT_VECTOR_BATCH_LIMIT = 2,
   getLmStudioConnectionStatus = null,
@@ -313,6 +317,7 @@ function createMemoryArchiveApi({
 
   const configuredEmbedModel = normalizeEmbedModelId(PENNY_LMSTUDIO_EMBED_MODEL);
   const archiveScoringProfile = normalizeArchiveScoringProfile(PENNY_ARCHIVE_SCORING_PROFILE);
+  const configuredRerankShadowProvider = normalizeRerankShadowProvider(PENNY_RERANK_SHADOW_PROVIDER);
   const backgroundChatVectorsEnabled = ENABLE_BACKGROUND_CHAT_VECTORS === true;
   const backgroundChatVectorBatchLimit = Math.max(0, Number(BACKGROUND_CHAT_VECTOR_BATCH_LIMIT || 2));
   const modelComparator = typeof modelsLookEquivalent === 'function'
@@ -776,6 +781,27 @@ function createMemoryArchiveApi({
     };
   }
 
+  function normalizeArchiveRerankShadow(raw = null) {
+    if (!raw || typeof raw !== 'object') return null;
+    const provider = normalizeRerankShadowProvider(raw.provider || '');
+    const reasons = normalizeArchiveScoreReasons(raw.reasons);
+    const inputRank = raw.inputRank === null || raw.inputRank === undefined ? null : Number(raw.inputRank);
+    const outputRank = raw.outputRank === null || raw.outputRank === undefined ? null : Number(raw.outputRank);
+    const rawScore = raw.score ?? raw.rerankScore;
+    const score = rawScore === null || rawScore === undefined ? null : Number(rawScore);
+    const latencyMs = raw.latencyMs === null || raw.latencyMs === undefined ? null : Number(raw.latencyMs);
+    if (!provider && !reasons.length) return null;
+    return {
+      provider,
+      inputRank: Number.isFinite(inputRank) ? inputRank : null,
+      outputRank: Number.isFinite(outputRank) ? outputRank : null,
+      score: Number.isFinite(score) ? score : null,
+      wouldSelect: raw.wouldSelect === true,
+      latencyMs: Number.isFinite(latencyMs) ? Math.max(0, Math.round(latencyMs)) : null,
+      reasons,
+    };
+  }
+
   function normalizeCandidateTraceLimit(value = DEFAULT_CANDIDATE_TRACE_LIMIT) {
     const number = Number(value);
     if (!Number.isFinite(number)) return DEFAULT_CANDIDATE_TRACE_LIMIT;
@@ -790,6 +816,30 @@ function createMemoryArchiveApi({
       out[key] = item;
     }
     return out;
+  }
+
+  function summarizeArchiveRerankShadowRuns(runs = []) {
+    const items = Array.isArray(runs) ? runs.filter((item) => item && typeof item === 'object') : [];
+    if (!items.length) return null;
+    const provider = normalizeRerankShadowProvider(items.find((item) => item.provider)?.provider || '');
+    const measurementMode = String(items.find((item) => item.measurementMode)?.measurementMode || '').trim();
+    const unavailableReason = items.find((item) => item.unavailableReason)?.unavailableReason || '';
+    const latencyValues = items
+      .filter((item) => item.latencyMs !== null && item.latencyMs !== undefined)
+      .map((item) => Number(item.latencyMs))
+      .filter((value) => Number.isFinite(value));
+    return {
+      provider,
+      measurementMode,
+      inputTopK: items.reduce((sum, item) => sum + Math.max(0, Number(item.inputTopK || item.inputCount || 0)), 0),
+      outputTopK: items.reduce((sum, item) => sum + Math.max(0, Number(item.outputTopK || 0)), 0),
+      inputCount: items.reduce((sum, item) => sum + Math.max(0, Number(item.inputCount || 0)), 0),
+      outputCount: items.reduce((sum, item) => sum + Math.max(0, Number(item.outputCount || 0)), 0),
+      latencyMs: latencyValues.length
+        ? Math.round(latencyValues.reduce((sum, value) => sum + value, 0))
+        : null,
+      unavailableReason,
+    };
   }
 
   function archiveCandidateTraceKey(item = {}) {
@@ -832,6 +882,7 @@ function createMemoryArchiveApi({
     const activeScoreComponents = normalizeArchiveScoreComponents(item.activeScoreComponents || item.scoreComponents);
     const activeScoreReasons = normalizeArchiveScoreReasons(item.activeScoreReasons || item.scoreReasons);
     const shadowScores = normalizeArchiveShadowScores(item.shadowScores);
+    const rerankShadow = normalizeArchiveRerankShadow(item.rerankShadow);
     const semanticSimilarity = scoreComponents ? scoreComponents.semanticSimilarity : null;
     const semanticScore = semanticSimilarity == null
       ? null
@@ -881,6 +932,7 @@ function createMemoryArchiveApi({
       ...(scoreComponents ? { scoreComponents } : {}),
       ...(scoreReasons.length ? { scoreReasons } : {}),
       ...(shadowScores ? { shadowScores } : {}),
+      ...(rerankShadow ? { rerankShadow } : {}),
       eligibility: normalizedEligibility,
       sourceEpisodeIds: normalizeEvidenceIds(item.sourceEpisodeIds || item.evidenceIds || []),
       sourceSessionIds: normalizeEvidenceIds(
@@ -2116,6 +2168,9 @@ function createMemoryArchiveApi({
     includeCandidateTrace = false,
     candidateTraceLimit = DEFAULT_CANDIDATE_TRACE_LIMIT,
     scoringProfile = archiveScoringProfile,
+    includeRerankShadow = false,
+    rerankShadowProvider = configuredRerankShadowProvider,
+    rerankShadowInputTopK = null,
   } = {}) {
     if (lane !== 'chat') {
       const semanticMemory = await getSemanticMemoryStatus();
@@ -2138,9 +2193,12 @@ function createMemoryArchiveApi({
     let semanticDowngrade = false;
     let semanticDowngradeReason = '';
     const shouldIncludeCandidateTrace = includeCandidateTrace === true;
+    const shouldIncludeRerankShadow = shouldIncludeCandidateTrace && includeRerankShadow === true;
     const activeScoringProfile = normalizeArchiveScoringProfile(scoringProfile);
+    const activeRerankShadowProvider = normalizeRerankShadowProvider(rerankShadowProvider);
     const traceLimit = normalizeCandidateTraceLimit(candidateTraceLimit);
     const traceCandidates = [];
+    const rerankShadowRuns = [];
 
     if (semanticAttempted) {
       try {
@@ -2250,6 +2308,56 @@ function createMemoryArchiveApi({
       }
       ranked.sort((left, right) => right.score - left.score || String(right.createdAt).localeCompare(String(left.createdAt)));
       const selected = uniqueCandidateList(ranked, limit);
+      if (shouldIncludeRerankShadow) {
+        const requestedInputTopK = Number(rerankShadowInputTopK);
+        const inputTopK = Number.isFinite(requestedInputTopK) && requestedInputTopK > 0
+          ? Math.min(ranked.length, Math.floor(requestedInputTopK))
+          : ranked.length;
+        const rerankInput = ranked.slice(0, inputTopK);
+        const rerankResult = archivePolicyApi.rerankShadowCandidates(rerankInput, userText, {
+          provider: activeRerankShadowProvider,
+          inputTopK,
+          selectedLimit: limit,
+          activeContradictions,
+          openLoops: session.openLoops,
+          now,
+        });
+        rerankShadowRuns.push({
+          group,
+          provider: rerankResult.provider,
+          measurementMode: rerankResult.measurementMode,
+          inputTopK,
+          outputTopK: Math.max(0, Number(limit || 0)),
+          inputCount: rerankResult.inputCount,
+          outputCount: Array.isArray(rerankResult.output) ? rerankResult.output.length : 0,
+          latencyMs: rerankResult.latencyMs,
+          unavailableReason: rerankResult.unavailableReason,
+        });
+        const rerankOutputById = new Map();
+        for (const outputItem of Array.isArray(rerankResult.output) ? rerankResult.output : []) {
+          const key = String(outputItem?.candidateId || '').trim();
+          if (key && !rerankOutputById.has(key)) rerankOutputById.set(key, outputItem);
+        }
+        ranked.forEach((item, index) => {
+          const inputRank = index + 1;
+          const outputItem = rerankOutputById.get(String(item.id || '').trim());
+          const reasons = outputItem
+            ? normalizeArchiveScoreReasons(outputItem.reasons)
+            : (rerankResult.unavailableReason
+              ? [`unavailable:${rerankResult.unavailableReason}`]
+              : (inputRank > inputTopK ? ['outside-rerank-input-top-k'] : []));
+          item.rerankShadow = {
+            provider: rerankResult.provider,
+            measurementMode: rerankResult.measurementMode,
+            inputRank,
+            outputRank: Number.isFinite(Number(outputItem?.rerankRank)) ? Number(outputItem.rerankRank) : null,
+            score: Number.isFinite(Number(outputItem?.rerankScore)) ? Number(outputItem.rerankScore) : null,
+            wouldSelect: outputItem?.wouldSelect === true,
+            latencyMs: rerankResult.latencyMs,
+            reasons,
+          };
+        });
+      }
       if (shouldIncludeCandidateTrace) {
         const shadowRanked = ranked
           .slice()
@@ -2381,6 +2489,7 @@ function createMemoryArchiveApi({
       session: combinedSessionItems.map(normalizeRetrievalItem).filter(Boolean),
       global: globalItems.map(normalizeRetrievalItem).filter(Boolean),
       compression,
+      ...(shouldIncludeRerankShadow ? { rerankShadow: summarizeArchiveRerankShadowRuns(rerankShadowRuns) } : {}),
       ...(shouldIncludeCandidateTrace ? { candidateTrace } : {}),
     };
 
@@ -3151,6 +3260,7 @@ function createMemoryArchiveApi({
   return {
     configuredEmbedModel,
     archiveScoringProfile,
+    rerankShadowProvider: configuredRerankShadowProvider,
     buildArchiveStore: (embedModel = configuredEmbedModel) => buildArchiveStore(embedModel, {
       backgroundVectorsEnabled: backgroundChatVectorsEnabled,
       backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
@@ -3172,12 +3282,15 @@ function createMemoryArchiveApi({
     reviewPromotion,
     purgeMemory,
     scoreArchiveUtilityCandidate: archivePolicyApi.scoreArchiveUtilityCandidate,
+    rerankShadowCandidates: archivePolicyApi.rerankShadowCandidates,
     SESSION_RECENCY_PROTECTED_EPISODES,
   };
 }
 
 module.exports = {
   ARCHIVE_SCORING_PROFILES,
+  RERANK_SHADOW_MEASUREMENT_MODES,
+  RERANK_SHADOW_PROVIDERS,
   ARCHIVE_SCHEMA_VERSION,
   EMBEDDINGS_SCHEMA_VERSION,
   EXPLICIT_PROMPT_LIMIT,
@@ -3189,6 +3302,7 @@ module.exports = {
   SENSITIVE_RETRIEVAL_THRESHOLD,
   createMemoryArchiveApi,
   normalizeArchiveScoringProfile,
+  normalizeRerankShadowProvider,
   ARCHIVE_RETRIEVAL_REASON_CODES,
   ARCHIVE_COMPRESSION_REASON_CODES,
 };

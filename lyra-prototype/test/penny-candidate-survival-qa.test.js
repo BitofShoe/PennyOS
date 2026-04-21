@@ -12,6 +12,8 @@ const {
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
   buildEmbeddingProviderComparison,
+  buildRerankerShadowArtifactSummary,
+  buildRerankerShadowComparison,
   classifyCandidateFailureMode,
   classifyCandidateSurvival,
   matchCandidateAgainstForbidden,
@@ -92,6 +94,7 @@ test('candidate-survival fixture is fixture-only and carries explicit outcome de
   assert.equal(fixture.candidateSurvivalCorrelation.candidateSurvival.comparisonState, 'not-run');
   assert.equal(fixture.candidateSurvivalCorrelation.contextPressure.answerDrift, 'not-run');
   assert.equal(fixture.candidateSurvivalCorrelation.latency.firstTokenLatencyDeltaMs, null);
+  assert.equal(fixture.rerankerShadow.verdict, 'not-run');
 });
 
 test('candidate-survival fixture includes Penny-native explicit archive semantic and absent cases', () => {
@@ -103,6 +106,7 @@ test('candidate-survival fixture includes Penny-native explicit archive semantic
   const explicitCase = byId.get('explicit-current-preference');
   const archiveCase = byId.get('archive-rendered-episodic-detail');
   const semanticCase = byId.get('semantic-candidate-not-canonical');
+  const lowRankCase = byId.get('archive-reranker-low-rank-shadow');
   const absentCase = byId.get('fabricated-absent-tail-fact');
 
   assert.ok(explicitCase);
@@ -132,13 +136,21 @@ test('candidate-survival fixture includes Penny-native explicit archive semantic
     note.includes('Candidate survival is a retrieval-path diagnostic')
   )), true);
 
+  assert.equal(lowRankCase.expected.object, 'violet cassette');
+  assert.equal(lowRankCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.RANKED_NOT_SELECTED);
+  assert.equal(lowRankCase.failureMode, CANDIDATE_FAILURE_MODES.LOW_RANK);
+  assert.equal(lowRankCase.retrievalExpectation.owner, 'archive');
+  assert.equal(lowRankCase.retrievalExpectation.shouldSelect, true);
+
   assert.equal(absentCase.support.supportState, 'absent');
   assert.equal(absentCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.MISSING);
   assert.equal(absentCase.failureMode, CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW);
   assert.equal(absentCase.retrievalExpectation.owner, 'none');
   assert.deepEqual(absentCase.retrievalExpectation.allowedSurvivalOutcomes, [CANDIDATE_SURVIVAL_OUTCOMES.MISSING]);
   assert.equal(fixture.summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.MISSING], 1);
+  assert.equal(fixture.summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.RANKED_NOT_SELECTED], 1);
   assert.equal(fixture.summary.byFailureMode[CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW], 1);
+  assert.equal(fixture.summary.byFailureMode[CANDIDATE_FAILURE_MODES.LOW_RANK], 1);
   assert.equal(fixture.summary.byFailureMode[CANDIDATE_FAILURE_MODES.NO_FAILURE], 5);
 });
 
@@ -165,7 +177,7 @@ test('candidate-survival fixture carries source-sensitive retrieval expectations
   );
 });
 
-test('candidate-survival fixture pins Slice 10 source-sensitive regression cases', () => {
+test('candidate-survival fixture pins source-sensitive and reranker-shadow regression cases', () => {
   const fixture = buildCandidateSurvivalQaFixture({
     generatedAt: '2026-04-21T12:00:00.000Z',
   });
@@ -175,6 +187,7 @@ test('candidate-survival fixture pins Slice 10 source-sensitive regression cases
     'explicit-current-preference',
     'archive-rendered-episodic-detail',
     'semantic-candidate-not-canonical',
+    'archive-reranker-low-rank-shadow',
     'fabricated-absent-tail-fact',
     'archive-coding-mascot-correction',
     'archive-cashier-watch-correction',
@@ -509,6 +522,7 @@ test('archive-unit seed plan keeps disposable stores deterministic', () => {
   assert.equal(seed.explicitMemory.memories[0].text, 'My favorite tea is lapsang souchong.');
   assert.ok(seed.archiveSessions[seed.sessionIds['explicit-current-preference']]);
   assert.ok(seed.archiveSessions[seed.sessionIds['archive-rendered-episodic-detail']]);
+  assert.ok(seed.archiveSessions[seed.sessionIds['archive-reranker-low-rank-shadow']]);
   assert.ok(seed.archiveSessions[seed.sessionIds['archive-coding-mascot-correction']]);
   assert.ok(seed.archiveSessions[seed.sessionIds['archive-cashier-watch-correction']]);
   assert.ok(seed.archiveSessions[seed.sessionIds['sensitive-weak-match-suppressed']]);
@@ -591,9 +605,25 @@ test('archive-unit case result uses required survival and trace summary shape', 
                 rankDelta: 0,
               },
             },
+            rerankShadow: {
+              provider: 'fixture-reranker',
+              inputRank: 1,
+              outputRank: 1,
+              score: 18.5,
+              wouldSelect: true,
+              latencyMs: 0,
+              reasons: ['exact-anchor:arcade register'],
+            },
             eligibility: { eligible: true, filtered: false },
           },
         ],
+        rerankShadow: {
+          provider: 'fixture-reranker',
+          measurementMode: 'shadow-fixture',
+          inputTopK: 1,
+          outputTopK: 1,
+          latencyMs: 0,
+        },
       },
     },
   });
@@ -617,6 +647,10 @@ test('archive-unit case result uses required survival and trace summary shape', 
     rankDelta: 0,
   });
   assert.equal(result.topCandidates[0].shadowHybridV1.rank, 1);
+  assert.equal(result.rerankerShadowComparison.provider, 'fixture-reranker');
+  assert.equal(result.rerankerShadowComparison.rerankBestRank, 1);
+  assert.equal(result.rerankerShadowComparison.rerankWouldSelect, true);
+  assert.equal(result.topCandidates[0].rerankShadow.outputRank, 1);
 });
 
 test('archive-unit artifact records no live model or server behavior', () => {
@@ -655,6 +689,82 @@ test('archive-unit artifact records no live model or server behavior', () => {
   assert.equal(artifact.candidateSurvivalCorrelation.candidateSurvival.comparisonState, 'not-run');
   assert.equal(artifact.candidateSurvivalCorrelation.contextPressure.answerDrift, 'not-run');
   assert.equal(artifact.candidateSurvivalCorrelation.latency.totalLatencyDeltaMs, null);
+  assert.equal(artifact.rerankerShadow.verdict, 'not-run');
+});
+
+test('reranker shadow summary reports improved low-rank candidates without answer-quality claims', () => {
+  const trace = [
+    normalizeCandidateTraceItem({
+      id: 'receipt',
+      textPreview: 'A paper receipt was tucked under the checkout fern.',
+      rank: 1,
+      raw: true,
+      ranked: true,
+      selected: true,
+      rendered: true,
+      rerankShadow: {
+        provider: 'fixture-reranker',
+        inputRank: 1,
+        outputRank: 2,
+        score: 7,
+        wouldSelect: false,
+        latencyMs: 1,
+        reasons: ['lexical-overlap:checkout,fern'],
+      },
+    }),
+    normalizeCandidateTraceItem({
+      id: 'cassette',
+      textPreview: 'A violet cassette was tucked under the checkout fern.',
+      rank: 2,
+      raw: true,
+      ranked: true,
+      selected: false,
+      rendered: false,
+      rerankShadow: {
+        provider: 'fixture-reranker',
+        inputRank: 2,
+        outputRank: 1,
+        score: 13,
+        wouldSelect: true,
+        latencyMs: 1,
+        reasons: ['evidence-count:6:+2.40'],
+      },
+    }),
+  ];
+  const caseLike = normalizeCandidateSurvivalCase({
+    id: 'archive-reranker-low-rank-shadow',
+    expected: {
+      subject: 'checkout fern',
+      relation: 'object under fern',
+      object: 'violet cassette',
+    },
+    support: { owner: 'archive-candidate', authority: 'advisory', supportState: 'ranked-not-selected' },
+    retrievalExpectation: { owner: 'archive', survivalAtK: 5, shouldSelect: true, shouldRender: true },
+  });
+  const comparison = buildRerankerShadowComparison(caseLike, trace, {
+    provider: 'fixture-reranker',
+    measurementMode: 'shadow-fixture',
+    inputTopK: 2,
+    outputTopK: 1,
+    latencyMs: 1,
+  });
+  const summary = buildRerankerShadowArtifactSummary([
+    {
+      id: caseLike.id,
+      support: caseLike.support,
+      retrievalExpectation: caseLike.retrievalExpectation,
+      survival: { outcome: CANDIDATE_SURVIVAL_OUTCOMES.RANKED_NOT_SELECTED },
+      rerankerShadowComparison: comparison,
+    },
+  ]);
+
+  assert.equal(comparison.activeBestRank, 2);
+  assert.equal(comparison.rerankBestRank, 1);
+  assert.equal(comparison.rerankWouldSelect, true);
+  assert.deepEqual(summary.improvedCases, ['archive-reranker-low-rank-shadow']);
+  assert.deepEqual(summary.regressedCases, []);
+  assert.equal(summary.verdict, 'shadow-improved-ordering');
+  assert.equal(Object.prototype.hasOwnProperty.call(summary, 'promptTruth'), false);
 });
 
 test('embedding provider comparison summarizes shadow survival without answer-quality claims', () => {

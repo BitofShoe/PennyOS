@@ -683,6 +683,160 @@ test('buildArchiveContext computes hybrid shadow rank without changing active se
   }
 });
 
+test('buildArchiveContext runs fixture reranker shadow without changing active selection or rendered context', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'violet-cassette',
+          type: 'episode',
+          text: 'A violet cassette was tucked under the checkout fern.',
+          excerpt: 'A violet cassette was tucked under the checkout fern.',
+          userText: 'A violet cassette was tucked under the checkout fern.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+          evidenceCount: 6,
+        },
+        {
+          id: 'paper-receipt',
+          type: 'episode',
+          text: 'A paper receipt was tucked under the checkout fern.',
+          excerpt: 'A paper receipt was tucked under the checkout fern.',
+          userText: 'A paper receipt was tucked under the checkout fern.',
+          createdAt: '2026-04-13T12:01:00.000Z',
+          evidenceCount: 1,
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const request = {
+      sessionId: 'demo',
+      userText: 'What was under the checkout fern?',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+    };
+    const defaultResult = await api.buildArchiveContext(request);
+    const tracedResult = await api.buildArchiveContext({
+      ...request,
+      includeCandidateTrace: true,
+      includeRerankShadow: true,
+      rerankShadowProvider: 'fixture-reranker',
+      candidateTraceLimit: 4,
+    });
+
+    assert.deepEqual(defaultResult.archiveContext.session.map((item) => item.id), ['paper-receipt']);
+    assert.deepEqual(
+      tracedResult.archiveContext.session.map((item) => item.id),
+      defaultResult.archiveContext.session.map((item) => item.id),
+    );
+    assert.equal(tracedResult.retrieval.rerankShadow.provider, 'fixture-reranker');
+    assert.equal(tracedResult.retrieval.rerankShadow.measurementMode, 'shadow-fixture');
+    assert.equal(tracedResult.retrieval.rerankShadow.inputTopK, 2);
+    assert.equal(tracedResult.retrieval.rerankShadow.outputTopK, 1);
+    assert.equal(typeof tracedResult.retrieval.rerankShadow.latencyMs, 'number');
+
+    const activeWinner = tracedResult.retrieval.candidateTrace.find((item) => item.id === 'paper-receipt');
+    const rerankWinner = tracedResult.retrieval.candidateTrace.find((item) => item.id === 'violet-cassette');
+    assert.ok(activeWinner);
+    assert.ok(rerankWinner);
+    assert.equal(activeWinner.selected, true);
+    assert.equal(activeWinner.rendered, true);
+    assert.equal(rerankWinner.rank, 2);
+    assert.equal(rerankWinner.selected, false);
+    assert.equal(rerankWinner.rendered, false);
+    assert.equal(rerankWinner.rerankShadow.provider, 'fixture-reranker');
+    assert.equal(rerankWinner.rerankShadow.inputRank, 2);
+    assert.equal(rerankWinner.rerankShadow.outputRank, 1);
+    assert.equal(rerankWinner.rerankShadow.wouldSelect, true);
+    assert.equal(typeof rerankWinner.rerankShadow.latencyMs, 'number');
+    assert.equal(
+      rerankWinner.rerankShadow.reasons.some((reason) => reason.startsWith('evidence-count:')),
+      true,
+    );
+    assert.equal(activeWinner.rerankShadow.outputRank > rerankWinner.rerankShadow.outputRank, true);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext reports unavailable reranker shadow without crashing', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'moon-mug',
+          type: 'episode',
+          text: 'The chipped moon mug was beside the arcade register.',
+          excerpt: 'The chipped moon mug was beside the arcade register.',
+          userText: 'The chipped moon mug was beside the arcade register.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const result = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'What mug was beside the arcade register?',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      includeCandidateTrace: true,
+      includeRerankShadow: true,
+      rerankShadowProvider: 'local-cross-encoder',
+    });
+
+    assert.deepEqual(result.archiveContext.session.map((item) => item.id), ['moon-mug']);
+    assert.equal(result.retrieval.rerankShadow.provider, 'local-cross-encoder');
+    assert.equal(result.retrieval.rerankShadow.measurementMode, 'unavailable');
+    assert.equal(result.retrieval.rerankShadow.latencyMs, null);
+    assert.match(result.retrieval.rerankShadow.unavailableReason, /unsupported-reranker-provider/);
+    const trace = result.retrieval.candidateTrace.find((item) => item.id === 'moon-mug');
+    assert.ok(trace);
+    assert.equal(trace.selected, true);
+    assert.equal(trace.rendered, true);
+    assert.equal(trace.rerankShadow.provider, 'local-cross-encoder');
+    assert.equal(trace.rerankShadow.outputRank, null);
+    assert.equal(trace.rerankShadow.score, null);
+    assert.equal(trace.rerankShadow.latencyMs, null);
+    assert.equal(trace.rerankShadow.wouldSelect, false);
+    assert.equal(trace.rerankShadow.reasons.some((reason) => reason.includes('unsupported-reranker-provider')), true);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('buildArchiveContext gates active hybrid-v1 scoring behind explicit profile config', async () => {
   const files = makeTempFiles();
   const baselineApi = buildArchiveApi({ ...files, embedReady: false }).api;

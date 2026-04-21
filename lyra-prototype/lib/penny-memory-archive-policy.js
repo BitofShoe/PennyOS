@@ -3,10 +3,26 @@ const ARCHIVE_SCORING_PROFILES = Object.freeze({
   HYBRID_V1: 'hybrid-v1',
 });
 
+const RERANK_SHADOW_PROVIDERS = Object.freeze({
+  FIXTURE: 'fixture-reranker',
+});
+
+const RERANK_SHADOW_MEASUREMENT_MODES = Object.freeze({
+  FIXTURE: 'shadow-fixture',
+  UNAVAILABLE: 'unavailable',
+});
+
 function normalizeArchiveScoringProfile(value = '') {
   const text = String(value || '').trim().toLowerCase();
   if (text === ARCHIVE_SCORING_PROFILES.HYBRID_V1) return ARCHIVE_SCORING_PROFILES.HYBRID_V1;
   return ARCHIVE_SCORING_PROFILES.BASELINE;
+}
+
+function normalizeRerankShadowProvider(value = '') {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text || text === '0' || text === 'off' || text === 'none' || text === 'disabled') return '';
+  if (text === 'fixture' || text === RERANK_SHADOW_PROVIDERS.FIXTURE) return RERANK_SHADOW_PROVIDERS.FIXTURE;
+  return text.replace(/\s+/g, '-');
 }
 
 function createMemoryArchivePolicyApi({
@@ -410,6 +426,147 @@ function createMemoryArchivePolicyApi({
     };
   }
 
+  function scoreFixtureRerankCandidate(candidate = {}, {
+    queryText = '',
+    queryTokens = new Set(),
+    activeContradictions = [],
+    openLoops = [],
+    activeRank = null,
+  } = {}) {
+    const candidateTokens = tokenizeMemoryText(candidate.text || candidate.excerpt || candidate.evidenceSnippet || '');
+    const normalizedQueryTokens = queryTokens instanceof Set
+      ? queryTokens
+      : new Set(queryTokens || []);
+    const overlapTokens = candidateTokens.filter((token) => normalizedQueryTokens.has(token)).slice(0, 8);
+    const exactAnchor = scoreExactAnchorShadow(candidate, queryText, normalizedQueryTokens);
+    const contradictionRepair = scoreContradictionRepairShadow(candidate, activeContradictions);
+    const sourceAuthority = scoreSourceAuthorityShadow(candidate);
+    const evidenceCount = scoreEvidenceCountShadow(candidate);
+    const openLoop = scoreOpenLoopShadow(candidate, openLoops);
+    const activeScore = Number.isFinite(Number(candidate.activeScore ?? candidate.score))
+      ? Number(candidate.activeScore ?? candidate.score)
+      : 0;
+    const activeRankBonus = Number.isFinite(Number(activeRank)) && Number(activeRank) > 0
+      ? Math.max(0, 0.8 - (Number(activeRank) * 0.08))
+      : 0;
+    const sensitivityPenalty = candidate.sensitivity === 'high' ? -8 : 0;
+    const components = {
+      activeScorePrior: Math.max(0, activeScore) * 0.2,
+      lexicalOverlapScore: overlapTokens.length * 0.6,
+      exactAnchorScore: exactAnchor.score * 1.4,
+      contradictionRepairScore: contradictionRepair.score * 1.6,
+      sourceAuthorityScore: sourceAuthority.score,
+      evidenceCountScore: evidenceCount.score * 2.4,
+      openLoopRelevanceScore: openLoop.score,
+      activeRankBonus,
+      sensitivityPenalty,
+    };
+    const reasons = [];
+    if (overlapTokens.length) reasons.push(`lexical-overlap:${overlapTokens.join(',')}`);
+    if (exactAnchor.matchedPhrases.length) {
+      reasons.push(`exact-anchor:${exactAnchor.matchedPhrases.join(',')}`);
+    }
+    for (const label of contradictionRepair.repairs) {
+      reasons.push(`contradiction-repair:${label}:+${formatSimilarity(2.4 * 1.6)}`);
+    }
+    for (const label of contradictionRepair.stale) {
+      reasons.push(`stale-contradiction:${label}:${formatSimilarity(-3.2 * 1.6)}`);
+    }
+    if (sourceAuthority.score > 0 && sourceAuthority.label) {
+      reasons.push(`source-strength:${sourceAuthority.label}:${formatScoreComponent(sourceAuthority.score)}`);
+    }
+    if (evidenceCount.score > 0) {
+      reasons.push(`evidence-count:${evidenceCount.evidenceCount}:${formatScoreComponent(evidenceCount.score * 2.4)}`);
+    }
+    if (openLoop.linked) reasons.push(`open-loop:linked:${formatScoreComponent(openLoop.score)}`);
+    if (activeRankBonus > 0) reasons.push(`active-rank-prior:${formatScoreComponent(activeRankBonus)}`);
+    if (sensitivityPenalty) reasons.push(`sensitivity-guard:${formatScoreComponent(sensitivityPenalty)}`);
+    return {
+      score: roundShadowScore(Object.values(components).reduce((total, value) => total + Number(value || 0), 0)),
+      components,
+      reasons: reasons.slice(0, 8),
+    };
+  }
+
+  function rerankShadowCandidates(candidates = [], queryText = '', {
+    provider = RERANK_SHADOW_PROVIDERS.FIXTURE,
+    inputTopK = null,
+    selectedLimit = 0,
+    activeContradictions = [],
+    openLoops = [],
+    now = Date.now(),
+  } = {}) {
+    const normalizedProvider = normalizeRerankShadowProvider(provider);
+    const inputCount = Array.isArray(candidates) ? candidates.length : 0;
+    const startedAt = Date.now();
+    if (!normalizedProvider) {
+      return {
+        provider: '',
+        measurementMode: '',
+        inputCount,
+        output: [],
+        latencyMs: null,
+        unavailableReason: 'reranker-shadow-disabled',
+      };
+    }
+    if (normalizedProvider !== RERANK_SHADOW_PROVIDERS.FIXTURE) {
+      return {
+        provider: normalizedProvider,
+        measurementMode: RERANK_SHADOW_MEASUREMENT_MODES.UNAVAILABLE,
+        inputCount,
+        output: [],
+        latencyMs: null,
+        unavailableReason: `unsupported-reranker-provider:${normalizedProvider}`,
+      };
+    }
+    const queryTokens = new Set(tokenizeMemoryText(queryText));
+    const limit = Number.isFinite(Number(inputTopK)) && Number(inputTopK) > 0
+      ? Math.min(inputCount, Math.floor(Number(inputTopK)))
+      : inputCount;
+    const selectedCount = Number.isFinite(Number(selectedLimit)) && Number(selectedLimit) > 0
+      ? Math.floor(Number(selectedLimit))
+      : 0;
+    const scored = candidates
+      .slice(0, limit)
+      .map((candidate, index) => {
+        const activeRank = index + 1;
+        const reranked = scoreFixtureRerankCandidate(candidate, {
+          queryText,
+          queryTokens,
+          activeContradictions,
+          openLoops,
+          now,
+          activeRank,
+        });
+        return {
+          candidate,
+          activeRank,
+          score: reranked.score,
+          reasons: reranked.reasons,
+        };
+      })
+      .sort((left, right) => (
+        right.score - left.score
+          || left.activeRank - right.activeRank
+          || String(right.candidate?.createdAt || '').localeCompare(String(left.candidate?.createdAt || ''))
+      ));
+    const latencyMs = Math.max(0, Math.round(Date.now() - startedAt));
+    return {
+      provider: normalizedProvider,
+      measurementMode: RERANK_SHADOW_MEASUREMENT_MODES.FIXTURE,
+      inputCount,
+      output: scored.map((item, index) => ({
+        candidateId: String(item.candidate?.id || item.candidate?.sourceId || item.candidate?.text || '').trim(),
+        rerankScore: item.score,
+        rerankRank: index + 1,
+        wouldSelect: selectedCount > 0 ? index < selectedCount : false,
+        reasons: item.reasons,
+      })),
+      latencyMs,
+      unavailableReason: '',
+    };
+  }
+
   function looksLikeScaffoldingText(text = '') {
     const source = trimText(text, 220);
     if (!source) return true;
@@ -618,6 +775,7 @@ function createMemoryArchivePolicyApi({
     scoreArchiveCandidate,
     scoreArchiveCandidateHybridShadow,
     scoreArchiveCandidateWithProfile,
+    rerankShadowCandidates,
     buildSessionChapterText,
     buildSessionChapters,
     looksLikeScaffoldingText,
@@ -627,6 +785,9 @@ function createMemoryArchivePolicyApi({
 
 module.exports = {
   ARCHIVE_SCORING_PROFILES,
+  RERANK_SHADOW_MEASUREMENT_MODES,
+  RERANK_SHADOW_PROVIDERS,
   createMemoryArchivePolicyApi,
   normalizeArchiveScoringProfile,
+  normalizeRerankShadowProvider,
 };
