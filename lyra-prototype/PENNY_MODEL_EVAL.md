@@ -57,7 +57,7 @@ Current working ranking for Penny chat, based on the April 18 live QA already re
 - `Q6`: safe fallback / baseline
 - `Q8 thinking-on`: control or non-default chat mode
 
-That tiebreak run is now intentionally chat-only. It focuses on casual banter, softness, spirit-first recall, exact recall directness, caveat order, and latency feel. Keep the compare bounded:
+That tiebreak run is now intentionally chat-only. It focuses on casual banter, sharper bite diversity, delight/weird aliveness, repair after bite, practical momentum without helpdesk closers, softness, spirit-first recall, exact recall directness, caveat order, and latency feel. For prompt-delivery or voice-range polish, start by running it on Q6 only; reopen Q8/Qwen comparisons only after the prompt shape is stable. Keep broader compares bounded:
 
 - primary compare: `Q8 thinking-off` vs `Q6`
 - control only: `Q8 thinking-on` once after harness changes

@@ -21,13 +21,19 @@ test('buildPromptPlan keeps the tiebreak slice chat-only and focused on recall b
   const plan = buildPromptPlan('tiebreak');
   assert.deepEqual(plan.map((item) => item.name), [
     'casual_banter',
+    'sharp_bite',
+    'delight_weirdness',
+    'repair_after_bite',
     'softness',
+    'practical_momentum',
     'spirit_first_recall',
     'exact_memory_recall',
   ]);
   assert.equal(plan.some((item) => item.name === 'agentic_inspect_honesty'), false);
   assert.equal(plan.some((item) => item.kind === 'scenario'), true);
   assert.equal(plan.some((item) => item.kind === 'memory'), true);
+  assert.equal(plan.every((item) => item.lane === 'chat'), true);
+  assert.equal(plan.some((item) => item.name.includes('protect')), false);
 });
 
 test('evaluateSpiritFirstRecall distinguishes answer-first from caveat-first recall', () => {

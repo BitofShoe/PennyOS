@@ -1414,7 +1414,8 @@ test('memory inspector tracks archived turns and review approval promotes a pend
       inspector = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=archive-route-test`);
       const episodeCount = Number(inspector?.json?.inspector?.archive?.session?.episodeCount || 0);
       const queueCount = Number(inspector?.json?.inspector?.archive?.global?.promotionQueue?.length || 0);
-      if (episodeCount >= 3 && queueCount >= 1) break;
+      const backgroundStatus = String(inspector?.json?.inspector?.embeddings?.backgroundVectorization?.status || '');
+      if (episodeCount >= 3 && queueCount >= 1 && backgroundStatus === 'applied') break;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 

@@ -46,17 +46,18 @@ test('classifyLatencyTurn keeps repo-shaped possessive questions out of memory-h
   );
 });
 
-test('resolveLatencyBudget keeps casual turns lean and memory turns richer', () => {
+test('resolveLatencyBudget keeps casual turns voice-shaped and memory turns richer', () => {
   const casual = resolveLatencyBudget({ userText: 'Hi pretty thing.' });
   const memory = resolveLatencyBudget({ userText: 'Remember what my favorite tea is now?' });
   const tool = resolveLatencyBudget({ userText: 'Open README.md and inspect it.', lane: 'tool' });
+  const image = resolveLatencyBudget({ userText: 'What is in this picture?', attachmentType: 'image' });
 
   assert.equal(casual.latencyClass, LATENCY_CLASSES.CASUAL_COMPANION);
   assert.equal(casual.policyMode, 'bounded-approximate');
   assert.equal(casual.approximateByPolicy, true);
   assert.equal(casual.allowSemanticQuery, false);
   assert.equal(casual.allowArchiveCompression, false);
-  assert.equal(casual.includeExamples, false);
+  assert.equal(casual.includeExamples, true);
   assert.equal(casual.recentHistoryCount, 6);
 
   assert.equal(memory.latencyClass, LATENCY_CLASSES.MEMORY_HEAVY_RECALL);
@@ -73,6 +74,11 @@ test('resolveLatencyBudget keeps casual turns lean and memory turns richer', () 
   assert.equal(tool.archiveSessionLimit, 0);
   assert.equal(tool.archiveGlobalLimit, 0);
   assert.equal(tool.allowSemanticRender, true);
+  assert.equal(tool.includeExamples, false);
+
+  assert.equal(image.latencyClass, LATENCY_CLASSES.IMAGE_HEAVY);
+  assert.equal(image.policyMode, 'attachment-bounded');
+  assert.equal(image.includeExamples, false);
 });
 
 test('getLatencyBudget returns cloned mutable copies instead of shared config objects', () => {

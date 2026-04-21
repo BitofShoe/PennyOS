@@ -190,6 +190,34 @@ test('LM Studio prompt builders respect latency-budget history and memory limits
   assert.ok(!toolSerialized.includes('Quick voice examples:'));
 });
 
+test('LM Studio prompt builders include voice examples for ordinary chat while keeping image turns lean', () => {
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const {
+    buildLmStudioPrompt,
+    buildLmStudioMessages,
+  } = require('../server.js');
+
+  const casualPrompt = buildLmStudioPrompt({
+    userText: 'you still up?',
+    messages: [
+      { role: 'user', content: 'you still up?' },
+    ],
+    memories: {},
+  });
+  assert.match(casualPrompt, /Quick voice examples:/);
+
+  const imageMessages = buildLmStudioMessages({
+    userText: 'Tell me what you see in this image.',
+    messages: [
+      { role: 'user', content: 'Tell me what you see in this image.' },
+    ],
+    memories: {},
+    image: 'data:image/png;base64,abc123',
+  });
+  assert.doesNotMatch(JSON.stringify(imageMessages), /Quick voice examples:/);
+});
+
 test('LM Studio prompt builders give wording-recall turns phrase-first instructions without duplicating tool-honesty rules', () => {
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
