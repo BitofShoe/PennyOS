@@ -256,6 +256,8 @@ The tool registry now also exposes an internal `ToolCapabilityDescriptor` contra
 
 - current tools are all marked `surface: native`
 - the contract is shaped for future `mcp` and `openapi` surfaces
+- descriptors include advisory `outputCostShape`, `sourceShape`, `defaultOutputBound`, and `planningHint` metadata so future planners can reason about rough output/source cost without dumping broad context by default
+- that cost metadata is not runtime authority and does not currently change planner/tool-loop behavior
 - this is a planning seam only; Penny is not running live connector adapters in production
 
 ### 6. Research continuity and provenance

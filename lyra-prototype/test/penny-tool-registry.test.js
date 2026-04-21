@@ -5,6 +5,7 @@ const {
   createToolRegistry,
   buildToolCapabilityDescriptor,
   validateToolCapabilityDescriptor,
+  normalizeToolCapabilityDescriptor,
 } = require('../lib/penny-tool-registry');
 
 function buildRegistry(overrides = {}) {
@@ -58,6 +59,10 @@ test('createToolRegistry exposes bounded native capability descriptors without a
     descriptors.map((descriptor) => descriptor.surface),
     Array(14).fill('native'),
   );
+  assert.deepEqual(
+    descriptors.map((descriptor) => typeof descriptor.outputCostShape),
+    Array(14).fill('string'),
+  );
 
   const toolNames = descriptors.map((descriptor) => descriptor.id);
   assert.deepEqual(toolNames, [
@@ -85,10 +90,21 @@ test('createToolRegistry exposes bounded native capability descriptors without a
     operationKind: 'search',
     sideEffectClass: 'external-read',
     executionSupport: 'local',
+    outputCostShape: 'bounded-list',
+    sourceShape: 'external-source',
+    defaultOutputBound: 5,
+    planningHint: 'External search result list; read a page only when source details are needed.',
   });
 
   descriptor.surface = 'mcp';
+  descriptor.outputCostShape = 'unbounded';
+  descriptor.planningHint = 'mutated clone';
   assert.equal(registry.getToolCapabilityDescriptor('search_web').surface, 'native');
+  assert.equal(registry.getToolCapabilityDescriptor('search_web').outputCostShape, 'bounded-list');
+  assert.equal(
+    registry.getToolCapabilityDescriptor('search_web').planningHint,
+    'External search result list; read a page only when source details are needed.',
+  );
 
   const result = await registry.executePennyTool('search_web', { query: 'penny', limit: 3 });
   assert.equal(result.ok, true);
@@ -112,6 +128,30 @@ test('ToolCapabilityDescriptor validation accepts supported surfaces and rejects
     executionSupport: 'remote',
   });
 
+  assert.deepEqual(normalizeToolCapabilityDescriptor({
+    id: ' demo_tool ',
+    label: ' demo tool ',
+    surface: ' mcp ',
+    operationKind: ' query ',
+    sideEffectClass: ' none ',
+    executionSupport: ' remote ',
+    outputCostShape: ' external-page ',
+    sourceShape: ' external-source ',
+    defaultOutputBound: '42',
+    planningHint: '  Read sparingly.  ',
+  }), {
+    id: 'demo_tool',
+    label: 'demo tool',
+    surface: 'mcp',
+    operationKind: 'query',
+    sideEffectClass: 'none',
+    executionSupport: 'remote',
+    outputCostShape: 'external-page',
+    sourceShape: 'external-source',
+    defaultOutputBound: 42,
+    planningHint: 'Read sparingly.',
+  });
+
   assert.throws(() => buildToolCapabilityDescriptor('does_not_exist'), /unknown tool capability descriptor/i);
   assert.throws(() => validateToolCapabilityDescriptor({
     id: 'broken',
@@ -121,4 +161,61 @@ test('ToolCapabilityDescriptor validation accepts supported surfaces and rejects
     sideEffectClass: 'none',
     executionSupport: 'local',
   }), /surface must be one of/i);
+  assert.throws(() => validateToolCapabilityDescriptor({
+    id: 'broken',
+    label: 'broken tool',
+    surface: 'native',
+    operationKind: 'query',
+    sideEffectClass: 'none',
+    executionSupport: 'local',
+    outputCostShape: 'expensive-ish',
+  }), /outputCostShape must be one of/i);
+  assert.throws(() => validateToolCapabilityDescriptor({
+    id: 'broken',
+    label: 'broken tool',
+    surface: 'native',
+    operationKind: 'query',
+    sideEffectClass: 'none',
+    executionSupport: 'local',
+    sourceShape: 'unclear',
+  }), /sourceShape must be one of/i);
+  assert.throws(() => validateToolCapabilityDescriptor({
+    id: 'broken',
+    label: 'broken tool',
+    surface: 'native',
+    operationKind: 'query',
+    sideEffectClass: 'none',
+    executionSupport: 'local',
+    defaultOutputBound: -1,
+  }), /defaultOutputBound must be/i);
+});
+
+test('tool capability output-cost metadata is advisory only', async () => {
+  const calls = [];
+  const registry = buildRegistry({
+    readProjectFileTool: (args) => {
+      calls.push(args);
+      return { path: args.path, startLine: args.startLine, endLine: args.endLine, excerpt: '10:hello' };
+    },
+  });
+
+  const descriptor = registry.getToolCapabilityDescriptor('read_project_file');
+  assert.equal(descriptor.outputCostShape, 'bounded-list');
+  assert.equal(descriptor.sourceShape, 'workspace-source');
+  assert.equal(descriptor.defaultOutputBound, 120);
+
+  const result = await registry.executePennyTool('read_project_file', {
+    path: 'README.md',
+    startLine: 10,
+    endLine: 10,
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, [{ path: 'README.md', startLine: 10, endLine: 10 }]);
+  assert.deepEqual(result.data, {
+    path: 'README.md',
+    startLine: 10,
+    endLine: 10,
+    excerpt: '10:hello',
+  });
 });
