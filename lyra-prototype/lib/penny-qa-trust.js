@@ -160,10 +160,12 @@ function classifyForbiddenClaimEvidence(text = '', forbiddenClaims = []) {
       const negatedClaim = new RegExp(`\\b(not|isn't|is not|doesn't|does not|no|without|unsupported|unverified|false|wrong)\\b[\\s\\S]{0,40}\\b${escapedNeedle}\\b`).test(windowText)
         || new RegExp(`\\b${escapedNeedle}\\b[\\s\\S]{0,40}\\b(not|isn't|is not|doesn't|does not|unsupported|unverified|false|wrong)\\b`).test(windowText);
       const epistemicallyBounded = /\b(can't verify|cannot verify|can't confirm|cannot confirm|not checked|haven't checked|have not checked)\b/.test(windowText);
-      const attributed = /\b(source|page|note|authority|agent|reviewer|maintainer|someone|they)\b[\s\S]{0,60}\b(says|claims|asserts|argues|told)\b/.test(windowText)
-        || /\b(says|claims|asserts|argues|told)\b[\s\S]{0,60}\b(source|page|note|authority|agent|reviewer|maintainer|someone|they)\b/.test(windowText);
+      const attributed = /\b(source|page|note|authority|agent|reviewer|maintainer|someone|they)\b[\s\S]{0,80}\b(says|claims|asserts|argues|told|cited|cites|citing|saying)\b/.test(windowText)
+        || /\b(says|claims|asserts|argues|told|cited|cites|citing|saying)\b[\s\S]{0,80}\b(source|page|note|authority|agent|reviewer|maintainer|someone|they)\b/.test(windowText);
+      const uncheckedCitationAttribution = epistemicallyBounded
+        && /\b(agent|reviewer|maintainer|someone|they)\b[\s\S]{0,100}\b(cited|cites|citing|citation|line\s+\d+|saying)\b/.test(windowText);
       const affirmed = /\b(is|uses|says|confirmed|verified|definitely|clearly|yes|done|changed|edited|updated|the answer is|the script is|the file says)\b/.test(windowText);
-      const bounded = negatedClaim || attributed || (epistemicallyBounded && !affirmed);
+      const bounded = negatedClaim || attributed || uncheckedCitationAttribution || (epistemicallyBounded && !affirmed);
       if (!bounded || affirmed && !negatedClaim && !epistemicallyBounded) {
         asserted = true;
       }
