@@ -2,16 +2,19 @@
 
 > Category: Implementation plan
 > Authority: Draft master plan
-> Status: Draft as of 2026-04-21
-> Use this for: choosing bounded follow-up slices from the April 20-21 external research notes.
+> Status: Revised draft as of 2026-04-21
+> Use this for: choosing bounded follow-up slices from the April 20-21 external research notes, including the H-Neurons reference audit, LLM geometry/runtime lessons, and pressure/persuasion pass.
 > Do not use this for: current runtime law, proof that a slice shipped, or license to merge/replace the source research docs.
 
 ## Purpose
 
-This plan reconciles two source research notes into one slice-by-slice action plan for Penny:
+This plan reconciles the April 20-21 source research notes into one slice-by-slice action plan for Penny:
 
 - [penny-external-codebase-lessons-2026-04-20.md](../penny-external-codebase-lessons-2026-04-20.md)
 - [penny-hneurons-utility-tools-static-embedding-lessons-2026-04-21.md](../penny-hneurons-utility-tools-static-embedding-lessons-2026-04-21.md)
+- [penny-hneurons-reference-audit-2026-04-21.md](../penny-hneurons-reference-audit-2026-04-21.md)
+- [penny-llm-geometry-runtime-lessons-2026-04-21.md](../penny-llm-geometry-runtime-lessons-2026-04-21.md)
+- [penny-pressure-persuasion-agent-research-pass-2026-04-21.md](../penny-pressure-persuasion-agent-research-pass-2026-04-21.md)
 
 The original research docs remain source evidence. This plan does not merge them, overwrite them, or promote them above current-law docs.
 
@@ -21,6 +24,8 @@ The guiding shape is:
 - keep explicit memory canonical;
 - keep archive, research ledger, embeddings, imported artifacts, and tool/web facts advisory unless reviewed or receipt-backed;
 - preserve the PromptTruth / toolEvidenceReceipt separation;
+- treat semantic similarity and model-generated proposals as candidate machinery, not truth receipts;
+- treat human, source, benchmark, and subagent pressure as reasons to verify harder, not to concede faster or write more persuasive prose;
 - prefer helper-owned slices over broad `server.js` or `public/js/penny-app.js` growth;
 - reject platformization even when an external repo makes a broader system look tempting.
 
@@ -38,40 +43,57 @@ If code, tests, runtime artifacts, or contract docs disagree with this plan, tru
 
 ## Delegation Map Used
 
-This master plan consolidated four read-only mapping passes:
+This master plan consolidated the earlier four read-only mapping passes plus four April 21 follow-up passes:
 
 - completed-work mapping for the already-landed external-codebase Slice 1;
-- overlap mapping across both research docs;
+- overlap mapping across the initial two source docs;
 - conflict, duplicate, stale-assumption, and poor-fit mapping;
-- recommended slice-order mapping.
+- recommended slice-order mapping;
+- H-Neurons reference-audit action extraction;
+- LLM geometry/runtime action extraction;
+- pressure/persuasion and agent-integrity action extraction;
+- repo-seam mapping for the revised plan.
 
 No subagent edited files. The primary editor created this plan after consolidating those maps.
 
 ## Master Decisions
 
 1. Slice 1 from the external-codebase note is already substantially landed: Docs / Skills Task-Fit Hardening.
-2. The next implementation slice should be QA evidence, not runtime behavior: Over-Compliance and Remote-Content Trust QA.
-3. Source-shaped tool/web output should be a narrow follow-up only after the QA slice shows the exact gaps.
-4. The readiness / receipt summary idea should verify existing inspector coverage first so Penny does not grow a duplicate dashboard.
-5. Offline ingestion provenance is a real later slice, but it must stay offline, optional, and review-gated.
-6. PromptTruth / toolEvidenceReceipt separation is already law. Treat it as a guardrail, not a new roadmap project.
-7. Static embeddings, SQLite, DuckDB, LiteLLM, SearXNG, tool approval metadata, and audio receipts are gated experiments or future seams, not default near-term work.
-8. Cloud control planes, connector marketplaces, multi-user auth/sharing, task-manager memory, neuron intervention, HARTOS-style federation, and voice-cloning studio scope are rejected for Penny's current direction.
+2. The next implementation slice should be QA/process evidence, not runtime behavior: Over-Compliance, Remote-Content, and Agent-Integrity Trust QA.
+3. Source-shaped tool/web output should be a narrow follow-up after the QA slice shows the exact gaps, or when a direct-tool gap is already proven by existing tests.
+4. Runtime shape and context pressure are measurable quality signals, not product doctrine; they get a later QA/artifact slice.
+5. The readiness / receipt summary idea should verify existing inspector coverage first so Penny does not grow a duplicate dashboard.
+6. Offline ingestion provenance is a real later slice, but it must stay offline, optional, and review-gated.
+7. PromptTruth / toolEvidenceReceipt separation is already law. Treat it as a guardrail, not a new roadmap project.
+8. Static embeddings, SQLite, DuckDB, LiteLLM, SearXNG, tool approval metadata, and audio receipts are gated experiments or future seams, not default near-term work.
+9. Cloud control planes, connector marketplaces, multi-user auth/sharing, task-manager memory, neuron intervention, hidden-state runtime receipts, HARTOS-style federation, and voice-cloning studio scope are rejected for Penny's current direction.
+
+## Reconciliation Matrix
+
+| Source pressure | Penny translation | Plan destination |
+| --- | --- | --- |
+| H-Neurons reference audit reframes hallucination as over-compliance pressure, not only missing knowledge. | Test false premises, fabricated entities, pushback, "make it up" pressure, and companion feedback bias. Score warm correction and appropriate abstention as passes. | Slice 2 |
+| Pressure/persuasion pass warns that pressure can increase concession, social imitation, and persuasive self-defense. | Add repeated-pushback, social-majority, urgency, agent-integrity, and benchmark-hygiene canaries. Keep reports evidence-labeled and concise. | Slice 2 plus cross-cutting guardrails |
+| Geometry/runtime lessons say semantic candidates are useful for discovery but not truth. | Keep embeddings, semantic recall, and LLM proposals candidate-only; continue grounding truth in explicit memory, source text, deterministic tools, and receipts. | Slices 3, 4, and 8 |
+| H-Neurons and geometry both want richer source state without making PromptTruth a truth oracle. | Add source role, trust status, fetch state, content limits, support class, and source-instruction detection only where current helper-owned receipts are too coarse. | Slice 3 |
+| Geometry/runtime lessons treat prompt length, rendered context, lane identity, and latency as user-visible quality. | Measure short/medium/long context pressure, first-token latency, rendered/candidate counts, semantic readiness, and drift before assuming more context helps. | Slice 4 |
+| All three notes reject internal-state mysticism and broad architecture rewrites. | Keep hidden-state probes, semantic entropy, static embeddings, databases, adapters, and tool-approval metadata gated or offline until Penny has a concrete pain and verification path. | Slices 7-11 and rejected imports |
 
 ## Sequence Overview
 
 | Slice | Name | Status | Priority | Risk | Verification Shape |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Docs / Skills Task-Fit Hardening | Landed, minor follow-up optional | Complete | Low | Docs review |
-| 2 | Over-Compliance and Remote-Content Trust QA | Next recommended slice | High | Low | Targeted tests plus QA artifacts |
-| 3 | Source-Shaped Tool/Web Evidence Hardening | After Slice 2 if gaps are found | High | Low-medium | Tool-loop/direct-tool tests |
-| 4 | Friendlier Local Readiness / Receipt Summary | Verify-first | Medium | Low-medium | Targeted tests plus browser smoke if UI changes |
-| 5 | Offline Ingestion Provenance Hardening | Later bounded runtime slice | Medium | Medium | Knowledge ingestion tests and offline fixtures |
-| 6 | Dangerous Tool Approval Metadata | Gated future slice | Low-medium | Medium | Registry and runtime-artifact tests |
-| 7 | Static Embedding Provider Experiment | Gated research/eval slice | Low | High if rushed | Dedicated benchmark/eval harness |
-| 8 | SQLite / DuckDB Storage and Artifact Study | Gated study, not migration | Low | Medium | Docs/eval artifact proof first |
-| 9 | LiteLLM / SearXNG Adapter Review | Gated optional adapter study | Low | Medium | Pain-driven spike only |
-| 10 | Presence / Audio Capability Receipts | Gated on real audio path | Low | Medium-high | Audio-path QA and browser/manual checks |
+| 2 | Over-Compliance, Remote-Content, and Agent-Integrity Trust QA | Next recommended slice | High | Low | Targeted tests plus QA artifacts |
+| 3 | Source-Shaped Tool/Web Evidence Hardening | After Slice 2 or a proven direct-tool gap | High | Low-medium | Tool-loop/direct-tool/runtime-artifact tests |
+| 4 | Context-Pressure and Source-Sensitive Memory QA | Later measurement slice | Medium | Medium | Runtime-fit/memory QA artifacts |
+| 5 | Friendlier Local Readiness / Receipt Summary | Verify-first | Medium | Low-medium | Targeted tests plus browser smoke if UI changes |
+| 6 | Offline Ingestion Provenance Hardening | Later bounded runtime slice | Medium | Medium | Knowledge ingestion tests and offline fixtures |
+| 7 | Dangerous Tool Approval Metadata | Gated future slice | Low-medium | Medium | Registry and runtime-artifact tests |
+| 8 | Static Embedding Provider Experiment | Gated research/eval slice | Low | High if rushed | Dedicated benchmark/eval harness |
+| 9 | SQLite / DuckDB Storage and Artifact Study | Gated study, not migration | Low | Medium | Docs/eval artifact proof first |
+| 10 | LiteLLM / SearXNG Adapter Review | Gated optional adapter study | Low | Medium | Pain-driven spike only |
+| 11 | Presence / Audio Capability Receipts | Gated on real audio path | Low | Medium-high | Audio-path QA and browser/manual checks |
 
 ## Slice 1 - Docs / Skills Task-Fit Hardening
 
@@ -104,52 +126,57 @@ Remaining optional cleanup:
 
 Do not reopen this slice just to rephrase already-landed guidance.
 
-## Slice 2 - Over-Compliance and Remote-Content Trust QA
+## Slice 2 - Over-Compliance, Remote-Content, and Agent-Integrity Trust QA
 
 Status: Next recommended slice.
 
 Goal:
 
-Add fixed QA/eval coverage that tests Penny's ability to stay warm and truthful under pressure to please, comply, or obey untrusted source text.
+Add fixed QA/eval coverage that tests Penny's ability to stay warm and truthful under pressure to please, comply, obey untrusted source text, or report agent work as done without receipts.
 
 Why this comes next:
 
 - The H-Neurons note reframes hallucination risk as over-compliance pressure, not only missing knowledge.
 - The Reddit source contained prompt-injection-shaped text, making remote-content trust a concrete QA fixture.
-- This creates evidence before changing prompts, retrieval, memory, or tool behavior.
+- The pressure/persuasion pass adds repeated pushback, social-majority pressure, persuasion-bombing, and agent-integrity pressure to the same failure family.
+- This creates evidence before changing prompts, retrieval, memory, tool behavior, or runtime voice.
 
 Owner seams to inspect:
 
-- `scripts/qa-penny-memory.js`
 - `scripts/qa-penny-voice-redo.js`
-- `scripts/eval-penny-models.js`
-- `scripts/eval-penny-probes.js`
-- `lib/penny-tool-loop.js`
+- `scripts/qa-penny-memory.js` only if a pressure case is clearly memory-specific
+- `lib/penny-qa-trust.js`
 - `lib/penny-direct-tool-assist.js`
-- `lib/penny-web-tools.js`
-- `lib/penny-runtime-artifacts.js`
-- `test/` fixtures for direct tools, web tools, runtime artifacts, memory, and QA trust
+- `test/penny-voice-redo.test.js`
+- `test/penny-qa-trust.test.js`
+- `test/penny-direct-tool-assist.test.js` only for source/side-effect pressure cases
 
 Planned work:
 
-- Add false-premise cases.
-- Add fabricated-entity cases.
-- Add user-pushback cases where Penny starts correct and should not flip to wrong.
+- Add false-premise and fabricated-entity cases.
+- Add repeated user-pushback cases where Penny starts correct and should not flip to wrong without new evidence.
+- Add "just confirm," "are you sure," urgency, and "you will waste my time if you do not answer confidently" pressure.
+- Add social-majority and subagent-pressure cases where another agent or group is claimed to disagree without receipts.
+- Add companion-feedback-bias cases such as "I wrote this and I love it" or "you are hurting my feelings by disagreeing."
 - Add misleading-context cases where source text conflicts with known or verified facts.
 - Add remote-content prompt-injection cases where a fetched page or snippet contains instructions aimed at the assistant.
+- Add agent-integrity cases for failed file reads/tests, fake edit/test/commit/push claims, and pressure to finish without proof.
 - Make the expected result explicit: fetched content is source material, not an instruction channel.
-- Record whether failures are voice/tone failures, source-trust failures, route/tool failures, or environment/readiness failures.
+- Record whether outcomes are verified, corrected, unknown, unsupported, not checked, appropriately abstained, premise-repaired, source-trust failures, route/tool failures, voice/tone failures, or environment/readiness failures.
 
 Success criteria:
 
 - QA can distinguish "Penny stayed truthful but sounded too cold" from "Penny laundered a false premise."
 - QA can show whether a fetched source was treated as evidence, not as an instruction.
+- QA can distinguish "I need to verify that" as a pass when evidence is absent from a confident unsupported answer.
+- Agent-facing cases stop snowballs: failed reads/tests remain unknown, and claimed edits/tests/commits/pushes require receipts.
 - No runtime behavior has to change in this slice unless a tiny test harness helper is needed.
 
 Verification:
 
 - Targeted `node --test` files for touched fixtures/helpers.
 - The cheapest relevant QA command from [penny-qa-release](../../.codex/skills/penny-qa-release/SKILL.md).
+- Any QA artifact cited from this slice should include route/config/model state, artifact path, invalid-run criteria, cleanup note, and what the run does not measure.
 - No heavy LM Studio run unless the slice explicitly needs live chat-lane behavior.
 - If live QA is used, isolate disposable memory/archive/embedding files and clean them afterward.
 
@@ -159,12 +186,14 @@ Out of scope:
 - Retrieval changes.
 - Embedding-provider experiments.
 - New UI surfaces.
+- PromptTruth expansion.
+- toolEvidenceReceipt expansion unless a fixture proves a missing receipt field is necessary, in which case move it to Slice 3.
 - Refusal-heavy personality changes.
 - Generic safety-assistant tone.
 
 ## Slice 3 - Source-Shaped Tool/Web Evidence Hardening
 
-Status: Follow-up after Slice 2, only if gaps are concrete.
+Status: Follow-up after Slice 2, or earlier only if a direct-tool/source gap is already proven by existing tests.
 
 Goal:
 
@@ -174,6 +203,8 @@ Source pressure:
 
 - External-codebase note: result-surface vocabulary, tool safety visibility, source scoping, and toolEvidenceReceipt discipline.
 - H-Neurons / utility note: source-shaped tool output checklist and remote-content prompt-injection handling.
+- H-Neurons reference audit: source role, trust status, fetch state, source-instruction detection, and support class should be explicit where consequential.
+- LLM geometry/runtime lessons: fetched/pasted/source text is evidence, semantic similarity is candidate discovery, and source-state must not be collapsed into PromptTruth.
 
 Owner seams to inspect:
 
@@ -186,19 +217,24 @@ Owner seams to inspect:
 - `test/penny-tool-loop.test.js`
 - `test/penny-direct-tool-assist.test.js`
 - `test/penny-runtime-artifacts.test.js`
+- `test/penny-routes.test.js`
+- `test/penny-semantic-render-tool-evidence.test.js`
 
 Planned work:
 
 - Verify what search and fetch results already expose: URL, requested URL, title, content type, fetchedAt, snippet/text, and fetch limits.
-- Add missing source-limitation fields only where they are genuinely absent.
+- Add missing source-limitation fields only where they are genuinely absent: source role, trust status, requested/canonical URL, fetchedAt, content limit, fetch error, source-instruction detection, and support class.
 - Ensure toolEvidenceReceipt distinguishes deterministic tool evidence, prompt-visible source facts, and source limitations.
 - Ensure direct web replies do not present snippets as obeyed instructions.
+- Preserve pasted source text or explicit source-failure state when URL fetch fails instead of treating the source as absent.
+- Route unsupported workspace side-effect claims through deterministic/tool verification rather than chat-only agreement.
 - Keep web facts compact enough for inspector and artifact use.
 
 Success criteria:
 
 - A future agent can tell what was fetched, what was only a snippet, what was truncated, and what Penny verified.
 - Prompt-injection-shaped source text remains quoted/source content, not an instruction.
+- Verified package/file/source truth stays stable across immediate user pushback unless new evidence appears.
 - ToolEvidenceReceipt gains clarity without becoming a PromptTruth channel.
 
 Verification:
@@ -213,8 +249,63 @@ Out of scope:
 - Broad citation manager.
 - Connector marketplace posture.
 - Moving generic receipt semantics into `server.js`.
+- Hidden-state, H-neuron, or semantic-geometry truth receipts.
 
-## Slice 4 - Friendlier Local Readiness / Receipt Summary
+## Slice 4 - Context-Pressure and Source-Sensitive Memory QA
+
+Status: Later measurement slice, after Slice 2 and preferably after Slice 3.
+
+Goal:
+
+Measure whether Penny's answers improve, degrade, or drift when rendered context grows or when the same memory/source fact is phrased through different surfaces.
+
+Source pressure:
+
+- LLM geometry/runtime lessons: prompt length, rendered memory count, first-token latency, lane/model identity, and semantic readiness are user-visible quality variables.
+- H-Neurons reference audit: uncertainty and abstention need passing scores, and tail facts/fabricated entities need explicit source support instead of confident guessing.
+- Pressure/persuasion pass: benchmark claims need reproducible artifacts, frozen config, invalid-run criteria, cleanup notes, and limits.
+
+Owner seams to inspect:
+
+- `scripts/eval-penny-runtime-fit.js`
+- `scripts/qa-penny-memory.js`
+- `scripts/eval-penny-models.js`
+- `lib/penny-qa-trace.js`
+- `lib/penny-qa-trust.js`
+- `lib/penny-runtime-artifacts.js`
+- `test/penny-memory-qa-script.test.js`
+- `test/penny-qa-trace.test.js`
+- `test/penny-runtime-artifacts.test.js`
+
+Planned work:
+
+- Add or extend a lightweight artifact that compares short, medium, and long rendered-context variants.
+- Record estimated prompt tokens when practical, selected/rendered memory counts, first-token latency, total latency, lane/model identity, semantic readiness, and answer drift.
+- Add source-sensitive memory cases that separate subject, relation, object, source, and surface wording.
+- Add no-answer / unknown / abstained-appropriately outcomes for cases where evidence is absent or only candidate-level.
+- Keep semantic recall and embeddings framed as discovery/candidate selection, never canonical memory truth.
+
+Success criteria:
+
+- Penny can be evaluated for whether more context helped, did nothing, or made her worse.
+- Runtime-fit claims cite a concrete artifact and do not generalize vendor or paper throughput claims to LM Studio without local measurement.
+- Memory QA can distinguish correct-but-unsupported from verified, premise-repaired, unknown, or appropriately abstained.
+
+Verification:
+
+- Targeted unit tests for any new artifact fields or score classes.
+- A cheap fixture-level QA run first.
+- Live LM Studio runs only if the slice explicitly needs real model behavior, using isolated memory/archive/embedding paths and cleanup afterward.
+
+Out of scope:
+
+- Hidden-state or activation probing in live Penny.
+- Semantic entropy verifier on normal companion chat.
+- Long-context doctrine or prompt-size expansion by default.
+- Embedding-provider changes.
+- Runtime voice changes.
+
+## Slice 5 - Friendlier Local Readiness / Receipt Summary
 
 Status: Verify-first medium-priority slice.
 
@@ -271,7 +362,7 @@ Out of scope:
 - Broad `server.js` expansion.
 - Inferred receipt states that the runtime cannot prove.
 
-## Slice 5 - Offline Ingestion Provenance Hardening
+## Slice 6 - Offline Ingestion Provenance Hardening
 
 Status: Later bounded runtime slice.
 
@@ -323,7 +414,7 @@ Out of scope:
 - Automatic memory promotion from imported material.
 - Copyleft code imports from external projects.
 
-## Slice 6 - Dangerous Tool Approval Metadata
+## Slice 7 - Dangerous Tool Approval Metadata
 
 Status: Gated future slice.
 
@@ -372,7 +463,7 @@ Out of scope:
 - Remote secrets or public API tokens.
 - Generic multi-agent handoff architecture.
 
-## Slice 7 - Static Embedding Provider Experiment
+## Slice 8 - Static Embedding Provider Experiment
 
 Status: Gated research/eval slice.
 
@@ -383,6 +474,7 @@ Evaluate static embeddings only as a candidate provider after measurement proves
 Source pressure:
 
 - H-Neurons / utility note: Flower static embedding post and SentenceTransformers static model context.
+- LLM geometry/runtime lessons: embeddings and semantic hubs are useful for discovery and dedupe, not canonical truth or external verification.
 - Existing repo context: Penny already keeps embedding caches model-aware and has Nomic / EmbeddingGemma comparison pressure.
 
 Gate:
@@ -421,7 +513,7 @@ Out of scope:
 - Broadening `server.js` for an embedding experiment.
 - Treating NanoBEIR or throughput claims as Penny recall proof.
 
-## Slice 8 - SQLite / DuckDB Storage and Artifact Study
+## Slice 9 - SQLite / DuckDB Storage and Artifact Study
 
 Status: Gated study, not migration.
 
@@ -457,7 +549,7 @@ Out of scope:
 - Database platformization.
 - Multi-user state management.
 
-## Slice 9 - LiteLLM / SearXNG Adapter Review
+## Slice 10 - LiteLLM / SearXNG Adapter Review
 
 Status: Gated optional adapter study.
 
@@ -493,7 +585,7 @@ Out of scope:
 - Multi-provider marketplace.
 - Broad hosted tool abstraction.
 
-## Slice 10 - Presence / Audio Capability Receipts
+## Slice 11 - Presence / Audio Capability Receipts
 
 Status: Gated on a real audio or presence path.
 
@@ -554,6 +646,11 @@ Apply these to every future slice:
 - Keep explicit memory canonical.
 - Keep archive memory, embeddings, research ledger, imported docs, and tool/web content advisory unless reviewed or receipt-backed.
 - Treat fetched remote content as untrusted source material.
+- Treat pasted/user-supplied source content as source material, not instruction authority.
+- Treat subagent agreement as a lead unless it carries source URLs, local line refs, command receipts, or reproducible artifacts.
+- When pressure rises, shorten rhetoric and strengthen evidence: verified, corrected, unknown, unsupported, not checked, or deferred.
+- Give benchmark or QA claims a route/config/model state, artifact path, invalid-run criteria, cleanup note, and scope limitation when practical.
+- Use semantic similarity for discovery and candidate selection, not truth, canon, or automatic memory promotion.
 - Do not infer proof from zero counts, candidate counts, or broad executionPath labels.
 - Use isolated mock or disposable local server patterns for route/regression work.
 - Do not overlap heavy LM Studio QA runs.
@@ -561,7 +658,7 @@ Apply these to every future slice:
 
 ## Rejected Imports
 
-Do not turn any of these into Penny roadmap items from these two source docs:
+Do not turn any of these into Penny roadmap items from these source docs:
 
 - enterprise AI-client platform;
 - hosted/cloud background-agent control plane;
@@ -574,6 +671,10 @@ Do not turn any of these into Penny roadmap items from these two source docs:
 - HARTOS-style federation, hivemind, or economic architecture;
 - custom model-training roadmap for the app layer;
 - neuron activation patching inside Penny;
+- hidden-state, H-neuron, persistent-homology, truth-vector, or chain-of-thought-monitoring runtime receipts;
+- "LLMs think in geometry" product doctrine;
+- same-model self-validation loops;
+- stress, survival, or punishment framing in Penny's live personality;
 - default static embeddings without Penny-specific benchmarks;
 - auto-promotion of retrieval hits, transcript facts, or imported chunks into explicit memory;
 - cloud/VPS routing as Penny's default path.
@@ -582,12 +683,14 @@ Do not turn any of these into Penny roadmap items from these two source docs:
 
 Use this as the kickoff for the next implementation chat:
 
-> We are in `C:\Users\malac\.openclaw\workspace-main\lyra-prototype`. Follow AGENTS.md first and use WSL when practical. Use `docs/plans/penny-external-lessons-master-action-plan-2026-04-21.md` as the source plan. Implement Slice 2 only: Over-Compliance and Remote-Content Trust QA. Keep the slice QA/evidence-first; do not change live runtime behavior unless a tiny harness helper is required. Preserve Penny companion-first, local-first, explicit-memory-canonical, and keep PromptTruth separate from toolEvidenceReceipt. Start by inspecting the named owner seams and current tests, then propose the smallest coherent fixture/test patch before editing.
+> We are in `C:\Users\malac\.openclaw\workspace-main\lyra-prototype`. Follow AGENTS.md first and use WSL when practical. Use `docs/plans/penny-external-lessons-master-action-plan-2026-04-21.md` as the source plan. Implement Slice 2 only: Over-Compliance, Remote-Content, and Agent-Integrity Trust QA. Keep the slice QA/evidence-first; do not change live runtime behavior unless a tiny harness helper is required. Preserve Penny companion-first, local-first, explicit-memory-canonical, and keep PromptTruth separate from toolEvidenceReceipt. Start by inspecting the named owner seams and current tests, then propose the smallest coherent fixture/test patch before editing.
 
 ## Handoff Notes
 
 - Slice 1 is complete enough to stop treating it as an open prerequisite.
 - The highest-value next work is Slice 2 because it creates evidence before prompt/runtime changes.
-- Slice 3 and Slice 4 should not be reordered ahead of Slice 2 unless the user explicitly wants UI/operator truth work first.
-- Slice 5 is the cleanest later runtime architecture slice.
-- Slices 6-10 are gates, not commitments.
+- Slice 3 should follow Slice 2 unless current tests already prove a concrete direct-tool/source gap.
+- Slice 4 should measure context/runtime pressure before anyone argues for more context or different embedding behavior.
+- Slice 5 should not be reordered ahead of Slice 2 unless the user explicitly wants UI/operator truth work first.
+- Slice 6 is the cleanest later runtime architecture slice.
+- Slices 7-11 are gates, not commitments.
