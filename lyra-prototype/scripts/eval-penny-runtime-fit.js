@@ -216,8 +216,37 @@ function buildScenarioPaths(slug) {
     archiveFile: path.join(ROOT_DIR, 'data', `penny-memory-archive.runtime-fit-${slug}.${STAMP}.json`),
     embeddingsFile: path.join(ROOT_DIR, 'data', `penny-memory-embeddings.runtime-fit-${slug}.${STAMP}.json`),
     booksFile: path.join(ROOT_DIR, 'data', `penny-memory-books.runtime-fit-${slug}.${STAMP}.json`),
+    ledgerFile: path.join(ROOT_DIR, 'data', `penny-memory-ledger.runtime-fit-${slug}.${STAMP}.json`),
     stdoutPath: path.join(OUTPUT_DIR, `runtime-fit-${slug}-${STAMP}.server.out.log`),
     stderrPath: path.join(OUTPUT_DIR, `runtime-fit-${slug}-${STAMP}.server.err.log`),
+  };
+}
+
+function scenarioDisposableFiles(paths = {}) {
+  return [
+    paths.memoryFile,
+    paths.archiveFile,
+    paths.embeddingsFile,
+    paths.booksFile,
+    paths.ledgerFile,
+  ].filter(Boolean);
+}
+
+function buildScenarioEnv(scenario, paths, baseEnv = process.env) {
+  return {
+    ...baseEnv,
+    PORT: String(PORT),
+    PENNY_MEMORY_FILE: paths.memoryFile,
+    PENNY_MEMORY_ARCHIVE_FILE: paths.archiveFile,
+    PENNY_MEMORY_EMBEDDINGS_FILE: paths.embeddingsFile,
+    PENNY_MEMORY_BOOKS_FILE: paths.booksFile,
+    PENNY_MEMORY_LEDGER_FILE: paths.ledgerFile,
+    PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
+    PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
+    PENNY_LMSTUDIO_EMBED_MODEL: scenario.embedModel,
+    PENNY_LMSTUDIO_PRESET_IDENTIFIER: PRESET_IDENTIFIER,
+    PENNY_LOCAL_LLM_TRANSPORT: baseEnv.PENNY_LOCAL_LLM_TRANSPORT || 'chat',
+    PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
   };
 }
 
@@ -370,6 +399,9 @@ function buildMarkdownSummary(report) {
     lines.push('## Context-Pressure Fixture');
     lines.push('');
     lines.push(`- Schema: ${report.contextPressureFixture.schema}`);
+    lines.push(`- Mode: ${report.contextPressureFixture.measurementMode || 'fixture-only'}`);
+    lines.push(`- Live model calls: ${report.contextPressureFixture.liveModelCalls === true ? 'yes' : 'no'}`);
+    lines.push(`- Live answer drift measured: ${report.contextPressureFixture.liveAnswerDriftMeasured === true ? 'yes' : 'no'}`);
     lines.push(`- Variants: ${report.contextPressureFixture.contextVariants.map((item) => item.level).join(', ')}`);
     lines.push(`- Source-sensitive cases: ${report.contextPressureFixture.sourceSensitiveMemory.cases.length}`);
     lines.push('');
@@ -414,24 +446,11 @@ async function runScenario(scenario) {
   const paths = buildScenarioPaths(scenario.slug);
   ensureDir(OUTPUT_DIR);
   ensureDir(path.dirname(paths.memoryFile));
-  for (const filePath of [paths.memoryFile, paths.archiveFile, paths.embeddingsFile, paths.booksFile]) {
+  for (const filePath of scenarioDisposableFiles(paths)) {
     removeFileIfExists(filePath);
   }
 
-  const env = {
-    ...process.env,
-    PORT: String(PORT),
-    PENNY_MEMORY_FILE: paths.memoryFile,
-    PENNY_MEMORY_ARCHIVE_FILE: paths.archiveFile,
-    PENNY_MEMORY_EMBEDDINGS_FILE: paths.embeddingsFile,
-    PENNY_MEMORY_BOOKS_FILE: paths.booksFile,
-    PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
-    PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
-    PENNY_LMSTUDIO_EMBED_MODEL: scenario.embedModel,
-    PENNY_LMSTUDIO_PRESET_IDENTIFIER: PRESET_IDENTIFIER,
-    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT || 'chat',
-    PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
-  };
+  const env = buildScenarioEnv(scenario, paths);
 
   const startedAt = new Date().toISOString();
   let server = null;
@@ -506,7 +525,7 @@ async function runScenario(scenario) {
     return result;
   } finally {
     await stopServerProcess(server);
-    for (const filePath of [paths.memoryFile, paths.archiveFile, paths.embeddingsFile, paths.booksFile]) {
+    for (const filePath of scenarioDisposableFiles(paths)) {
       removeFileIfExists(filePath);
     }
   }
@@ -577,6 +596,9 @@ if (require.main === module) {
 
 module.exports = {
   SCENARIOS,
+  buildScenarioEnv,
+  buildScenarioPaths,
+  scenarioDisposableFiles,
   parseRuntimeFitArgs,
   buildRecommendations,
   buildMarkdownSummary,

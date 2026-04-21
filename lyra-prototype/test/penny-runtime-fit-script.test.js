@@ -2,9 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  buildScenarioEnv,
+  buildScenarioPaths,
   buildMarkdownSummary,
   normalizeScenarioSummary,
   parseRuntimeFitArgs,
+  scenarioDisposableFiles,
 } = require('../scripts/eval-penny-runtime-fit');
 
 test('parseRuntimeFitArgs enables the cheap context-pressure fixture mode', () => {
@@ -104,6 +107,9 @@ test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary'
     ],
     contextPressureFixture: {
       schema: 'penny-context-pressure-memory-qa.v1',
+      measurementMode: 'fixture-only',
+      liveModelCalls: false,
+      liveAnswerDriftMeasured: false,
       contextVariants: [{ level: 'short' }, { level: 'medium' }, { level: 'long' }],
       sourceSensitiveMemory: { cases: [{ id: 'case-1' }, { id: 'case-2' }] },
     },
@@ -111,6 +117,27 @@ test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary'
   });
 
   assert.match(markdown, /Context-Pressure Fixture/);
+  assert.match(markdown, /Mode: fixture-only/);
+  assert.match(markdown, /Live answer drift measured: no/);
   assert.match(markdown, /Variants: short, medium, long/);
   assert.match(markdown, /Memory-heavy rendered context: 2 rendered \/ 3 selected/);
+});
+
+test('runtime-fit disposable environment isolates the memory ledger file', () => {
+  const paths = buildScenarioPaths('unit-ledger');
+  const env = buildScenarioEnv(
+    { embedModel: 'nomic' },
+    paths,
+    { PENNY_LOCAL_LLM_TRANSPORT: 'responses' },
+  );
+  const disposableFiles = scenarioDisposableFiles(paths);
+
+  assert.match(paths.ledgerFile, /penny-memory-ledger\.runtime-fit-unit-ledger\./);
+  assert.equal(env.PENNY_MEMORY_FILE, paths.memoryFile);
+  assert.equal(env.PENNY_MEMORY_ARCHIVE_FILE, paths.archiveFile);
+  assert.equal(env.PENNY_MEMORY_EMBEDDINGS_FILE, paths.embeddingsFile);
+  assert.equal(env.PENNY_MEMORY_BOOKS_FILE, paths.booksFile);
+  assert.equal(env.PENNY_MEMORY_LEDGER_FILE, paths.ledgerFile);
+  assert.equal(env.PENNY_LOCAL_LLM_TRANSPORT, 'responses');
+  assert.equal(disposableFiles.includes(paths.ledgerFile), true);
 });

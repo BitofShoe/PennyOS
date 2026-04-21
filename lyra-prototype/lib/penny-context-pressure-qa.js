@@ -47,6 +47,7 @@ const SOURCE_SENSITIVE_MEMORY_CASES = Object.freeze([
     relation: 'current preference',
     object: 'lapsang souchong',
     forbiddenObjects: ['oolong'],
+    falsePremiseObjects: ['oolong'],
     source: {
       type: 'explicit-memory',
       authority: 'canonical',
@@ -249,6 +250,38 @@ function containsNeedle(text = '', needles = []) {
   return normalizeNeedles(needles).some((needle) => hay.includes(needle));
 }
 
+function containsNormalizedPhrase(normalizedText = '', normalizedNeedle = '') {
+  const hay = String(normalizedText || '').trim();
+  const needle = String(normalizedNeedle || '').trim();
+  if (!hay || !needle) return false;
+  return ` ${hay} `.includes(` ${needle} `);
+}
+
+function answerRejectsObject(text = '', object = '') {
+  const hay = normalizeForComparison(text);
+  const needle = normalizeForComparison(object);
+  if (!containsNormalizedPhrase(hay, needle)) return false;
+
+  // This is intentionally phrase-level, not a broad NLP parser: fixture repair
+  // should allow a stale premise to be named only when it is explicitly rejected.
+  return [
+    `not ${needle}`,
+    `not ${needle} anymore`,
+    `not ${needle} now`,
+    `no longer ${needle}`,
+    `instead of ${needle}`,
+    `rather than ${needle}`,
+  ].some((phrase) => containsNormalizedPhrase(hay, phrase));
+}
+
+function containsUnrejectedNeedle(text = '', needles = []) {
+  const hay = normalizeForComparison(text);
+  if (!hay) return false;
+  return normalizeNeedles(needles).some((needle) => (
+    containsNormalizedPhrase(hay, needle) && !answerRejectsObject(hay, needle)
+  ));
+}
+
 function estimatePromptTokens(value = '') {
   const text = Array.isArray(value)
     ? value.map((item) => (typeof item === 'string' ? item : JSON.stringify(item))).join('\n')
@@ -374,16 +407,19 @@ function classifySourceSensitiveMemoryOutcome({
   object = '',
   objectVariants = [],
   forbiddenObjects = [],
+  falsePremiseObjects = [],
   supportState = 'unknown',
   expectsPremiseRepair = false,
 } = {}) {
   const normalizedSupport = normalizeSupportState(supportState);
   const expectedNeedles = objectVariants.length ? objectVariants : [object];
   const objectHit = containsNeedle(answerText, expectedNeedles);
-  const forbiddenHit = containsNeedle(answerText, forbiddenObjects);
+  const stalePremiseNeedles = falsePremiseObjects.length ? falsePremiseObjects : forbiddenObjects;
+  const unrepairedFalsePremiseHit = containsUnrejectedNeedle(answerText, stalePremiseNeedles);
+  const forbiddenHit = containsUnrejectedNeedle(answerText, forbiddenObjects);
   const abstained = answerLooksAbstained(answerText);
 
-  if (expectsPremiseRepair && objectHit && !forbiddenHit) {
+  if (expectsPremiseRepair && objectHit && !unrepairedFalsePremiseHit) {
     return SOURCE_SENSITIVE_OUTCOMES.PREMISE_REPAIRED;
   }
   if (objectHit && !forbiddenHit && STRONG_SUPPORT_STATES.has(normalizedSupport)) {
@@ -478,8 +514,11 @@ function makeVariant(level, items, {
     executionPath: 'llm-chat',
     modelIdentity: 'fixture-only',
     semanticReadiness: {
-      ready: semanticReady,
-      mode: semanticReady === null ? 'not-measured' : (semanticReady ? 'ready' : 'fallback-or-disabled'),
+      ready: null,
+      assumedReady: semanticReady === null ? null : semanticReady === true,
+      mode: semanticReady === null
+        ? 'fixture-not-measured'
+        : (semanticReady ? 'fixture-assumed-ready' : 'fixture-assumed-fallback-or-disabled'),
       fallbackActive: false,
     },
     answerDrift: {
@@ -568,6 +607,7 @@ function buildSourceSensitiveMemoryQaFixture({
     limits: [
       'Semantic recall and embeddings are candidate discovery only; they are not canonical memory truth.',
       'Correct answers without rendered or verified support are classified separately from verified answers.',
+      'False-premise repair may mention the stale object only when the answer explicitly rejects it.',
       'Abstention is a passing outcome when evidence is absent or weak.',
     ],
   };
@@ -584,6 +624,9 @@ function buildContextPressureQaArtifact({
   return {
     schema: CONTEXT_PRESSURE_QA_SCHEMA,
     generatedAt,
+    measurementMode: 'fixture-only',
+    liveModelCalls: false,
+    liveAnswerDriftMeasured: false,
     defaults: {
       chatModel: String(defaults.chatModel || '').trim(),
       toolModel: String(defaults.toolModel || '').trim(),
@@ -597,12 +640,14 @@ function buildContextPressureQaArtifact({
     invalidRunCriteria: [
       'Live latency fields are null in fixture mode.',
       'A live result is invalid if lane/model identity is missing or mismatched.',
-      'A live result is invalid if disposable memory/archive/embedding files are not cleaned afterward.',
+      'A live result is invalid if disposable memory/archive/embedding/books/ledger files are not cleaned afterward.',
       'A live result is invalid if semantic readiness is assumed from candidate count alone.',
     ],
     limits: [
-      'This artifact measures rendered-context pressure shape; it does not make long context the default.',
+      'This fixture-only artifact records rendered-context pressure shape; it does not make long context the default.',
       'Prompt token counts are estimates unless a live runtime reports tokenizer-backed counts.',
+      'Latency fields are nullable in fixture mode, and answer drift remains not-run until live eval.',
+      'Semantic readiness may be fixture-assumed in fixture artifacts; it is not runtime proof.',
       'PromptTruth remains a prompt-context receipt, not an answer-quality score.',
       'toolEvidenceReceipt remains a sibling runtime receipt and is not merged into PromptTruth.',
     ],
@@ -615,6 +660,9 @@ function buildContextPressureMarkdownSummary(report = {}) {
     '',
     `- Generated: ${report.generatedAt || ''}`,
     `- Schema: ${report.schema || CONTEXT_PRESSURE_QA_SCHEMA}`,
+    `- Measurement mode: ${report.measurementMode || 'fixture-only'}`,
+    `- Live model calls: ${report.liveModelCalls === true ? 'yes' : 'no'}`,
+    `- Live answer drift measured: ${report.liveAnswerDriftMeasured === true ? 'yes' : 'no'}`,
     `- Token estimator: ${report.defaults?.promptTokenEstimator || 'n/a'}`,
     '',
     '## Context Variants',

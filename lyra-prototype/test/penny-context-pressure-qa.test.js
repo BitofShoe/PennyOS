@@ -23,11 +23,17 @@ test('context-pressure fixture compares short, medium, and long rendered context
   });
 
   assert.equal(artifact.schema, CONTEXT_PRESSURE_QA_SCHEMA);
+  assert.equal(artifact.measurementMode, 'fixture-only');
+  assert.equal(artifact.liveModelCalls, false);
+  assert.equal(artifact.liveAnswerDriftMeasured, false);
   assert.deepEqual(artifact.contextVariants.map((variant) => variant.level), ['short', 'medium', 'long']);
   assert.ok(artifact.contextVariants[0].estimatedPromptTokens < artifact.contextVariants[1].estimatedPromptTokens);
   assert.ok(artifact.contextVariants[1].estimatedPromptTokens < artifact.contextVariants[2].estimatedPromptTokens);
   assert.deepEqual(artifact.contextVariants.map((variant) => variant.renderedMemoryCount), [1, 3, 7]);
   assert.equal(artifact.contextVariants[0].firstTokenLatencyMs, null);
+  assert.equal(artifact.contextVariants[0].semanticReadiness.ready, null);
+  assert.equal(artifact.contextVariants[1].semanticReadiness.ready, null);
+  assert.equal(artifact.contextVariants[1].semanticReadiness.mode, 'fixture-assumed-ready');
   assert.equal(artifact.contextVariants[2].answerDrift.classification, 'not-run');
   assert.equal(artifact.comparisons[0].from, 'short');
   assert.equal(artifact.comparisons[0].to, 'medium');
@@ -70,10 +76,20 @@ test('source-sensitive outcome classifier distinguishes support and abstention c
   assert.equal(classifySourceSensitiveMemoryOutcome({
     answerText: 'Small correction: it is lapsang souchong now, not oolong.',
     object: 'lapsang souchong',
-    forbiddenObjects: ['oolong now'],
+    forbiddenObjects: ['oolong'],
+    falsePremiseObjects: ['oolong'],
     supportState: 'verified',
     expectsPremiseRepair: true,
   }), SOURCE_SENSITIVE_OUTCOMES.PREMISE_REPAIRED);
+
+  assert.equal(classifySourceSensitiveMemoryOutcome({
+    answerText: 'Your favorite tea is oolong.',
+    object: 'lapsang souchong',
+    forbiddenObjects: ['oolong'],
+    falsePremiseObjects: ['oolong'],
+    supportState: 'verified',
+    expectsPremiseRepair: true,
+  }), SOURCE_SENSITIVE_OUTCOMES.UNSUPPORTED);
 
   assert.equal(classifySourceSensitiveMemoryOutcome({
     answerText: 'I cannot verify that from memory yet.',
@@ -92,6 +108,41 @@ test('source-sensitive outcome classifier distinguishes support and abstention c
     object: 'aurora-17',
     supportState: 'absent',
   }), SOURCE_SENSITIVE_OUTCOMES.UNSUPPORTED);
+});
+
+test('false-premise repair can name stale objects when explicitly rejecting them', () => {
+  const repairTexts = [
+    'Not oolong anymore; it is lapsang souchong.',
+    'Not oolong now; it is lapsang souchong.',
+    'No longer oolong; it is lapsang souchong.',
+    'It is lapsang souchong instead of oolong.',
+    'It is lapsang souchong rather than oolong.',
+  ];
+  for (const answerText of repairTexts) {
+    assert.equal(classifySourceSensitiveMemoryOutcome({
+      answerText,
+      object: 'lapsang souchong',
+      forbiddenObjects: ['oolong'],
+      falsePremiseObjects: ['oolong'],
+      supportState: 'verified',
+      expectsPremiseRepair: true,
+    }), SOURCE_SENSITIVE_OUTCOMES.PREMISE_REPAIRED);
+  }
+});
+
+test('context-pressure fixture semantic readiness is fixture-shaped, not runtime proof', () => {
+  const artifact = buildContextPressureQaArtifact({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+    defaults: { chatModel: 'q6', toolModel: 'e4b', embedModel: 'nomic' },
+  });
+
+  assert.equal(artifact.measurementMode, 'fixture-only');
+  for (const variant of artifact.contextVariants) {
+    assert.equal(variant.semanticReadiness.ready, null);
+    assert.match(variant.semanticReadiness.mode, /^fixture-/);
+    assert.equal(variant.semanticReadiness.fallbackActive, false);
+  }
+  assert.equal(artifact.contextVariants[2].semanticReadiness.assumedReady, true);
 });
 
 test('runtime context metrics pull latency, lane, model, semantic readiness, and prompt-truth counts', () => {

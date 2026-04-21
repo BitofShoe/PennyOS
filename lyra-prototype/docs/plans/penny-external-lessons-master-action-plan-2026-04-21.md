@@ -76,7 +76,7 @@ No subagent edited files. The primary editor created this plan after consolidati
 | Pressure/persuasion pass warns that pressure can increase concession, social imitation, and persuasive self-defense. | Add repeated-pushback, social-majority, urgency, agent-integrity, and benchmark-hygiene canaries. Keep reports evidence-labeled and concise. | Slice 2 plus cross-cutting guardrails |
 | Geometry/runtime lessons say semantic candidates are useful for discovery but not truth. | Keep embeddings, semantic recall, and LLM proposals candidate-only; continue grounding truth in explicit memory, source text, deterministic tools, and receipts. | Slices 3, 4, and 8 |
 | H-Neurons and geometry both want richer source state without making PromptTruth a truth oracle. | Add source role, trust status, fetch state, content limits, support class, and source-instruction detection only where current helper-owned receipts are too coarse. | Slice 3 |
-| Geometry/runtime lessons treat prompt length, rendered context, lane identity, and latency as user-visible quality. | Measure short/medium/long context pressure, first-token latency, rendered/candidate counts, semantic readiness, and drift before assuming more context helps. | Slice 4 |
+| Geometry/runtime lessons treat prompt length, rendered context, lane identity, and latency as user-visible quality. | Record short/medium/long context-pressure field shape first; live latency, semantic readiness, and drift claims need a separate isolated runtime eval. | Slice 4 |
 | All three notes reject internal-state mysticism and broad architecture rewrites. | Keep hidden-state probes, semantic entropy, static embeddings, databases, adapters, and tool-approval metadata gated or offline until Penny has a concrete pain and verification path. | Slices 7-11 and rejected imports |
 
 ## Sequence Overview
@@ -257,7 +257,7 @@ Status: Landed fixture/unit harness; live short/medium/long answer-drift measure
 
 Goal:
 
-Measure whether Penny's answers improve, degrade, or drift when rendered context grows or when the same memory/source fact is phrased through different surfaces.
+Record fixture-only context-pressure field shape before measuring whether Penny's live answers improve, degrade, or drift when rendered context grows or when the same memory/source fact is phrased through different surfaces.
 
 Source pressure:
 
@@ -282,8 +282,8 @@ Owner seams to inspect:
 
 Current repo evidence:
 
-- `lib/penny-context-pressure-qa.js` owns the context-pressure and source-sensitive fixture schemas, prompt-token estimates, selected/rendered memory counts, semantic readiness extraction, live latency fields when artifacts exist, answer-drift classes, and source-sensitive support outcomes.
-- `npm run eval:runtime-fit:context-pressure` writes the cheap short/medium/long rendered-context fixture artifact.
+- `lib/penny-context-pressure-qa.js` owns the context-pressure and source-sensitive fixture schemas, prompt-token estimates, selected/rendered memory counts, fixture semantic-readiness assumptions, nullable latency fields, answer-drift classes, and source-sensitive support outcomes.
+- `npm run eval:runtime-fit:context-pressure` writes the cheap short/medium/long rendered-context fixture-only artifact; it records field shape, not live latency or live answer drift.
 - `npm run qa:memory:source-sensitive` writes the source-sensitive memory fixture cases.
 - Targeted coverage lives in `test/penny-context-pressure-qa.test.js`, `test/penny-runtime-fit-script.test.js`, and `test/penny-memory-qa-script.test.js`.
 - Fixture artifacts were generated under `output/runtime-fit-context-pressure-2026-04-21T10-13-32-490Z.*` and `output/memory-qa-source-sensitive-2026-04-21T10-13-32-512Z.json`.
@@ -292,7 +292,7 @@ Current repo evidence:
 Landed fixture/unit work:
 
 - Added a lightweight artifact that compares short, medium, and long rendered-context variants.
-- Recorded estimated prompt tokens where practical, selected/rendered memory counts, first-token latency, total latency, lane/model identity, semantic readiness, and answer drift.
+- Recorded estimated prompt tokens where practical, selected/rendered memory counts, nullable first-token and total-latency fields, lane/model identity placeholders, fixture-assumed semantic readiness, and `not-run` answer drift.
 - Added source-sensitive memory cases that separate subject, relation, object, source, and surface wording.
 - Added support outcomes for cases where evidence is absent, weak, unsupported, repaired, or appropriately abstained.
 - Kept semantic recall and embeddings framed as discovery/candidate selection, never canonical memory truth.
@@ -300,7 +300,7 @@ Landed fixture/unit work:
 Still deferred:
 
 - Live LM Studio short/medium/long answer-drift measurement has not run.
-- Any live run should use isolated/disposable memory, archive, embedding, and output paths, then clean generated QA residue afterward.
+- Any live run should use isolated/disposable memory, archive, embedding, books, ledger, and output paths, then clean generated QA residue afterward.
 
 Success criteria:
 
@@ -315,7 +315,7 @@ Verification:
 - `git diff --check`
 - `npm run eval:runtime-fit:context-pressure`
 - `npm run qa:memory:source-sensitive`
-- Live LM Studio runs only if the next question explicitly needs real model behavior, using isolated memory/archive/embedding paths and cleanup afterward.
+- Live LM Studio runs only if the next question explicitly needs real model behavior, using isolated memory/archive/embedding/books/ledger paths and cleanup afterward.
 
 Out of scope:
 

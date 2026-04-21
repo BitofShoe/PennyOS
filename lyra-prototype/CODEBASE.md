@@ -196,7 +196,7 @@ Epistemic compare harness for `off`, `synthesis-only`, and diagnostic modes.
 - [scripts/eval-penny-ledger-compare.js](./scripts/eval-penny-ledger-compare.js)
 Comparative ledger-prompt harness for the current off vs synthesis-focused research/memory modes.
 - [scripts/eval-penny-runtime-fit.js](./scripts/eval-penny-runtime-fit.js)
-Latency/runtime-fit harness for context-length and semantic-readiness tradeoffs; `eval:runtime-fit:context-pressure` adds a fixture-only short/medium/long rendered-context artifact.
+Latency/runtime-fit harness for context-length and semantic-readiness tradeoffs; `eval:runtime-fit:context-pressure` adds a fixture-only short/medium/long rendered-context artifact with nullable latency fields and `not-run` answer drift.
 - [scripts/qa-penny-memory.js](./scripts/qa-penny-memory.js)
 Segmented plus judged memory QA harness with trace-first runtime artifact validation; `qa:memory:source-sensitive` adds fixture-only subject/relation/object/source/surface cases and support outcome classes.
 - [scripts/qa-penny-voice-redo.js](./scripts/qa-penny-voice-redo.js)
@@ -409,7 +409,7 @@ Start here:
 - `lib/penny-qa-trust.js`
 - `PENNY_MODEL_EVAL.md`
 
-`scripts/qa-penny-memory.js` now also carries semantic-correction grading, source-sensitive fixture cases, and `runIdentity` harness canaries; treat those traces as first-pass environment drift checks, not as a new benchmark platform. `eval:runtime-fit:context-pressure` and `qa:memory:source-sensitive` are cheap fixture/artifact runs; they do not prove live LM Studio answer drift without a separate isolated runtime-fit run.
+`scripts/qa-penny-memory.js` now also carries semantic-correction grading, source-sensitive fixture cases, and `runIdentity` harness canaries; treat those traces as first-pass environment drift checks, not as a new benchmark platform. `eval:runtime-fit:context-pressure` and `qa:memory:source-sensitive` are cheap fixture/artifact runs; they define and record fixture fields, may use fixture-assumed semantic readiness, and do not prove live LM Studio answer drift without a separate isolated runtime-fit run.
 
 ### Change shadow/OpenClaw behavior
 

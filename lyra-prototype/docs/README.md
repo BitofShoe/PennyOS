@@ -121,7 +121,7 @@ This section keeps current law first, then follows the interpretive order from [
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
 | [plans/](./plans/) and [plans/TEMPLATE.md](./plans/TEMPLATE.md) | Implementation plans | Implementation plan | Draft | bounded next slices and planning format | proof that behavior shipped |
-| [plans/penny-external-lessons-master-action-plan-2026-04-21.md](./plans/penny-external-lessons-master-action-plan-2026-04-21.md) | April 21 master action plan | Implementation plan | Current | revised slice map, landed-vs-deferred status, and next-slice routing | proof that behavior shipped without checking code, tests, and artifacts |
+| [plans/penny-external-lessons-master-action-plan-2026-04-21.md](./plans/penny-external-lessons-master-action-plan-2026-04-21.md) | April 21 master action plan | Implementation plan | Current | revised slice map, fixture-only cleanup routing, landed-vs-deferred status, and next-slice routing | proof that behavior shipped without checking code, tests, and artifacts |
 | [plans/prompttruth-v2-completion-note-2026-04-19.md](./plans/prompttruth-v2-completion-note-2026-04-19.md) | Completion note | Strong guidance | Current | compact landed-vs-deferred summary for PromptTruth v2 and `toolEvidenceReceipt` | overriding contracts, code, tests, or runtime artifacts |
 
 ### 8. Public/external explanation docs
