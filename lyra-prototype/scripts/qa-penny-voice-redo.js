@@ -19,6 +19,7 @@ const BASE_URL = process.env.PENNY_QA_BASE_URL || `http://127.0.0.1:${PORT}`;
 const MEMORY_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_FILE || `data/penny-memory.voice-redo-qa-${STAMP}.json`);
 const ARCHIVE_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_ARCHIVE_FILE || `data/penny-memory-archive.voice-redo-qa-${STAMP}.json`);
 const EMBEDDINGS_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_EMBEDDINGS_FILE || `data/penny-memory-embeddings.voice-redo-qa-${STAMP}.json`);
+const LEDGER_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_LEDGER_FILE || `data/penny-memory-ledger.voice-redo-qa-${STAMP}.json`);
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.json`);
 const SERVER_STDOUT_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.server.out.log`);
 const SERVER_STDERR_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.server.err.log`);
@@ -29,8 +30,20 @@ const QA_MODEL_TTL_SECONDS = Number(process.env.PENNY_QA_MODEL_TTL_SECONDS || 18
 const DEFAULT_QA_CHAT_MODEL = 'unsloth/gemma-4-31b-it@q6_k';
 const DEFAULT_QA_TOOL_MODEL = 'google/gemma-4-e4b';
 const DEFAULT_QA_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
-const QA_LOAD_CHAT_MODEL = process.env.PENNY_QA_LOAD_CHAT_MODEL !== '0';
-const QA_LOAD_EMBED_MODEL = process.env.PENNY_QA_LOAD_EMBED_MODEL !== '0';
+function resolveModelManagementMode(env = process.env) {
+  const manageModels = env.PENNY_QA_MANAGE_MODELS !== '0';
+  return {
+    manageModels,
+    loadChatModel: manageModels && env.PENNY_QA_LOAD_CHAT_MODEL !== '0',
+    loadEmbedModel: manageModels && env.PENNY_QA_LOAD_EMBED_MODEL !== '0',
+    prepareReportOnly: !manageModels,
+    repairPreset: manageModels,
+    loadStrategy: manageModels ? 'sequential-lane-switch' : 'preloaded-no-model-management',
+  };
+}
+const QA_MODEL_MANAGEMENT = resolveModelManagementMode(process.env);
+const QA_LOAD_CHAT_MODEL = QA_MODEL_MANAGEMENT.loadChatModel;
+const QA_LOAD_EMBED_MODEL = QA_MODEL_MANAGEMENT.loadEmbedModel;
 const CHAT_MODEL = String(process.env.PENNY_QA_CHAT_MODEL || DEFAULT_QA_CHAT_MODEL).trim();
 const TOOL_MODEL = String(process.env.PENNY_QA_TOOL_MODEL || DEFAULT_QA_TOOL_MODEL).trim();
 const EMBED_MODEL = String(process.env.PENNY_QA_EMBED_MODEL || process.env.PENNY_LMSTUDIO_EMBED_MODEL || DEFAULT_QA_EMBED_MODEL).trim();
@@ -825,6 +838,8 @@ function createServerProcess() {
       PENNY_MEMORY_FILE: MEMORY_FILE,
       PENNY_MEMORY_ARCHIVE_FILE: ARCHIVE_FILE,
       PENNY_MEMORY_EMBEDDINGS_FILE: EMBEDDINGS_FILE,
+      PENNY_MEMORY_LEDGER_FILE: LEDGER_FILE,
+      PENNY_ENABLE_RESEARCH_LEDGER_PROMPT: process.env.PENNY_QA_ENABLE_RESEARCH_LEDGER_PROMPT || '0',
       PENNY_OPENCLAW_ENABLED: '0',
       PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
       PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
@@ -862,6 +877,17 @@ async function unloadAllLmStudioModels() {
   } catch {}
 }
 
+function assertNoModelManagementEnvironmentReady(environment = {}) {
+  if (QA_MODEL_MANAGEMENT.manageModels) return;
+  if (environment?.valid) return;
+  const reasons = Array.isArray(environment?.reasons) && environment.reasons.length
+    ? environment.reasons.join(' ')
+    : 'environment validity checks did not pass.';
+  throw new Error(
+    `PENNY_QA_MANAGE_MODELS=0 requires Q6 chat and embedding models to already be loaded and visible before QA prompts run. ${reasons}`,
+  );
+}
+
 async function stopServerProcess(child) {
   if (!child || child.killed || child.exitCode !== null) return;
   child.kill();
@@ -884,11 +910,13 @@ async function main() {
     toolModel: EFFECTIVE_TOOL_MODEL,
   });
   const preparation = await automationApi.prepareLmStudio({
-    reportOnly: false,
-    repairPreset: true,
+    reportOnly: QA_MODEL_MANAGEMENT.prepareReportOnly,
+    repairPreset: QA_MODEL_MANAGEMENT.repairPreset,
     loadChatModel: QA_LOAD_CHAT_MODEL,
+    loadEmbedModel: QA_LOAD_EMBED_MODEL,
     chatModel: CHAT_MODEL,
     toolModel: EFFECTIVE_TOOL_MODEL,
+    embedModel: EMBED_MODEL,
   });
   if (!preparation.ok) {
     throw new Error(`LM Studio is not ready for QA: ${preparation.blockers.join(' ')}`);
@@ -898,6 +926,10 @@ async function main() {
     const normalizedLane = String(lane || 'chat').trim().toLowerCase() === 'tool' ? 'tool' : 'chat';
     const targetModel = normalizedLane === 'tool' ? EFFECTIVE_TOOL_MODEL : CHAT_MODEL;
     if (activeLaneModel === targetModel) return;
+    if (!QA_MODEL_MANAGEMENT.manageModels) {
+      activeLaneModel = targetModel;
+      return;
+    }
     await unloadAllLmStudioModels();
     if (normalizedLane === 'chat' && QA_LOAD_CHAT_MODEL) {
       await automationApi.loadModel(CHAT_MODEL, 'voice qa chat model', {
@@ -928,17 +960,19 @@ async function main() {
       tool: EFFECTIVE_TOOL_MODEL,
       autoLoadChatModel: QA_LOAD_CHAT_MODEL,
       autoLoadEmbedModel: QA_LOAD_EMBED_MODEL,
+      manageModels: QA_MODEL_MANAGEMENT.manageModels,
       embed: EMBED_MODEL,
       chatContextLength: QA_CHAT_CONTEXT_LENGTH,
       freshServerRequired: true,
       q8RequiresExplicitRequest: true,
       chatOnly: CHAT_ONLY_PROMPT_SET,
-      loadStrategy: 'sequential-lane-switch',
+      loadStrategy: QA_MODEL_MANAGEMENT.loadStrategy,
     },
     fixtureCheck,
     memoryFile: SPAWN_SERVER ? MEMORY_FILE : null,
     archiveFile: SPAWN_SERVER ? ARCHIVE_FILE : null,
     embeddingsFile: SPAWN_SERVER ? EMBEDDINGS_FILE : null,
+    ledgerFile: SPAWN_SERVER ? LEDGER_FILE : null,
     preparation: {
       ok: preparation.ok,
       requestedChatModel: preparation.requestedChatModel,
@@ -956,7 +990,7 @@ async function main() {
 
   try {
     const status = await waitForServerReady();
-    const lmStudio = await fetchJson(`${BASE_URL}/api/penny/lmstudio/status`, {}, 20000);
+    const lmStudio = await fetchJson(`${BASE_URL}/api/penny/lmstudio/status?refresh=1`, {}, 20000);
     payload.serverStatus = {
       localTransport: status.localLlmTransport,
       maxOutputTokens: status.maxOutputTokens,
@@ -984,6 +1018,7 @@ async function main() {
       expectedChatModel: CHAT_MODEL,
       expectedToolModel: EFFECTIVE_TOOL_MODEL,
     });
+    assertNoModelManagementEnvironmentReady(payload.environment);
 
     for (const step of buildPromptPlan(PROMPT_SET)) {
       await ensureLaneModel(step.lane || 'chat');
@@ -1039,7 +1074,7 @@ async function main() {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
       payload.cleanedFiles = [];
-      for (const filePath of [MEMORY_FILE, ARCHIVE_FILE, EMBEDDINGS_FILE]) {
+      for (const filePath of [MEMORY_FILE, ARCHIVE_FILE, EMBEDDINGS_FILE, LEDGER_FILE]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           payload.cleanedFiles.push(filePath);
@@ -1069,4 +1104,5 @@ module.exports = {
   evaluateSpiritFirstRecall,
   evaluateExactRecall,
   resolvePromptSet,
+  resolveModelManagementMode,
 };

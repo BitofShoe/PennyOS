@@ -8,6 +8,7 @@ const {
   classifyPremiseCaveatPosition,
   evaluateExactRecall,
   evaluateSpiritFirstRecall,
+  resolveModelManagementMode,
   resolvePromptSet,
 } = require('../scripts/qa-penny-voice-redo');
 
@@ -15,6 +16,27 @@ test('resolvePromptSet keeps supported prompt-set names and falls back safely', 
   assert.equal(resolvePromptSet('tiebreak'), 'tiebreak');
   assert.equal(resolvePromptSet('full'), 'full');
   assert.equal(resolvePromptSet('not-a-real-set'), 'core');
+});
+
+test('resolveModelManagementMode can verify preloaded models without unload/load actions', () => {
+  const managed = resolveModelManagementMode({});
+  assert.equal(managed.manageModels, true);
+  assert.equal(managed.loadChatModel, true);
+  assert.equal(managed.loadEmbedModel, true);
+  assert.equal(managed.prepareReportOnly, false);
+  assert.equal(managed.loadStrategy, 'sequential-lane-switch');
+
+  const preloaded = resolveModelManagementMode({
+    PENNY_QA_MANAGE_MODELS: '0',
+    PENNY_QA_LOAD_CHAT_MODEL: '1',
+    PENNY_QA_LOAD_EMBED_MODEL: '1',
+  });
+  assert.equal(preloaded.manageModels, false);
+  assert.equal(preloaded.loadChatModel, false);
+  assert.equal(preloaded.loadEmbedModel, false);
+  assert.equal(preloaded.prepareReportOnly, true);
+  assert.equal(preloaded.repairPreset, false);
+  assert.equal(preloaded.loadStrategy, 'preloaded-no-model-management');
 });
 
 test('buildPromptPlan keeps the tiebreak slice chat-only and focused on recall behavior', () => {
