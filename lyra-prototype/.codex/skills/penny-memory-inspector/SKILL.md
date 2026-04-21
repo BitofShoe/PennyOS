@@ -37,6 +37,21 @@ Use this skill when the task is about what Penny remembers, how she remembers it
 4. Treat promotion review as a separate step from storage or retrieval.
 5. Use the reference doc before touching memory files or routes.
 
+## Task Fit
+
+- Blockers: unclear purge scope, mixed memory layers, missing provenance, or live QA pollution.
+- Complexity: separate inspection, cleanup, promotion, and retrieval changes.
+- Confidence: cite on-disk files or route output before making memory claims.
+- Touched owners: keep memory edits in the dedicated data files, helpers, or routes that own the layer under review.
+- Verification cost: choose the narrowest inspection or regression that proves the affected layer.
+- Cleanup risk: identify every explicit, archive, embedding, and generated artifact that a QA pass may leave behind.
+
+## Authority and Receipts
+
+- Explicit memory is canonical; archive memory and ledgers are inspectable evidence, not automatic truth.
+- Embedding files are derived retrieval artifacts. Do not treat them as authored memory.
+- Prefer current disk state, tests, and live route responses over prose summaries when deciding what Penny remembers.
+
 ## Guardrails
 
 - Canonical explicit memory stays the source of truth.

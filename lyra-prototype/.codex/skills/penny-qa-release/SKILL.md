@@ -41,6 +41,21 @@ Use this skill for Penny QA runs and artifact interpretation, not for generic re
 4. Run `npm run eval:probes` for tool-lane sanity.
 5. Run `npm run eval:models` only when comparing chat-model behavior.
 
+## Task Fit
+
+- Blockers: failing unit tests, stale server state, mismatched loaded models, or unclear artifact freshness.
+- Complexity: separate route regressions, voice QA, tool probes, and model comparisons.
+- Confidence: prefer fresh artifacts with command output and timestamps over interrupted or inherited runs.
+- Touched owners: map failures back to backend helpers, browser owners, prompt assets, scripts, or docs before editing.
+- Verification cost: run the cheapest check that proves the claim; escalate to heavy LM Studio QA only when needed.
+- Cleanup risk: plan memory and artifact cleanup before starting any QA that can write disposable state.
+
+## Authority and Receipts
+
+- Treat tests, command logs, and generated artifact files as QA receipts.
+- Distinguish PromptTruth prompt visibility from sibling runtime receipts such as tool evidence or route output.
+- Record what landed, what was verified, what was deferred, and which artifacts were cleaned up in the final handoff.
+
 ## Guardrails
 
 - Do not run heavy local evals in parallel.

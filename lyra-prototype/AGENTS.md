@@ -57,6 +57,7 @@ Optional overlay context:
 - Start with `./.codex/skills/README.md` when a task smells like LM Studio ops, memory inspection, or Penny QA/release work.
 - Use those skills to avoid rediscovering the same Penny-specific workflows from scratch.
 - Keep the first wave narrow: LM Studio ops, memory inspector, and QA/release only.
+- Before cross-cutting implementation, use the skill task-fit checks and [docs/plans/TEMPLATE.md](./docs/plans/TEMPLATE.md) to capture blockers, owners, authority receipts, verification cost, cleanup risk, and landed/deferred results.
 
 ## Guardrails
 

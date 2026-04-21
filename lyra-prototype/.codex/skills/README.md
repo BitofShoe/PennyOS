@@ -17,6 +17,9 @@ Use them when the task clearly matches the workflow instead of re-discovering th
 
 - Keep this first wave narrow. These skills are for reusable repo workflows, not for changing Penny's runtime behavior.
 - Favor progressive disclosure. Read the `SKILL.md` first, then load its `references/REFERENCE.md` only if needed.
+- Before implementation work, make a task-fit pass: name blockers, complexity, confidence, touched owners, verification cost, and cleanup risk.
+- Treat runtime code, tests, live command output, and generated artifacts as stronger implementation evidence than planning prose.
+- When a task crosses backend, frontend, tests, or docs, start from [docs/plans/TEMPLATE.md](../../docs/plans/TEMPLATE.md) and capture landed, verified, deferred, and cleanup results there.
 - Do not run heavy local evals in parallel.
 - Respect the current local model split:
   - routine QA chat/memory: `unsloth/gemma-4-31b-it@q6_k`

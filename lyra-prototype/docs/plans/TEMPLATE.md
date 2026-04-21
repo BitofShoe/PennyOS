@@ -14,6 +14,15 @@ Use this template for cross-cutting Penny work that needs a written plan before 
 - User-facing or engineering success criteria:
 - What will be considered done:
 
+## Task fit
+
+- Blockers:
+- Complexity:
+- Confidence:
+- Touched owners:
+- Verification cost:
+- Cleanup risk:
+
 ## Decisions already locked
 
 - Constraint or decision:
@@ -44,7 +53,19 @@ Use this template for cross-cutting Penny work that needs a written plan before 
 - Files to read:
 - Commands to run:
 - Ownership boundaries to confirm:
+- Authority / receipt checks:
+  - Code, tests, runtime output, or artifacts that outrank prose:
+  - PromptTruth versus tool evidence:
+  - Explicit memory versus archive, ledger, or embedding artifacts:
 - Known risks:
+
+## Safe-refactor map
+
+- Thin shell or orchestration file involved:
+- Extracted owner to extend first:
+- Behavior-preserving tests or receipts:
+- Ordered implementation steps:
+- Review point before expanding scope:
 
 ## Proposed change set
 
@@ -64,6 +85,14 @@ Use this template for cross-cutting Penny work that needs a written plan before 
 - Which debug, QA, or bundle artifacts will be created:
 - What should be persisted:
 - What should be cleaned up before sign-off:
+
+## Results and handoff
+
+- Landed:
+- Verified:
+- Deferred:
+- Cleanup completed:
+- Follow-up owner or next slice:
 
 ## Out-of-scope list
 

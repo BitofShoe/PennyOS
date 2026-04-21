@@ -41,6 +41,21 @@ Use this skill for Penny's local LM Studio workflow, not for general model advic
 4. Run `npm run preset:lmstudio` only when preset wiring needs repair.
 5. Use the reference doc before touching LM Studio scripts.
 
+## Task Fit
+
+- Blockers: missing LM Studio, unavailable models, broken preset wiring, or port conflicts.
+- Complexity: keep readiness checks separate from model-management changes.
+- Confidence: verify with command output, not stale chat context.
+- Touched owners: prefer helper scripts and `lib/` readiness owners before expanding route shells.
+- Verification cost: start with `npm run preflight`; run heavier QA only when readiness truth affects behavior.
+- Cleanup risk: do not leave experimental presets, loaded-model churn, or QA artifacts behind.
+
+## Authority and Receipts
+
+- Treat `npm run preflight`, `lms ps --json`, direct local API probes, and Penny status output as readiness receipts.
+- Distinguish verified readiness from graceful fallback. Missing embed support can be acceptable when fallback retrieval is active.
+- Do not imply PromptTruth proves tool-lane readiness; PromptTruth is prompt-time evidence, while tool execution needs its own receipt.
+
 ## Guardrails
 
 - Do not add per-turn model hot-swapping.
