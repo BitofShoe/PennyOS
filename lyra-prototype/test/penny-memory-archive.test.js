@@ -256,6 +256,43 @@ test('writeEmbeddingsStore merges additive writes from a stale copy instead of d
   }
 });
 
+test('readEmbeddingsStore drops cached vectors from a different embedding model space', () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({
+    ...files,
+    embedModel: 'google/embedding-gemma-300m',
+    statusInstalledModels: ['google/embedding-gemma-300m'],
+    statusNativeAvailableModels: ['google/embedding-gemma-300m'],
+    statusAvailableModels: ['google/embedding-gemma-300m'],
+  });
+
+  try {
+    api.writeEmbeddingsStore({
+      meta: {
+        schemaVersion: 1,
+        embedModel: 'text-embedding-nomic-embed-text-v1.5',
+        updatedAt: '2026-04-13T12:00:00.000Z',
+      },
+      items: {
+        'hash-nomic': {
+          hash: 'hash-nomic',
+          text: 'Red glove on dryer three.',
+          model: 'text-embedding-nomic-embed-text-v1.5',
+          updatedAt: '2026-04-13T12:00:00.000Z',
+          vector: buildEmbeddingVector('red glove on dryer three'),
+          sensitivity: 'normal',
+        },
+      },
+    });
+
+    const store = api.readEmbeddingsStore();
+    assert.equal(store.meta.embedModel, 'google/embedding-gemma-300m');
+    assert.deepEqual(Object.keys(store.items), []);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('archiveCompletedTurn preserves raw episodes, summaries, patterns, and promotion queue', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi(files);

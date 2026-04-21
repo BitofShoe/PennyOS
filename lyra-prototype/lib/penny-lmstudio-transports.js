@@ -33,6 +33,9 @@ function createLmStudioTransportApi({
   LMSTUDIO_API_KEY,
   LMSTUDIO_TIMEOUT_MS,
   LMSTUDIO_MAX_OUTPUT_TOKENS,
+  LMSTUDIO_CHAT_TEMPERATURE = 1.0,
+  LMSTUDIO_CHAT_TOP_P = 0.95,
+  LMSTUDIO_CHAT_TOP_K = 64,
   LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
   reportLmStudioReasoning,
 } = {}) {
@@ -69,6 +72,22 @@ function createLmStudioTransportApi({
     try {
       reportLmStudioReasoning({ transport, lane, model, reasoningText: text });
     } catch {}
+  }
+
+  function finiteNumberOrNull(value) {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  function buildChatSamplingFields() {
+    const temperature = finiteNumberOrNull(LMSTUDIO_CHAT_TEMPERATURE);
+    const topP = finiteNumberOrNull(LMSTUDIO_CHAT_TOP_P);
+    const topK = finiteNumberOrNull(LMSTUDIO_CHAT_TOP_K);
+    return {
+      ...(temperature !== null ? { temperature } : {}),
+      ...(topP !== null ? { top_p: topP } : {}),
+      ...(topK !== null ? { top_k: topK } : {}),
+    };
   }
 
   function normalizeCleanupDecision(decision = {}, overrides = {}) {
@@ -186,7 +205,7 @@ function createLmStudioTransportApi({
         const payload = {
           model,
           input: buildLmStudioPrompt({ userText, messages, memories, file, latencyBudget }),
-          temperature: 0.9,
+          ...buildChatSamplingFields(),
           max_output_tokens: Math.min(
             LMSTUDIO_MAX_OUTPUT_TOKENS,
             LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
@@ -255,7 +274,7 @@ function createLmStudioTransportApi({
         const payload = {
           model: nativeModel,
           input: buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread: canContinue, latencyBudget }),
-          temperature: 0.9,
+          ...buildChatSamplingFields(),
           max_output_tokens: Math.min(
             LMSTUDIO_MAX_OUTPUT_TOKENS,
             LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
@@ -341,7 +360,7 @@ function createLmStudioTransportApi({
         const payload = {
           model: nativeModel,
           input: buildLmStudioStatefulInput({ userText, messages, memories, image, file, hasThread: canContinue, latencyBudget }),
-          temperature: 0.9,
+          ...buildChatSamplingFields(),
           max_output_tokens: Math.min(
             LMSTUDIO_MAX_OUTPUT_TOKENS,
             LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
@@ -445,7 +464,7 @@ function createLmStudioTransportApi({
         const payload = {
           model,
           input: buildLmStudioPrompt({ userText, messages, memories, file, latencyBudget }),
-          temperature: 0.9,
+          ...buildChatSamplingFields(),
           max_output_tokens: Math.min(
             LMSTUDIO_MAX_OUTPUT_TOKENS,
             LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
@@ -572,7 +591,7 @@ function createLmStudioTransportApi({
         const payload = {
           model,
           messages: buildLmStudioMessages({ userText, messages, memories, image, file, latencyBudget }),
-          temperature: 0.9,
+          ...buildChatSamplingFields(),
           max_tokens: Math.min(
             LMSTUDIO_MAX_OUTPUT_TOKENS,
             LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
@@ -661,7 +680,7 @@ function createLmStudioTransportApi({
         const payload = {
           model,
           messages: buildLmStudioMessages({ userText, messages, memories, image, file, latencyBudget }),
-          temperature: 0.9,
+          ...buildChatSamplingFields(),
           max_tokens: Math.min(
             LMSTUDIO_MAX_OUTPUT_TOKENS,
             LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,

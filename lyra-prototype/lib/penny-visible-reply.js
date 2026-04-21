@@ -42,6 +42,21 @@ function createVisibleReplyApi({
     return t.replace(/\n{3,}/g, '\n\n').trim();
   }
 
+  function stripGemmaControlWrappers(s) {
+    let t = String(s || '');
+    t = t
+      .replace(/<\|tool_call\>[\s\S]*?<tool_call\|>/gi, '')
+      .replace(/<\|tool_response\>[\s\S]*?<tool_response\|>/gi, '')
+      .replace(/<\|channel\>\s*(?:thought|analysis)\s*<channel\|>/gi, '')
+      .replace(/<\|turn\>\s*(?:model|assistant|user|system)?\s*\n?/gi, '')
+      .replace(/<turn\|>/gi, '')
+      .replace(/<\|(?:tool_call|tool_response)\>[^\r\n]*(?:\r?\n)?/gi, '')
+      .replace(/<\|(?:tool_call|tool_response)\>/gi, '')
+      .replace(/<(?:tool_call|tool_response)\|>/gi, '')
+      .replace(/<channel\|>/gi, '');
+    return t.replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   function takeAfterLastHorizontalRule(txt) {
     const x = String(txt || '');
     const chunks = x.split(/\n-{3,}\n/);
@@ -100,7 +115,7 @@ function createVisibleReplyApi({
 
   function normalizeVisibleReplyComparable(text = '') {
     let out = repairCommonMojibake(String(text || ''));
-    out = stripThinkSpans(out);
+    out = stripGemmaControlWrappers(stripThinkSpans(out));
     const tagged = extractTaggedVisibleReply(out);
     if (tagged) out = tagged;
     out = takeAfterLastHorizontalRule(out);
@@ -128,6 +143,8 @@ function createVisibleReplyApi({
     if (hasNormalizedMetaLead) return true;
     return /<\s*(?:think|redacted_reasoning|reasoning|final|answer|response)\b/i.test(text)
       || /<\|channel\>\s*(?:thought|analysis)/i.test(text)
+      || /<\|(?:turn|tool_call|tool_response)\>/i.test(text)
+      || /<(?:turn|tool_call|tool_response)\|>/i.test(text)
       || /(?:^|\n)\s*(?:thinking process|analyze the request|draft(?:\s+\d+)?|final polish)\b/i.test(text)
       || /actually, let's make it more/i.test(text)
       || /```/.test(text)
@@ -145,6 +162,9 @@ function createVisibleReplyApi({
     const operations = [];
     if (/<\s*(?:think|redacted_reasoning|reasoning)\b/i.test(text) || /<\|channel\>\s*(?:thought|analysis)/i.test(text)) {
       operations.push('strip-internal-reasoning');
+    }
+    if (/<\|(?:turn|tool_call|tool_response)\>/i.test(text) || /<(?:turn|tool_call|tool_response)\|>/i.test(text)) {
+      operations.push('strip-gemma-control-wrappers');
     }
     if (/<\s*(?:final|answer|response)\b/i.test(text)) operations.push('extract-visible-tag');
     if (/(?:^|\n)(?:final answer|final response|assistant reply|visible reply|spoken reply)\s*:/i.test(text)) {
@@ -353,7 +373,7 @@ function createVisibleReplyApi({
   }
 
   function classifyVisibleReplyDecision(raw = '') {
-    let t = stripThinkSpans(repairCommonMojibake(String(raw || '').trim()));
+    let t = stripGemmaControlWrappers(stripThinkSpans(repairCommonMojibake(String(raw || '').trim())));
     t = t.replace(/^<\|channel\>\s*(?:thought|analysis)\s*/i, '').trim();
     if (!t) {
       return finalizeVisibleReplyDecision(raw, '', VISIBLE_REPLY_REASON_CODES.EMPTY_INPUT);
@@ -491,7 +511,7 @@ function createVisibleReplyApi({
   }
 
   function extractPennyFromPlanningBlob(blob) {
-    const text = stripThinkSpans(String(blob || '').trim());
+    const text = stripGemmaControlWrappers(stripThinkSpans(String(blob || '').trim()));
     if (!text) return '';
     const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
     const candidateLines = lines.filter((l) => {
@@ -507,7 +527,7 @@ function createVisibleReplyApi({
   }
 
   function extractPennyFromReasoning(reasoning) {
-    const text = stripThinkSpans(String(reasoning || '').trim());
+    const text = stripGemmaControlWrappers(stripThinkSpans(String(reasoning || '').trim()));
     if (!text) return '';
     if (ALLOW_RAW_REASONING_FALLBACK) return text;
     const moodIdx = text.lastIndexOf('[MOOD:');
@@ -572,7 +592,7 @@ function createVisibleReplyApi({
 
   function textFromChatMessage(msg) {
     if (!msg || typeof msg !== 'object') return '';
-    const content = stripThinkSpans(repairCommonMojibake(textValueFromField(msg.content, 'visible') || String(msg.content ?? '').trim()));
+    const content = stripGemmaControlWrappers(stripThinkSpans(repairCommonMojibake(textValueFromField(msg.content, 'visible') || String(msg.content ?? '').trim())));
     const reasoning = [
       repairCommonMojibake(textValueFromField(msg.reasoning_content, 'reasoning') || String(msg.reasoning_content ?? '').trim()),
       repairCommonMojibake(textValueFromField(msg.reasoning, 'reasoning') || String(msg.reasoning ?? '').trim()),

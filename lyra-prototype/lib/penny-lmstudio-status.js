@@ -68,7 +68,7 @@ function createLmStudioStatusApi({
   }
 
   function tokenizeModelAlias(value = '') {
-    const raw = String(value || '').trim().toLowerCase();
+    const raw = String(value || '').trim().toLowerCase().replace(/embeddinggemma/g, 'embedding-gemma');
     if (!raw) return { full: [], short: [] };
     const splitTokens = raw
       .replace(/@/g, '-')
@@ -93,7 +93,7 @@ function createLmStudioStatusApi({
   }
 
   function isQuantizationToken(token = '') {
-    return /^(q\d+[a-z0-9]*|fp\d+|bf\d+|f\d+|gguf|mlx|int\d+)$/.test(String(token || '').toLowerCase());
+    return /^(q\d+[a-z0-9]*|fp\d+|bf\d+|f\d+|gguf|mlx|int\d+|qat)$/.test(String(token || '').toLowerCase());
   }
 
   function modelTokenArraysEquivalent(leftTokens = [], rightTokens = []) {

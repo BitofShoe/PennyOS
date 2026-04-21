@@ -149,6 +149,9 @@ test('runPreflight warns when preset wiring is missing but fallback-ready models
     const presetCheck = report.checks.find(check => check.name === 'lmstudio-preset');
     assert.equal(presetCheck.level, 'warn');
     assert.match(presetCheck.detail, /preset wiring/i);
+    const readiness = report.checks.find(check => check.name === 'lmstudio-readiness');
+    assert.match(readiness.detail, /requested chat=google\/gemma-4-31b/i);
+    assert.match(readiness.detail, /resolved chat=unsloth\/gemma-4-31b-it/i);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

@@ -231,7 +231,7 @@ Untracked runtime memory store created on first run.
 - `penny-memory-archive.json`
 Hybrid archive runtime store for episodic recall, summaries, patterns, the promotion queue, and bounded per-session `recentAuditTrail` turn slices.
 - `penny-memory-embeddings.json`
-Embedding cache for semantic archive retrieval when a local embedding model is available, plus bounded default-on background-vectorization telemetry that can still be disabled by env.
+Embedding cache for semantic archive retrieval when a local embedding model is available, plus bounded default-on background-vectorization telemetry that can still be disabled by env. The cache is model-aware; vectors from Nomic and EmbeddingGemma are treated as different vector spaces.
 - `penny-memory-ledger.json`
 Research continuity ledger for bounded advisory topics, evidence refs, open follow-ups, additive question-scoped identity (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`), and truth metadata (`sourceClass`, `summaryClass`, `summaryEvidenceRefs`).
 - various QA/eval memory files
@@ -349,6 +349,7 @@ Likely modules you will touch:
 - internal tool capability descriptors in `lib/penny-tool-registry.js`
 - LM Studio status/model resolution in `lib/penny-lmstudio-status.js`
 - LM Studio transport selection in `lib/penny-lmstudio-transports.js`
+- Gemma chat sampling defaults and transport payload fields in `lib/penny-lmstudio-transports.js`, with env wiring in `server.js`
 - route/runtime artifact assembly in `lib/penny-route-handlers.js` and `lib/penny-runtime-artifacts.js`
 
 ### Change trace/provenance or inspector surfaces

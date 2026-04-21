@@ -21,6 +21,9 @@ function makeTransportApi({
   reportLmStudioReasoning = () => {},
   extractPennyFromPlanningBlob = () => '',
   extractPennyFromReasoning = () => '',
+  chatTemperature = 1.0,
+  chatTopP = 0.95,
+  chatTopK = 64,
 } = {}) {
   const visibleReplyApi = createVisibleReplyApi({
     ALLOW_RAW_REASONING_FALLBACK: false,
@@ -61,10 +64,73 @@ function makeTransportApi({
     LMSTUDIO_API_KEY: 'lm-studio-local',
     LMSTUDIO_TIMEOUT_MS: 30_000,
     LMSTUDIO_MAX_OUTPUT_TOKENS: 6144,
+    LMSTUDIO_CHAT_TEMPERATURE: chatTemperature,
+    LMSTUDIO_CHAT_TOP_P: chatTopP,
+    LMSTUDIO_CHAT_TOP_K: chatTopK,
     LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS: 900,
     reportLmStudioReasoning,
   });
 }
+
+test('all LM Studio chat transports include Gemma 4 chat sampling fields', async () => {
+  const payloads = [];
+  const api = makeTransportApi({
+    chatTemperature: 1.0,
+    chatTopP: 0.95,
+    chatTopK: 64,
+    postJsonLongRunning: async (_url, options) => {
+      payloads.push(JSON.parse(String(options.body || '{}')));
+      return {
+        statusCode: 200,
+        bodyText: JSON.stringify({
+          output_text: 'Visible reply only.',
+          response_id: 'resp_payload',
+          choices: [
+            { message: { content: 'Visible reply only.' } },
+          ],
+        }),
+      };
+    },
+    postJsonSse: async (url, options) => {
+      payloads.push(JSON.parse(String(options.body || '{}')));
+      if (/\/api\/v1\/chat$/i.test(url)) {
+        options.onEvent({ event: 'message.delta', data: { content: 'Visible reply only.' } });
+        options.onEvent({ event: 'chat.end', data: { result: { response_id: 'resp_stream', output_text: 'Visible reply only.' } } });
+        return;
+      }
+      if (/\/responses$/i.test(url)) {
+        options.onEvent({ event: 'message', data: { type: 'response.output_text.delta', delta: 'Visible reply only.' } });
+        options.onEvent({ event: 'message', data: { type: 'response.completed', response: { output_text: 'Visible reply only.' } } });
+        return;
+      }
+      options.onEvent({ event: 'message', data: { choices: [{ delta: { content: 'Visible reply only.' } }] } });
+      options.onEvent({ event: 'message', data: '[DONE]' });
+    },
+    collectLmStudioStatefulChatStrings: () => ({
+      responseId: 'resp_stateful',
+      outputText: 'Visible reply only.',
+      reasoningText: '',
+    }),
+    collectLmStudioResponsesStrings: () => ({
+      outputText: 'Visible reply only.',
+      reasoningText: '',
+    }),
+  });
+
+  await api.runLmStudioResponsesApi({ userText: 'test', messages: [], memories: {} });
+  await api.runLmStudioStatefulChatApi({ userText: 'test', messages: [], memories: {} });
+  await api.streamLmStudioStatefulChatApi({ userText: 'test', messages: [], memories: {}, onEvent: () => {} });
+  await api.streamLmStudioResponsesApi({ userText: 'test', messages: [], memories: {}, onEvent: () => {} });
+  await api.streamLmStudioChatCompletionsApi({ userText: 'test', messages: [], memories: {}, onEvent: () => {} });
+  await api.runLmStudioChatCompletionsApi({ userText: 'test', messages: [], memories: {} });
+
+  assert.equal(payloads.length, 6);
+  for (const payload of payloads) {
+    assert.equal(payload.temperature, 1.0);
+    assert.equal(payload.top_p, 0.95);
+    assert.equal(payload.top_k, 64);
+  }
+});
 
 test('stateful stream keeps the richer streamed draft when final cleanup collapses it too hard', async () => {
   const streamedDraft = [

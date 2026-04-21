@@ -30,6 +30,7 @@ function createLmStudioAutomationApi({
     const text = String(value || '').trim();
     if (!text) return '';
     if (/nomic-embed-text-v1\.5/i.test(text)) return 'text-embedding-nomic-embed-text-v1.5';
+    if (/^(?:google\/)?embedding[-_]?gemma[-_]?300m$/i.test(text)) return 'google/embedding-gemma-300m';
     return text;
   }
 

@@ -84,6 +84,7 @@ There are two runtime brain families:
 - Image chat stays on the chat lane and is marked `attachment-bounded` in runtime artifacts instead of getting routed through the tool lane.
 - Chat lane defaults to `google/gemma-4-31b`.
 - Tool lane defaults to `google/gemma-4-e4b`.
+- Chat-lane sampling defaults are `temperature=1.0`, `top_p=0.95`, and `top_k=64`. Tool-lane, tool-summary, and semantic-render temperatures stay separately configured.
 - The settings-panel model picker is a chat-lane override only.
 - The local `@local:penny` preset belongs to LM Studio; Penny only verifies and reasserts the local wiring for startup and QA flows.
 
@@ -108,7 +109,7 @@ Normal chat flow:
 6. For chat-like turns, backend retrieves bounded archive context plus bounded research-ledger context
 7. Wording-recall turns are treated as recall-heavy chat turns so Penny answers remembered phrasing before caveating, while direct canon-memory questions still suppress stale history canon-first
 8. The selected lane resolves its preferred model and transport family
-9. If the turn includes an image, the LM Studio payload carries only that current image; later text-only turns do not replay earlier image blobs
+9. If the turn includes an image, the LM Studio payload carries only that current image before the text part; later text-only turns do not replay earlier image blobs
 10. Reply comes back with a visible text response plus a hidden mood tag, and Penny records a runtime artifact / trace summary for the turn
 11. Frontend parses the mood tag and updates Penny's visual state
 12. Canonical explicit memory is written back to `data/penny-memory.json`
@@ -165,6 +166,7 @@ Hybrid archive overlay:
   - session buckets with episodic history, summaries, open loops, bounded `recentAuditTrail` turn slices, and `lastRetrieval` compatibility state aligned to that newest audit summary
 - `data/penny-memory-embeddings.json`
   - embedding cache used for semantic archive retrieval when a local embed model is available
+  - vectors are scoped by embedding model so a future EmbeddingGemma comparison cannot reuse stale Nomic vectors
   - bounded background-vectorization status for default-on post-turn shadow prewarm work that can still be disabled by env
 - `data/penny-memory-ledger.json`
   - bounded research continuity topics with evidence refs, contradictions, open follow-ups, source session/turn identity, additive question-scoped identity (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`), and truth metadata (`sourceClass`, `summaryClass`, `summaryEvidenceRefs`)

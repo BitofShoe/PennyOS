@@ -46,6 +46,38 @@ test('coercePennyVisibleReply strips dangling channel-thought prefixes', () => {
   );
 });
 
+test('coercePennyVisibleReply strips full Gemma thought-channel blocks before visible text', () => {
+  const raw = `<|channel>thought\nHidden scratchpad.\n<channel|>\nVisible reply only.\n[MOOD:smug]`;
+  const decision = classifyVisibleReplyDecision(raw);
+  assert.equal(coercePennyVisibleReply(raw), 'Visible reply only.\n[MOOD:smug]');
+  assert.equal(decision.cleanupApplied, true);
+  assert.equal(decision.cleanupTransform.operations.includes('strip-internal-reasoning'), true);
+});
+
+test('coercePennyVisibleReply strips empty Gemma thought markers', () => {
+  const raw = `<|channel>thought\n<channel|>\nVisible reply only.\n[MOOD:calm]`;
+  assert.equal(coercePennyVisibleReply(raw), 'Visible reply only.\n[MOOD:calm]');
+});
+
+test('coercePennyVisibleReply strips Gemma turn wrappers without dropping visible text', () => {
+  const raw = `<|turn>model\nVisible reply only.\n[MOOD:happy]\n<turn|>`;
+  const decision = classifyVisibleReplyDecision(raw);
+  assert.equal(coercePennyVisibleReply(raw), 'Visible reply only.\n[MOOD:happy]');
+  assert.equal(decision.cleanupTransform.operations.includes('strip-gemma-control-wrappers'), true);
+});
+
+test('coercePennyVisibleReply strips Gemma tool call and response wrappers', () => {
+  const raw = `<|tool_call>call:read_project_file{path:<|"|>README.md<|"|>}<tool_call|>\n<|tool_response>response:read_project_file{value:<|"|># Penny<|"|>}<tool_response|>\nVisible reply only.\n[MOOD:thinking]`;
+  const decision = classifyVisibleReplyDecision(raw);
+  assert.equal(coercePennyVisibleReply(raw), 'Visible reply only.\n[MOOD:thinking]');
+  assert.equal(decision.cleanupTransform.operations.includes('strip-gemma-control-wrappers'), true);
+});
+
+test('coercePennyVisibleReply strips one-line partial Gemma tool wrappers', () => {
+  const raw = `<|tool_call>call:read_project_file{path:README.md}\n<|tool_response>response:read_project_file{value:# Penny}\nVisible reply only.\n[MOOD:thinking]`;
+  assert.equal(coercePennyVisibleReply(raw), 'Visible reply only.\n[MOOD:thinking]');
+});
+
 test('coercePennyVisibleReply strips qwen polish-preface lines', () => {
   const raw = `Actually, let's make it more "Penny".\n"oh, rude? okay, fine. usually people get scared when i say exactly what\n[MOOD:annoyed]`;
   assert.equal(

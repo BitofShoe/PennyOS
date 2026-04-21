@@ -73,9 +73,50 @@ test('LM Studio stateful image input uses native text-plus-image parts', () => {
   });
 
   assert.deepEqual(statefulInput, [
-    { type: 'text', content: 'Tell me what you see in this image.' },
     { type: 'image', data_url: 'data:image/png;base64,abc123' },
+    { type: 'text', content: 'Tell me what you see in this image.' },
   ]);
+});
+
+test('LM Studio prompt builders put the latest image part before text without Gemma sentinels', () => {
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const {
+    buildLmStudioMessages,
+    buildLmStudioStatefulInput,
+  } = require('../server.js');
+
+  const messages = [
+    { role: 'user', content: 'Old image here.', image: 'data:image/png;base64,old' },
+    { role: 'assistant', content: 'I saw it.' },
+    { role: 'user', content: 'Tell me what you see in this image.', image: 'data:image/png;base64,new' },
+  ];
+
+  const chatMessages = buildLmStudioMessages({
+    userText: 'Tell me what you see in this image.',
+    messages,
+    memories: {},
+    image: 'data:image/png;base64,new',
+  });
+  const latestUser = chatMessages.filter(message => message.role === 'user').at(-1);
+  assert.equal(latestUser.content[0].type, 'image_url');
+  assert.equal(latestUser.content[0].image_url.url, 'data:image/png;base64,new');
+  assert.equal(latestUser.content[1].type, 'text');
+  assert.doesNotMatch(JSON.stringify(chatMessages), /data:image\/png;base64,old/);
+
+  const statefulInput = buildLmStudioStatefulInput({
+    userText: 'Tell me what you see in this image.',
+    messages,
+    memories: {},
+    image: 'data:image/png;base64,new',
+    hasThread: true,
+  });
+  assert.equal(statefulInput[0].type, 'image');
+  assert.equal(statefulInput[0].data_url, 'data:image/png;base64,new');
+  assert.equal(statefulInput[1].type, 'text');
+
+  const serialized = `${JSON.stringify(chatMessages)}\n${JSON.stringify(statefulInput)}`;
+  assert.doesNotMatch(serialized, /<\|(?:turn|tool_call|tool_response|channel|image)\>|<(?:turn|tool_call|tool_response|channel)\|>/);
 });
 
 test('later turns do not replay a prior image payload when the new turn is text-only', () => {

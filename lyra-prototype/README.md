@@ -177,9 +177,14 @@ The browser cache is not the source of truth for long-term memory.
 - Chat lane and tool lane have separate preferred models:
   - `PENNY_LMSTUDIO_CHAT_MODEL` defaults to `google/gemma-4-31b`
   - `PENNY_LMSTUDIO_TOOL_MODEL` defaults to `google/gemma-4-e4b`
+- Chat-lane sampling is explicit and separate from tool/semantic-render settings:
+  - `PENNY_LMSTUDIO_CHAT_TEMPERATURE` defaults to `1.0`
+  - `PENNY_LMSTUDIO_CHAT_TOP_P` defaults to `0.95`
+  - `PENNY_LMSTUDIO_CHAT_TOP_K` defaults to `64`
 - Semantic memory uses a separate soft-dependency model:
-- `PENNY_LMSTUDIO_EMBED_MODEL` defaults to `text-embedding-nomic-embed-text-v1.5`
+  - `PENNY_LMSTUDIO_EMBED_MODEL` defaults to `text-embedding-nomic-embed-text-v1.5`
   - if that model is missing or unloaded, Penny falls back to keyword-style archive retrieval instead of failing chat
+  - EmbeddingGemma is supported as a comparison candidate, but it is not the default; the embedding cache is model-aware so vectors from one embedding model are not reused in another model's vector space
 - `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS` defaults to on for bounded post-turn background vectorization of recent chat-history candidates. Set it to `0` to turn that shadow prewarm work off.
 - `PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT` defaults to `2` and caps that background vector work per archived turn.
 - `npm run lmstudio:prepare` verifies local preset wiring, checks installed/loaded models, and tries to load the requested chat model for QA/startup flows.
@@ -187,7 +192,7 @@ The browser cache is not the source of truth for long-term memory.
 - The local `@local:penny` preset is operator-owned LM Studio state. Penny can verify and reassert the wiring, but the repo does not own the preset body.
 - Depending on the loaded model, Penny may use native stateful chat, chat completions, or responses-style fallbacks.
 - LM Studio `Context Length` still matters even though Penny chats through this app instead of the LM Studio UI. Penny still sends her prompt stack, recent conversation, and memory context into the loaded LM Studio runtime each turn, and the native stateful lane can preserve a live LM Studio thread across turns.
-- Image turns are intentionally attachment-bounded: Penny only sends the current turn's image payload, and later text-only turns do not replay older image blobs back into LM Studio.
+- Image turns are intentionally attachment-bounded: Penny sends the current turn's image payload before the text part, and later text-only turns do not replay older image blobs back into LM Studio.
 - Practical default on this machine is roughly `10k-12k` context for normal Penny use. Raising it helps with longer pasted inputs, longer live threads, and heavier prompt injection, but it also increases prompt-eval latency and memory pressure.
 - `PENNY_CHAT_HISTORY_LIMIT` counts individual recent messages, not user/assistant pairs. The main chat path now defaults to `6`, while the shadow path keeps its own tighter handling.
 - In Penny's UI, `New chat` creates a fresh Penny session and a fresh LM Studio thread context. `Clear memory` is the stronger reset if you also want to wipe the current session's saved memory state.

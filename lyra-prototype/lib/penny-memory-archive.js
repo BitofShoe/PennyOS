@@ -141,6 +141,7 @@ function normalizeEmbedModelId(value = '') {
   const text = String(value || '').trim();
   if (!text) return '';
   if (/nomic-embed-text-v1\.5/i.test(text)) return 'text-embedding-nomic-embed-text-v1.5';
+  if (/^(?:google\/)?embedding[-_]?gemma[-_]?300m$/i.test(text)) return 'google/embedding-gemma-300m';
   return text;
 }
 
@@ -312,6 +313,22 @@ function createMemoryArchiveApi({
     : ((left = '', right = '') => String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase());
 
   let embedStatusCache = { expiresAt: 0, value: null };
+
+  function embeddingModelsLookEquivalent(left = '', right = '') {
+    const normalizedLeft = normalizeEmbedModelId(left);
+    const normalizedRight = normalizeEmbedModelId(right);
+    if (!normalizedLeft || !normalizedRight) return false;
+    return modelComparator(normalizedLeft, normalizedRight)
+      || normalizedLeft.toLowerCase() === normalizedRight.toLowerCase();
+  }
+
+  function embeddingItemMatchesConfiguredModel(raw = {}, fallbackModel = configuredEmbedModel) {
+    const targetModel = normalizeEmbedModelId(fallbackModel || '');
+    if (!targetModel) return true;
+    const itemModel = normalizeEmbedModelId(raw?.model || '');
+    if (!itemModel) return true;
+    return embeddingModelsLookEquivalent(itemModel, targetModel);
+  }
 
   function ensureFile(filePath = '', builder = () => ({})) {
     if (!filePath) return;
@@ -1119,10 +1136,11 @@ function createMemoryArchiveApi({
     for (const [key, raw] of Object.entries(items)) {
       if (!raw || typeof raw !== 'object') continue;
       if (!Array.isArray(raw.vector) || !raw.vector.length) continue;
+      if (!embeddingItemMatchesConfiguredModel(raw, base.meta.embedModel)) continue;
       base.items[key] = {
         hash: String(raw.hash || key).trim() || key,
         text: trimText(raw.text || '', 400),
-        model: String(raw.model || base.meta.embedModel || '').trim(),
+        model: normalizeEmbedModelId(raw.model || base.meta.embedModel || ''),
         updatedAt: trimIso(raw.updatedAt),
         vector: raw.vector.map(value => Number(value || 0)).filter(Number.isFinite),
         sensitivity: raw.sensitivity === 'high' ? 'high' : 'normal',
@@ -1473,8 +1491,11 @@ function createMemoryArchiveApi({
     const store = embeddingsStore || readEmbeddingsStore();
     const hash = stableHash(normalizedText);
     const existing = store.items[hash];
-    if (existing?.vector?.length) {
+    if (existing?.vector?.length && embeddingItemMatchesConfiguredModel(existing, store.meta?.embedModel || configuredEmbedModel)) {
       return { embeddings: store, vector: existing.vector, created: false, hash };
+    }
+    if (existing && !embeddingItemMatchesConfiguredModel(existing, store.meta?.embedModel || configuredEmbedModel)) {
+      delete store.items[hash];
     }
     const vector = await createEmbedding(normalizedText, semanticStatus);
     if (!vector) return { embeddings: store, vector: null, created: false, hash };

@@ -78,7 +78,7 @@ function createFixture({
     if (args[0] === 'load') {
       const modelKey = args[1];
       state.loadCommands.push([...args]);
-      if (String(modelKey).includes('text-embedding-nomic-embed-text-v1.5')) {
+      if (/text-embedding-nomic-embed-text-v1\.5|embedding[-_]?gemma[-_]?300m/i.test(String(modelKey))) {
         state.embedReady = true;
       } else if (!state.loaded.includes(modelKey)) {
         state.loaded.push(modelKey);
@@ -91,7 +91,7 @@ function createFixture({
   const fetchImpl = async (url, options = {}) => {
     if (String(url).endsWith('/embeddings')) {
       const payload = JSON.parse(String(options.body || '{}'));
-      const matchesEmbed = String(payload.model || '').includes('text-embedding-nomic-embed-text-v1.5');
+      const matchesEmbed = /text-embedding-nomic-embed-text-v1\.5|embedding[-_]?gemma[-_]?300m/i.test(String(payload.model || ''));
       if (matchesEmbed && state.embedReady) {
         return {
           ok: true,
@@ -305,6 +305,36 @@ test('prepareLmStudio normalizes and readies the embedding model through the liv
   assert.equal(report.semanticMemoryReady, true);
 });
 
+test('prepareLmStudio normalizes EmbeddingGemma aliases without replacing the embedding default', async () => {
+  const fixture = createFixture({
+    installedDetailed: [
+      {
+        type: 'embedding',
+        modelKey: 'google/embedding-gemma-300m',
+        path: 'lmstudio-community/embeddinggemma-300m-GGUF/embeddinggemma-300m-Q8_0.gguf',
+      },
+    ],
+    loadedModels: ['google/gemma-4-e4b'],
+    embedModel: 'embeddinggemma-300m',
+  });
+
+  const report = await fixture.automationApi.prepareLmStudio({
+    reportOnly: false,
+    repairPreset: false,
+    loadChatModel: false,
+    loadEmbedModel: true,
+    chatModel: 'google/gemma-4-31b',
+    toolModel: 'google/gemma-4-e4b',
+    embedModel: 'embeddinggemma-300m',
+  });
+
+  assert.equal(report.requestedEmbedModel, 'google/embedding-gemma-300m');
+  assert.equal(report.embedInstalled, true);
+  assert.equal(report.embedLoadAttempted, true);
+  assert.equal(report.embedLoadSucceeded, true);
+  assert.equal(report.semanticMemoryReady, true);
+});
+
 test('prepareLmStudio warns when the requested chat model is missing but a chat fallback is already loaded', async () => {
   const fixture = createFixture({
     installedDetailed: [
@@ -334,6 +364,8 @@ test('prepareLmStudio warns when the requested chat model is missing but a chat 
   assert.equal(report.ok, true);
   assert.equal(report.blockers.length, 0);
   assert.equal(report.laneFallback.chat, true);
+  assert.equal(report.requestedChatModel, 'google/gemma-4-31b');
+  assert.equal(report.statusAfter.resolvedChatModel, 'unsloth/gemma-4-31b-it');
   assert.match(report.warnings.join('\n'), /fallback/i);
 });
 

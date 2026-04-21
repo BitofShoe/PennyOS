@@ -150,6 +150,7 @@ function normalizeEmbedModelId(value = '') {
   const text = String(value || '').trim();
   if (!text) return '';
   if (/nomic-embed-text-v1\.5/i.test(text)) return 'text-embedding-nomic-embed-text-v1.5';
+  if (/^(?:google\/)?embedding[-_]?gemma[-_]?300m$/i.test(text)) return 'google/embedding-gemma-300m';
   return text;
 }
 const LMSTUDIO_NATIVE_BASE = (process.env.PENNY_LMSTUDIO_NATIVE_BASE || deriveLmStudioNativeBase(LMSTUDIO_BASE)).replace(/\/$/, '');
@@ -173,6 +174,9 @@ const LMSTUDIO_MODELS_PROBE_MS = Number(process.env.PENNY_LMSTUDIO_MODELS_PROBE_
 const LOCAL_LLM_TRANSPORT = String(process.env.PENNY_LOCAL_LLM_TRANSPORT || process.env.PENNY_LMSTUDIO_TRANSPORT || 'auto').toLowerCase();
 /** Output ceiling, not a target. A higher cap avoids clipped long replies without forcing extra tokens if the model stops earlier. */
 const LMSTUDIO_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS || 6144);
+const LMSTUDIO_CHAT_TEMPERATURE = Number(process.env.PENNY_LMSTUDIO_CHAT_TEMPERATURE || 1.0);
+const LMSTUDIO_CHAT_TOP_P = Number(process.env.PENNY_LMSTUDIO_CHAT_TOP_P || 0.95);
+const LMSTUDIO_CHAT_TOP_K = Number(process.env.PENNY_LMSTUDIO_CHAT_TOP_K || 64);
 const LMSTUDIO_TOOL_TEMPERATURE = Number(process.env.PENNY_LMSTUDIO_TOOL_TEMPERATURE || 0.35);
 const LMSTUDIO_TOOL_SUMMARY_TEMPERATURE = Number(process.env.PENNY_LMSTUDIO_TOOL_SUMMARY_TEMPERATURE || 0.55);
 const LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS || 1024);
@@ -2492,8 +2496,8 @@ function buildLmStudioMessages({ userText, messages, memories, image, file, late
         return {
           role,
           content: [
-            { type: 'text', text },
             { type: 'image_url', image_url: { url: imageUrl } },
+            { type: 'text', text },
           ],
         };
       }
@@ -2504,8 +2508,8 @@ function buildLmStudioMessages({ userText, messages, memories, image, file, late
     const latestInput = appendAttachmentContext(userText, file);
     if (image) {
       recent.push({ role: 'user', content: [
-        { type: 'text', text: latestInput },
         { type: 'image_url', image_url: { url: image } },
+        { type: 'text', text: latestInput },
       ] });
     } else {
       recent.push({ role: 'user', content: latestInput });
@@ -2565,8 +2569,8 @@ function buildLmStudioStatefulInput({ userText, messages, memories, image, file,
     : buildLmStudioStatefulSeedText({ userText: latestInput, messages, memories, file: null, latencyBudget: budget });
   if (!image) return text;
   return [
-    { type: 'text', content: text },
     { type: 'image', data_url: image },
+    { type: 'text', content: text },
   ];
 }
 const lmStudioToolLoopApi = createLmStudioToolLoopApi({
@@ -2634,6 +2638,9 @@ const lmStudioTransportApi = createLmStudioTransportApi({
   LMSTUDIO_API_KEY,
   LMSTUDIO_TIMEOUT_MS,
   LMSTUDIO_MAX_OUTPUT_TOKENS,
+  LMSTUDIO_CHAT_TEMPERATURE,
+  LMSTUDIO_CHAT_TOP_P,
+  LMSTUDIO_CHAT_TOP_K,
   LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS,
   reportLmStudioReasoning,
 });

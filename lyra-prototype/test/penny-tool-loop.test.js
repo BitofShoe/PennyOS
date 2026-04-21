@@ -311,6 +311,80 @@ test('runLmStudioToolLoop records prompt-visible raw-json evidence facts for nat
   ]);
 });
 
+test('runLmStudioToolLoop preserves tool calls while keeping reasoning_content out of follow-up payloads and evidence', async () => {
+  const hiddenReasoning = '<|channel>thought\nI should inspect README before answering.\n<channel|>';
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: '',
+              reasoning_content: hiddenReasoning,
+              tool_calls: [
+                {
+                  id: 'call-read',
+                  type: 'function',
+                  function: {
+                    name: 'read_project_file',
+                    arguments: JSON.stringify({ path: 'README.md' }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: 'README says Penny is a local companion prototype.\n[MOOD:thinking]',
+              tool_calls: [],
+            },
+          },
+        ],
+      },
+    ],
+    executePennyTool: async (name, args = {}) => {
+      if (name === 'read_project_file') {
+        return {
+          ok: true,
+          label: `read ${args.path || 'file'}`,
+          data: { path: args.path || '', excerpt: '# Penny Companion Prototype' },
+        };
+      }
+      return { ok: true, label: name, data: {} };
+    },
+  });
+
+  const result = await api.runLmStudioToolLoop({
+    userText: 'Read README.md and tell me what Penny is.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.match(result.text, /local companion prototype/i);
+  assert.equal(api.payloads.length, 2);
+  assert.deepEqual(api.payloads[1].messages.find(message => message.role === 'assistant')?.tool_calls?.[0]?.function?.name, 'read_project_file');
+  const serializedPayloads = JSON.stringify(api.payloads);
+  const serializedResult = JSON.stringify(result);
+  assert.doesNotMatch(serializedPayloads, /I should inspect README/i);
+  assert.doesNotMatch(serializedPayloads, /reasoning_content/);
+  assert.doesNotMatch(serializedResult, /I should inspect README|reasoning_content|<\|channel>thought/i);
+  assert.deepEqual(result.toolEvidenceFacts, [
+    {
+      path: 'native_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0],
+    },
+  ]);
+});
+
 test('draftOpenEndedWriteText strips file-access refusal scaffolding from usable creative text', async () => {
   const api = buildToolLoopApi({
     responses: [
