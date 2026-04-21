@@ -23,6 +23,8 @@
     "qa:memory:combined": "node scripts/qa-penny-memory.js --combined",
     "qa:memory:judged": "node scripts/qa-penny-memory.js --judged",
     "qa:memory:source-sensitive": "node scripts/qa-penny-memory.js --source-sensitive-fixture",
+    "qa:memory:candidate-survival": "node scripts/qa-penny-memory.js --candidate-survival-archive-unit",
+    "qa:memory:candidate-survival-fixture": "node scripts/qa-penny-memory.js --candidate-survival-fixture",
     "qa:memory:semantic": "node scripts/qa-penny-memory.js --segment semantic-archive",
     "qa:memory:chapter": "node scripts/qa-penny-memory.js --segment chapter-fallback",
     "qa:memory:contradictions": "node scripts/qa-penny-memory.js --segment contradiction-premise",

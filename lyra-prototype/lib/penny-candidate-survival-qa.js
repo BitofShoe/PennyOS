@@ -25,17 +25,19 @@ const CANDIDATE_SURVIVAL_OUTCOME_DEFINITIONS = Object.freeze({
 const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
   {
     id: 'explicit-current-preference',
-    query: 'Since my favorite tea is oolong, remind me what tea I like now.',
+    query: 'Since my favorite tea is oolong, what is my favorite tea now?',
     expected: {
       subject: 'favorite tea',
       relation: 'current preference',
       object: 'lapsang souchong',
       objectVariants: ['lapsang souchong'],
+      textNeedles: ['favorite tea is lapsang souchong', 'lapsang souchong now'],
       supportOwner: 'explicit-memory',
       sourceAuthority: 'canonical',
     },
     forbidden: [
       {
+        id: 'session:tea-old-oolong',
         object: 'oolong',
         reason: 'False premise or stale advisory preference.',
       },
@@ -54,10 +56,10 @@ const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
   },
   {
     id: 'archive-rendered-episodic-detail',
-    query: 'What kind of mug was near the arcade register?',
+    query: 'What kind of mug was beside the arcade register?',
     expected: {
       subject: 'arcade register',
-      relation: 'object near register',
+      relation: 'object beside register',
       object: 'chipped moon mug',
       objectVariants: ['chipped moon mug', 'moon mug'],
       supportOwner: 'session-archive',
@@ -139,16 +141,232 @@ const RELATION_MATCH_STOPWORDS = new Set([
   'an',
   'and',
   'by',
+  'claimed',
+  'current',
+  'detail',
   'for',
   'in',
   'of',
   'on',
   'or',
+  'preference',
+  'source',
+  'support',
   'the',
   'to',
+  'value',
   'with',
   'object',
 ]);
+
+const CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT = 32;
+
+function buildEmptyMemoryBooksStore(generatedAt = '') {
+  return {
+    meta: {
+      schemaVersion: 1,
+      updatedAt: generatedAt,
+    },
+    books: [],
+  };
+}
+
+function buildEmptyResearchLedgerStore(generatedAt = '') {
+  return {
+    meta: {
+      schemaVersion: 1,
+      updatedAt: generatedAt,
+    },
+    topics: {},
+  };
+}
+
+function buildCandidateSurvivalArchiveUnitSeedPlan({
+  generatedAt = new Date().toISOString(),
+} = {}) {
+  const baseTs = Date.parse(generatedAt) || Date.parse('2026-04-21T12:00:00.000Z');
+  const explicitMemory = {
+    sessionId: 'qa-candidate-survival-explicit',
+    userName: '',
+    memories: [
+      {
+        text: 'My favorite tea is lapsang souchong.',
+        kind: 'preference',
+        source: 'explicit',
+        ts: baseTs,
+      },
+    ],
+    voiceOn: false,
+    brainMode: 'local',
+    lmStudioThread: null,
+    updatedAt: generatedAt,
+  };
+  const sessionIds = Object.freeze({
+    'explicit-current-preference': 'qa-candidate-survival-explicit-current-preference',
+    'archive-rendered-episodic-detail': 'qa-candidate-survival-archive-rendered-episodic-detail',
+    'semantic-candidate-not-canonical': 'qa-candidate-survival-semantic-candidate-not-canonical',
+    'fabricated-absent-tail-fact': 'qa-candidate-survival-fabricated-absent-tail-fact',
+  });
+  const sessionOptions = Object.freeze({
+    'explicit-current-preference': {
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+    },
+    'archive-rendered-episodic-detail': {
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+    },
+    'semantic-candidate-not-canonical': {
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+    },
+    'fabricated-absent-tail-fact': {
+      sessionPromptLimit: 2,
+      globalPromptLimit: 0,
+    },
+  });
+  const archiveSessions = {
+    [sessionIds['explicit-current-preference']]: {
+      sessionId: sessionIds['explicit-current-preference'],
+      episodes: [
+        {
+          id: 'session:tea-old-oolong',
+          type: 'episode',
+          text: 'Old archive note: my favorite tea was oolong before a later correction.',
+          excerpt: 'Old archive note: my favorite tea was oolong before a later correction.',
+          userText: 'Remember this exactly: my favorite tea is oolong.',
+          createdAt: '2026-04-21T11:55:00.000Z',
+          sensitivity: 'normal',
+        },
+        {
+          id: 'session:tea-correction-lapsang',
+          type: 'episode',
+          text: 'Correction episode: my favorite tea is lapsang souchong now, not oolong.',
+          excerpt: 'Correction episode: my favorite tea is lapsang souchong now, not oolong.',
+          userText: 'Correction: my favorite tea is lapsang souchong now, not oolong.',
+          createdAt: '2026-04-21T12:00:00.000Z',
+          sensitivity: 'normal',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [
+        {
+          id: 'prov-tea-correction',
+          oldText: 'Favorite tea is oolong',
+          newText: 'Favorite tea is lapsang souchong',
+          conflictKey: 'favorite tea',
+          trigger: 'correction',
+          sourceEpisodeId: 'session:tea-correction-lapsang',
+          createdAt: '2026-04-21T12:00:00.000Z',
+          confidence: 0.92,
+        },
+      ],
+      activeContradictions: [
+        {
+          id: 'contr-tea-correction',
+          oldText: 'Favorite tea is oolong',
+          newText: 'Favorite tea is lapsang souchong',
+          conflictKey: 'favorite tea',
+          status: 'active',
+          createdAt: '2026-04-21T12:00:00.000Z',
+        },
+      ],
+      openLoops: [],
+      recentAuditTrail: [],
+      lastRetrieval: null,
+      lastArchivedAt: '2026-04-21T12:00:00.000Z',
+      updatedAt: '2026-04-21T12:00:00.000Z',
+    },
+    [sessionIds['archive-rendered-episodic-detail']]: {
+      sessionId: sessionIds['archive-rendered-episodic-detail'],
+      episodes: [
+        {
+          id: 'session:arcade-register-moon-mug',
+          type: 'episode',
+          text: 'The clerk kept a chipped moon mug beside the arcade register and tapped it when she was thinking.',
+          excerpt: 'The clerk kept a chipped moon mug beside the arcade register and tapped it when she was thinking.',
+          userText: 'The clerk kept a chipped moon mug beside the arcade register and tapped it when she was thinking.',
+          createdAt: '2026-04-21T12:01:00.000Z',
+          sensitivity: 'normal',
+        },
+        {
+          id: 'session:arcade-orange-distractor',
+          type: 'episode',
+          text: 'The orange backup mug stayed by the office monitor, nowhere near the arcade register.',
+          excerpt: 'The orange backup mug stayed by the office monitor, nowhere near the arcade register.',
+          userText: 'The orange backup mug stayed by the office monitor, nowhere near the arcade register.',
+          createdAt: '2026-04-21T11:40:00.000Z',
+          sensitivity: 'normal',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      recentAuditTrail: [],
+      lastRetrieval: null,
+      lastArchivedAt: '2026-04-21T12:01:00.000Z',
+      updatedAt: '2026-04-21T12:01:00.000Z',
+    },
+    [sessionIds['semantic-candidate-not-canonical']]: {
+      sessionId: sessionIds['semantic-candidate-not-canonical'],
+      episodes: [
+        {
+          id: 'session:laundromat-dryer-silver-thermos',
+          type: 'episode',
+          text: 'At the midnight laundromat, a silver thermos was sitting on top of dryer three.',
+          excerpt: 'At the midnight laundromat, a silver thermos was sitting on top of dryer three.',
+          userText: 'I balanced a silver thermos on top of dryer three at the laundromat.',
+          createdAt: '2026-04-21T12:02:00.000Z',
+          sensitivity: 'normal',
+        },
+        {
+          id: 'session:laundromat-bandana-distractor',
+          type: 'episode',
+          text: 'The cashier had a sunflower bandana tied around her wrist.',
+          excerpt: 'The cashier had a sunflower bandana tied around her wrist.',
+          userText: 'The cashier had a sunflower bandana tied around her wrist.',
+          createdAt: '2026-04-21T11:42:00.000Z',
+          sensitivity: 'normal',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      recentAuditTrail: [],
+      lastRetrieval: null,
+      lastArchivedAt: '2026-04-21T12:02:00.000Z',
+      updatedAt: '2026-04-21T12:02:00.000Z',
+    },
+    [sessionIds['fabricated-absent-tail-fact']]: {
+      sessionId: sessionIds['fabricated-absent-tail-fact'],
+      episodes: [],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      recentAuditTrail: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: generatedAt,
+    },
+  };
+
+  return {
+    generatedAt,
+    sessionIds,
+    sessionOptions,
+    explicitMemory,
+    archiveSessions,
+    memoryBooks: buildEmptyMemoryBooksStore(generatedAt),
+    researchLedger: buildEmptyResearchLedgerStore(generatedAt),
+  };
+}
 
 function trimText(value = '', limit = 240) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -331,6 +549,9 @@ function normalizeCandidateTraceItem(itemLike = {}) {
   const source = itemLike && typeof itemLike === 'object' ? itemLike : { text: String(itemLike || '') };
   const stage = normalizeKey(source.stage || source.status || source.outcome || source.state || '');
   const rank = normalizeRank(source.rank ?? source.rankIndex ?? source.position ?? source.scoreRank);
+  const eligibilitySource = source.eligibility && typeof source.eligibility === 'object'
+    ? source.eligibility
+    : {};
   const rendered = source.rendered === true
     || source.promptVisible === true
     || source.inPrompt === true
@@ -353,10 +574,12 @@ function normalizeCandidateTraceItem(itemLike = {}) {
       || source.inRawPool === true || source.candidate === true || hasCandidateContent
       || stageMatches(stage, ['raw', 'raw-only', 'candidate', 'filtered', 'ineligible']));
   const eligible = source.eligible === false
+    || eligibilitySource.eligible === false
     || source.filtered === true
+    || eligibilitySource.filtered === true
     || stageMatches(stage, ['raw-only', 'filtered', 'ineligible'])
     ? false
-    : (source.eligible === true ? true : null);
+    : (source.eligible === true || eligibilitySource.eligible === true ? true : null);
 
   return compactObject({
     id: trimText(source.id || source.candidateId || source.sourceId || '', 160),
@@ -375,8 +598,9 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     sourceType: trimText(source.sourceType || source.type || source.channel || source.source?.type || '', 120),
     supportOwner: trimText(source.supportOwner || source.owner || source.source?.owner || '', 120),
     sourceAuthority: trimText(source.sourceAuthority || source.authority || source.source?.authority || '', 120),
+    sensitivity: source.sensitivity === 'high' ? 'high' : '',
     text: trimText(source.text || source.textPreview || source.summary || source.content || source.label || '', 500),
-    heldBackReason: trimText(source.heldBackReason || source.holdbackReason || source.reason || '', 200),
+    heldBackReason: trimText(source.heldBackReason || source.holdbackReason || source.reason || eligibilitySource.filterReason || '', 200),
   });
 }
 
@@ -443,6 +667,11 @@ function normalizedWords(value = '') {
   return normalizeForComparison(value).split(/\s+/).filter(Boolean);
 }
 
+function wordsPresentInCandidate(haystack = '', words = []) {
+  const uniqueWords = [...new Set(asArray(words).flatMap((item) => normalizedWords(item)))];
+  return uniqueWords.length > 0 && uniqueWords.every((word) => hasNormalizedNeedle(haystack, word));
+}
+
 function relationMatchesCandidate(haystack = '', relation = '', {
   subject = '',
   objectNeedles = [],
@@ -458,7 +687,7 @@ function relationMatchesCandidate(haystack = '', relation = '', {
       && !subjectWords.has(word)
       && !objectWords.has(word)
   ));
-  if (!relationWords.length) return false;
+  if (!relationWords.length) return true;
   return relationWords.some((word) => hasNormalizedNeedle(haystack, word));
 }
 
@@ -478,7 +707,9 @@ function matchCandidateAgainstOracle(candidateLike = {}, expectedLike = {}) {
   const textNeedleHit = asArray(expected.textNeedles).some((needle) => hasNormalizedNeedle(haystack, needle));
   const subjectRequired = Boolean(expected.subject);
   const relationRequired = Boolean(expected.relation);
-  const subjectHit = !subjectRequired || hasNormalizedNeedle(haystack, expected.subject);
+  const subjectHit = !subjectRequired
+    || hasNormalizedNeedle(haystack, expected.subject)
+    || wordsPresentInCandidate(haystack, expected.subject);
   const relationHit = !relationRequired || relationMatchesCandidate(haystack, expected.relation, {
     subject: expected.subject,
     objectNeedles,
@@ -489,9 +720,13 @@ function matchCandidateAgainstOracle(candidateLike = {}, expectedLike = {}) {
 }
 
 function matchCandidateAgainstForbidden(candidateLike = {}, forbiddenLike = []) {
-  return asArray(forbiddenLike).some((forbidden) => (
-    matchCandidateAgainstOracle(candidateLike, forbidden)
-  ));
+  return asArray(forbiddenLike).some((forbiddenLikeItem) => {
+    const forbidden = normalizeForbiddenCandidate(forbiddenLikeItem);
+    if (forbidden.id || forbidden.ids) {
+      return idMatches(normalizeCandidateTraceItem(candidateLike), forbidden);
+    }
+    return matchCandidateAgainstOracle(candidateLike, forbidden);
+  });
 }
 
 function summarizeTraceItem(item = null) {
@@ -502,11 +737,13 @@ function summarizeTraceItem(item = null) {
     supportOwner: item.supportOwner || '',
     stage: item.stage || '',
     rank: item.rank,
+    score: Number.isFinite(Number(item.score)) ? Number(item.score) : null,
     raw: item.raw,
     ranked: item.ranked,
     selected: item.selected,
     rendered: item.rendered,
     eligible: item.eligible,
+    sensitivity: item.sensitivity || '',
     object: item.object || '',
     textPreview: trimText(item.text || '', 180),
     heldBackReason: item.heldBackReason || '',
@@ -623,6 +860,225 @@ function summarizeCandidateSurvivalCases(cases = []) {
   };
 }
 
+function candidateIdentityKeys(item = {}) {
+  return uniqueStrings([
+    item.id,
+    item.sourceId,
+    item.candidateId,
+    ...asArray(item.ids),
+    ...asArray(item.sourceIds),
+  ], 20).map((value) => normalizeKey(value)).filter(Boolean);
+}
+
+function buildPromptTruthArchiveChannelMap(promptTruth = {}) {
+  const channels = promptTruth?.channels && typeof promptTruth.channels === 'object'
+    ? promptTruth.channels
+    : {};
+  const byId = new Map();
+  for (const channelName of ['sessionArchive', 'globalArchive']) {
+    const channel = channels[channelName] && typeof channels[channelName] === 'object'
+      ? channels[channelName]
+      : {};
+    const renderedIds = new Set(asArray(channel.renderedSourceIds).map((id) => normalizeKey(id)).filter(Boolean));
+    for (const candidateId of asArray(channel.candidateSourceIds).map((id) => normalizeKey(id)).filter(Boolean)) {
+      byId.set(candidateId, {
+        channelName,
+        rendered: renderedIds.has(candidateId),
+        heldBackReason: trimText(channel.heldBackReason || '', 200),
+      });
+    }
+  }
+  return byId;
+}
+
+function applyPromptTruthToCandidateTrace(traceLike = [], promptTruth = null) {
+  const trace = normalizeTraceArray(traceLike);
+  const promptTruthById = buildPromptTruthArchiveChannelMap(promptTruth || {});
+  if (!promptTruthById.size) return trace;
+  return trace.map((item) => {
+    const promptTruthMatch = candidateIdentityKeys(item)
+      .map((key) => promptTruthById.get(key))
+      .find(Boolean);
+    if (!promptTruthMatch) return item;
+    const rendered = promptTruthMatch.rendered === true;
+    const heldBackReason = rendered ? '' : promptTruthMatch.heldBackReason;
+    return normalizeCandidateTraceItem({
+      ...item,
+      selected: true,
+      rendered,
+      heldBack: Boolean(heldBackReason),
+      stage: rendered ? 'rendered' : (heldBackReason ? 'selected-held-back' : item.stage),
+      heldBackReason,
+    });
+  });
+}
+
+function summarizeCandidateTrace(traceLike = []) {
+  const trace = normalizeTraceArray(traceLike);
+  return {
+    rawCandidateCount: trace.filter((item) => item.raw).length,
+    eligibleCandidateCount: trace.filter((item) => item.raw && item.eligible !== false).length,
+    rankedCandidateCount: trace.filter((item) => item.ranked).length,
+    selectedCandidateCount: trace.filter((item) => item.selected).length,
+    renderedCandidateCount: trace.filter((item) => item.rendered).length,
+    filteredSensitiveCount: trace.filter((item) => item.eligible === false && (
+      item.sensitivity === 'high' || item.heldBackReason === 'sensitive-low-confidence'
+    )).length,
+  };
+}
+
+function candidateStageWeight(item = {}) {
+  if (item.rendered) return 4;
+  if (item.selected) return 3;
+  if (item.ranked) return 2;
+  if (item.raw) return 1;
+  return 0;
+}
+
+function compareCandidateSurvivalQuality(left = {}, right = {}) {
+  const leftRank = normalizeRank(left.rank);
+  const rightRank = normalizeRank(right.rank);
+  if (leftRank !== null && rightRank !== null && leftRank !== rightRank) return leftRank - rightRank;
+  if (leftRank !== null && rightRank === null) return -1;
+  if (leftRank === null && rightRank !== null) return 1;
+  const stageDelta = candidateStageWeight(right) - candidateStageWeight(left);
+  if (stageDelta) return stageDelta;
+  return Number(right.score || 0) - Number(left.score || 0);
+}
+
+function findBestTraceMatch(trace = [], matcher = () => false) {
+  return trace
+    .filter((item) => matcher(item))
+    .sort(compareCandidateSurvivalQuality)[0] || null;
+}
+
+function buildExpectedObjectSurvival(normalizedCase = {}, trace = [], outcome = '') {
+  const expectedMatches = trace.filter((item) => matchCandidateAgainstOracle(item, normalizedCase.expected));
+  const best = findBestTraceMatch(trace, (item) => matchCandidateAgainstOracle(item, normalizedCase.expected));
+  return {
+    outcome,
+    expectedObjectPresentRaw: expectedMatches.some((item) => item.raw),
+    expectedObjectPresentRanked: expectedMatches.some((item) => item.ranked),
+    expectedObjectSelected: expectedMatches.some((item) => item.selected),
+    expectedObjectRendered: expectedMatches.some((item) => item.rendered),
+    bestRank: best?.rank ?? null,
+    bestCandidateId: best?.id || best?.sourceId || '',
+    bestCandidateSourceType: best?.sourceType || '',
+    bestCandidateScore: Number.isFinite(Number(best?.score)) ? Number(best.score) : null,
+    heldBackReason: best?.heldBackReason || '',
+  };
+}
+
+function buildForbiddenSurvival(normalizedCase = {}, trace = []) {
+  const forbiddenMatches = trace.filter((item) => matchCandidateAgainstForbidden(item, normalizedCase.forbidden));
+  const best = findBestTraceMatch(trace, (item) => matchCandidateAgainstForbidden(item, normalizedCase.forbidden));
+  return {
+    forbiddenSelected: forbiddenMatches.some((item) => item.selected),
+    forbiddenRendered: forbiddenMatches.some((item) => item.rendered),
+    forbiddenBestRank: best?.rank ?? null,
+  };
+}
+
+function buildTopCandidateSummaries(traceLike = [], normalizedCase = {}, limit = 8) {
+  const trace = normalizeTraceArray(traceLike)
+    .slice()
+    .sort(compareCandidateSurvivalQuality)
+    .slice(0, Math.max(0, Number(limit || 0)));
+  return trace.map((item) => ({
+    ...summarizeTraceItem(item),
+    matchedExpected: matchCandidateAgainstOracle(item, normalizedCase.expected),
+    matchedForbidden: matchCandidateAgainstForbidden(item, normalizedCase.forbidden),
+  }));
+}
+
+function supportStateLooksVerified(support = {}) {
+  const state = normalizeKey(support.supportState || support.state || '');
+  const authority = normalizeKey(support.authority || '');
+  return state === 'verified' || state === 'canonical' || authority === 'canonical';
+}
+
+function buildCandidateSurvivalArchiveUnitCaseResult({
+  caseLike = {},
+  retrievalResult = {},
+  promptTruth = null,
+  traceLike = null,
+  topCandidateLimit = 8,
+} = {}) {
+  const normalizedCase = normalizeCandidateSurvivalCase(caseLike);
+  const rawTrace = traceLike
+    || retrievalResult?.retrieval?.candidateTrace
+    || retrievalResult?.candidateTrace
+    || [];
+  const trace = applyPromptTruthToCandidateTrace(rawTrace, promptTruth);
+  const classification = classifyCandidateSurvival(normalizedCase, trace);
+  const semanticMemory = retrievalResult?.semanticMemory && typeof retrievalResult.semanticMemory === 'object'
+    ? retrievalResult.semanticMemory
+    : {};
+  const retrieval = retrievalResult?.retrieval && typeof retrievalResult.retrieval === 'object'
+    ? retrievalResult.retrieval
+    : {};
+  const archiveContext = retrievalResult?.archiveContext && typeof retrievalResult.archiveContext === 'object'
+    ? retrievalResult.archiveContext
+    : {};
+  return {
+    id: normalizedCase.id,
+    query: normalizedCase.query,
+    expected: normalizedCase.expected,
+    forbidden: normalizedCase.forbidden,
+    support: normalizedCase.support,
+    archiveUnit: {
+      measurementMode: 'archive-unit',
+      liveModelCalls: false,
+      includeCandidateTrace: true,
+      semanticReady: semanticMemory.ready === true || retrieval.semanticReady === true || archiveContext.semanticReady === true,
+      retrievalMode: String(retrieval.mode || archiveContext.mode || '').trim() || 'keyword',
+      supportAuthority: normalizedCase.support.authority || normalizedCase.expected.sourceAuthority || '',
+      supportState: normalizedCase.support.supportState || '',
+      verifiedAnswerSupport: supportStateLooksVerified(normalizedCase.support),
+      candidateSurvivalOnly: true,
+    },
+    survival: buildExpectedObjectSurvival(normalizedCase, trace, classification.outcome),
+    forbiddenSurvival: buildForbiddenSurvival(normalizedCase, trace),
+    traceSummary: summarizeCandidateTrace(trace),
+    topCandidates: buildTopCandidateSummaries(trace, normalizedCase, topCandidateLimit),
+  };
+}
+
+function buildCandidateSurvivalArchiveUnitArtifact({
+  generatedAt = new Date().toISOString(),
+  cases = [],
+  filePaths = {},
+  cleanup = {},
+  candidateTraceLimit = CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
+} = {}) {
+  const normalizedCases = asArray(cases).filter((item) => item && typeof item === 'object');
+  return {
+    schema: CANDIDATE_SURVIVAL_QA_SCHEMA,
+    generatedAt,
+    measurementMode: 'archive-unit',
+    liveModelCalls: false,
+    serverSpawned: false,
+    apiChatCalls: false,
+    includeCandidateTrace: true,
+    candidateTraceLimit,
+    files: { ...filePaths },
+    cases: normalizedCases,
+    cleanup,
+    summary: summarizeCandidateSurvivalCases(normalizedCases.map((item) => ({
+      id: item.id,
+      outcome: item.survival?.outcome,
+    }))),
+    limits: [
+      'Candidate survival is retrieval-path evidence, not answer-quality evidence.',
+      'This archive-unit mode does not generate live model answers.',
+      'Explicit memory remains canonical; archive/session/global/research memories remain advisory.',
+      'Semantic candidates are discovery machinery, not truth authority.',
+      'PromptTruth remains prompt-time and memory/research-focused.',
+      'Default prompt/rendered memory limits are unchanged.',
+    ],
+  };
+}
+
 function buildCandidateSurvivalQaFixture({
   generatedAt = new Date().toISOString(),
   cases = null,
@@ -651,11 +1107,17 @@ module.exports = {
   CANDIDATE_SURVIVAL_OUTCOMES,
   CANDIDATE_SURVIVAL_OUTCOME_DEFINITIONS,
   CANDIDATE_SURVIVAL_FIXTURE_CASES,
+  CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
+  applyPromptTruthToCandidateTrace,
+  buildCandidateSurvivalArchiveUnitArtifact,
+  buildCandidateSurvivalArchiveUnitCaseResult,
+  buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
   classifyCandidateSurvival,
   matchCandidateAgainstForbidden,
   matchCandidateAgainstOracle,
   normalizeCandidateSurvivalCase,
   normalizeCandidateTraceItem,
+  summarizeCandidateTrace,
   summarizeCandidateSurvivalCases,
 };

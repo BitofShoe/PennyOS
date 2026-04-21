@@ -1,7 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
+  buildCandidateSurvivalArchiveUnitPaths,
   buildQaServerEnv,
   buildSourceSensitiveMemoryQaFixture,
   buildSmokeScenarioSpecs,
@@ -11,6 +15,7 @@ const {
   countNeedleHits,
   parseMemoryQaArgs,
   resolveChatRequestTimeoutMs,
+  runCandidateSurvivalArchiveUnitQa,
   scoreTruthReplacement,
   summarizeSuites,
   SOURCE_SENSITIVE_MEMORY_CASES,
@@ -63,6 +68,24 @@ test('parseMemoryQaArgs supports source-sensitive fixture mode without live QA',
   assert.throws(() => parseMemoryQaArgs(['--source-sensitive-fixture', '--judged']), /cannot combine --source-sensitive-fixture/i);
 });
 
+test('parseMemoryQaArgs supports candidate-survival fixture and archive-unit modes without live QA', () => {
+  const fixture = parseMemoryQaArgs(['--candidate-survival-fixture']);
+  assert.equal(fixture.runMode, 'candidate-survival-fixture');
+  assert.equal(fixture.runLabel, 'candidate-survival-fixture');
+  assert.equal(fixture.candidateSurvivalFixtureMode, true);
+  assert.equal(fixture.combinedMode, false);
+
+  const archiveUnit = parseMemoryQaArgs(['--candidate-survival-archive-unit']);
+  assert.equal(archiveUnit.runMode, 'candidate-survival-archive-unit');
+  assert.equal(archiveUnit.runLabel, 'candidate-survival-archive-unit');
+  assert.equal(archiveUnit.candidateSurvivalArchiveUnitMode, true);
+  assert.equal(archiveUnit.combinedMode, false);
+
+  assert.throws(() => parseMemoryQaArgs(['--candidate-survival-archive-unit', '--smoke']), /cannot combine --candidate-survival-archive-unit/i);
+  assert.throws(() => parseMemoryQaArgs(['--candidate-survival-archive-unit', '--judged']), /cannot combine --candidate-survival-archive-unit/i);
+  assert.throws(() => parseMemoryQaArgs(['--candidate-survival-fixture', '--source-sensitive-fixture']), /cannot combine --candidate-survival-fixture/i);
+});
+
 test('parseMemoryQaArgs rejects invalid segment combinations', () => {
   assert.throws(() => parseMemoryQaArgs(['--smoke', '--segment', MEMORY_QA_SEGMENT_IDS.SEMANTIC_ARCHIVE]), /cannot combine --smoke with --segment/i);
   assert.throws(() => parseMemoryQaArgs(['--segment', 'bogus']), /Unknown memory QA segment/i);
@@ -92,6 +115,87 @@ test('buildQaServerEnv forces stateless chat transport for memory QA servers', (
   assert.equal(env.PENNY_MEMORY_ARCHIVE_FILE, 'data/penny-memory-archive.test.json');
   assert.equal(env.PENNY_MEMORY_EMBEDDINGS_FILE, 'data/penny-memory-embeddings.test.json');
   assert.equal(env.PENNY_MEMORY_LEDGER_FILE, 'data/penny-memory-ledger.test.json');
+});
+
+test('candidate-survival archive-unit mode writes an artifact and cleans disposable stores', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-candidate-survival-'));
+  const stamp = 'unit-test-stamp';
+  let fetchCalls = 0;
+  try {
+    const paths = buildCandidateSurvivalArchiveUnitPaths({
+      outputDir: tmpDir,
+      stamp,
+    });
+    assert.equal(paths.ledgerFile.startsWith(tmpDir), true);
+    assert.match(paths.ledgerFile, /penny-memory-ledger\.json$/);
+
+    const result = await runCandidateSurvivalArchiveUnitQa({
+      outputDir: tmpDir,
+      outputPath: path.join(tmpDir, 'candidate-survival-artifact.json'),
+      stamp,
+      generatedAt: '2026-04-21T12:00:00.000Z',
+      nowMs: Date.parse('2026-04-21T12:05:00.000Z'),
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        throw new Error('fetch should not be called in archive-unit keyword fallback');
+      },
+    });
+    const artifact = JSON.parse(fs.readFileSync(result.outputPath, 'utf8'));
+    const byId = new Map(artifact.cases.map((item) => [item.id, item]));
+
+    assert.equal(fetchCalls, 0);
+    assert.equal(artifact.measurementMode, 'archive-unit');
+    assert.equal(artifact.liveModelCalls, false);
+    assert.equal(artifact.serverSpawned, false);
+    assert.equal(artifact.apiChatCalls, false);
+    assert.equal(artifact.includeCandidateTrace, true);
+    assert.equal(artifact.files.ledgerFile.startsWith(tmpDir), true);
+    assert.equal(artifact.cleanup.allRemoved, true);
+    for (const file of artifact.cleanup.files) {
+      assert.equal(file.existsAfterCleanup, false);
+      assert.equal(fs.existsSync(file.path), false);
+    }
+
+    const explicitCase = byId.get('explicit-current-preference');
+    assert.ok(explicitCase);
+    assert.equal(explicitCase.archiveUnit.retrievalMode, 'keyword');
+    assert.equal(explicitCase.archiveUnit.liveModelCalls, false);
+    assert.equal(explicitCase.survival.expectedObjectPresentRanked, true);
+    assert.equal(explicitCase.survival.expectedObjectSelected, true);
+    assert.equal(explicitCase.survival.expectedObjectRendered, false);
+    assert.equal(explicitCase.survival.bestRank, 1);
+    assert.equal(explicitCase.survival.heldBackReason, 'canon-priority-suppression');
+    assert.equal(explicitCase.forbiddenSurvival.forbiddenSelected, false);
+    assert.equal(explicitCase.forbiddenSurvival.forbiddenRendered, false);
+    assert.equal(explicitCase.forbiddenSurvival.forbiddenBestRank, 2);
+
+    const archiveCase = byId.get('archive-rendered-episodic-detail');
+    assert.ok(archiveCase);
+    assert.equal(archiveCase.survival.expectedObjectPresentRaw, true);
+    assert.equal(archiveCase.survival.expectedObjectPresentRanked, true);
+    assert.equal(archiveCase.survival.expectedObjectSelected, true);
+    assert.equal(archiveCase.survival.expectedObjectRendered, true);
+    assert.equal(archiveCase.forbiddenSurvival.forbiddenSelected, false);
+    assert.equal(archiveCase.forbiddenSurvival.forbiddenRendered, false);
+
+    const semanticCase = byId.get('semantic-candidate-not-canonical');
+    assert.ok(semanticCase);
+    assert.equal(semanticCase.archiveUnit.verifiedAnswerSupport, false);
+    assert.equal(semanticCase.archiveUnit.supportState, 'candidate-only');
+    assert.equal(semanticCase.survival.expectedObjectPresentRaw, true);
+    assert.equal(semanticCase.survival.expectedObjectSelected, true);
+    assert.equal(semanticCase.forbiddenSurvival.forbiddenSelected, false);
+    assert.equal(semanticCase.forbiddenSurvival.forbiddenRendered, false);
+
+    const absentCase = byId.get('fabricated-absent-tail-fact');
+    assert.ok(absentCase);
+    assert.equal(absentCase.survival.outcome, 'missing');
+    assert.equal(absentCase.survival.expectedObjectPresentRaw, false);
+    assert.equal(absentCase.forbiddenSurvival.forbiddenSelected, false);
+    assert.equal(absentCase.forbiddenSurvival.forbiddenRendered, false);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });
 
 test('resolveChatRequestTimeoutMs keeps smoke runs bounded by a smaller default', () => {

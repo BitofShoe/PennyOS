@@ -4,12 +4,17 @@ const assert = require('node:assert/strict');
 const {
   CANDIDATE_SURVIVAL_OUTCOMES,
   CANDIDATE_SURVIVAL_QA_SCHEMA,
+  applyPromptTruthToCandidateTrace,
+  buildCandidateSurvivalArchiveUnitArtifact,
+  buildCandidateSurvivalArchiveUnitCaseResult,
+  buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
   classifyCandidateSurvival,
   matchCandidateAgainstForbidden,
   matchCandidateAgainstOracle,
   normalizeCandidateSurvivalCase,
   normalizeCandidateTraceItem,
+  summarizeCandidateTrace,
   summarizeCandidateSurvivalCases,
 } = require('../lib/penny-candidate-survival-qa');
 
@@ -121,6 +126,12 @@ test('candidate matching uses ids and expected source/object anchors', () => {
     object: 'oolong',
     selected: true,
   }, ARCHIVE_CASE.forbidden), true);
+
+  assert.equal(matchCandidateAgainstForbidden({
+    id: 'session:tea-correction-lapsang',
+    text: 'Correction episode: my favorite tea is lapsang souchong now, not oolong.',
+    selected: true,
+  }, [{ id: 'session:tea-old-oolong', object: 'oolong' }]), false);
 });
 
 test('trace normalization infers stage booleans without runtime dependencies', () => {
@@ -225,6 +236,134 @@ test('candidate survival classifier flags stale or forbidden candidates separate
       rendered: true,
     },
   ]).outcome, CANDIDATE_SURVIVAL_OUTCOMES.FORBIDDEN_RENDERED);
+});
+
+test('archive-unit seed plan keeps disposable stores deterministic', () => {
+  const seed = buildCandidateSurvivalArchiveUnitSeedPlan({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+  });
+
+  assert.equal(seed.explicitMemory.memories[0].text, 'My favorite tea is lapsang souchong.');
+  assert.ok(seed.archiveSessions[seed.sessionIds['explicit-current-preference']]);
+  assert.ok(seed.archiveSessions[seed.sessionIds['archive-rendered-episodic-detail']]);
+  assert.equal(seed.memoryBooks.books.length, 0);
+  assert.deepEqual(seed.researchLedger.topics, {});
+});
+
+test('archive-unit classification overlays prompt rendered and held-back state', () => {
+  const promptTruth = {
+    channels: {
+      sessionArchive: {
+        candidateSourceIds: ['session:tea-correction-lapsang'],
+        renderedSourceIds: [],
+        heldBackReason: 'canon-priority-suppression',
+      },
+      globalArchive: {
+        candidateSourceIds: [],
+        renderedSourceIds: [],
+      },
+    },
+  };
+  const trace = applyPromptTruthToCandidateTrace([
+    {
+      id: 'session:tea-correction-lapsang',
+      textPreview: 'Correction episode: my favorite tea is lapsang souchong now, not oolong.',
+      sourceType: 'episode',
+      raw: true,
+      ranked: true,
+      selected: true,
+      rendered: true,
+      rank: 1,
+      score: 11,
+    },
+  ], promptTruth);
+
+  assert.equal(trace[0].selected, true);
+  assert.equal(trace[0].rendered, false);
+  assert.equal(trace[0].heldBackReason, 'canon-priority-suppression');
+  assert.equal(summarizeCandidateTrace(trace).selectedCandidateCount, 1);
+  assert.equal(summarizeCandidateTrace(trace).renderedCandidateCount, 0);
+});
+
+test('archive-unit case result uses required survival and trace summary shape', () => {
+  const result = buildCandidateSurvivalArchiveUnitCaseResult({
+    caseLike: {
+      id: 'archive-rendered-episodic-detail',
+      query: 'What kind of mug was beside the arcade register?',
+      expected: {
+        subject: 'arcade register',
+        relation: 'object beside register',
+        object: 'chipped moon mug',
+      },
+      forbidden: [{ object: 'orange backup mug' }],
+      support: {
+        owner: 'archive-candidate',
+        authority: 'advisory',
+        supportState: 'rendered',
+      },
+    },
+    retrievalResult: {
+      semanticMemory: { ready: false },
+      retrieval: {
+        mode: 'keyword',
+        candidateTrace: [
+          {
+            id: 'session:arcade-register-moon-mug',
+            textPreview: 'The clerk kept a chipped moon mug beside the arcade register.',
+            sourceType: 'episode',
+            raw: true,
+            ranked: true,
+            selected: true,
+            rendered: true,
+            rank: 1,
+            score: 12,
+            eligibility: { eligible: true, filtered: false },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.archiveUnit.measurementMode, 'archive-unit');
+  assert.equal(result.archiveUnit.liveModelCalls, false);
+  assert.equal(result.archiveUnit.retrievalMode, 'keyword');
+  assert.equal(result.survival.expectedObjectPresentRaw, true);
+  assert.equal(result.survival.expectedObjectSelected, true);
+  assert.equal(result.survival.expectedObjectRendered, true);
+  assert.equal(result.traceSummary.rawCandidateCount, 1);
+  assert.equal(result.topCandidates[0].matchedExpected, true);
+});
+
+test('archive-unit artifact records no live model or server behavior', () => {
+  const artifact = buildCandidateSurvivalArchiveUnitArtifact({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+    filePaths: {
+      explicitMemoryFile: '/tmp/penny-memory.json',
+      archiveFile: '/tmp/penny-memory-archive.json',
+      embeddingsFile: '/tmp/penny-memory-embeddings.json',
+      booksFile: '/tmp/penny-memory-books.json',
+      ledgerFile: '/tmp/penny-memory-ledger.json',
+    },
+    cleanup: {
+      attempted: true,
+      allRemoved: true,
+      files: [],
+    },
+    cases: [
+      {
+        id: 'fabricated-absent-tail-fact',
+        survival: { outcome: CANDIDATE_SURVIVAL_OUTCOMES.MISSING },
+      },
+    ],
+  });
+
+  assert.equal(artifact.schema, CANDIDATE_SURVIVAL_QA_SCHEMA);
+  assert.equal(artifact.measurementMode, 'archive-unit');
+  assert.equal(artifact.liveModelCalls, false);
+  assert.equal(artifact.serverSpawned, false);
+  assert.equal(artifact.apiChatCalls, false);
+  assert.equal(artifact.files.ledgerFile, '/tmp/penny-memory-ledger.json');
+  assert.equal(artifact.summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.MISSING], 1);
 });
 
 test('explicit-memory-owned case can be not applicable for archive candidate survival', () => {

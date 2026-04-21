@@ -11,6 +11,16 @@ const {
   buildSourceSensitiveMemoryQaFixture,
   classifySourceSensitiveMemoryOutcome,
 } = require('../lib/penny-context-pressure-qa');
+const {
+  CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
+  CANDIDATE_SURVIVAL_FIXTURE_CASES,
+  buildCandidateSurvivalArchiveUnitArtifact,
+  buildCandidateSurvivalArchiveUnitCaseResult,
+  buildCandidateSurvivalArchiveUnitSeedPlan,
+  buildCandidateSurvivalQaFixture,
+} = require('../lib/penny-candidate-survival-qa');
+const { createMemoryArchiveApi } = require('../lib/penny-memory-archive');
+const { buildPromptMemoryContext } = require('../lib/penny-memory');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
 const { buildQaTrust, validateRuntimeArtifact } = require('../lib/penny-qa-trust');
 const { buildQaEnvironmentValidity } = require('../lib/penny-qa-validity');
@@ -52,10 +62,20 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
   let combinedMode = false;
   let judgedMode = false;
   let sourceSensitiveFixtureMode = process.env.PENNY_QA_MEMORY_SOURCE_SENSITIVE_FIXTURE === '1';
+  let candidateSurvivalFixtureMode = process.env.PENNY_QA_MEMORY_CANDIDATE_SURVIVAL_FIXTURE === '1';
+  let candidateSurvivalArchiveUnitMode = process.env.PENNY_QA_MEMORY_CANDIDATE_SURVIVAL_ARCHIVE_UNIT === '1';
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = String(argv[index] || '').trim();
     if (!arg) continue;
+    if (arg === '--candidate-survival-fixture') {
+      candidateSurvivalFixtureMode = true;
+      continue;
+    }
+    if (arg === '--candidate-survival-archive-unit') {
+      candidateSurvivalArchiveUnitMode = true;
+      continue;
+    }
     if (arg === '--source-sensitive-fixture' || arg === '--source-sensitive') {
       sourceSensitiveFixtureMode = true;
       continue;
@@ -100,19 +120,43 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
   if (sourceSensitiveFixtureMode && (smokeMode || segmentId || combinedMode || judgedMode)) {
     throw new Error('Memory QA cannot combine --source-sensitive-fixture with live QA modes.');
   }
+  if (candidateSurvivalFixtureMode && candidateSurvivalArchiveUnitMode) {
+    throw new Error('Memory QA cannot combine --candidate-survival-fixture with --candidate-survival-archive-unit.');
+  }
+  if (candidateSurvivalFixtureMode && (smokeMode || segmentId || combinedMode || judgedMode || sourceSensitiveFixtureMode)) {
+    throw new Error('Memory QA cannot combine --candidate-survival-fixture with other memory QA modes.');
+  }
+  if (candidateSurvivalArchiveUnitMode && (smokeMode || segmentId || combinedMode || judgedMode || sourceSensitiveFixtureMode)) {
+    throw new Error('Memory QA cannot combine --candidate-survival-archive-unit with live or fixture memory QA modes.');
+  }
   if (segmentId && !MEMORY_QA_SEGMENT_ORDER.includes(segmentId)) {
     throw new Error(`Unknown memory QA segment "${segmentId}". Expected one of: ${MEMORY_QA_SEGMENT_ORDER.join(', ')}`);
   }
-  if (!smokeMode && !segmentId && !judgedMode && !sourceSensitiveFixtureMode) {
+  if (!smokeMode && !segmentId && !judgedMode && !sourceSensitiveFixtureMode && !candidateSurvivalFixtureMode && !candidateSurvivalArchiveUnitMode) {
     combinedMode = true;
   }
 
-  const runMode = sourceSensitiveFixtureMode
-    ? 'source-sensitive-fixture'
-    : (smokeMode ? 'smoke' : (judgedMode ? 'judged' : (segmentId ? 'segment' : 'combined')));
-  const runLabel = sourceSensitiveFixtureMode
-    ? 'source-sensitive'
-    : (smokeMode ? 'smoke' : (judgedMode ? 'judged' : (segmentId || 'combined')));
+  let runMode = 'combined';
+  let runLabel = segmentId || 'combined';
+  if (candidateSurvivalArchiveUnitMode) {
+    runMode = 'candidate-survival-archive-unit';
+    runLabel = 'candidate-survival-archive-unit';
+  } else if (candidateSurvivalFixtureMode) {
+    runMode = 'candidate-survival-fixture';
+    runLabel = 'candidate-survival-fixture';
+  } else if (sourceSensitiveFixtureMode) {
+    runMode = 'source-sensitive-fixture';
+    runLabel = 'source-sensitive';
+  } else if (smokeMode) {
+    runMode = 'smoke';
+    runLabel = 'smoke';
+  } else if (judgedMode) {
+    runMode = 'judged';
+    runLabel = 'judged';
+  } else if (segmentId) {
+    runMode = 'segment';
+    runLabel = segmentId;
+  }
 
   return {
     smokeMode,
@@ -120,6 +164,8 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
     combinedMode,
     judgedMode,
     sourceSensitiveFixtureMode,
+    candidateSurvivalFixtureMode,
+    candidateSurvivalArchiveUnitMode,
     runMode,
     runLabel,
   };
@@ -516,6 +562,183 @@ function buildSuitePaths(slug) {
     ledgerFile: path.join(ROOT_DIR, 'data', `penny-memory-ledger.${slug}.${STAMP}.json`),
     stdoutPath: path.join(OUTPUT_DIR, `memory-qa-${slug}-${STAMP}.server.out.log`),
     stderrPath: path.join(OUTPUT_DIR, `memory-qa-${slug}-${STAMP}.server.err.log`),
+  };
+}
+
+function writeJsonFile(filePath, value, fsImpl = fs) {
+  fsImpl.mkdirSync(path.dirname(filePath), { recursive: true });
+  fsImpl.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function buildCandidateSurvivalArchiveUnitPaths({
+  outputDir = OUTPUT_DIR,
+  stamp = STAMP,
+} = {}) {
+  const disposableRoot = path.join(outputDir, `memory-qa-candidate-survival-archive-unit-${stamp}-state`);
+  return {
+    disposableRoot,
+    outputPath: path.join(outputDir, `memory-qa-candidate-survival-archive-unit-${stamp}.json`),
+    memoryFile: path.join(disposableRoot, 'penny-memory.json'),
+    archiveFile: path.join(disposableRoot, 'penny-memory-archive.json'),
+    embeddingsFile: path.join(disposableRoot, 'penny-memory-embeddings.json'),
+    booksFile: path.join(disposableRoot, 'penny-memory-books.json'),
+    ledgerFile: path.join(disposableRoot, 'penny-memory-ledger.json'),
+  };
+}
+
+function cleanupCandidateSurvivalArchiveUnitFiles(paths = {}, fsImpl = fs) {
+  const fileEntries = [
+    ['explicitMemoryFile', paths.memoryFile],
+    ['archiveFile', paths.archiveFile],
+    ['embeddingsFile', paths.embeddingsFile],
+    ['booksFile', paths.booksFile],
+    ['ledgerFile', paths.ledgerFile],
+  ].map(([label, filePath]) => {
+    const existedBeforeCleanup = Boolean(filePath && fsImpl.existsSync(filePath));
+    if (existedBeforeCleanup) {
+      try {
+        fsImpl.unlinkSync(filePath);
+      } catch {}
+    }
+    return {
+      label,
+      path: filePath || '',
+      existedBeforeCleanup,
+      existsAfterCleanup: Boolean(filePath && fsImpl.existsSync(filePath)),
+    };
+  });
+  if (paths.disposableRoot && fsImpl.existsSync(paths.disposableRoot) && typeof fsImpl.rmSync === 'function') {
+    try {
+      fsImpl.rmSync(paths.disposableRoot, { recursive: true, force: true });
+    } catch {}
+  }
+  const disposableRootExistsAfterCleanup = Boolean(paths.disposableRoot && fsImpl.existsSync(paths.disposableRoot));
+  return {
+    attempted: true,
+    disposableRoot: paths.disposableRoot || '',
+    disposableRootExistsAfterCleanup,
+    allRemoved: fileEntries.every((item) => item.existsAfterCleanup === false) && !disposableRootExistsAfterCleanup,
+    files: fileEntries,
+  };
+}
+
+function seedCandidateSurvivalArchiveUnitStores({
+  api,
+  paths,
+  seedPlan,
+  fsImpl = fs,
+} = {}) {
+  if (!api || typeof api.buildArchiveStore !== 'function') {
+    throw new TypeError('seedCandidateSurvivalArchiveUnitStores requires archive api.');
+  }
+  const archive = api.buildArchiveStore();
+  archive.sessions = { ...seedPlan.archiveSessions };
+  writeJsonFile(paths.memoryFile, seedPlan.explicitMemory, fsImpl);
+  writeJsonFile(paths.booksFile, seedPlan.memoryBooks, fsImpl);
+  writeJsonFile(paths.ledgerFile, seedPlan.researchLedger, fsImpl);
+  api.writeArchiveStore(archive);
+  api.writeEmbeddingsStore(api.buildEmbeddingsStore(), { replace: true });
+}
+
+async function runCandidateSurvivalArchiveUnitQa({
+  outputDir = OUTPUT_DIR,
+  outputPath = '',
+  stamp = STAMP,
+  generatedAt = new Date().toISOString(),
+  fsImpl = fs,
+  pathImpl = path,
+  fetchImpl = null,
+  nowMs = null,
+} = {}) {
+  fsImpl.mkdirSync(outputDir, { recursive: true });
+  const paths = buildCandidateSurvivalArchiveUnitPaths({ outputDir, stamp });
+  const artifactPath = outputPath || paths.outputPath;
+  const fixedNowMs = Number.isFinite(Number(nowMs))
+    ? () => Number(nowMs)
+    : (() => {
+        const parsed = Date.parse(generatedAt);
+        return () => (Number.isFinite(parsed) ? parsed : Date.now());
+      })();
+  const seedPlan = buildCandidateSurvivalArchiveUnitSeedPlan({ generatedAt });
+  const api = createMemoryArchiveApi({
+    fs: fsImpl,
+    path: pathImpl,
+    fetch: typeof fetchImpl === 'function'
+      ? fetchImpl
+      : (async () => {
+          throw new Error('Archive-unit candidate survival must not call LM Studio embeddings.');
+        }),
+    ARCHIVE_FILE: paths.archiveFile,
+    EMBEDDINGS_FILE: paths.embeddingsFile,
+    LMSTUDIO_BASE: 'http://127.0.0.1:0/v1',
+    LMSTUDIO_API_KEY: 'lm-studio-local',
+    PENNY_LMSTUDIO_EMBED_MODEL: 'qa-candidate-survival-missing-embed-model',
+    ENABLE_BACKGROUND_CHAT_VECTORS: false,
+    BACKGROUND_CHAT_VECTOR_BATCH_LIMIT: 0,
+    nowMs: fixedNowMs,
+  });
+
+  let cleanup = {
+    attempted: false,
+    disposableRoot: paths.disposableRoot,
+    disposableRootExistsAfterCleanup: null,
+    allRemoved: false,
+    files: [],
+  };
+  const caseResults = [];
+  try {
+    seedCandidateSurvivalArchiveUnitStores({ api, paths, seedPlan, fsImpl });
+    for (const caseLike of CANDIDATE_SURVIVAL_FIXTURE_CASES) {
+      const sessionId = seedPlan.sessionIds[caseLike.id] || `qa-candidate-survival-${caseLike.id}`;
+      const sessionOptions = seedPlan.sessionOptions[caseLike.id] || {};
+      const retrievalResult = await api.buildArchiveContext({
+        sessionId,
+        userText: caseLike.query,
+        lane: 'chat',
+        now: fixedNowMs(),
+        allowSemanticQuery: true,
+        allowArchiveCompression: true,
+        includeCandidateTrace: true,
+        candidateTraceLimit: CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
+        ...sessionOptions,
+      });
+      const promptMemoryContext = buildPromptMemoryContext({
+        memories: seedPlan.explicitMemory.memories,
+        archiveContext: retrievalResult.archiveContext,
+        memoryBookContext: { matches: [] },
+        researchLedgerContext: { topics: [] },
+        researchLedgerPromptEnabled: false,
+      }, caseLike.query);
+      caseResults.push(buildCandidateSurvivalArchiveUnitCaseResult({
+        caseLike,
+        retrievalResult,
+        promptTruth: promptMemoryContext.promptTruth,
+      }));
+    }
+  } finally {
+    cleanup = cleanupCandidateSurvivalArchiveUnitFiles(paths, fsImpl);
+  }
+
+  const filePaths = {
+    explicitMemoryFile: paths.memoryFile,
+    archiveFile: paths.archiveFile,
+    embeddingsFile: paths.embeddingsFile,
+    booksFile: paths.booksFile,
+    ledgerFile: paths.ledgerFile,
+    disposableRoot: paths.disposableRoot,
+  };
+  const artifact = buildCandidateSurvivalArchiveUnitArtifact({
+    generatedAt,
+    cases: caseResults,
+    filePaths,
+    cleanup,
+    candidateTraceLimit: CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
+  });
+  writeJsonFile(artifactPath, artifact, fsImpl);
+  return {
+    outputPath: artifactPath,
+    artifact,
+    paths,
   };
 }
 
@@ -1834,6 +2057,23 @@ async function main() {
     console.log(`Saved source-sensitive memory QA fixture to ${OUTPUT_PATH}`);
     return;
   }
+  if (MEMORY_QA_ARGS.candidateSurvivalFixtureMode) {
+    const fixture = buildCandidateSurvivalQaFixture({
+      generatedAt: new Date().toISOString(),
+    });
+    fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(fixture, null, 2)}\n`);
+    console.log(`Saved candidate-survival memory QA fixture to ${OUTPUT_PATH}`);
+    return;
+  }
+  if (MEMORY_QA_ARGS.candidateSurvivalArchiveUnitMode) {
+    const result = await runCandidateSurvivalArchiveUnitQa({
+      outputPath: OUTPUT_PATH,
+      outputDir: OUTPUT_DIR,
+      stamp: STAMP,
+    });
+    console.log(`Saved candidate-survival archive-unit memory QA to ${result.outputPath}`);
+    return;
+  }
   const automationApi = createAutomationApi({
     chatModel: CHAT_MODEL,
     toolModel: TOOL_MODEL,
@@ -1928,14 +2168,17 @@ if (require.main === module) {
 
 module.exports = {
   buildQaServerEnv,
+  buildCandidateSurvivalArchiveUnitPaths,
   buildSmokeScenarioSpecs,
   buildSourceSensitiveMemoryQaFixture,
   canonicalAuthorityPressureSatisfied,
   classifySourceSensitiveMemoryOutcome,
+  cleanupCandidateSurvivalArchiveUnitFiles,
   countNeedleHits,
   main,
   parseMemoryQaArgs,
   resolveChatRequestTimeoutMs,
+  runCandidateSurvivalArchiveUnitQa,
   runMemoryQaSegment,
   runMemoryQaCombined,
   runMemoryQaJudged,
