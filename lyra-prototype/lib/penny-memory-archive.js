@@ -546,7 +546,10 @@ function createMemoryArchiveApi({
         : null,
       sourceSessionIds: Array.isArray(raw.sourceSessionIds)
         ? normalizeEvidenceIds(raw.sourceSessionIds)
-        : (String(raw.sessionId || sessionId || '').trim() ? [String(raw.sessionId || sessionId || '').trim()] : []),
+        : normalizeEvidenceIds([
+            raw.promotionPacket?.sourceThreadId,
+            raw.sessionId || sessionId || '',
+          ]),
       sourceTurnIds,
       probation: normalizeArchiveProbation(raw.promotionPacket || raw, {
         type,
@@ -2660,6 +2663,7 @@ function createMemoryArchiveApi({
               sourceThreadId: packet.sourceThreadId,
               sourceChunkId: packet.sourceChunkId,
               sourceTurnIds: packet.sourceTurnIds,
+              sourceObservations: packet.sourceObservations || [],
               temporalScope: packet.temporalScope,
             },
           }

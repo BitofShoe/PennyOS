@@ -25,6 +25,10 @@ function main() {
   ensureDir(path.dirname(resolvedOutputPath));
   fs.writeFileSync(resolvedOutputPath, `${JSON.stringify(ingested, null, 2)}\n`);
   console.log(`Saved conversation ingestion artifact to ${resolvedOutputPath}`);
+  console.log(`Ingested ${ingested.summary.importedThreadCount} thread(s), ${ingested.summary.chunkCount} chunk(s), and ${ingested.summary.promotionPacketCount} review packet(s).`);
+  if (ingested.summary.skippedCandidateCount || ingested.summary.malformedMessageCount || ingested.summary.skippedLowSignalMessageCount) {
+    console.log(`Skipped ${ingested.summary.skippedCandidateCount} candidate(s), ${ingested.summary.malformedMessageCount} malformed message(s), and ${ingested.summary.skippedLowSignalMessageCount} low-signal message(s).`);
+  }
 }
 
 if (require.main === module) {

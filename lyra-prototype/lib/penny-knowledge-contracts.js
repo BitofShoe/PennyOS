@@ -274,14 +274,44 @@ function normalizeKnowledgeNode(raw = {}) {
       threadId: trimText(item?.threadId || '', 120),
       chunkId: trimText(item?.chunkId || '', 120),
       turnIds: normalizeStringArray(item?.turnIds || [], 12, 120),
+      temporalScope: normalizeTemporalScope(item?.temporalScope),
     })).filter((item) => item.value),
     temporalSummary: normalizeTemporalScope(raw.temporalSummary),
+  };
+}
+
+function normalizeSourceObservation(raw = {}) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const value = trimText(source.value || source.text || source.proposedMemoryText || '', 220);
+  const sourceExcerpt = trimText(source.sourceExcerpt || source.archiveExcerpt || source.evidenceSnippet || '', 220);
+  const threadId = trimText(source.threadId || source.sourceThreadId || source.sessionId || '', 120);
+  const chunkId = trimText(source.chunkId || source.sourceChunkId || '', 120);
+  const turnIds = normalizeStringArray(source.turnIds || source.sourceTurnIds || source.evidenceIds || [], 12, 120);
+  const observedAt = trimIso(source.observedAt || source.createdAt || source.timestamp || '', '');
+  if (!value && !sourceExcerpt) return null;
+  return {
+    threadId,
+    chunkId,
+    turnIds,
+    observedAt,
+    value,
+    sourceExcerpt,
+    temporalScope: normalizeTemporalScope(source.temporalScope),
   };
 }
 
 function normalizePromotionPacket(raw = {}) {
   const proposedMemoryText = trimText(raw.proposedMemoryText || raw.text || '', 220);
   if (!proposedMemoryText) return null;
+  const sourceThreadId = trimText(raw.sourceThreadId || raw.threadId || raw.sessionId || '', 120);
+  const sourceChunkId = trimText(raw.sourceChunkId || raw.chunkId || '', 120);
+  const sourceTurnIds = normalizeStringArray(raw.sourceTurnIds || raw.turnIds || raw.evidenceIds || [], 16, 120);
+  const sourceObservations = [];
+  for (const item of Array.isArray(raw.sourceObservations) ? raw.sourceObservations : []) {
+    const normalized = normalizeSourceObservation(item);
+    if (normalized) sourceObservations.push(normalized);
+    if (sourceObservations.length >= 12) break;
+  }
   return {
     contract: 'PromotionPacket',
     version: PROMOTION_PACKET_VERSION,
@@ -290,11 +320,12 @@ function normalizePromotionPacket(raw = {}) {
     proposedMemoryText,
     sourceType: trimText(raw.sourceType || 'promotion', 80),
     originSource: trimText(raw.originSource || '', 120),
-    sourceThreadId: trimText(raw.sourceThreadId || raw.threadId || raw.sessionId || '', 120),
-    sourceChunkId: trimText(raw.sourceChunkId || raw.chunkId || '', 120),
-    sourceTurnIds: normalizeStringArray(raw.sourceTurnIds || raw.turnIds || raw.evidenceIds || [], 16, 120),
+    sourceThreadId,
+    sourceChunkId,
+    sourceTurnIds,
     archiveExcerpt: trimText(raw.archiveExcerpt || raw.evidenceSnippet || proposedMemoryText, 220),
     evidenceSnippet: trimText(raw.evidenceSnippet || raw.archiveExcerpt || proposedMemoryText, 220),
+    sourceObservations,
     temporalScope: normalizeTemporalScope(raw.temporalScope),
     probation: normalizeProbationState(raw.probation || raw, {
       reviewStatus: raw.reviewStatus || 'pending',
@@ -307,8 +338,8 @@ function normalizePromotionPacket(raw = {}) {
     reviewerDecision: trimText(raw.reviewerDecision || '', 40),
     consolidation: normalizeConsolidationPacket(raw.consolidation || raw.mergeProvenance || {}, {
       lossy: true,
-      sourceSessionIds: raw.sourceThreadId ? [raw.sourceThreadId] : [],
-      sourceTurnIds: raw.sourceTurnIds || raw.turnIds || raw.evidenceIds || [],
+      sourceSessionIds: sourceThreadId ? [sourceThreadId] : [],
+      sourceTurnIds,
       observedAt: raw.createdAt || '',
       lastTouchedAt: raw.reviewedAt || raw.createdAt || '',
       freshnessLabel: raw.reviewStatus === 'approved' ? 'archived' : 'current',
@@ -318,7 +349,8 @@ function normalizePromotionPacket(raw = {}) {
   };
 }
 
-function validatePromotionPacket(packet = {}) {
+function validatePromotionPacket(packet = {}, options = {}) {
+  const strictSource = options && typeof options === 'object' ? options : {};
   const normalized = normalizePromotionPacket(packet);
   if (!normalized) {
     throw new Error('Promotion packet is missing proposedMemoryText.');
@@ -329,6 +361,9 @@ function validatePromotionPacket(packet = {}) {
   if (!normalized.sourceThreadId) {
     throw new Error(`Promotion packet ${normalized.id} is missing sourceThreadId.`);
   }
+  if (strictSource.requireSourceChunkId && !normalized.sourceChunkId) {
+    throw new Error(`Promotion packet ${normalized.id} is missing sourceChunkId.`);
+  }
   if (!normalized.sourceTurnIds.length) {
     throw new Error(`Promotion packet ${normalized.id} is missing sourceTurnIds.`);
   }
@@ -337,6 +372,19 @@ function validatePromotionPacket(packet = {}) {
   }
   if (!normalized.createdAt) {
     throw new Error(`Promotion packet ${normalized.id} is missing createdAt.`);
+  }
+  if (strictSource.requireSourceObservations) {
+    if (!normalized.sourceObservations.length) {
+      throw new Error(`Promotion packet ${normalized.id} is missing sourceObservations.`);
+    }
+    for (const observation of normalized.sourceObservations) {
+      if (!observation.threadId || !observation.chunkId || !observation.turnIds.length) {
+        throw new Error(`Promotion packet ${normalized.id} has an incomplete source observation.`);
+      }
+      if (!observation.observedAt || !observation.sourceExcerpt) {
+        throw new Error(`Promotion packet ${normalized.id} has a source observation missing timing or excerpt.`);
+      }
+    }
   }
   return normalized;
 }
@@ -351,6 +399,7 @@ module.exports = {
   normalizeTemporalPreference,
   normalizeLifeEvent,
   normalizeKnowledgeNode,
+  normalizeSourceObservation,
   normalizeProbationState,
   normalizeConsolidationPacket,
   normalizePromotionPacket,

@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 const {
   normalizeConversationThread,
   normalizeThreadChunk,
@@ -6,6 +8,7 @@ const {
   normalizeLifeEvent,
   normalizeKnowledgeNode,
   normalizePromotionPacket,
+  validatePromotionPacket,
 } = require('./penny-knowledge-contracts');
 
 const LOW_SIGNAL_PATTERNS = [
@@ -26,6 +29,127 @@ function normalizeText(value = '', limit = 320) {
   return `${text.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
 }
 
+function stableHash(value = '') {
+  return crypto.createHash('sha1').update(String(value || '')).digest('hex').slice(0, 16);
+}
+
+function stableImportId(prefix = 'import', parts = []) {
+  const basis = parts.map((part) => String(part || '').trim()).filter(Boolean).join('|') || prefix;
+  return `${prefix}:${stableHash(basis)}`;
+}
+
+function rawMessageText(message = {}) {
+  return normalizeText(message.text || message.content || message.message || '', 1200);
+}
+
+function rawMessageTime(message = {}) {
+  return normalizeText(message.createdAt || message.timestamp || message.sentAt || '', 120);
+}
+
+function createValidationState() {
+  return {
+    rawThreadCount: 0,
+    importedThreadCount: 0,
+    invalidThreadCount: 0,
+    rawMessageCount: 0,
+    importedMessageCount: 0,
+    malformedMessageCount: 0,
+    skippedLowSignalMessageCount: 0,
+    chunkCount: 0,
+    extractedCandidateCount: 0,
+    validCandidateCount: 0,
+    invalidCandidateCount: 0,
+    promotionPacketCount: 0,
+    invalidPromotionPacketCount: 0,
+    skippedCandidateCount: 0,
+    warnings: [],
+  };
+}
+
+function addValidationWarning(validation = null, code = '', detail = {}) {
+  if (!validation || !Array.isArray(validation.warnings)) return;
+  if (validation.warnings.length >= 30) return;
+  validation.warnings.push({
+    code: normalizeText(code, 80),
+    ...detail,
+  });
+}
+
+function prepareThreadForIngestion(raw = {}, threadIndex = 0, validation = null) {
+  const messages = Array.isArray(raw.messages) ? raw.messages : [];
+  if (validation) {
+    validation.rawThreadCount += 1;
+    validation.rawMessageCount += messages.length;
+  }
+  if (!messages.length) {
+    if (validation) validation.invalidThreadCount += 1;
+    addValidationWarning(validation, 'thread-missing-messages', {
+      threadIndex,
+      source: normalizeText(raw.source || 'import', 80),
+      title: normalizeText(raw.title || raw.name || '', 120),
+    });
+    return null;
+  }
+
+  const source = normalizeText(raw.source || 'import', 80);
+  const title = normalizeText(raw.title || raw.name || '', 160);
+  const participantBasis = Array.isArray(raw.participants) ? raw.participants.join(',') : '';
+  const messageBasis = messages
+    .map((message, index) => [
+      index,
+      normalizeText(message?.speakerId || message?.author || message?.role || 'unknown', 80),
+      rawMessageTime(message),
+      rawMessageText(message),
+    ].join(':'))
+    .join('|');
+  const threadId = normalizeText(
+    raw.id || raw.threadId || stableImportId('thread', [source, title, participantBasis, messageBasis]),
+    120,
+  );
+
+  const preparedMessages = [];
+  messages.forEach((message = {}, index) => {
+    const text = rawMessageText(message);
+    if (!text) {
+      if (validation) validation.malformedMessageCount += 1;
+      addValidationWarning(validation, 'message-missing-text', {
+        threadId,
+        messageIndex: index,
+      });
+      return;
+    }
+    const speakerId = normalizeText(message.speakerId || message.author || message.role || 'unknown', 80);
+    const createdAt = rawMessageTime(message);
+    preparedMessages.push({
+      ...message,
+      id: normalizeText(
+        message.id || stableImportId('turn', [threadId, index, speakerId, createdAt, text]),
+        120,
+      ),
+      threadId,
+      speakerId,
+      text,
+    });
+  });
+
+  if (!preparedMessages.length) {
+    if (validation) validation.invalidThreadCount += 1;
+    addValidationWarning(validation, 'thread-has-no-importable-messages', {
+      threadId,
+      threadIndex,
+    });
+    return null;
+  }
+
+  return {
+    ...raw,
+    id: threadId,
+    source,
+    title,
+    messages: preparedMessages,
+  };
+}
+
 function isLowSignalMessage(message = {}) {
   const text = normalizeText(message.text || '', 220);
   if (!text) return true;
@@ -35,9 +159,17 @@ function isLowSignalMessage(message = {}) {
 function chunkConversationThread(thread = {}, {
   maxMessagesPerChunk = 12,
   gapMinutes = 180,
+  validation = null,
 } = {}) {
   const normalizedThread = normalizeConversationThread(thread);
-  const messages = normalizedThread.messages.filter((item) => !isLowSignalMessage(item));
+  const messages = [];
+  for (const item of normalizedThread.messages) {
+    if (isLowSignalMessage(item)) {
+      if (validation) validation.skippedLowSignalMessageCount += 1;
+      continue;
+    }
+    messages.push(item);
+  }
   if (!messages.length) return [];
 
   const chunks = [];
@@ -201,6 +333,7 @@ function buildKnowledgeNodes({ extractedFacts = [], temporalPreferences = [], li
       threadId: item.threadId || '',
       chunkId: item.chunkId || '',
       turnIds: item.turnIds || [],
+      temporalScope: item.temporalScope || {},
     });
     existing.history.sort((left, right) => String(left.observedAt || '').localeCompare(String(right.observedAt || '')));
     existing.currentValue = existing.history[existing.history.length - 1]?.value || value;
@@ -223,12 +356,42 @@ function buildKnowledgeNodes({ extractedFacts = [], temporalPreferences = [], li
     .filter(Boolean);
 }
 
-function buildPromotionPackets(knowledgeNodes = []) {
+function isValidExtractedCandidate(candidate = {}, validation = null) {
+  if (!candidate || typeof candidate !== 'object') return false;
+  const missing = [];
+  if (!candidate.threadId) missing.push('threadId');
+  if (!candidate.chunkId) missing.push('chunkId');
+  if (!Array.isArray(candidate.turnIds) || !candidate.turnIds.length) missing.push('turnIds');
+  if (!candidate.sourceExcerpt) missing.push('sourceExcerpt');
+  if (!candidate.observedAt) missing.push('observedAt');
+  if (!missing.length) return true;
+  if (validation) {
+    validation.invalidCandidateCount += 1;
+    validation.skippedCandidateCount += 1;
+  }
+  addValidationWarning(validation, 'candidate-missing-provenance', {
+    candidateId: normalizeText(candidate.id || '', 120),
+    missing,
+  });
+  return false;
+}
+
+function buildPromotionPackets(knowledgeNodes = [], options = {}) {
+  const validation = options && typeof options === 'object' ? options.validation : null;
   const packets = [];
   for (const node of Array.isArray(knowledgeNodes) ? knowledgeNodes : []) {
     if (!Array.isArray(node.history) || !node.history.length) continue;
     const latest = node.history[node.history.length - 1];
-    packets.push(normalizePromotionPacket({
+    const sourceObservations = node.history.map((item) => ({
+      threadId: item.threadId || '',
+      chunkId: item.chunkId || '',
+      turnIds: item.turnIds || [],
+      observedAt: item.observedAt || '',
+      value: item.value || '',
+      sourceExcerpt: item.sourceExcerpt || '',
+      temporalScope: item.temporalScope || {},
+    }));
+    const packet = normalizePromotionPacket({
       id: `packet:${node.id}`,
       kind: node.nodeType === 'preference' ? 'preference' : 'observation',
       proposedMemoryText: node.nodeType === 'fact'
@@ -241,32 +404,66 @@ function buildPromotionPackets(knowledgeNodes = []) {
       sourceTurnIds: latest.turnIds,
       archiveExcerpt: latest.sourceExcerpt || latest.value,
       evidenceSnippet: latest.sourceExcerpt || latest.value,
+      sourceObservations,
       temporalScope: node.temporalSummary,
       reviewStatus: 'pending',
       createdAt: latest.observedAt || '',
-    }));
+    });
+    try {
+      packets.push(validatePromotionPacket(packet, {
+        requireSourceChunkId: true,
+        requireSourceObservations: true,
+      }));
+      if (validation) validation.promotionPacketCount += 1;
+    } catch (error) {
+      if (validation) {
+        validation.invalidPromotionPacketCount += 1;
+        validation.skippedCandidateCount += 1;
+      }
+      addValidationWarning(validation, 'promotion-packet-invalid', {
+        nodeId: normalizeText(node.id || '', 120),
+        reason: normalizeText(error?.message || String(error), 220),
+      });
+    }
   }
   return packets.filter(Boolean);
 }
 
 function ingestConversationThreads(rawThreads = [], options = {}) {
-  const threads = (Array.isArray(rawThreads) ? rawThreads : [])
+  const validation = createValidationState();
+  const preparedThreads = (Array.isArray(rawThreads) ? rawThreads : [])
+    .map((item, index) => prepareThreadForIngestion(item, index, validation))
+    .filter(Boolean);
+  const threads = preparedThreads
     .map((item) => normalizeConversationThread(item))
     .filter((item) => Array.isArray(item.messages) && item.messages.length);
-  const chunks = threads.flatMap((thread) => chunkConversationThread(thread, options));
+  validation.importedThreadCount = threads.length;
+  validation.importedMessageCount = threads.reduce((sum, thread) => sum + thread.messages.length, 0);
+  const chunks = threads.flatMap((thread) => chunkConversationThread(thread, {
+    ...options,
+    validation,
+  }));
+  validation.chunkCount = chunks.length;
 
   const extractedFacts = [];
   const temporalPreferences = [];
   const lifeEvents = [];
   for (const chunk of chunks) {
     const extracted = extractChunkKnowledge(chunk);
-    extractedFacts.push(...extracted.extractedFacts);
-    temporalPreferences.push(...extracted.temporalPreferences);
-    lifeEvents.push(...extracted.lifeEvents);
+    validation.extractedCandidateCount += extracted.extractedFacts.length
+      + extracted.temporalPreferences.length
+      + extracted.lifeEvents.length;
+    const factCandidates = extracted.extractedFacts.filter((item) => isValidExtractedCandidate(item, validation));
+    const preferenceCandidates = extracted.temporalPreferences.filter((item) => isValidExtractedCandidate(item, validation));
+    const lifeEventCandidates = extracted.lifeEvents.filter((item) => isValidExtractedCandidate(item, validation));
+    validation.validCandidateCount += factCandidates.length + preferenceCandidates.length + lifeEventCandidates.length;
+    extractedFacts.push(...factCandidates);
+    temporalPreferences.push(...preferenceCandidates);
+    lifeEvents.push(...lifeEventCandidates);
   }
 
   const knowledgeNodes = buildKnowledgeNodes({ extractedFacts, temporalPreferences, lifeEvents });
-  const promotionPackets = buildPromotionPackets(knowledgeNodes);
+  const promotionPackets = buildPromotionPackets(knowledgeNodes, { validation });
 
   return {
     version: 'penny-knowledge-ingestion.v1',
@@ -285,7 +482,21 @@ function ingestConversationThreads(rawThreads = [], options = {}) {
       lifeEventCount: lifeEvents.length,
       knowledgeNodeCount: knowledgeNodes.length,
       promotionPacketCount: promotionPackets.length,
+      rawThreadCount: validation.rawThreadCount,
+      importedThreadCount: validation.importedThreadCount,
+      rawMessageCount: validation.rawMessageCount,
+      importedMessageCount: validation.importedMessageCount,
+      malformedMessageCount: validation.malformedMessageCount,
+      skippedLowSignalMessageCount: validation.skippedLowSignalMessageCount,
+      invalidThreadCount: validation.invalidThreadCount,
+      candidateCount: validation.extractedCandidateCount,
+      validCandidateCount: validation.validCandidateCount,
+      invalidCandidateCount: validation.invalidCandidateCount,
+      invalidPromotionPacketCount: validation.invalidPromotionPacketCount,
+      skippedCandidateCount: validation.skippedCandidateCount,
+      validationWarningCount: validation.warnings.length,
     },
+    validation,
   };
 }
 

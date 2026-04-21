@@ -915,6 +915,76 @@ test('reviewPromotion approves candidate text and purgeMemory clears session arc
   }
 });
 
+test('reviewPromotion preserves offline ingestion source observations', () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.global.promotionQueue.push({
+      id: 'queue-offline-1',
+      type: 'promotion',
+      text: 'favorite tea is lapsang souchong',
+      excerpt: 'favorite tea is lapsang souchong',
+      createdAt: '2024-02-03T10:00:00.000Z',
+      updatedAt: '2024-02-03T10:00:00.000Z',
+      patternKey: 'offline:favorite-tea',
+      sourceType: 'offline-ingestion',
+      sourceLabel: 'offline-ingestion',
+      originSource: 'preference',
+      evidenceSnippet: 'Now I love lapsang souchong.',
+      promotionPacket: {
+        id: 'packet-offline-1',
+        kind: 'preference',
+        proposedMemoryText: 'favorite tea is lapsang souchong',
+        sourceType: 'offline-ingestion',
+        originSource: 'preference',
+        sourceThreadId: 'thread:tea',
+        sourceChunkId: 'thread:tea:chunk:1',
+        sourceTurnIds: ['turn:tea:1'],
+        archiveExcerpt: 'Now I love lapsang souchong.',
+        evidenceSnippet: 'Now I love lapsang souchong.',
+        sourceObservations: [
+          {
+            threadId: 'thread:tea',
+            chunkId: 'thread:tea:chunk:1',
+            turnIds: ['turn:tea:1'],
+            observedAt: '2024-02-03T10:00:00.000Z',
+            value: 'lapsang souchong',
+            sourceExcerpt: 'Now I love lapsang souchong.',
+            temporalScope: {
+              label: 'current',
+              observedAt: '2024-02-03T10:00:00.000Z',
+            },
+          },
+        ],
+        temporalScope: {
+          label: 'current',
+          observedAt: '2024-02-03T10:00:00.000Z',
+        },
+        reviewStatus: 'pending',
+        createdAt: '2024-02-03T10:00:00.000Z',
+      },
+    });
+    api.writeArchiveStore(archive);
+
+    const queueItem = api.readArchiveStore().global.promotionQueue[0];
+    assert.equal(queueItem.sourceSessionIds[0], 'thread:tea');
+    assert.equal(queueItem.promotionPacket.sourceChunkId, 'thread:tea:chunk:1');
+    assert.equal(queueItem.promotionPacket.sourceObservations.length, 1);
+
+    const review = api.reviewPromotion({ queueId: queueItem.id, action: 'approve' });
+    assert.equal(review.action, 'approve');
+    assert.equal(review.promotedMemory.origin.sourceThreadId, 'thread:tea');
+    assert.equal(review.promotedMemory.origin.sourceChunkId, 'thread:tea:chunk:1');
+    assert.deepEqual(review.promotedMemory.origin.sourceTurnIds, ['turn:tea:1']);
+    assert.equal(review.promotedMemory.origin.sourceObservations[0].sourceExcerpt, 'Now I love lapsang souchong.');
+    assert.equal(review.promotedMemory.origin.sourceObservations[0].observedAt, '2024-02-03T10:00:00.000Z');
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('archiveCompletedTurn routes heuristic review candidates into the existing promotion queue', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi(files);

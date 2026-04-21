@@ -56,5 +56,63 @@ test('offline ingestion keeps temporal preference changes distinct and emits rev
   assert.equal(packet.contract, 'PromotionPacket');
   assert.equal(packet.sourceType, 'offline-ingestion');
   assert.ok(packet.sourceThreadId);
+  assert.ok(packet.sourceChunkId);
   assert.ok(packet.sourceTurnIds.length >= 1);
+  assert.ok(packet.sourceObservations.length >= 2);
+  assert.ok(packet.sourceObservations.every((item) => item.sourceExcerpt && item.observedAt));
+  assert.ok(packet.sourceObservations.every((item) => item.threadId === packet.sourceThreadId));
+  assert.ok(packet.sourceObservations.every((item) => item.chunkId));
+  assert.equal(result.summary.invalidPromotionPacketCount, 0);
+  assert.equal(result.summary.skippedCandidateCount, 0);
+  assert.equal(result.validation.promotionPacketCount, result.promotionPackets.length);
+});
+
+test('offline ingestion uses stable fallback ids and fails closed on weak candidates', () => {
+  const rawThreads = [
+    {
+      source: 'chat-export',
+      title: 'stable import',
+      participants: ['user'],
+      messages: [
+        { speakerId: 'user', text: 'My favorite tea is lapsang souchong.', createdAt: '2024-02-03T10:00:00.000Z' },
+        { speakerId: 'user', text: 'My favorite color is teal.' },
+        { speakerId: 'user', text: '   ', createdAt: '2024-02-03T10:01:00.000Z' },
+        { speakerId: 'user', text: 'lol', createdAt: '2024-02-03T10:02:00.000Z' },
+      ],
+    },
+  ];
+
+  const first = ingestConversationThreads(rawThreads);
+  const second = ingestConversationThreads(rawThreads);
+
+  assert.equal(first.threads[0].id, second.threads[0].id);
+  assert.equal(first.chunks[0].messages[0].id, second.chunks[0].messages[0].id);
+  assert.match(first.threads[0].id, /^thread:/);
+  assert.match(first.chunks[0].messages[0].id, /^turn:/);
+
+  assert.equal(first.summary.rawThreadCount, 1);
+  assert.equal(first.summary.importedThreadCount, 1);
+  assert.equal(first.summary.rawMessageCount, 4);
+  assert.equal(first.summary.importedMessageCount, 3);
+  assert.equal(first.summary.malformedMessageCount, 1);
+  assert.equal(first.summary.skippedLowSignalMessageCount, 1);
+  assert.equal(first.summary.candidateCount, 2);
+  assert.equal(first.summary.validCandidateCount, 1);
+  assert.equal(first.summary.invalidCandidateCount, 1);
+  assert.equal(first.summary.invalidPromotionPacketCount, 0);
+  assert.equal(first.summary.skippedCandidateCount, 1);
+  assert.equal(first.promotionPackets.length, 1);
+
+  const packet = first.promotionPackets[0];
+  const sourceMessage = first.chunks[0].messages.find((item) => /favorite tea/i.test(item.text));
+  assert.ok(sourceMessage);
+  assert.equal(packet.sourceThreadId, first.threads[0].id);
+  assert.equal(packet.sourceChunkId, first.chunks[0].id);
+  assert.deepEqual(packet.sourceTurnIds, [sourceMessage.id]);
+  assert.equal(packet.createdAt, '2024-02-03T10:00:00.000Z');
+  assert.equal(packet.sourceObservations.length, 1);
+  assert.match(packet.sourceObservations[0].sourceExcerpt, /favorite tea/i);
+  assert.equal(packet.sourceObservations[0].observedAt, '2024-02-03T10:00:00.000Z');
+  assert.ok(first.validation.warnings.some((item) => item.code === 'message-missing-text'));
+  assert.ok(first.validation.warnings.some((item) => item.code === 'candidate-missing-provenance'));
 });
