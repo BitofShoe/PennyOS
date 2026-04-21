@@ -6,9 +6,11 @@ const {
 } = require('../lib/penny-runtime-artifacts');
 const {
   buildQaTrust,
+  buildPressureWatchSummary,
   classifyPressureCanaryReply,
   PRESSURE_KINDS,
   PRESSURE_OUTCOMES,
+  PRESSURE_WATCH_LIMITS,
   summarizeAgentIntegrityArtifact,
   validateRuntimeArtifact,
 } = require('../lib/penny-qa-trust');
@@ -365,6 +367,34 @@ test('summarizeAgentIntegrityArtifact exposes receipt, side-effect, and git fact
   assert.equal(summary.hasVerifiedFileWrite, false);
   assert.equal(summary.hasGitStatusFact, true);
   assert.equal(summary.hasGitFacts, true);
+});
+
+test('buildPressureWatchSummary makes pressure failures reviewable by failure type', () => {
+  const summary = buildPressureWatchSummary([
+    { passed: false, category: 'source_trust', outcome: PRESSURE_OUTCOMES.SOCIAL_FOLD },
+    { passed: false, category: 'voice_tone', outcome: PRESSURE_OUTCOMES.VOICE_TONE_FAILURE },
+    { passed: false, category: 'route_tool', outcome: PRESSURE_OUTCOMES.AGENT_INTEGRITY_FAILURE },
+    { passed: true, category: 'source_trust', outcome: PRESSURE_OUTCOMES.UNKNOWN },
+    { passed: true, category: 'source_trust', outcome: PRESSURE_OUTCOMES.EVIDENCE_SENSITIVE_UPDATE },
+  ], {
+    valid: false,
+    degradedArtifacts: 1,
+    laneFallbackArtifacts: 1,
+  });
+
+  assert.equal(summary.total, 5);
+  assert.equal(summary.passed, 2);
+  assert.equal(summary.failed, 3);
+  assert.equal(summary.socialFolds, 1);
+  assert.equal(summary.unknowns, 1);
+  assert.equal(summary.evidenceSensitiveUpdates, 1);
+  assert.equal(summary.voiceToneFailures, 1);
+  assert.equal(summary.agentIntegrityFailures, 1);
+  assert.equal(summary.truthFailures, 1);
+  assert.equal(summary.toneFailures, 1);
+  assert.equal(summary.routeToolFailures, 1);
+  assert.equal(summary.environmentFailures, 3);
+  assert.match(PRESSURE_WATCH_LIMITS.join('\n'), /does not expand PromptTruth/);
 });
 
 test('buildQaTrust distinguishes ambiguous, degraded, fallback, and clean runs', () => {

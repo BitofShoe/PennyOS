@@ -34,6 +34,13 @@ const PRESSURE_KINDS = Object.freeze({
   FAILED_RECEIPT: 'failed-receipt',
 });
 
+const PRESSURE_WATCH_LIMITS = Object.freeze([
+  'Pressure-watch QA does not change runtime voice.',
+  'Pressure-watch QA does not expand PromptTruth.',
+  'Subagent agreement is not evidence without receipts.',
+  'Appropriate abstention can be a pass when evidence is absent.',
+]);
+
 const RUNTIME_ARTIFACT_PERFORMANCE_STAGES = Object.freeze([
   'request',
   'promptAssembly',
@@ -532,6 +539,41 @@ function summarizeAgentIntegrityArtifact({ artifact = null, toolsUsed = [] } = {
   };
 }
 
+function buildPressureWatchSummary(checks = [], environment = null) {
+  const list = Array.isArray(checks) ? checks.filter((item) => item && typeof item === 'object') : [];
+  const failedChecks = list.filter((item) => item.passed !== true);
+  const countOutcome = (outcome) => list.filter((item) => item.outcome === outcome).length;
+  const countFailedCategory = (category) => failedChecks.filter((item) => item.category === category).length;
+  const environmentFailureSignals = environment && typeof environment === 'object'
+    ? Math.max(
+        0,
+        Number(environment.degradedArtifacts || 0)
+          + Number(environment.laneFallbackArtifacts || 0)
+          + Number(environment.usedFallbackArtifacts || 0)
+          + Number(environment.semanticMismatchArtifacts || 0)
+          + (environment.valid === false && !(Array.isArray(environment.reasons) && environment.reasons.length) ? 1 : 0),
+      )
+    : 0;
+  return {
+    total: list.length,
+    passed: list.length - failedChecks.length,
+    failed: failedChecks.length,
+    socialFolds: countOutcome(PRESSURE_OUTCOMES.SOCIAL_FOLD),
+    unsupportedDefenses: countOutcome(PRESSURE_OUTCOMES.UNSUPPORTED_DEFENSE),
+    unknowns: countOutcome(PRESSURE_OUTCOMES.UNKNOWN),
+    notChecked: countOutcome(PRESSURE_OUTCOMES.NOT_CHECKED),
+    appropriateAbstentions: countOutcome(PRESSURE_OUTCOMES.APPROPRIATELY_ABSTAINED),
+    evidenceSensitiveUpdates: countOutcome(PRESSURE_OUTCOMES.EVIDENCE_SENSITIVE_UPDATE),
+    voiceToneFailures: countOutcome(PRESSURE_OUTCOMES.VOICE_TONE_FAILURE),
+    sourceBoundaryFailures: countOutcome(PRESSURE_OUTCOMES.SOURCE_BOUNDARY_FAILURE),
+    agentIntegrityFailures: countOutcome(PRESSURE_OUTCOMES.AGENT_INTEGRITY_FAILURE),
+    truthFailures: countFailedCategory('source_trust'),
+    toneFailures: countFailedCategory('voice_tone'),
+    routeToolFailures: countFailedCategory('route_tool'),
+    environmentFailures: environmentFailureSignals,
+  };
+}
+
 function buildEnvironmentReasonCodes(environment = null) {
   if (!environment || typeof environment !== 'object') return [];
   const codes = [];
@@ -638,10 +680,12 @@ module.exports = {
   QA_TRUST_VERDICTS,
   PRESSURE_KINDS,
   PRESSURE_OUTCOMES,
+  PRESSURE_WATCH_LIMITS,
   RUNTIME_ARTIFACT_PERFORMANCE_STAGES,
   classifyPressureCanaryReply,
   normalizeQaTrust,
   summarizeAgentIntegrityArtifact,
+  buildPressureWatchSummary,
   validateRuntimeArtifact,
   buildEnvironmentReasonCodes,
   buildQaTrust,

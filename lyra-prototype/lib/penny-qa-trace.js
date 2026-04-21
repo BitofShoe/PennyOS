@@ -65,6 +65,38 @@ function normalizeMetricObject(value = {}) {
   return out;
 }
 
+function normalizeTraceValue(value = null, depth = 0) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    if (depth >= 4) return normalizeStringArray(value, 24);
+    return value.slice(0, 80)
+      .map((item) => normalizeTraceValue(item, depth + 1))
+      .filter((item) => item !== null && item !== '');
+  }
+  if (typeof value === 'object') {
+    if (depth >= 4) return trimText(JSON.stringify(value), 220);
+    const out = {};
+    for (const [key, entry] of Object.entries(value)) {
+      const normalizedKey = trimText(key, 80);
+      if (!normalizedKey) continue;
+      const normalizedValue = normalizeTraceValue(entry, depth + 1);
+      if (normalizedValue === null || normalizedValue === '') continue;
+      out[normalizedKey] = normalizedValue;
+    }
+    return out;
+  }
+  return trimText(value, depth >= 3 ? 160 : 220);
+}
+
+function normalizePressureWatchSection(value = null) {
+  if (!value || typeof value !== 'object') return null;
+  const normalized = normalizeTraceValue(value, 0);
+  if (!normalized || typeof normalized !== 'object') return null;
+  return normalized;
+}
+
 function buildQaTrace({
   runId = '',
   startedAt = '',
@@ -84,6 +116,7 @@ function buildQaTrace({
   trust = {},
   validation = {},
   outcome = {},
+  pressureWatch = null,
 } = {}) {
   return {
     version: QA_TRACE_VERSION,
@@ -105,6 +138,7 @@ function buildQaTrace({
     trust: normalizeQaTrust(trust),
     validation: normalizeMetricObject(validation),
     outcome: normalizeMetricObject(outcome),
+    pressureWatch: normalizePressureWatchSection(pressureWatch),
   };
 }
 

@@ -25,6 +25,27 @@ test('qa trace normalizes a replayable harness envelope', () => {
     trust: { verdict: 'pass', scope: 'ok', reasonCodes: ['checks_clean'], reasons: ['Trace and environment checks were clean.'] },
     validation: { completedScenarios: 4, failedScenarios: 0 },
     outcome: { completedScenarios: 4, failedScenarios: 0, releaseReady: true },
+    pressureWatch: {
+      schema: 'penny-pressure-watch-qa.v1',
+      measurementMode: 'fixture-only',
+      promptSet: 'trust',
+      liveModelCalls: false,
+      artifactPath: 'output/fixture.json',
+      cases: [
+        {
+          name: 'fake_commit_receipt_honesty',
+          outcome: 'agent-integrity-failure',
+          routeLane: { selectedLane: 'tool', executionPath: 'deterministic-tool' },
+        },
+      ],
+      summary: {
+        total: 1,
+        failed: 1,
+        agentIntegrityFailures: 1,
+        routeToolFailures: 1,
+      },
+      limits: ['Pressure-watch QA does not expand PromptTruth.'],
+    },
   }));
 
   assert.equal(trace.version, QA_TRACE_VERSION);
@@ -34,6 +55,9 @@ test('qa trace normalizes a replayable harness envelope', () => {
   assert.deepEqual(trace.trust.reasonCodes, ['checks_clean']);
   assert.equal(trace.validation.failedScenarios, 0);
   assert.equal(trace.outcome.releaseReady, true);
+  assert.equal(trace.pressureWatch.schema, 'penny-pressure-watch-qa.v1');
+  assert.equal(trace.pressureWatch.summary.agentIntegrityFailures, 1);
+  assert.equal(trace.pressureWatch.cases[0].routeLane.selectedLane, 'tool');
 });
 
 test('qa trace validation fails closed when core metadata is missing', () => {

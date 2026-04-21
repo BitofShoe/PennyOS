@@ -8,9 +8,11 @@ const { createAutomationApi } = require('./penny-lmstudio-prepare');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
 const {
   buildQaTrust,
+  buildPressureWatchSummary,
   classifyPressureCanaryReply,
   PRESSURE_KINDS,
   PRESSURE_OUTCOMES,
+  PRESSURE_WATCH_LIMITS,
   summarizeAgentIntegrityArtifact,
   validateRuntimeArtifact,
 } = require('../lib/penny-qa-trust');
@@ -1249,6 +1251,8 @@ function buildPressureWatchAudit(results = []) {
     const passed = answerPassed && (!artifactIntegrity || artifactIntegrity.passed === true);
     const category = artifactIntegrity && artifactIntegrity.passed !== true
       ? TRUST_FAILURE_CATEGORIES.ROUTE_TOOL
+      : outcome === PRESSURE_OUTCOMES.AGENT_INTEGRITY_FAILURE
+      ? TRUST_FAILURE_CATEGORIES.ROUTE_TOOL
       : outcome === PRESSURE_OUTCOMES.VOICE_TONE_FAILURE
       ? TRUST_FAILURE_CATEGORIES.VOICE_TONE
       : TRUST_FAILURE_CATEGORIES.SOURCE_TRUST;
@@ -1295,12 +1299,14 @@ function buildPressureWatchAudit(results = []) {
   return {
     version: 'penny-pressure-watch-audit.v1',
     checks,
+    summary: buildPressureWatchSummary(checks),
     passed: failedChecks.length === 0,
     failedChecks,
     failureCategoryCounts,
     categories: { ...TRUST_FAILURE_CATEGORIES },
     outcomes: { ...PRESSURE_OUTCOMES },
     pressureKinds: { ...PRESSURE_KINDS },
+    limits: [...PRESSURE_WATCH_LIMITS],
   };
 }
 
@@ -1556,6 +1562,17 @@ function uniqueStrings(values = []) {
   return [...new Set((Array.isArray(values) ? values : []).map((item) => String(item || '').trim()).filter(Boolean))];
 }
 
+function summarizeLaneCounts(results = []) {
+  return (Array.isArray(results) ? results : []).reduce((counts, item) => {
+    const lane = String(item?.localLane || item?.artifact?.scope?.selectedLane || '').trim() || 'unknown';
+    counts[lane] = (counts[lane] || 0) + 1;
+    if (item?.laneFallback === true || item?.artifact?.context?.laneFallback === true) {
+      counts.fallback = (counts.fallback || 0) + 1;
+    }
+    return counts;
+  }, {});
+}
+
 function collectResolvedModelsByLane(results = []) {
   const models = {
     chat: [],
@@ -1578,6 +1595,146 @@ function collectResolvedModelsByLane(results = []) {
   };
 }
 
+function pressureCaseInvalidOrDegradedReasons(result = null) {
+  const reasons = [];
+  if (!result) {
+    reasons.push('case result was not present in the prompt output');
+    return reasons;
+  }
+  if (result.ok === false) {
+    reasons.push(String(result.error || 'turn failed').trim() || 'turn failed');
+  }
+  const warmState = String(result?.artifact?.readiness?.warmState || '').trim();
+  if (warmState === 'degraded') reasons.push('runtime artifact readiness was degraded');
+  if (result?.laneFallback === true || result?.artifact?.context?.laneFallback === true) {
+    reasons.push('lane fallback was used');
+  }
+  return uniqueStrings(reasons);
+}
+
+function pressureCaseUsedModel(result = null) {
+  const artifact = result?.artifact && typeof result.artifact === 'object' ? result.artifact : {};
+  const modelRoundTrip = artifact.performance?.modelRoundTrip && typeof artifact.performance.modelRoundTrip === 'object'
+    ? artifact.performance.modelRoundTrip
+    : {};
+  const executionPath = String(artifact.executionPath || artifact.trace?.laneChoice?.executionPath || '').trim();
+  return artifact.readiness?.modelUsage === 'used'
+    || modelRoundTrip.available === true
+    || Number(modelRoundTrip.durationMs || 0) > 0
+    || ['llm-chat', 'llm-tool-loop', 'shadow'].includes(executionPath);
+}
+
+function buildPressureWatchCaseSummary(check = {}, result = null, artifactPath = '') {
+  const artifact = result?.artifact && typeof result.artifact === 'object' ? result.artifact : {};
+  const selectedLane = String(result?.localLane || artifact.scope?.selectedLane || artifact.trace?.laneChoice?.selectedLane || '').trim();
+  const executionPath = String(artifact.executionPath || artifact.trace?.laneChoice?.executionPath || '').trim();
+  const invalidOrDegradedReasons = pressureCaseInvalidOrDegradedReasons(result);
+  return {
+    name: String(check.name || '').trim(),
+    resultName: String(check.resultName || result?.name || '').trim(),
+    pressureKind: String(check.pressureKind || '').trim(),
+    category: String(check.category || '').trim(),
+    outcome: String(check.outcome || '').trim(),
+    passed: check.passed === true,
+    expected: String(check.expected || '').trim(),
+    reason: check.passed === true ? '' : String(check.reason || '').trim(),
+    routeLane: {
+      selectedLane,
+      laneFallback: result?.laneFallback === true || artifact.context?.laneFallback === true,
+      executionPath,
+    },
+    modelState: {
+      requestedModel: String(result?.requestedModel || artifact.context?.requestedModel || '').trim(),
+      resolvedModel: String(result?.resolvedModel || artifact.context?.resolvedModel || artifact.trace?.laneChoice?.resolvedModel || '').trim(),
+      readinessWarmState: String(artifact.readiness?.warmState || '').trim(),
+      modelUsage: String(artifact.readiness?.modelUsage || '').trim(),
+    },
+    artifactPath: String(artifactPath || '').trim(),
+    invalidOrDegradedReason: invalidOrDegradedReasons.join('; '),
+    artifactIntegrity: check.artifactIntegrity
+      ? {
+          passed: check.artifactIntegrity.passed === true,
+          reasons: uniqueStrings(check.artifactIntegrity.reasons || []),
+          summary: check.artifactIntegrity.summary || null,
+        }
+      : null,
+  };
+}
+
+function buildPressureWatchArtifact(payload = {}, { artifactPath = '' } = {}) {
+  const audit = payload?.pressureWatchAudit && typeof payload.pressureWatchAudit === 'object'
+    ? payload.pressureWatchAudit
+    : null;
+  if (!audit) return null;
+  const prompts = Array.isArray(payload.prompts) ? payload.prompts : [];
+  const results = collectVoiceTraceResults(prompts);
+  const byName = new Map(results.map((item) => [item.name, item]));
+  const laneCounts = summarizeLaneCounts(results);
+  const resolvedModelsByLane = collectResolvedModelsByLane(results);
+  const readinessSummary = payload?.environment?.readinessSummary || payload?.preparation?.readinessSummary || {};
+  const environmentReasons = uniqueStrings(payload?.environment?.reasons || []);
+  const auditChecks = Array.isArray(audit.checks) && audit.checks.length
+    ? audit.checks
+    : (Array.isArray(audit.failedChecks) ? audit.failedChecks : []);
+  const cases = auditChecks
+    .map((check) => buildPressureWatchCaseSummary(
+      check,
+      byName.get(check.resultName) || byName.get(check.name) || null,
+      artifactPath,
+    ));
+  const measurementMode = payload?.serverMode || payload?.baseUrl ? 'live-qa' : 'fixture-only';
+  const modelState = {
+    configured: {
+      chat: String(payload?.qaModelPolicy?.chat || CHAT_MODEL || '').trim(),
+      tool: String(payload?.qaModelPolicy?.tool || EFFECTIVE_TOOL_MODEL || '').trim(),
+      embed: String(payload?.qaModelPolicy?.embed || EMBED_MODEL || '').trim(),
+    },
+    resolved: {
+      chat: resolvedModelsByLane.chat[0] || payload?.serverStatus?.resolvedChatModel || payload?.serverStatus?.resolvedModel || '',
+      tool: resolvedModelsByLane.tool[0] || payload?.serverStatus?.resolvedToolModel || payload?.serverStatus?.toolPreferredModel || '',
+    },
+    readiness: {
+      valid: payload?.environment?.valid === true,
+      state: String(readinessSummary.state || '').trim(),
+      headline: String(readinessSummary.headline || '').trim(),
+      reasons: environmentReasons,
+    },
+    loadedModels: uniqueStrings([
+      ...resolvedModelsByLane.chat,
+      ...resolvedModelsByLane.tool,
+      ...(payload?.preparation?.loadedModels || []),
+      ...(payload?.serverStatus?.availableModels || []),
+    ]),
+  };
+  return {
+    schema: 'penny-pressure-watch-qa.v1',
+    measurementMode,
+    promptSet: String(payload?.promptSet || PROMPT_SET || '').trim(),
+    liveModelCalls: measurementMode === 'live-qa' && results.some((item) => pressureCaseUsedModel(item)),
+    artifactPath: String(artifactPath || '').trim(),
+    modelState,
+    routeLane: {
+      serverMode: String(payload?.serverMode || '').trim(),
+      baseUrl: String(payload?.baseUrl || '').trim(),
+      chatLaneTurns: laneCounts.chat || 0,
+      toolLaneTurns: laneCounts.tool || 0,
+      unknownLaneTurns: laneCounts.unknown || 0,
+      laneFallbackTurns: laneCounts.fallback || 0,
+    },
+    invalidOrDegradedReason: environmentReasons.join('; '),
+    notMeasured: [
+      'runtime voice changes',
+      'PromptTruth expansion',
+      'toolEvidenceReceipt schema or placement changes',
+      'subagent agreement as evidence without receipts',
+      'long-term memory promotion effects',
+    ],
+    cases,
+    summary: buildPressureWatchSummary(auditChecks, payload?.environment || null),
+    limits: [...PRESSURE_WATCH_LIMITS],
+  };
+}
+
 function buildVoiceQaTrace(payload = {}) {
   const prompts = Array.isArray(payload.prompts) ? payload.prompts : [];
   const results = collectVoiceTraceResults(prompts);
@@ -1585,12 +1742,7 @@ function buildVoiceQaTrace(payload = {}) {
     .map((item) => item?.artifact)
     .filter((item) => item && typeof item === 'object');
   const resolvedModelsByLane = collectResolvedModelsByLane(results);
-  const laneCounts = results.reduce((counts, item) => {
-    const lane = String(item?.localLane || item?.artifact?.scope?.selectedLane || '').trim() || 'unknown';
-    counts[lane] = (counts[lane] || 0) + 1;
-    if (item?.laneFallback === true) counts.fallback = (counts.fallback || 0) + 1;
-    return counts;
-  }, {});
+  const laneCounts = summarizeLaneCounts(results);
   const degradedArtifacts = artifacts.filter((item) => String(item?.readiness?.warmState || '') === 'degraded').length;
   const artifactToolCalls = results.reduce((sum, item) => sum + Number(Array.isArray(item?.tools) ? item.tools.length : 0), 0);
   const memoryWrites = results.filter((item) => Array.isArray(item?.memory?.memories) && item.memory.memories.length).length;
@@ -1627,6 +1779,7 @@ function buildVoiceQaTrace(payload = {}) {
   const readinessSummary = payload?.environment?.readinessSummary || payload?.preparation?.readinessSummary || {};
 
   const pressureWatchAuditProvided = payload?.pressureWatchAudit && typeof payload.pressureWatchAudit === 'object';
+  const pressureWatch = payload?.pressureWatch || buildPressureWatchArtifact(payload);
   const trace = validateQaTrace(buildQaTrace({
     runId: `voice-redo-qa-${payload.startedAt || STAMP}`,
     startedAt: payload.startedAt,
@@ -1711,9 +1864,11 @@ function buildVoiceQaTrace(payload = {}) {
         && (!pressureWatchAuditProvided || payload.pressureWatchAudit.passed === true)
         && payload?.environment?.valid === true,
     },
+    pressureWatch,
   }));
   trace.overComplianceAudit = payload?.overComplianceAudit || null;
   trace.pressureWatchAudit = payload?.pressureWatchAudit || null;
+  trace.pressureWatch = pressureWatch;
   return trace;
 }
 
@@ -2060,6 +2215,9 @@ async function main() {
       expectedToolModel: EFFECTIVE_TOOL_MODEL,
     });
     payload.finishedAt = new Date().toISOString();
+    payload.pressureWatch = PROMPT_SET === 'trust'
+      ? buildPressureWatchArtifact(payload, { artifactPath: OUTPUT_PATH })
+      : null;
     payload.trace = buildVoiceQaTrace(payload);
     payload.trust = payload.trace.trust;
     fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
@@ -2101,6 +2259,7 @@ module.exports = {
   buildRepetitionAudit,
   buildOverComplianceAudit,
   buildPressureWatchAudit,
+  buildPressureWatchArtifact,
   classifyLatencyBucket,
   classifyPremiseCaveatPosition,
   evaluateSpiritFirstRecall,
