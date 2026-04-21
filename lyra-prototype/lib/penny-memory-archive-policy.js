@@ -21,6 +21,16 @@ function createMemoryArchivePolicyApi({
   trimIso = (value = '') => String(value || '').trim(),
   normalizeEvidenceIds = (items = []) => (Array.isArray(items) ? items : []),
 } = {}) {
+  function formatScoreComponent(value = 0) {
+    const number = Number(value || 0);
+    const prefix = number >= 0 ? '+' : '';
+    return `${prefix}${number.toFixed(2)}`;
+  }
+
+  function formatSimilarity(value = 0) {
+    return Number(value || 0).toFixed(2);
+  }
+
   function scoreArchiveUtilityCandidate(candidate = {}, now = Date.now()) {
     const createdAtMs = Date.parse(candidate.createdAt || '');
     const ageDays = Number.isFinite(createdAtMs)
@@ -79,20 +89,53 @@ function createMemoryArchivePolicyApi({
   function scoreArchiveCandidate(candidate = {}, queryTokens = new Set(), now = Date.now(), queryVector = null, vector = null) {
     const tokens = tokenizeMemoryText(candidate.text || '');
     const overlapTokens = tokens.filter((token) => queryTokens.has(token)).slice(0, 6);
-    let score = candidate.sourceType === 'pattern' ? 3.5 : candidate.sourceType === 'summary' ? 3 : 2.5;
-    score += overlapTokens.length * 2.25;
-    if (queryVector && vector) score += Math.max(0, cosineSimilarity(queryVector, vector)) * 8;
+    const components = {
+      sourceTypeBase: candidate.sourceType === 'pattern' ? 3.5 : candidate.sourceType === 'summary' ? 3 : 2.5,
+      lexicalOverlap: overlapTokens.length * 2.25,
+      semanticSimilarity: null,
+      semanticSimilarityScore: 0,
+      recency: 0,
+      sessionScope: 0,
+      sensitivityPenalty: 0,
+    };
+    const reasons = [
+      `source:${String(candidate.sourceType || 'archive').trim().toLowerCase() || 'archive'}`,
+    ];
+    if (overlapTokens.length) {
+      reasons.push(`lexical-overlap:${overlapTokens.join(',')}`);
+    }
+    let score = components.sourceTypeBase;
+    score += components.lexicalOverlap;
+    if (queryVector && vector) {
+      components.semanticSimilarity = cosineSimilarity(queryVector, vector);
+      components.semanticSimilarityScore = Math.max(0, components.semanticSimilarity) * 8;
+      score += components.semanticSimilarityScore;
+      reasons.push(`semantic-similarity:${formatSimilarity(components.semanticSimilarity)}`);
+    }
     const createdAtMs = Date.parse(candidate.createdAt || '');
     if (Number.isFinite(createdAtMs)) {
       const ageDays = Math.max(0, now - createdAtMs) / (1000 * 60 * 60 * 24);
-      score += Math.max(0, 1.5 - Math.min(1.5, ageDays / 14));
+      components.recency = Math.max(0, 1.5 - Math.min(1.5, ageDays / 14));
+      score += components.recency;
+      if (components.recency) reasons.push(`recency:${formatScoreComponent(components.recency)}`);
     }
-    if (candidate.scope === 'session') score += 0.75;
-    if (candidate.sensitivity === 'high') score -= 1.5;
+    if (candidate.scope === 'session') {
+      components.sessionScope = 0.75;
+      score += components.sessionScope;
+      reasons.push(`session-scope:${formatScoreComponent(components.sessionScope)}`);
+    }
+    if (candidate.sensitivity === 'high') {
+      components.sensitivityPenalty = -1.5;
+      score += components.sensitivityPenalty;
+      reasons.push(`sensitivity-penalty:${formatScoreComponent(components.sensitivityPenalty)}`);
+    }
     return {
       score,
+      confidence: Math.max(0, Math.min(1, score / 12)),
       overlapTokens,
       evidenceSnippet: trimText(candidate.text || '', 160),
+      components,
+      reasons,
     };
   }
 

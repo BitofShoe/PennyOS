@@ -655,6 +655,48 @@ function createMemoryArchiveApi({
     };
   }
 
+  function normalizeArchiveScoreComponents(raw = null) {
+    if (!raw || typeof raw !== 'object') return null;
+    const keys = [
+      'sourceTypeBase',
+      'lexicalOverlap',
+      'semanticSimilarity',
+      'semanticSimilarityScore',
+      'recency',
+      'sessionScope',
+      'sensitivityPenalty',
+    ];
+    const out = {};
+    let found = false;
+    for (const key of keys) {
+      if (!Object.prototype.hasOwnProperty.call(raw, key)) continue;
+      if (raw[key] == null && key === 'semanticSimilarity') {
+        out[key] = null;
+        found = true;
+        continue;
+      }
+      const value = Number(raw[key]);
+      if (!Number.isFinite(value)) continue;
+      out[key] = value;
+      found = true;
+    }
+    return found ? out : null;
+  }
+
+  function normalizeArchiveScoreReasons(items = []) {
+    if (!Array.isArray(items)) return [];
+    const out = [];
+    const seen = new Set();
+    for (const raw of items) {
+      const reason = trimText(raw, 120);
+      if (!reason || seen.has(reason)) continue;
+      seen.add(reason);
+      out.push(reason);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
   function normalizeRetrievalItem(raw = {}) {
     const text = trimText(raw.text || raw.excerpt || '', 220);
     if (!text) return null;
@@ -668,6 +710,8 @@ function createMemoryArchiveApi({
       || (raw.sourceSessionId ? [raw.sourceSessionId] : [])
       || (raw.sessionId ? [raw.sessionId] : []),
     );
+    const scoreComponents = normalizeArchiveScoreComponents(raw.scoreComponents);
+    const scoreReasons = normalizeArchiveScoreReasons(raw.scoreReasons);
     return {
       id: String(raw.id || '').trim(),
       text,
@@ -678,6 +722,8 @@ function createMemoryArchiveApi({
       createdAt: trimIso(raw.createdAt, ''),
       score: Number.isFinite(Number(raw.score)) ? Number(raw.score) : 0,
       confidence: Number.isFinite(Number(raw.confidence)) ? Number(raw.confidence) : 0,
+      ...(scoreComponents ? { scoreComponents } : {}),
+      ...(scoreReasons.length ? { scoreReasons } : {}),
       sourceEpisodeIds,
       sourceSessionIds,
       sourceTurnIds,
@@ -1915,6 +1961,8 @@ function createMemoryArchiveApi({
           ...item,
           score,
           confidence: Math.max(0, Math.min(1, score / 12)),
+          scoreComponents: scored?.components && typeof scored.components === 'object' ? scored.components : null,
+          scoreReasons: Array.isArray(scored?.reasons) ? scored.reasons : [],
           matchedTokens: Array.isArray(scored?.overlapTokens) ? scored.overlapTokens : [],
           evidenceSnippet: trimText(scored?.evidenceSnippet || item.text || '', 160),
         });

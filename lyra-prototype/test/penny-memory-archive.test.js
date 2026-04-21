@@ -454,6 +454,11 @@ test('buildArchiveContext falls back cleanly to keyword retrieval and keeps sepa
     assert.ok(result.archiveContext.session.length <= 2);
     assert.ok(result.archiveContext.global.length <= 2);
     assert.match(result.archiveContext.session[0].text, /midnight rain/i);
+    assert.ok(result.archiveContext.session[0].scoreComponents);
+    assert.equal(result.archiveContext.session[0].scoreComponents.semanticSimilarity, null);
+    assert.equal(result.archiveContext.session[0].scoreComponents.semanticSimilarityScore, 0);
+    assert.equal(result.archiveContext.session[0].scoreReasons.includes('source:episode'), true);
+    assert.equal(result.archiveContext.session[0].scoreReasons.some((reason) => reason.startsWith('lexical-overlap:')), true);
     assert.equal(getFetchCalls(), 0);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
