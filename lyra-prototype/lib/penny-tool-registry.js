@@ -172,6 +172,46 @@ function normalizeOptionalPlanningHint(descriptor) {
   return String(descriptor.planningHint || '').trim();
 }
 
+function normalizeToolCostHint(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const normalized = {};
+  if (hasOwnProperty(value, 'outputCostShape')) {
+    const outputCostShape = String(value.outputCostShape || '').trim();
+    if (!TOOL_OUTPUT_COST_SHAPES.has(outputCostShape)) return null;
+    normalized.outputCostShape = outputCostShape;
+  }
+  if (hasOwnProperty(value, 'sourceShape')) {
+    const sourceShape = String(value.sourceShape || '').trim();
+    if (!TOOL_SOURCE_SHAPES.has(sourceShape)) return null;
+    normalized.sourceShape = sourceShape;
+  }
+  if (hasOwnProperty(value, 'defaultOutputBound')) {
+    if (value.defaultOutputBound == null) {
+      normalized.defaultOutputBound = null;
+    } else {
+      const defaultOutputBound = Number(value.defaultOutputBound);
+      if (!Number.isFinite(defaultOutputBound) || defaultOutputBound < 0) return null;
+      normalized.defaultOutputBound = defaultOutputBound;
+    }
+  }
+  if (hasOwnProperty(value, 'planningHint')) {
+    normalized.planningHint = String(value.planningHint || '').trim();
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function buildToolCostHintFromDescriptor(descriptor = null) {
+  return normalizeToolCostHint(descriptor);
+}
+
+function buildToolCostHintForToolName(toolName = '') {
+  try {
+    return buildToolCostHintFromDescriptor(buildToolCapabilityDescriptor(toolName));
+  } catch {
+    return null;
+  }
+}
+
 function validateToolCapabilityDescriptor(descriptor) {
   if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor)) {
     throw new TypeError('ToolCapabilityDescriptor must be an object');
@@ -479,5 +519,8 @@ module.exports = {
   createToolRegistry,
   validateToolCapabilityDescriptor,
   normalizeToolCapabilityDescriptor,
+  normalizeToolCostHint,
+  buildToolCostHintFromDescriptor,
+  buildToolCostHintForToolName,
   buildToolCapabilityDescriptor,
 };

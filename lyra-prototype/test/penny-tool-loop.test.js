@@ -419,6 +419,12 @@ test('runLmStudioToolLoop records prompt-visible raw-json evidence facts for nat
   });
 
   assert.match(result.text, /local companion prototype/i);
+  assert.deepEqual(result.toolRecords[0].toolCostHint, {
+    outputCostShape: 'bounded-list',
+    sourceShape: 'workspace-source',
+    defaultOutputBound: 120,
+    planningHint: 'Bounded line excerpt from one workspace file; prefer ranges over whole-file reads.',
+  });
   assert.deepEqual(result.toolEvidenceFacts, [
     {
       path: 'native_tool_loop',

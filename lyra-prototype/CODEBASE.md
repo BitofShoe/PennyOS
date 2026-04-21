@@ -348,7 +348,7 @@ Likely modules you will touch:
 - direct tool intent routing in `lib/penny-direct-intents.js`
 - direct deterministic tool execution in `lib/penny-direct-tool-assist.js`
 - concrete tool implementations in `lib/penny-*-tools.js`
-- internal tool capability descriptors in `lib/penny-tool-registry.js`, including advisory output/source-cost metadata that does not change planner behavior by itself
+- internal tool capability descriptors in `lib/penny-tool-registry.js`, including advisory output/source-cost metadata that can be echoed into runtime artifact `toolCostSummary` without changing planner behavior by itself
 - LM Studio status/model resolution in `lib/penny-lmstudio-status.js`
 - LM Studio transport selection in `lib/penny-lmstudio-transports.js`
 - Gemma chat sampling defaults and transport payload fields in `lib/penny-lmstudio-transports.js`, with env wiring in `server.js`

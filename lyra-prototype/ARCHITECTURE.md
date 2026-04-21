@@ -282,6 +282,7 @@ The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
 - compact prompt-slot composition from `PROMPT_SLOT_REGISTRY`
 - prompt-time `promptTruth` receipts for `stableFacts`, `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger`, including candidate vs rendered ids/counts plus holdback reasons
 - sibling `toolEvidenceReceipt` items for deterministic-only, provenance-only, prompt-visible raw JSON, prompt-visible auto-verification JSON, summarized write-rescue context, and summarized semantic-render context
+- sibling `toolCostSummary` metadata derived from advisory tool descriptors so broad, bounded, external-source, and raw-dump-risk calls stay inspectable without expanding PromptTruth or changing planner behavior
 - a bounded `reasoningPolicy` receipt derived from latency budget plus execution path, with `minimal`, `deliberate`, `verifier-first`, and `attachment-bounded` modes instead of any raw reasoning text surface
 - explicit approximate-path policy metadata from the latency budget and runtime fallback state
 - advisory-merge summaries that distinguish lossy merge pressure from canonical memory authority

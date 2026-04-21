@@ -648,6 +648,96 @@ test('buildRuntimeArtifact counts mixed tool-loop raw-json and auto-verification
   assert.equal(artifact.toolEvidenceReceipt.summary.multiHopItemCount, 3);
 });
 
+test('buildRuntimeArtifact summarizes advisory tool-cost hints beside PromptTruth', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'tool-cost-summary',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'llm-tool-loop',
+    toolsUsed: [
+      { name: 'read_project_file', label: 'read README.md', ok: true },
+      { name: 'search_web', label: 'search web', ok: true },
+      { name: 'read_web_page', label: 'read web page', ok: true },
+      { name: 'search_project_text', label: 'search project text', ok: true },
+      { name: 'custom_raw_dump', label: 'custom dump', ok: true },
+    ],
+    toolRecords: [
+      {
+        name: 'read_project_file',
+        args: { path: 'README.md' },
+        result: {
+          ok: true,
+          label: 'read README.md',
+          data: { path: 'README.md', excerpt: '# Penny' },
+        },
+      },
+      {
+        name: 'search_web',
+        args: { query: 'Penny local companion' },
+        result: {
+          ok: true,
+          label: 'search web',
+          data: { query: 'Penny local companion', results: [] },
+        },
+      },
+      {
+        name: 'read_web_page',
+        args: { url: 'https://example.com/penny' },
+        result: {
+          ok: true,
+          label: 'read web page',
+          data: { url: 'https://example.com/penny', textPreview: 'Example' },
+        },
+      },
+      {
+        name: 'search_project_text',
+        args: { query: 'toolCostSummary' },
+        result: {
+          ok: true,
+          label: 'search project text',
+          data: { query: 'toolCostSummary', matches: [] },
+        },
+      },
+      {
+        name: 'custom_raw_dump',
+        args: {},
+        result: {
+          ok: true,
+          label: 'custom dump',
+          data: { textPreview: 'wide dump' },
+        },
+        toolCostHint: {
+          outputCostShape: 'raw-dump',
+          sourceShape: 'generated-summary',
+          defaultOutputBound: null,
+          planningHint: 'Synthetic raw dump risk fixture.',
+        },
+      },
+    ],
+    toolEvidenceFacts: [{
+      path: 'native_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0, 1, 2, 3, 4],
+    }],
+  });
+
+  assert.deepEqual(artifact.toolCostSummary, {
+    highCostToolCalls: 3,
+    rawDumpRisk: true,
+    externalSourceCalls: 2,
+    boundedListCalls: 2,
+  });
+  assert.equal(artifact.promptTruth.toolCostSummary, undefined);
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[0].toolCostHint.outputCostShape, 'bounded-list');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[1].toolCostHint.sourceShape, 'external-source');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[2].toolCostHint.outputCostShape, 'external-page');
+  assert.equal(artifact.toolEvidenceReceipt.items[0].sourceRefs[4].toolCostHint.outputCostShape, 'raw-dump');
+});
+
 test('buildRuntimeArtifact counts summarized write-rescue receipts as prompt-visible summarized items', () => {
   const artifact = buildRuntimeArtifact({
     sessionId: 'write-rescue-receipt',
@@ -1177,6 +1267,7 @@ test('normalizeRuntimeArtifact keeps old artifacts without a tool evidence recei
   });
 
   assert.equal(artifact.toolEvidenceReceipt, null);
+  assert.equal(artifact.toolCostSummary, null);
 });
 
 test('buildRuntimeArtifact does not infer tool evidence receipt from generic tool records without source facts', () => {
@@ -1206,4 +1297,10 @@ test('buildRuntimeArtifact does not infer tool evidence receipt from generic too
   });
 
   assert.equal(artifact.toolEvidenceReceipt, null);
+  assert.deepEqual(artifact.toolCostSummary, {
+    highCostToolCalls: 0,
+    rawDumpRisk: false,
+    externalSourceCalls: 0,
+    boundedListCalls: 1,
+  });
 });

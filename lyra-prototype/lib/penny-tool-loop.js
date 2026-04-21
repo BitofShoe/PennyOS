@@ -1,3 +1,8 @@
+const {
+  buildToolCostHintForToolName,
+  buildToolCostHintFromDescriptor,
+} = require('./penny-tool-registry');
+
 const WRITE_TOOL_NAMES = new Set([
   'write_project_file',
   'replace_in_project_file',
@@ -648,10 +653,23 @@ function flushPendingToolEvidenceFacts(
   pendingToolEvidenceFacts.length = 0;
 }
 
+function buildToolRecord({ name = '', args = {}, result = null, getToolCapabilityDescriptor = null } = {}) {
+  const toolName = String(name || '').trim();
+  const descriptor = typeof getToolCapabilityDescriptor === 'function'
+    ? getToolCapabilityDescriptor(toolName)
+    : null;
+  const toolCostHint = buildToolCostHintFromDescriptor(descriptor)
+    || buildToolCostHintForToolName(toolName);
+  const record = { name, args, result };
+  if (toolCostHint) record.toolCostHint = toolCostHint;
+  return record;
+}
+
 function createLmStudioToolLoopApi({
   withLmStudioLaneModel,
   postJsonLongRunning,
   executePennyTool,
+  getToolCapabilityDescriptor,
   parseToolArguments,
   sanitizeToolMessages,
   clearLmStudioThread,
@@ -927,7 +945,7 @@ function createLmStudioToolLoopApi({
     onToolEvent?.({ type: 'tool', state: 'running', name: rescueTool, label: `using ${rescueTool}` });
     const rescueResult = await executePennyTool(rescueTool, rescueArgs);
     toolsUsed.push({ name: rescueTool, ok: rescueResult.ok, label: rescueResult.label });
-    toolRecords.push({ name: rescueTool, args: rescueArgs, result: rescueResult });
+    toolRecords.push(buildToolRecord({ name: rescueTool, args: rescueArgs, result: rescueResult, getToolCapabilityDescriptor }));
     onToolEvent?.({ type: 'tool', state: 'done', name: rescueTool, label: rescueResult.label, ok: rescueResult.ok });
     if (!rescueResult.ok || !rescueResult.data?.path) {
       updateWriteRescueDebug(debugState, {
@@ -966,7 +984,7 @@ function createLmStudioToolLoopApi({
       onToolEvent?.({ type: 'tool', state: 'running', name: pending.name, label: `using ${pending.name}` });
       const result = await executePennyTool(pending.name, pending.args || {});
       toolsUsed.push({ name: pending.name, ok: result.ok, label: result.label });
-      toolRecords.push({ name: pending.name, args: pending.args || {}, result });
+      toolRecords.push(buildToolRecord({ name: pending.name, args: pending.args || {}, result, getToolCapabilityDescriptor }));
       onToolEvent?.({ type: 'tool', state: 'done', name: pending.name, label: result.label, ok: result.ok });
       if (pending.name === 'run_node_check' && result.data?.path) autoCheckedSyntaxPaths.add(result.data.path);
       if (pending.name === 'get_git_status') autoCheckedGitStatusRef.value = true;
@@ -1264,7 +1282,7 @@ function createLmStudioToolLoopApi({
                 onToolEvent?.({ type: 'tool', state: 'running', name: pending.name, label: `using ${pending.name}` });
                 const result = await executePennyTool(pending.name, pending.args || {});
                 toolsUsed.push({ name: pending.name, ok: result.ok, label: result.label });
-                toolRecords.push({ name: pending.name, args: pending.args || {}, result });
+                toolRecords.push(buildToolRecord({ name: pending.name, args: pending.args || {}, result, getToolCapabilityDescriptor }));
                 onToolEvent?.({ type: 'tool', state: 'done', name: pending.name, label: result.label, ok: result.ok });
                 if (pending.name === 'run_node_check' && result.data?.path) autoCheckedSyntaxPaths.add(result.data.path);
                 if (pending.name === 'get_git_status') autoCheckedGitStatusRef.value = true;
@@ -1371,7 +1389,7 @@ function createLmStudioToolLoopApi({
                 data: { error: parsedArgs.error },
               };
               toolsUsed.push({ name, ok: failedResult.ok, label: failedResult.label });
-              toolRecords.push({ name, args: {}, result: failedResult });
+              toolRecords.push(buildToolRecord({ name, args: {}, result: failedResult, getToolCapabilityDescriptor }));
               onToolEvent?.({ type: 'tool', state: 'done', name, label: failedResult.label, ok: failedResult.ok });
               queuePromptVisibleToolEvidenceFact(
                 pendingToolEvidenceFacts,
@@ -1395,7 +1413,7 @@ function createLmStudioToolLoopApi({
             onToolEvent?.({ type: 'tool', state: 'running', name, label: `using ${name}` });
             const result = await executePennyTool(name, args);
             toolsUsed.push({ name, ok: result.ok, label: result.label });
-            toolRecords.push({ name, args, result });
+            toolRecords.push(buildToolRecord({ name, args, result, getToolCapabilityDescriptor }));
             onToolEvent?.({ type: 'tool', state: 'done', name, label: result.label, ok: result.ok });
             if (WRITE_TOOL_NAMES.has(name) && result.ok && result.data?.path) {
               editedPaths.add(result.data.path);
@@ -1660,7 +1678,7 @@ function createLmStudioToolLoopApi({
             onToolEvent?.({ type: 'tool', state: 'running', name: decision.tool, label: `using ${decision.tool}` });
             const result = await executePennyTool(decision.tool, decision.args || {});
             toolsUsed.push({ name: decision.tool, ok: result.ok, label: result.label });
-            toolRecords.push({ name: decision.tool, args: decision.args || {}, result });
+            toolRecords.push(buildToolRecord({ name: decision.tool, args: decision.args || {}, result, getToolCapabilityDescriptor }));
             onToolEvent?.({ type: 'tool', state: 'done', name: decision.tool, label: result.label, ok: result.ok });
             if (WRITE_TOOL_NAMES.has(decision.tool) && result.ok && result.data?.path) {
               editedPaths.add(result.data.path);
@@ -1739,7 +1757,7 @@ function createLmStudioToolLoopApi({
               onToolEvent?.({ type: 'tool', state: 'running', name: pending.name, label: `using ${pending.name}` });
               const result = await executePennyTool(pending.name, pending.args || {});
               toolsUsed.push({ name: pending.name, ok: result.ok, label: result.label });
-              toolRecords.push({ name: pending.name, args: pending.args || {}, result });
+              toolRecords.push(buildToolRecord({ name: pending.name, args: pending.args || {}, result, getToolCapabilityDescriptor }));
               onToolEvent?.({ type: 'tool', state: 'done', name: pending.name, label: result.label, ok: result.ok });
               if (pending.name === 'run_node_check' && result.data?.path) autoCheckedSyntaxPaths.add(result.data.path);
               if (pending.name === 'get_git_status') autoCheckedGitStatusRef.value = true;

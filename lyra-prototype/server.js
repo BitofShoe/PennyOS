@@ -767,6 +767,7 @@ const {
 const {
   toolLabelFromResult,
   executePennyTool,
+  getToolCapabilityDescriptor,
 } = createToolRegistry({
   getRuntimeStatusTool,
   listProjectFilesTool,
@@ -2579,6 +2580,7 @@ const lmStudioToolLoopApi = createLmStudioToolLoopApi({
   withLmStudioLaneModel: withLmStudioLaneModelApi,
   postJsonLongRunning,
   executePennyTool,
+  getToolCapabilityDescriptor,
   parseToolArguments,
   sanitizeToolMessages,
   clearLmStudioThread,

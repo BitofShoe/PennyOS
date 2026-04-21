@@ -25,6 +25,10 @@ const {
 const {
   LATENCY_CLASSES,
 } = require('./penny-latency-budget');
+const {
+  buildToolCostHintForToolName,
+  normalizeToolCostHint,
+} = require('./penny-tool-registry');
 
 const RUNTIME_ARTIFACT_VERSION = 'penny-runtime-artifact.v1';
 const TOOL_EVIDENCE_RECEIPT_SCHEMA = 'penny-tool-evidence-receipt.v1';
@@ -50,6 +54,8 @@ const TOOL_EVIDENCE_RENDER_FORM = new Set([
   'unknown',
 ]);
 const TOOL_EVIDENCE_MODEL_HOP = new Set(['none', 'single', 'multi', 'unknown']);
+const HIGH_COST_TOOL_OUTPUT_SHAPES = new Set(['linear-corpus', 'external-page', 'raw-dump', 'unbounded']);
+const RAW_DUMP_RISK_TOOL_OUTPUT_SHAPES = new Set(['raw-dump', 'unbounded']);
 
 function trimText(value = '', limit = 220) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -219,6 +225,12 @@ function normalizeToolEvidenceEnum(value, allowedValues, fallback = 'unknown') {
   return allowedValues.has(text) ? text : fallback;
 }
 
+function toolCostHintFromToolRecord(toolRecord = {}) {
+  const explicitHint = normalizeToolCostHint(toolRecord?.toolCostHint);
+  if (explicitHint) return explicitHint;
+  return buildToolCostHintForToolName(toolRecord?.name || '');
+}
+
 function normalizeToolEvidenceSourceRef(raw = {}, defaults = {}) {
   const value = raw && typeof raw === 'object' ? raw : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
@@ -227,11 +239,13 @@ function normalizeToolEvidenceSourceRef(raw = {}, defaults = {}) {
     : (Number.isInteger(fallback.toolRecordIndex) ? fallback.toolRecordIndex : -1);
   const toolName = trimText(value.toolName || fallback.toolName || '', 120);
   const target = trimText(value.target || fallback.target || '', 220);
+  const toolCostHint = normalizeToolCostHint(value.toolCostHint) || normalizeToolCostHint(fallback.toolCostHint);
   if (toolRecordIndex < 0 && !toolName && !target) return null;
   const normalized = {};
   if (toolRecordIndex >= 0) normalized.toolRecordIndex = toolRecordIndex;
   if (toolName) normalized.toolName = toolName;
   if (target) normalized.target = target;
+  if (toolCostHint) normalized.toolCostHint = toolCostHint;
   return normalized;
 }
 
@@ -243,6 +257,7 @@ function buildToolEvidenceSourceRefFromToolRecord(toolRecord = {}, toolRecordInd
     toolRecordIndex,
     toolName: toolRecord?.name || '',
     target: data.path || data.url || data.requestedUrl || '',
+    toolCostHint: toolCostHintFromToolRecord(toolRecord),
   });
 }
 
@@ -357,6 +372,47 @@ function buildToolEvidenceReceipt({
     summary: summarizeToolEvidenceReceiptItems(items),
     items,
   };
+}
+
+function normalizeToolCostSummary(raw = null, defaults = null) {
+  const value = raw && typeof raw === 'object' ? raw : null;
+  const fallback = defaults && typeof defaults === 'object' ? defaults : null;
+  if (!value && !fallback) return null;
+  const source = value || fallback || {};
+  return {
+    highCostToolCalls: normalizeNonNegativeNumber(source.highCostToolCalls, 0),
+    rawDumpRisk: source.rawDumpRisk === true || normalizeNonNegativeNumber(source.rawDumpRisk, 0) > 0,
+    externalSourceCalls: normalizeNonNegativeNumber(source.externalSourceCalls, 0),
+    boundedListCalls: normalizeNonNegativeNumber(source.boundedListCalls, 0),
+  };
+}
+
+function buildToolCostSummary(toolRecords = []) {
+  const summary = {
+    highCostToolCalls: 0,
+    rawDumpRisk: false,
+    externalSourceCalls: 0,
+    boundedListCalls: 0,
+  };
+  let hintedToolCalls = 0;
+  for (const record of Array.isArray(toolRecords) ? toolRecords : []) {
+    const hint = toolCostHintFromToolRecord(record);
+    if (!hint) continue;
+    hintedToolCalls += 1;
+    if (HIGH_COST_TOOL_OUTPUT_SHAPES.has(hint.outputCostShape)) {
+      summary.highCostToolCalls += 1;
+    }
+    if (RAW_DUMP_RISK_TOOL_OUTPUT_SHAPES.has(hint.outputCostShape)) {
+      summary.rawDumpRisk = true;
+    }
+    if (hint.sourceShape === 'external-source') {
+      summary.externalSourceCalls += 1;
+    }
+    if (hint.outputCostShape === 'bounded-list') {
+      summary.boundedListCalls += 1;
+    }
+  }
+  return hintedToolCalls ? summary : null;
 }
 
 function normalizeToolEvidenceReceipt(raw = null, defaults = null) {
@@ -1878,6 +1934,7 @@ function buildRuntimeArtifact({
     toolEvidenceFacts,
     toolRecords,
   });
+  const toolCostSummary = buildToolCostSummary(toolRecords);
   const effectiveResearchLedgerRendered = deriveResearchLedgerRendered(
     normalizedPromptTruth,
     preferRenderedCompatibilityBoolean(
@@ -2064,6 +2121,7 @@ function buildRuntimeArtifact({
     evidence,
     artifacts,
     toolEvidenceReceipt,
+    toolCostSummary,
     toolOutcome: normalizedToolOutcome,
     retrievalTrace,
     trace,
@@ -2135,6 +2193,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   const researchLedgerUpdate = normalizeResearchLedgerUpdate(raw.researchLedgerUpdate, fallback.researchLedgerUpdate);
   const toolOutcome = normalizeToolOutcome(raw.toolOutcome, fallback.toolOutcome);
   const toolEvidenceReceipt = normalizeToolEvidenceReceipt(raw.toolEvidenceReceipt, fallback.toolEvidenceReceipt);
+  const toolCostSummary = normalizeToolCostSummary(raw.toolCostSummary, fallback.toolCostSummary);
   const epistemics = normalizeEpistemicCaution(raw.epistemics || fallback.epistemics);
   const synthesis = normalizeArchiveSynthesis(raw.synthesis || fallback.synthesis);
   const reasoningPolicy = normalizeReasoningPolicy(advisoryRaw.reasoningPolicy, fallback.modelAdvisory?.reasoningPolicy);
@@ -2183,6 +2242,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       .filter(Boolean)
       .slice(0, 10),
     toolEvidenceReceipt,
+    toolCostSummary,
     toolOutcome,
     retrievalTrace: (Array.isArray(raw.retrievalTrace) ? raw.retrievalTrace : fallback.retrievalTrace || [])
       .map(normalizeRetrievalTraceEntry)
