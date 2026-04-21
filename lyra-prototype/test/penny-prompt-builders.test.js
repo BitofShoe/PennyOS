@@ -78,6 +78,39 @@ test('LM Studio stateful image input uses native text-plus-image parts', () => {
   ]);
 });
 
+test('later turns do not replay a prior image payload when the new turn is text-only', () => {
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const {
+    buildLmStudioMessages,
+    buildLmStudioStatefulInput,
+  } = require('../server.js');
+
+  const messages = [
+    { role: 'user', content: 'Look at this.', image: 'data:image/png;base64,older-image' },
+    { role: 'assistant', content: 'I can see it.' },
+    { role: 'user', content: 'okay, now just answer this part without the picture again.' },
+  ];
+
+  const chatMessages = buildLmStudioMessages({
+    userText: 'okay, now just answer this part without the picture again.',
+    messages,
+    memories: {},
+  });
+  const serializedMessages = JSON.stringify(chatMessages);
+  assert.doesNotMatch(serializedMessages, /older-image/);
+  assert.doesNotMatch(serializedMessages, /image_url/);
+
+  const statefulInput = buildLmStudioStatefulInput({
+    userText: 'okay, now just answer this part without the picture again.',
+    messages,
+    memories: {},
+    hasThread: true,
+  });
+  assert.equal(Array.isArray(statefulInput), false);
+  assert.doesNotMatch(String(statefulInput), /older-image/);
+});
+
 test('LM Studio prompt builders respect latency-budget history and memory limits without flattening recall turns', () => {
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];

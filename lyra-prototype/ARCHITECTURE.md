@@ -81,6 +81,7 @@ There are two runtime brain families:
   - chat lane for companion turns, memory recall, softness, banter, and image chat
   - tool lane for direct inspect/search/read/edit/runtime/git/web turns and the full bounded tool loop
 - The chosen lane stays fixed for the whole request. Penny does not do a second 31B restyle pass after tool work.
+- Image chat stays on the chat lane and is marked `attachment-bounded` in runtime artifacts instead of getting routed through the tool lane.
 - Chat lane defaults to `google/gemma-4-31b`.
 - Tool lane defaults to `google/gemma-4-e4b`.
 - The settings-panel model picker is a chat-lane override only.
@@ -105,12 +106,14 @@ Normal chat flow:
 4. Backend chooses `brainMode`
 5. For local mode, backend selects `chat` vs `tool` lane
 6. For chat-like turns, backend retrieves bounded archive context plus bounded research-ledger context
-7. The selected lane resolves its preferred model and transport family
-8. Reply comes back with a visible text response plus a hidden mood tag, and Penny records a runtime artifact / trace summary for the turn
-9. Frontend parses the mood tag and updates Penny's visual state
-10. Canonical explicit memory is written back to `data/penny-memory.json`
-11. Archive consolidation runs after successful turns and writes episodic/derived memory to `data/penny-memory-archive.json`
-12. Research-ledger updates run after qualifying turns and write bounded advisory continuity to `data/penny-memory-ledger.json`
+7. Wording-recall turns are treated as recall-heavy chat turns so Penny answers remembered phrasing before caveating, while direct canon-memory questions still suppress stale history canon-first
+8. The selected lane resolves its preferred model and transport family
+9. If the turn includes an image, the LM Studio payload carries only that current image; later text-only turns do not replay earlier image blobs
+10. Reply comes back with a visible text response plus a hidden mood tag, and Penny records a runtime artifact / trace summary for the turn
+11. Frontend parses the mood tag and updates Penny's visual state
+12. Canonical explicit memory is written back to `data/penny-memory.json`
+13. Archive consolidation runs after successful turns and writes episodic/derived memory to `data/penny-memory-archive.json`
+14. Research-ledger updates run after qualifying turns and write bounded advisory continuity to `data/penny-memory-ledger.json`
 
 ## Backend subsystems
 
@@ -197,6 +200,8 @@ Important architecture detail:
 - the server resolves the actually loaded runtime model instead of blindly trusting the configured pretty model id
 - streamed chat is the normal frontend path
 - the streamed stateful lane now preserves Penny's LM Studio thread across turns instead of clearing it after every reply
+- chat-completions prompt building now carries at most one vision payload per request: only the latest user turn can include an image attachment
+- stateful input only includes an image part on the current image turn; later text-only continuations stay text-only even if an earlier user message had an image
 
 ### 4. Direct tool intents
 
@@ -383,9 +388,9 @@ memory-inspector rendering for the latest-reply summary plus explicit memory, ar
 - `public/js/penny-lmstudio-ui.js`
 LM Studio diagnostics/model UI helpers
 - `public/js/penny-attachments.js`
-image/file attachment prep and preview handling
+image/file attachment prep and preview handling; pending attachments are cleared after send so the next turn starts clean
 - `public/js/penny-storage.js`
-local browser persistence/session helpers; archive inspector data stays server-side
+local browser persistence/session helpers; archive inspector data stays server-side, and restored snapshots keep attachment markers but not raw image/file payload bodies
 
 Main remaining responsibilities in `public/js/penny-app.js`:
 

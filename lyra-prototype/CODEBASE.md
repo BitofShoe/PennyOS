@@ -86,9 +86,9 @@ Ambient chrome helpers such as the boot overlay, emoji picker, particle effects,
 - `public/js/penny-lmstudio-ui.js`
 LM Studio diagnostics and chat-model picker helpers.
 - `public/js/penny-attachments.js`
-Attachment prep and preview handling.
+Attachment prep and preview handling. Images are compressed client-side, cleared after send, and treated as current-turn payloads rather than durable browser history.
 - `public/js/penny-storage.js`
-Browser persistence and session-id helpers.
+Browser persistence and session-id helpers. Saved chat snapshots keep `hadImage`/file metadata but intentionally drop raw image data URLs and attached file bodies.
 - [public/styles.css](./public/styles.css)
 Visual styling.
 - `public/sprites/`
@@ -331,6 +331,8 @@ Likely sections you will touch:
 - LM Studio tool loop orchestration
 - semantic render heuristics
 - HTTP route behavior
+- image attachment carry-forward guards
+- wording-recall routing and prompt instructions
 
 Likely modules you will touch:
 
@@ -338,6 +340,8 @@ Likely modules you will touch:
 - hybrid archive recall/promotion/background-vectorization logic in `lib/penny-memory-archive.js`
 - archive utility scoring and pruning heuristics for evals plus live background-prewarm candidate ranking in `lib/penny-memory-archive-policy.js`
 - research continuity topic tracking in `lib/penny-research-ledger.js`
+- prompt composition and transport shaping in `server.js`
+- prompt-builder regressions in `test/penny-prompt-builders.test.js`
 - lane selection in `lib/penny-local-lanes.js`
 - direct tool intent routing in `lib/penny-direct-intents.js`
 - direct deterministic tool execution in `lib/penny-direct-tool-assist.js`
