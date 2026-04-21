@@ -5,6 +5,12 @@ const path = require('path');
 const { spawn, execFile } = require('child_process');
 const { URL } = require('url');
 const { createAutomationApi } = require('./penny-lmstudio-prepare');
+const {
+  SOURCE_SENSITIVE_MEMORY_CASES,
+  SOURCE_SENSITIVE_OUTCOMES,
+  buildSourceSensitiveMemoryQaFixture,
+  classifySourceSensitiveMemoryOutcome,
+} = require('../lib/penny-context-pressure-qa');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
 const { buildQaTrust, validateRuntimeArtifact } = require('../lib/penny-qa-trust');
 const { buildQaEnvironmentValidity } = require('../lib/penny-qa-validity');
@@ -45,10 +51,15 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
   let segmentId = '';
   let combinedMode = false;
   let judgedMode = false;
+  let sourceSensitiveFixtureMode = process.env.PENNY_QA_MEMORY_SOURCE_SENSITIVE_FIXTURE === '1';
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = String(argv[index] || '').trim();
     if (!arg) continue;
+    if (arg === '--source-sensitive-fixture' || arg === '--source-sensitive') {
+      sourceSensitiveFixtureMode = true;
+      continue;
+    }
     if (arg === '--smoke') {
       smokeMode = true;
       continue;
@@ -86,21 +97,29 @@ function parseMemoryQaArgs(argv = process.argv.slice(2)) {
   if (judgedMode && combinedMode) {
     throw new Error('Memory QA cannot combine --judged with --combined.');
   }
+  if (sourceSensitiveFixtureMode && (smokeMode || segmentId || combinedMode || judgedMode)) {
+    throw new Error('Memory QA cannot combine --source-sensitive-fixture with live QA modes.');
+  }
   if (segmentId && !MEMORY_QA_SEGMENT_ORDER.includes(segmentId)) {
     throw new Error(`Unknown memory QA segment "${segmentId}". Expected one of: ${MEMORY_QA_SEGMENT_ORDER.join(', ')}`);
   }
-  if (!smokeMode && !segmentId && !judgedMode) {
+  if (!smokeMode && !segmentId && !judgedMode && !sourceSensitiveFixtureMode) {
     combinedMode = true;
   }
 
-  const runMode = smokeMode ? 'smoke' : (judgedMode ? 'judged' : (segmentId ? 'segment' : 'combined'));
-  const runLabel = smokeMode ? 'smoke' : (judgedMode ? 'judged' : (segmentId || 'combined'));
+  const runMode = sourceSensitiveFixtureMode
+    ? 'source-sensitive-fixture'
+    : (smokeMode ? 'smoke' : (judgedMode ? 'judged' : (segmentId ? 'segment' : 'combined')));
+  const runLabel = sourceSensitiveFixtureMode
+    ? 'source-sensitive'
+    : (smokeMode ? 'smoke' : (judgedMode ? 'judged' : (segmentId || 'combined')));
 
   return {
     smokeMode,
     segmentId,
     combinedMode,
     judgedMode,
+    sourceSensitiveFixtureMode,
     runMode,
     runLabel,
   };
@@ -1802,6 +1821,19 @@ async function runMemoryQaJudged() {
 
 async function main() {
   ensureDir(OUTPUT_DIR);
+  if (MEMORY_QA_ARGS.sourceSensitiveFixtureMode) {
+    const fixture = buildSourceSensitiveMemoryQaFixture({
+      generatedAt: new Date().toISOString(),
+      defaults: {
+        chatModel: CHAT_MODEL,
+        toolModel: TOOL_MODEL,
+        embedModel: EMBED_MODEL,
+      },
+    });
+    fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(fixture, null, 2)}\n`);
+    console.log(`Saved source-sensitive memory QA fixture to ${OUTPUT_PATH}`);
+    return;
+  }
   const automationApi = createAutomationApi({
     chatModel: CHAT_MODEL,
     toolModel: TOOL_MODEL,
@@ -1897,7 +1929,9 @@ if (require.main === module) {
 module.exports = {
   buildQaServerEnv,
   buildSmokeScenarioSpecs,
+  buildSourceSensitiveMemoryQaFixture,
   canonicalAuthorityPressureSatisfied,
+  classifySourceSensitiveMemoryOutcome,
   countNeedleHits,
   main,
   parseMemoryQaArgs,
@@ -1909,6 +1943,8 @@ module.exports = {
   summarizeSuites,
   buildMemoryQaTrace,
   runSmokeSuite,
+  SOURCE_SENSITIVE_MEMORY_CASES,
+  SOURCE_SENSITIVE_OUTCOMES,
   MEMORY_QA_SEGMENT_IDS,
   MEMORY_QA_SEGMENT_ORDER,
 };

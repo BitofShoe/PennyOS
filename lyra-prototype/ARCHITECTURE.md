@@ -304,7 +304,7 @@ This is useful, but it is also a latency multiplier and should be used selective
 
 ### 8. QA and eval trust surfaces
 
-The QA/eval harnesses now share three small helper layers:
+The QA/eval harnesses now share small helper layers and script-owned fixture modes:
 
 - `lib/penny-qa-trace.js`
   - normalized replayable trace envelopes for QA/eval runs, including a compact `runIdentity` canary for resolved models, loaded models, execution-path facts, semantic readiness, runtime-artifact version, and degraded/fallback counters
@@ -313,8 +313,12 @@ The QA/eval harnesses now share three small helper layers:
   - environment/readiness validation so harnesses can mark runs invalid or degraded for machine reasons instead of blaming Penny
 - `lib/penny-qa-trust.js`
   - normalized trust/verdict summaries such as `pass`, `invalid`, `ambiguous`, `fallback`, and `degraded`
+- `lib/penny-context-pressure-qa.js`
+  - fixture schemas for context-pressure and source-sensitive memory QA, estimated prompt tokens, selected/rendered memory counts, semantic readiness, live latency fields when artifacts exist, answer-drift classes, and source-sensitive support outcomes
 - `scripts/qa-penny-memory.js`
-  - combined segmented memory QA plus a judged `write / retrieve / forget` mode, with semantic replacement grading for premise-correction cases so wording noise does not create fake regressions
+  - combined segmented memory QA plus a judged `write / retrieve / forget` mode, with semantic replacement grading for premise-correction cases and a fixture-only source-sensitive mode so wording noise does not create fake regressions
+- `scripts/eval-penny-runtime-fit.js`
+  - runtime-fit harness for context-length and semantic-fallback tradeoffs, plus a fixture-only context-pressure mode that records short/medium/long rendered-context shapes before any live drift claim
 - `scripts/eval-penny-ledger-compare.js`
   - comparative ledger-prompt harness for bounded research/memory prompt strategies
 
@@ -430,9 +434,9 @@ Epistemic compare harness; current favored primary pair is `off` vs `synthesis-o
 - `scripts/eval-penny-ledger-compare.js`
 Ledger compare harness for bounded research-ledger prompt strategies.
 - `scripts/eval-penny-runtime-fit.js`
-Runtime-fit harness for context-length and semantic-fallback tradeoff measurement.
+Runtime-fit harness for context-length and semantic-fallback tradeoff measurement, with a fixture-only context-pressure mode for short/medium/long rendered-context artifacts.
 - `scripts/qa-penny-memory.js`
-Segmented memory QA harness with trace-first runtime artifact validation plus judged `write / retrieve / forget` suites.
+Segmented memory QA harness with trace-first runtime artifact validation, judged `write / retrieve / forget` suites, and fixture-only source-sensitive memory cases.
 - `scripts/qa-penny-voice-redo.js`
 Chat-lane voice QA harness that records prompt-set, lane/model/fallback metadata, and normalized trust.
 - `scripts/qa-penny-browser-smoke.js`

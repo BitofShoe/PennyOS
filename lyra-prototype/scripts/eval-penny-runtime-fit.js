@@ -2,6 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, execFile } = require('child_process');
 const { createAutomationApi } = require('./penny-lmstudio-prepare');
+const {
+  buildContextPressureMarkdownSummary,
+  buildContextPressureQaArtifact,
+  extractRuntimeContextMetrics,
+} = require('../lib/penny-context-pressure-qa');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
@@ -21,6 +26,8 @@ const TOOL_CONTEXT_LENGTH = Number(process.env.PENNY_RUNTIME_FIT_TOOL_CONTEXT ||
 const MAX_OUTPUT_TOKENS = String(process.env.PENNY_RUNTIME_FIT_MAX_OUTPUT_TOKENS || 320);
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `runtime-fit-${STAMP}.json`);
 const SUMMARY_PATH = path.join(OUTPUT_DIR, `runtime-fit-${STAMP}.md`);
+const CONTEXT_PRESSURE_OUTPUT_PATH = path.join(OUTPUT_DIR, `runtime-fit-context-pressure-${STAMP}.json`);
+const CONTEXT_PRESSURE_SUMMARY_PATH = path.join(OUTPUT_DIR, `runtime-fit-context-pressure-${STAMP}.md`);
 
 const SCENARIOS = [
   {
@@ -52,6 +59,20 @@ const SCENARIOS = [
   },
 ];
 
+function parseRuntimeFitArgs(argv = process.argv.slice(2)) {
+  let contextPressureFixture = process.env.PENNY_RUNTIME_FIT_CONTEXT_PRESSURE_FIXTURE === '1';
+  for (const rawArg of argv) {
+    const arg = String(rawArg || '').trim();
+    if (!arg) continue;
+    if (arg === '--context-pressure-fixture' || arg === '--fixture-context-pressure') {
+      contextPressureFixture = true;
+    }
+  }
+  return { contextPressureFixture };
+}
+
+const RUNTIME_FIT_ARGS = parseRuntimeFitArgs(process.argv.slice(2));
+
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
@@ -67,6 +88,11 @@ function round(value, digits = 2) {
 
 function roundSeconds(ms) {
   return round(Number(ms || 0) / 1000, 2);
+}
+
+function latencyMsFromSeconds(seconds) {
+  const parsed = Number(seconds);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : null;
 }
 
 function execFileText(command, args, timeoutMs = 120000) {
@@ -151,6 +177,9 @@ function buildMemoryPayload() {
 
 async function chatRequest(sessionId, messages, timeoutMs = GENERAL_TIMEOUT_MS) {
   const started = Date.now();
+  const promptText = (Array.isArray(messages) ? messages : [])
+    .map((message) => `${String(message?.role || '').trim() || 'message'}: ${String(message?.content || '')}`)
+    .join('\n');
   try {
     const data = await fetchJson(`${BASE_URL}/api/penny/chat`, {
       method: 'POST',
@@ -164,6 +193,7 @@ async function chatRequest(sessionId, messages, timeoutMs = GENERAL_TIMEOUT_MS) 
     return {
       ok: true,
       seconds: roundSeconds(Date.now() - started),
+      promptText,
       text: String(data?.text || ''),
       meta: data?.meta || {},
       artifact: data?.meta?.artifact || null,
@@ -172,6 +202,7 @@ async function chatRequest(sessionId, messages, timeoutMs = GENERAL_TIMEOUT_MS) 
     return {
       ok: false,
       seconds: roundSeconds(Date.now() - started),
+      promptText,
       error: error?.message || 'Unknown error',
       meta: error?.data?.meta || {},
       artifact: error?.data?.meta?.artifact || null,
@@ -237,6 +268,36 @@ function normalizeScenarioSummary(result = {}) {
     readiness: result.status?.readiness || null,
     semanticReady: result.status?.readiness?.embeddingReady === true,
     fallbackActive: result.status?.readiness?.fallbackActive === true,
+    turnMetrics: {
+      casualFirst: extractRuntimeContextMetrics({
+        label: 'casualFirst',
+        prompt: casual.promptText || '',
+        answerText: casual.text || '',
+        artifact: casual.artifact || casual.meta?.artifact || null,
+        totalLatencyMs: latencyMsFromSeconds(casual.seconds),
+      }),
+      casualSteady: extractRuntimeContextMetrics({
+        label: 'casualSteady',
+        prompt: steady.promptText || '',
+        answerText: steady.text || '',
+        artifact: steady.artifact || steady.meta?.artifact || null,
+        totalLatencyMs: latencyMsFromSeconds(steady.seconds),
+      }),
+      memoryHeavy: extractRuntimeContextMetrics({
+        label: 'memoryHeavy',
+        prompt: memory.promptText || '',
+        answerText: memory.text || '',
+        artifact: memory.artifact || memory.meta?.artifact || null,
+        totalLatencyMs: latencyMsFromSeconds(memory.seconds),
+      }),
+      toolHeavy: extractRuntimeContextMetrics({
+        label: 'toolHeavy',
+        prompt: tool.promptText || '',
+        answerText: tool.text || '',
+        artifact: tool.artifact || tool.meta?.artifact || null,
+        totalLatencyMs: latencyMsFromSeconds(tool.seconds),
+      }),
+    },
   };
 }
 
@@ -300,7 +361,17 @@ function buildMarkdownSummary(report) {
     lines.push(`- Memory-heavy turn: ${scenario.summary.memoryTurnSeconds ?? 'n/a'}s`);
     lines.push(`- Tool-heavy turn: ${scenario.summary.toolTurnSeconds ?? 'n/a'}s`);
     lines.push(`- First token: ${scenario.summary.firstTokenMs ?? 'n/a'}ms`);
+    lines.push(`- Memory-heavy rendered context: ${scenario.summary.turnMetrics?.memoryHeavy?.renderedMemoryCount ?? 'n/a'} rendered / ${scenario.summary.turnMetrics?.memoryHeavy?.selectedMemoryCount ?? 'n/a'} selected item(s)`);
+    lines.push(`- Memory-heavy estimated prompt tokens: ${scenario.summary.turnMetrics?.memoryHeavy?.estimatedPromptTokens ?? 'n/a'}`);
     lines.push(`- Warm state: ${scenario.summary.readiness?.warmState || 'unknown'}`);
+    lines.push('');
+  }
+  if (report.contextPressureFixture) {
+    lines.push('## Context-Pressure Fixture');
+    lines.push('');
+    lines.push(`- Schema: ${report.contextPressureFixture.schema}`);
+    lines.push(`- Variants: ${report.contextPressureFixture.contextVariants.map((item) => item.level).join(', ')}`);
+    lines.push(`- Source-sensitive cases: ${report.contextPressureFixture.sourceSensitiveMemory.cases.length}`);
     lines.push('');
   }
   lines.push('## Recommendations');
@@ -443,6 +514,21 @@ async function runScenario(scenario) {
 
 async function main() {
   ensureDir(OUTPUT_DIR);
+  if (RUNTIME_FIT_ARGS.contextPressureFixture) {
+    const report = buildContextPressureQaArtifact({
+      generatedAt: new Date().toISOString(),
+      defaults: {
+        chatModel: CHAT_MODEL,
+        toolModel: TOOL_MODEL,
+        embedModel: EMBED_MODEL,
+      },
+    });
+    writeJsonFile(CONTEXT_PRESSURE_OUTPUT_PATH, report);
+    fs.writeFileSync(CONTEXT_PRESSURE_SUMMARY_PATH, buildContextPressureMarkdownSummary(report), 'utf8');
+    process.stdout.write(`\nSaved context-pressure fixture JSON to ${CONTEXT_PRESSURE_OUTPUT_PATH}\n`);
+    process.stdout.write(`Saved context-pressure fixture summary to ${CONTEXT_PRESSURE_SUMMARY_PATH}\n`);
+    return;
+  }
   const results = [];
   for (const scenario of SCENARIOS) {
     process.stdout.write(`\n[Runtime Fit] ${scenario.label}\n`);
@@ -461,6 +547,14 @@ async function main() {
       shortContextLength: SHORT_CONTEXT_LENGTH,
     },
     scenarios: results,
+    contextPressureFixture: buildContextPressureQaArtifact({
+      generatedAt: new Date().toISOString(),
+      defaults: {
+        chatModel: CHAT_MODEL,
+        toolModel: TOOL_MODEL,
+        embedModel: EMBED_MODEL,
+      },
+    }),
     recommendations: buildRecommendations(results),
   };
   writeJsonFile(OUTPUT_PATH, report);
@@ -483,6 +577,7 @@ if (require.main === module) {
 
 module.exports = {
   SCENARIOS,
+  parseRuntimeFitArgs,
   buildRecommendations,
   buildMarkdownSummary,
   normalizeScenarioSummary,

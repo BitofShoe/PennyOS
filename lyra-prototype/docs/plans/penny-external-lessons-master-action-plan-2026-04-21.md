@@ -84,9 +84,9 @@ No subagent edited files. The primary editor created this plan after consolidati
 | Slice | Name | Status | Priority | Risk | Verification Shape |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Docs / Skills Task-Fit Hardening | Landed, minor follow-up optional | Complete | Low | Docs review |
-| 2 | Over-Compliance, Remote-Content, and Agent-Integrity Trust QA | Next recommended slice | High | Low | Targeted tests plus QA artifacts |
+| 2 | Over-Compliance, Remote-Content, and Agent-Integrity Trust QA | Next recommended expanded slice | High | Low | Targeted tests plus QA artifacts |
 | 3 | Source-Shaped Tool/Web Evidence Hardening | After Slice 2 or a proven direct-tool gap | High | Low-medium | Tool-loop/direct-tool/runtime-artifact tests |
-| 4 | Context-Pressure and Source-Sensitive Memory QA | Later measurement slice | Medium | Medium | Runtime-fit/memory QA artifacts |
+| 4 | Context-Pressure and Source-Sensitive Memory QA | Landed fixture/unit harness; live drift deferred | Medium | Medium | Runtime-fit/memory QA artifacts |
 | 5 | Friendlier Local Readiness / Receipt Summary | Verify-first | Medium | Low-medium | Targeted tests plus browser smoke if UI changes |
 | 6 | Offline Ingestion Provenance Hardening | Later bounded runtime slice | Medium | Medium | Knowledge ingestion tests and offline fixtures |
 | 7 | Dangerous Tool Approval Metadata | Gated future slice | Low-medium | Medium | Registry and runtime-artifact tests |
@@ -253,7 +253,7 @@ Out of scope:
 
 ## Slice 4 - Context-Pressure and Source-Sensitive Memory QA
 
-Status: Later measurement slice, after Slice 2 and preferably after Slice 3.
+Status: Landed fixture/unit harness; live short/medium/long answer-drift measurement deferred.
 
 Goal:
 
@@ -270,20 +270,37 @@ Owner seams to inspect:
 - `scripts/eval-penny-runtime-fit.js`
 - `scripts/qa-penny-memory.js`
 - `scripts/eval-penny-models.js`
+- `lib/penny-context-pressure-qa.js`
 - `lib/penny-qa-trace.js`
 - `lib/penny-qa-trust.js`
 - `lib/penny-runtime-artifacts.js`
+- `test/penny-context-pressure-qa.test.js`
+- `test/penny-runtime-fit-script.test.js`
 - `test/penny-memory-qa-script.test.js`
 - `test/penny-qa-trace.test.js`
 - `test/penny-runtime-artifacts.test.js`
 
-Planned work:
+Current repo evidence:
 
-- Add or extend a lightweight artifact that compares short, medium, and long rendered-context variants.
-- Record estimated prompt tokens when practical, selected/rendered memory counts, first-token latency, total latency, lane/model identity, semantic readiness, and answer drift.
-- Add source-sensitive memory cases that separate subject, relation, object, source, and surface wording.
-- Add no-answer / unknown / abstained-appropriately outcomes for cases where evidence is absent or only candidate-level.
-- Keep semantic recall and embeddings framed as discovery/candidate selection, never canonical memory truth.
+- `lib/penny-context-pressure-qa.js` owns the context-pressure and source-sensitive fixture schemas, prompt-token estimates, selected/rendered memory counts, semantic readiness extraction, live latency fields when artifacts exist, answer-drift classes, and source-sensitive support outcomes.
+- `npm run eval:runtime-fit:context-pressure` writes the cheap short/medium/long rendered-context fixture artifact.
+- `npm run qa:memory:source-sensitive` writes the source-sensitive memory fixture cases.
+- Targeted coverage lives in `test/penny-context-pressure-qa.test.js`, `test/penny-runtime-fit-script.test.js`, and `test/penny-memory-qa-script.test.js`.
+- Fixture artifacts were generated under `output/runtime-fit-context-pressure-2026-04-21T10-13-32-490Z.*` and `output/memory-qa-source-sensitive-2026-04-21T10-13-32-512Z.json`.
+- Browser smoke passed against the disposable mock-server path at `output/playwright/penny-browser-smoke-2026-04-21T10-18-34-534Z.json`; that verifies the streaming UI path, not live context-pressure answer drift.
+
+Landed fixture/unit work:
+
+- Added a lightweight artifact that compares short, medium, and long rendered-context variants.
+- Recorded estimated prompt tokens where practical, selected/rendered memory counts, first-token latency, total latency, lane/model identity, semantic readiness, and answer drift.
+- Added source-sensitive memory cases that separate subject, relation, object, source, and surface wording.
+- Added support outcomes for cases where evidence is absent, weak, unsupported, repaired, or appropriately abstained.
+- Kept semantic recall and embeddings framed as discovery/candidate selection, never canonical memory truth.
+
+Still deferred:
+
+- Live LM Studio short/medium/long answer-drift measurement has not run.
+- Any live run should use isolated/disposable memory, archive, embedding, and output paths, then clean generated QA residue afterward.
 
 Success criteria:
 
@@ -293,9 +310,12 @@ Success criteria:
 
 Verification:
 
-- Targeted unit tests for any new artifact fields or score classes.
-- A cheap fixture-level QA run first.
-- Live LM Studio runs only if the slice explicitly needs real model behavior, using isolated memory/archive/embedding paths and cleanup afterward.
+- `node --test test/penny-context-pressure-qa.test.js test/penny-runtime-fit-script.test.js test/penny-memory-qa-script.test.js`
+- `npm test`
+- `git diff --check`
+- `npm run eval:runtime-fit:context-pressure`
+- `npm run qa:memory:source-sensitive`
+- Live LM Studio runs only if the next question explicitly needs real model behavior, using isolated memory/archive/embedding paths and cleanup afterward.
 
 Out of scope:
 
@@ -683,14 +703,14 @@ Do not turn any of these into Penny roadmap items from these source docs:
 
 Use this as the kickoff for the next implementation chat:
 
-> We are in `C:\Users\malac\.openclaw\workspace-main\lyra-prototype`. Follow AGENTS.md first and use WSL when practical. Use `docs/plans/penny-external-lessons-master-action-plan-2026-04-21.md` as the source plan. Implement Slice 2 only: Over-Compliance, Remote-Content, and Agent-Integrity Trust QA. Keep the slice QA/evidence-first; do not change live runtime behavior unless a tiny harness helper is required. Preserve Penny companion-first, local-first, explicit-memory-canonical, and keep PromptTruth separate from toolEvidenceReceipt. Start by inspecting the named owner seams and current tests, then propose the smallest coherent fixture/test patch before editing.
+> We are in `C:\Users\malac\.openclaw\workspace-main\lyra-prototype`. Follow AGENTS.md first and use WSL when practical. Use `docs/plans/penny-external-lessons-master-action-plan-2026-04-21.md` as the source plan. Implement the newly expanded Slice 2 pressure/agent-integrity addendum only. Do not reopen revised Slice 4 except to consume its landed fixture helpers/artifacts. Keep the slice QA/evidence-first; do not change live runtime behavior unless a tiny harness helper is required. Preserve Penny companion-first, local-first, explicit-memory-canonical, and keep PromptTruth separate from toolEvidenceReceipt. Start by inspecting the named owner seams and current tests, then propose the smallest coherent fixture/test patch before editing.
 
 ## Handoff Notes
 
 - Slice 1 is complete enough to stop treating it as an open prerequisite.
-- The highest-value next work is Slice 2 because it creates evidence before prompt/runtime changes.
+- The highest-value next work is the newly expanded Slice 2 pressure/agent-integrity addendum because it creates evidence before prompt/runtime changes.
 - Slice 3 should follow Slice 2 unless current tests already prove a concrete direct-tool/source gap.
-- Slice 4 should measure context/runtime pressure before anyone argues for more context or different embedding behavior.
+- Slice 4 now has the fixture/unit harness for context/source-sensitive memory QA; live answer-drift measurement remains deferred until explicitly needed.
 - Slice 5 should not be reordered ahead of Slice 2 unless the user explicitly wants UI/operator truth work first.
 - Slice 6 is the cleanest later runtime architecture slice.
 - Slices 7-11 are gates, not commitments.

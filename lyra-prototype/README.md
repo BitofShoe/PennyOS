@@ -48,6 +48,7 @@ Read these in order if you need the current truth:
 - The archive layer can do bounded post-turn shadow vector prewarm for recent chat history, but only when explicitly enabled and only off the reply-latency path. It still shares the same process, embedding backend, and cache/store.
 - The backend memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, bounded background-vectorization telemetry, compact prompt-slot composition, prompt-truth receipts, cleanup-transform class/materiality, reasoning-policy receipts, approximate-path policy, and advisory-merge provenance summaries. The in-app Memory debug tab now starts with a latest-reply-at-a-glance summary, then keeps the deeper inspector sections below it.
 - Runtime artifacts now keep prompt-time `promptTruth` separate from sibling `toolEvidenceReceipt`: `promptTruth` covers candidate-vs-rendered memory/research context plus holdback truth, while `toolEvidenceReceipt` covers deterministic-only, provenance-only, prompt-visible raw JSON, auto-verification, and summarized tool-evidence paths without widening PromptTruth.
+- Context-pressure and source-sensitive memory QA now have lightweight fixture artifacts and helpers that measure estimated prompt tokens, selected/rendered memory counts, lane/model identity, semantic readiness, latency fields when live artifacts exist, answer-drift classes, and source-sensitive memory outcomes without making long context the default.
 - The research continuity ledger is question-scoped instead of file-scoped: one repo anchor can hold multiple bounded topics, and the inspector exposes each topic's anchor/scope identity instead of flattening them together.
 - Question-scoped ledger topics only settle when verified non-`query` evidence supports an evidence-tight summary. Otherwise Penny keeps the topic provisional, leaves the durable conclusion empty, and falls back to the question or open follow-up instead of laundering assistant wording into continuity.
 - Generic authored file-write turns stay out of the research ledger unless the turn was genuinely research-shaped and anchored by verified read evidence. Penny's Playground free-writing can matter to archive/audit continuity without pretending it was research provenance.
@@ -112,6 +113,7 @@ npm test
 npm run qa:memory:smoke
 npm run qa:memory
 npm run qa:memory:judged
+npm run qa:memory:source-sensitive
 npm run qa:voice:tiebreak
 npm run qa:browser:smoke
 npm run qa:next-cycle
@@ -120,6 +122,7 @@ npm run eval:epistemic-compare
 npm run eval:epistemic-compare:synthesis
 npm run eval:ledger-compare
 npm run eval:runtime-fit
+npm run eval:runtime-fit:context-pressure
 npm run qa:voice-redo
 npm run eval:models
 npm run ingest:conversations
@@ -131,6 +134,8 @@ Practical notes:
 
 - `npm run qa:browser:smoke` checks the real streaming browser path against a disposable current-code server and mock LM Studio.
 - `npm run eval:runtime-fit` measures latency/context/semantic-readiness tradeoffs instead of only correctness.
+- `npm run eval:runtime-fit:context-pressure` writes a cheap short/medium/long rendered-context fixture artifact; it does not run live LM Studio drift classification by itself.
+- `npm run qa:memory:source-sensitive` writes the source-sensitive memory QA fixture with subject/relation/object/source/surface cases and outcome classes.
 - `npm run bundle:review` builds a filtered copy under `tmp/review-bundle/` for outside review.
 
 ## Memory model
@@ -162,6 +167,7 @@ Penny's runtime memory is hybrid:
   Human-facing artifact summaries and wake-hierarchy notes now derive from rendered `promptTruth` counts and holdback reasons, so "held back" and "not rendered" stay honest instead of implying advisory support Penny did not actually use.
 
 For memory QA, use `npm run qa:memory:smoke` for the fast regression slice, `npm run qa:memory` for the full combined release-style run, and `npm run qa:memory:judged` for the grouped `write / retrieve / forget` trust pass. On the current Q6 setup the full combined run is expected to take roughly 80-90 minutes end to end.
+Use `npm run qa:memory:source-sensitive` for the cheap fixture-only source-sensitive cases. It separates subject, relation, object, source, and surface wording, and distinguishes `verified`, `correct-but-unsupported`, `premise-repaired`, `unknown`, `appropriately-abstained`, and `unsupported`.
 For automated QA, the standard baseline is Q6 chat/memory plus `google/gemma-4-e4b` tooling. Do not treat a Q8-class chat model or a dual-lane stress setup as the default unless that is the specific thing under test.
 The QA/eval artifacts also carry a normalized trust summary (`pass`, `invalid`, `ambiguous`, `fallback`, `degraded`) so outside review can distinguish Penny-behavior failures from environment drift.
 They also carry a compact `runIdentity` canary with the resolved models, loaded-model snapshot, execution-path facts, runtime-artifact version, semantic-readiness state, and fallback/degraded counters so harness drift is easier to spot before blaming Penny.
@@ -192,6 +198,7 @@ The browser cache is not the source of truth for long-term memory.
 - The local `@local:penny` preset is operator-owned LM Studio state. Penny can verify and reassert the wiring, but the repo does not own the preset body.
 - Depending on the loaded model, Penny may use native stateful chat, chat completions, or responses-style fallbacks.
 - LM Studio `Context Length` still matters even though Penny chats through this app instead of the LM Studio UI. Penny still sends her prompt stack, recent conversation, and memory context into the loaded LM Studio runtime each turn, and the native stateful lane can preserve a live LM Studio thread across turns.
+- Context pressure is measured before it becomes doctrine. Fixture artifacts can compare short, medium, and long rendered-context shapes, but live answer drift still requires a real runtime-fit run against isolated disposable state.
 - Image turns are intentionally attachment-bounded: Penny sends the current turn's image payload before the text part, and later text-only turns do not replay older image blobs back into LM Studio.
 - Practical default on this machine is roughly `10k-12k` context for normal Penny use. Raising it helps with longer pasted inputs, longer live threads, and heavier prompt injection, but it also increases prompt-eval latency and memory pressure.
 - `PENNY_CHAT_HISTORY_LIMIT` counts individual recent messages, not user/assistant pairs. The main chat path now defaults to `6`, while the shadow path keeps its own tighter handling.

@@ -3,14 +3,18 @@ const assert = require('node:assert/strict');
 
 const {
   buildQaServerEnv,
+  buildSourceSensitiveMemoryQaFixture,
   buildSmokeScenarioSpecs,
   buildMemoryQaTrace,
   canonicalAuthorityPressureSatisfied,
+  classifySourceSensitiveMemoryOutcome,
   countNeedleHits,
   parseMemoryQaArgs,
   resolveChatRequestTimeoutMs,
   scoreTruthReplacement,
   summarizeSuites,
+  SOURCE_SENSITIVE_MEMORY_CASES,
+  SOURCE_SENSITIVE_OUTCOMES,
   MEMORY_QA_SEGMENT_IDS,
   MEMORY_QA_SEGMENT_ORDER,
 } = require('../scripts/qa-penny-memory');
@@ -46,6 +50,17 @@ test('parseMemoryQaArgs supports judged mode and keeps it isolated from combined
 
   assert.throws(() => parseMemoryQaArgs(['--judged', '--smoke']), /cannot combine --judged with --smoke/i);
   assert.throws(() => parseMemoryQaArgs(['--judged', '--segment', MEMORY_QA_SEGMENT_IDS.SEMANTIC_ARCHIVE]), /cannot combine --judged with --segment/i);
+});
+
+test('parseMemoryQaArgs supports source-sensitive fixture mode without live QA', () => {
+  const parsed = parseMemoryQaArgs(['--source-sensitive-fixture']);
+  assert.equal(parsed.runMode, 'source-sensitive-fixture');
+  assert.equal(parsed.runLabel, 'source-sensitive');
+  assert.equal(parsed.sourceSensitiveFixtureMode, true);
+  assert.equal(parsed.combinedMode, false);
+
+  assert.throws(() => parseMemoryQaArgs(['--source-sensitive-fixture', '--smoke']), /cannot combine --source-sensitive-fixture/i);
+  assert.throws(() => parseMemoryQaArgs(['--source-sensitive-fixture', '--judged']), /cannot combine --source-sensitive-fixture/i);
 });
 
 test('parseMemoryQaArgs rejects invalid segment combinations', () => {
@@ -93,6 +108,21 @@ test('buildSmokeScenarioSpecs keeps the live smoke suite bounded and excludes th
     'premise-drift',
     'chapter-fallback-smoke',
   ]);
+});
+
+test('source-sensitive memory exports expose fixture cases and outcome classes', () => {
+  const fixture = buildSourceSensitiveMemoryQaFixture({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+    defaults: { chatModel: 'q6', toolModel: 'e4b', embedModel: 'nomic' },
+  });
+  assert.equal(SOURCE_SENSITIVE_MEMORY_CASES.length, fixture.cases.length);
+  assert.equal(SOURCE_SENSITIVE_OUTCOMES.VERIFIED, 'verified');
+  assert.equal(fixture.cases.every((item) => item.subject && item.relation && item.object && item.source && item.surfaceWording.length), true);
+  assert.equal(classifySourceSensitiveMemoryOutcome({
+    answerText: 'I cannot verify that from memory yet.',
+    object: 'aurora-17',
+    supportState: 'absent',
+  }), 'appropriately-abstained');
 });
 
 test('scoreTruthReplacement accepts alternative expected phrasings after normalization', () => {
