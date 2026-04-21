@@ -14,12 +14,17 @@ const {
 const {
   CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
   CANDIDATE_SURVIVAL_FIXTURE_CASES,
+  applyPromptTruthToCandidateTrace,
   buildCandidateSurvivalArchiveUnitArtifact,
   buildCandidateSurvivalArchiveUnitCaseResult,
+  buildCandidateSurvivalProfileComparison,
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
 } = require('../lib/penny-candidate-survival-qa');
-const { createMemoryArchiveApi } = require('../lib/penny-memory-archive');
+const {
+  createMemoryArchiveApi,
+  normalizeArchiveScoringProfile,
+} = require('../lib/penny-memory-archive');
 const { buildPromptMemoryContext } = require('../lib/penny-memory');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
 const { buildQaTrust, validateRuntimeArtifact } = require('../lib/penny-qa-trust');
@@ -649,6 +654,7 @@ async function runCandidateSurvivalArchiveUnitQa({
   pathImpl = path,
   fetchImpl = null,
   nowMs = null,
+  archiveScoringProfile = process.env.PENNY_ARCHIVE_SCORING_PROFILE || 'baseline',
 } = {}) {
   fsImpl.mkdirSync(outputDir, { recursive: true });
   const paths = buildCandidateSurvivalArchiveUnitPaths({ outputDir, stamp });
@@ -660,6 +666,7 @@ async function runCandidateSurvivalArchiveUnitQa({
         return () => (Number.isFinite(parsed) ? parsed : Date.now());
       })();
   const seedPlan = buildCandidateSurvivalArchiveUnitSeedPlan({ generatedAt });
+  const activeScoringProfile = normalizeArchiveScoringProfile(archiveScoringProfile);
   const api = createMemoryArchiveApi({
     fs: fsImpl,
     path: pathImpl,
@@ -673,6 +680,7 @@ async function runCandidateSurvivalArchiveUnitQa({
     LMSTUDIO_BASE: 'http://127.0.0.1:0/v1',
     LMSTUDIO_API_KEY: 'lm-studio-local',
     PENNY_LMSTUDIO_EMBED_MODEL: 'qa-candidate-survival-missing-embed-model',
+    PENNY_ARCHIVE_SCORING_PROFILE: activeScoringProfile,
     ENABLE_BACKGROUND_CHAT_VECTORS: false,
     BACKGROUND_CHAT_VECTOR_BATCH_LIMIT: 0,
     nowMs: fixedNowMs,
@@ -691,28 +699,47 @@ async function runCandidateSurvivalArchiveUnitQa({
     for (const caseLike of CANDIDATE_SURVIVAL_FIXTURE_CASES) {
       const sessionId = seedPlan.sessionIds[caseLike.id] || `qa-candidate-survival-${caseLike.id}`;
       const sessionOptions = seedPlan.sessionOptions[caseLike.id] || {};
-      const retrievalResult = await api.buildArchiveContext({
-        sessionId,
-        userText: caseLike.query,
-        lane: 'chat',
-        now: fixedNowMs(),
-        allowSemanticQuery: true,
-        allowArchiveCompression: true,
-        includeCandidateTrace: true,
-        candidateTraceLimit: CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
-        ...sessionOptions,
+      const buildProfileResult = async (profile) => {
+        const retrievalResult = await api.buildArchiveContext({
+          sessionId,
+          userText: caseLike.query,
+          lane: 'chat',
+          now: fixedNowMs(),
+          allowSemanticQuery: true,
+          allowArchiveCompression: true,
+          includeCandidateTrace: true,
+          candidateTraceLimit: CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
+          scoringProfile: profile,
+          ...sessionOptions,
+        });
+        const promptMemoryContext = buildPromptMemoryContext({
+          memories: seedPlan.explicitMemory.memories,
+          archiveContext: retrievalResult.archiveContext,
+          memoryBookContext: { matches: [] },
+          researchLedgerContext: { topics: [] },
+          researchLedgerPromptEnabled: false,
+        }, caseLike.query);
+        return {
+          retrievalResult,
+          promptTruth: promptMemoryContext.promptTruth,
+          trace: applyPromptTruthToCandidateTrace(
+            retrievalResult?.retrieval?.candidateTrace || [],
+            promptMemoryContext.promptTruth,
+          ),
+        };
+      };
+      const baselineResult = await buildProfileResult('baseline');
+      const hybridResult = await buildProfileResult('hybrid-v1');
+      const activeResult = activeScoringProfile === 'hybrid-v1' ? hybridResult : baselineResult;
+      const profileComparison = buildCandidateSurvivalProfileComparison(caseLike, {
+        baselineTrace: baselineResult.trace,
+        hybridV1Trace: hybridResult.trace,
       });
-      const promptMemoryContext = buildPromptMemoryContext({
-        memories: seedPlan.explicitMemory.memories,
-        archiveContext: retrievalResult.archiveContext,
-        memoryBookContext: { matches: [] },
-        researchLedgerContext: { topics: [] },
-        researchLedgerPromptEnabled: false,
-      }, caseLike.query);
       caseResults.push(buildCandidateSurvivalArchiveUnitCaseResult({
         caseLike,
-        retrievalResult,
-        promptTruth: promptMemoryContext.promptTruth,
+        retrievalResult: activeResult.retrievalResult,
+        promptTruth: activeResult.promptTruth,
+        profileComparison,
       }));
     }
   } finally {
@@ -938,6 +965,7 @@ function buildQaServerEnv({ suiteSlug, suitePaths, embedModel }) {
     PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
     PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
     PENNY_LMSTUDIO_EMBED_MODEL: embedModel,
+    PENNY_ARCHIVE_SCORING_PROFILE: process.env.PENNY_ARCHIVE_SCORING_PROFILE || 'baseline',
     PENNY_QA_SUITE: suiteSlug,
   };
 }

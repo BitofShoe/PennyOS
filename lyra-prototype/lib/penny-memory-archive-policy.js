@@ -1,3 +1,14 @@
+const ARCHIVE_SCORING_PROFILES = Object.freeze({
+  BASELINE: 'baseline',
+  HYBRID_V1: 'hybrid-v1',
+});
+
+function normalizeArchiveScoringProfile(value = '') {
+  const text = String(value || '').trim().toLowerCase();
+  if (text === ARCHIVE_SCORING_PROFILES.HYBRID_V1) return ARCHIVE_SCORING_PROFILES.HYBRID_V1;
+  return ARCHIVE_SCORING_PROFILES.BASELINE;
+}
+
 function createMemoryArchivePolicyApi({
   sessionActiveContradictionLimit = 12,
   sessionChapterLimit = 6,
@@ -356,6 +367,49 @@ function createMemoryArchivePolicyApi({
     };
   }
 
+  function scoreArchiveCandidateWithProfile(candidate = {}, {
+    scoringProfile = ARCHIVE_SCORING_PROFILES.BASELINE,
+    queryText = '',
+    queryTokens = new Set(),
+    now = Date.now(),
+    queryVector = null,
+    vector = null,
+    activeContradictions = [],
+    openLoops = [],
+  } = {}) {
+    const profile = normalizeArchiveScoringProfile(scoringProfile);
+    const baseline = scoreArchiveCandidate(candidate, queryTokens, now, queryVector, vector);
+    const baselineScore = Number.isFinite(Number(baseline?.score)) ? Number(baseline.score) : 0;
+    const hybridV1 = scoreArchiveCandidateHybridShadow(candidate, {
+      queryText,
+      queryTokens,
+      now,
+      baselineScore,
+      activeContradictions,
+      openLoops,
+    });
+    const hybridV1Score = Number.isFinite(Number(hybridV1?.score)) ? Number(hybridV1.score) : 0;
+    const active = profile === ARCHIVE_SCORING_PROFILES.HYBRID_V1 ? hybridV1 : baseline;
+    const activeScore = Number.isFinite(Number(active?.score)) ? Number(active.score) : 0;
+
+    return {
+      scoringProfile: profile,
+      activeScore,
+      activeConfidence: Math.max(0, Math.min(1, activeScore / 12)),
+      activeScoreComponents: active?.components && typeof active.components === 'object' ? active.components : {},
+      activeScoreReasons: Array.isArray(active?.reasons) ? active.reasons : [],
+      baselineScore,
+      baselineScoreComponents: baseline?.components && typeof baseline.components === 'object' ? baseline.components : {},
+      baselineScoreReasons: Array.isArray(baseline?.reasons) ? baseline.reasons : [],
+      baselineOverlapTokens: Array.isArray(baseline?.overlapTokens) ? baseline.overlapTokens : [],
+      baselineEvidenceSnippet: trimText(baseline?.evidenceSnippet || candidate.text || '', 160),
+      hybridV1Score,
+      hybridV1Components: hybridV1?.components && typeof hybridV1.components === 'object' ? hybridV1.components : {},
+      hybridV1Reasons: Array.isArray(hybridV1?.reasons) ? hybridV1.reasons : [],
+      hybridV1,
+    };
+  }
+
   function looksLikeScaffoldingText(text = '') {
     const source = trimText(text, 220);
     if (!source) return true;
@@ -563,6 +617,7 @@ function createMemoryArchivePolicyApi({
     scoreArchiveUtilityCandidate,
     scoreArchiveCandidate,
     scoreArchiveCandidateHybridShadow,
+    scoreArchiveCandidateWithProfile,
     buildSessionChapterText,
     buildSessionChapters,
     looksLikeScaffoldingText,
@@ -571,5 +626,7 @@ function createMemoryArchivePolicyApi({
 }
 
 module.exports = {
+  ARCHIVE_SCORING_PROFILES,
   createMemoryArchivePolicyApi,
+  normalizeArchiveScoringProfile,
 };

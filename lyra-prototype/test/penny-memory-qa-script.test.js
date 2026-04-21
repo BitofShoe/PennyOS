@@ -164,6 +164,7 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     const explicitCase = byId.get('explicit-current-preference');
     assert.ok(explicitCase);
     assert.equal(explicitCase.archiveUnit.retrievalMode, 'keyword');
+    assert.equal(explicitCase.archiveUnit.scoringProfile, 'baseline');
     assert.equal(explicitCase.archiveUnit.liveModelCalls, false);
     assert.equal(explicitCase.survival.expectedObjectPresentRanked, true);
     assert.equal(explicitCase.survival.expectedObjectSelected, true);
@@ -175,6 +176,14 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(explicitCase.forbiddenSurvival.forbiddenSelected, false);
     assert.equal(explicitCase.forbiddenSurvival.forbiddenRendered, false);
     assert.equal(explicitCase.forbiddenSurvival.forbiddenBestRank, 2);
+    assert.ok(explicitCase.profileComparison);
+    assert.deepEqual(Object.keys(explicitCase.profileComparison), [
+      'baseline',
+      'hybridV1',
+      'renderedCountDelta',
+      'verdict',
+    ]);
+    assert.equal(explicitCase.profileComparison.renderedCountDelta, 0);
 
     const archiveCase = byId.get('archive-rendered-episodic-detail');
     assert.ok(archiveCase);
@@ -185,6 +194,7 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(archiveCase.failureMode, 'no-failure');
     assert.equal(archiveCase.forbiddenSurvival.forbiddenSelected, false);
     assert.equal(archiveCase.forbiddenSurvival.forbiddenRendered, false);
+    assert.equal(archiveCase.profileComparison.renderedCountDelta, 0);
 
     const semanticCase = byId.get('semantic-candidate-not-canonical');
     assert.ok(semanticCase);

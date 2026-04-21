@@ -177,6 +177,11 @@ Current archive-policy behavior:
 - explicit memory is still canonical
 - archive utility scoring lives in `lib/penny-memory-archive-policy.js`
 - that utility score is currently used for evals plus live background-prewarm candidate ranking, not live auto-forgetting
+- archive retrieval scoring defaults to the `baseline` profile
+- `PENNY_ARCHIVE_SCORING_PROFILE=hybrid-v1` explicitly activates the sharper hybrid candidate-ordering profile; empty or invalid values fall back to `baseline`
+- `hybrid-v1` can change which archive candidates survive ranking, but it does not increase `SESSION_PROMPT_LIMIT`, `GLOBAL_PROMPT_LIMIT`, memory-book limits, or rendered archive counts
+- profile comparison in candidate-survival archive-unit QA is model-answer-free and compares baseline vs `hybrid-v1` on the same fixture stores
+- the scoring profile gate does not change the default embedding provider, does not auto-promote archive hits into explicit memory, and does not expand `promptTruth` or `toolEvidenceReceipt`
 - background chat vectorization now defaults on, but it still runs only after `archiveCompletedTurn`, never in prompt assembly, and can be disabled with `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=0`. It is off the reply-latency path, but it still shares process, embedding-backend, and cache/store capacity.
 - inspector payloads expose background-vectorization telemetry, including the session `lastArchivedAt` timestamp, and the in-app panel now surfaces a compact background-vectorization summary so the behavior stays inspectable in practice
 

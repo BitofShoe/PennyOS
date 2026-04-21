@@ -11,7 +11,11 @@ const {
   PROMPT_TRUTH_AUDIT_LIMITS,
   preferRenderedCompatibilityBoolean,
 } = require('./penny-prompttruth');
-const { createMemoryArchivePolicyApi } = require('./penny-memory-archive-policy');
+const {
+  ARCHIVE_SCORING_PROFILES,
+  createMemoryArchivePolicyApi,
+  normalizeArchiveScoringProfile,
+} = require('./penny-memory-archive-policy');
 const {
   normalizeConsolidationPacket,
   normalizeProbationState,
@@ -288,6 +292,7 @@ function createMemoryArchiveApi({
   LMSTUDIO_BASE = '',
   LMSTUDIO_API_KEY = 'lm-studio-local',
   PENNY_LMSTUDIO_EMBED_MODEL = '',
+  PENNY_ARCHIVE_SCORING_PROFILE = ARCHIVE_SCORING_PROFILES.BASELINE,
   ENABLE_BACKGROUND_CHAT_VECTORS = true,
   BACKGROUND_CHAT_VECTOR_BATCH_LIMIT = 2,
   getLmStudioConnectionStatus = null,
@@ -307,6 +312,7 @@ function createMemoryArchiveApi({
   if (typeof fetch !== 'function') throw new TypeError('createMemoryArchiveApi requires fetch');
 
   const configuredEmbedModel = normalizeEmbedModelId(PENNY_LMSTUDIO_EMBED_MODEL);
+  const archiveScoringProfile = normalizeArchiveScoringProfile(PENNY_ARCHIVE_SCORING_PROFILE);
   const backgroundChatVectorsEnabled = ENABLE_BACKGROUND_CHAT_VECTORS === true;
   const backgroundChatVectorBatchLimit = Math.max(0, Number(BACKGROUND_CHAT_VECTOR_BATCH_LIMIT || 2));
   const modelComparator = typeof modelsLookEquivalent === 'function'
@@ -666,6 +672,12 @@ function createMemoryArchiveApi({
       'recency',
       'sessionScope',
       'sensitivityPenalty',
+      'baselineScore',
+      'exactAnchorScore',
+      'contradictionRepairScore',
+      'sourceAuthorityScore',
+      'evidenceCountScore',
+      'openLoopRelevanceScore',
     ];
     const out = {};
     let found = false;
@@ -793,6 +805,8 @@ function createMemoryArchiveApi({
     const item = raw && typeof raw === 'object' ? raw : {};
     const scoreComponents = normalizeArchiveScoreComponents(item.scoreComponents);
     const scoreReasons = normalizeArchiveScoreReasons(item.scoreReasons);
+    const activeScoreComponents = normalizeArchiveScoreComponents(item.activeScoreComponents || item.scoreComponents);
+    const activeScoreReasons = normalizeArchiveScoreReasons(item.activeScoreReasons || item.scoreReasons);
     const shadowScores = normalizeArchiveShadowScores(item.shadowScores);
     const semanticSimilarity = scoreComponents ? scoreComponents.semanticSimilarity : null;
     const semanticScore = semanticSimilarity == null
@@ -820,6 +834,10 @@ function createMemoryArchiveApi({
       createdAt: trimIso(item.createdAt, ''),
       score: Number.isFinite(Number(item.score)) ? Number(item.score) : 0,
       confidence: Number.isFinite(Number(item.confidence)) ? Number(item.confidence) : 0,
+      scoringProfile: normalizeArchiveScoringProfile(item.scoringProfile),
+      activeScore: Number.isFinite(Number(item.activeScore))
+        ? Number(item.activeScore)
+        : (Number.isFinite(Number(item.score)) ? Number(item.score) : 0),
       rank: rank == null ? null : (Number.isFinite(Number(rank)) ? Number(rank) : null),
       selected,
       selectedRank: selectedRank == null ? null : (Number.isFinite(Number(selectedRank)) ? Number(selectedRank) : null),
@@ -830,6 +848,12 @@ function createMemoryArchiveApi({
         ? item.matchedTokens.map((value) => trimText(value, 40)).filter(Boolean).slice(0, 6)
         : [],
       semanticScore,
+      ...(activeScoreComponents ? { activeScoreComponents } : {}),
+      ...(activeScoreReasons.length ? { activeScoreReasons } : {}),
+      ...(normalizeArchiveScoringProfile(item.scoringProfile) === ARCHIVE_SCORING_PROFILES.HYBRID_V1
+        && Number.isFinite(Number(item.baselineScore)) ? { baselineScore: Number(item.baselineScore) } : {}),
+      ...(normalizeArchiveScoringProfile(item.scoringProfile) === ARCHIVE_SCORING_PROFILES.BASELINE
+        && Number.isFinite(Number(item.hybridShadowScore)) ? { hybridShadowScore: Number(item.hybridShadowScore) } : {}),
       ...(scoreComponents ? { scoreComponents } : {}),
       ...(scoreReasons.length ? { scoreReasons } : {}),
       ...(shadowScores ? { shadowScores } : {}),
@@ -859,6 +883,9 @@ function createMemoryArchiveApi({
     );
     const scoreComponents = normalizeArchiveScoreComponents(raw.scoreComponents);
     const scoreReasons = normalizeArchiveScoreReasons(raw.scoreReasons);
+    const activeScoreComponents = normalizeArchiveScoreComponents(raw.activeScoreComponents || raw.scoreComponents);
+    const activeScoreReasons = normalizeArchiveScoreReasons(raw.activeScoreReasons || raw.scoreReasons);
+    const scoringProfile = normalizeArchiveScoringProfile(raw.scoringProfile);
     return {
       id: String(raw.id || '').trim(),
       text,
@@ -869,6 +896,16 @@ function createMemoryArchiveApi({
       createdAt: trimIso(raw.createdAt, ''),
       score: Number.isFinite(Number(raw.score)) ? Number(raw.score) : 0,
       confidence: Number.isFinite(Number(raw.confidence)) ? Number(raw.confidence) : 0,
+      scoringProfile,
+      activeScore: Number.isFinite(Number(raw.activeScore))
+        ? Number(raw.activeScore)
+        : (Number.isFinite(Number(raw.score)) ? Number(raw.score) : 0),
+      ...(activeScoreComponents ? { activeScoreComponents } : {}),
+      ...(activeScoreReasons.length ? { activeScoreReasons } : {}),
+      ...(scoringProfile === ARCHIVE_SCORING_PROFILES.HYBRID_V1
+        && Number.isFinite(Number(raw.baselineScore)) ? { baselineScore: Number(raw.baselineScore) } : {}),
+      ...(scoringProfile === ARCHIVE_SCORING_PROFILES.BASELINE
+        && Number.isFinite(Number(raw.hybridShadowScore)) ? { hybridShadowScore: Number(raw.hybridShadowScore) } : {}),
       ...(scoreComponents ? { scoreComponents } : {}),
       ...(scoreReasons.length ? { scoreReasons } : {}),
       sourceEpisodeIds,
@@ -2036,6 +2073,7 @@ function createMemoryArchiveApi({
     allowArchiveCompression = true,
     includeCandidateTrace = false,
     candidateTraceLimit = DEFAULT_CANDIDATE_TRACE_LIMIT,
+    scoringProfile = archiveScoringProfile,
   } = {}) {
     if (lane !== 'chat') {
       const semanticMemory = await getSemanticMemoryStatus();
@@ -2058,6 +2096,7 @@ function createMemoryArchiveApi({
     let semanticDowngrade = false;
     let semanticDowngradeReason = '';
     const shouldIncludeCandidateTrace = includeCandidateTrace === true;
+    const activeScoringProfile = normalizeArchiveScoringProfile(scoringProfile);
     const traceLimit = normalizeCandidateTraceLimit(candidateTraceLimit);
     const traceCandidates = [];
 
@@ -2107,42 +2146,48 @@ function createMemoryArchiveApi({
             vector = null;
           }
         }
-        const scored = archivePolicyApi.scoreArchiveCandidate(item, queryTokens, now, queryVector, vector);
-        const rawScore = typeof scored === 'number' ? scored : scored?.score;
-        const score = Number.isFinite(Number(rawScore)) ? Number(rawScore) : 0;
-        const scoreComponents = scored?.components && typeof scored.components === 'object'
-          ? scored.components
-          : (scored?.scoreComponents && typeof scored.scoreComponents === 'object' ? scored.scoreComponents : null);
-        const scoreReasons = Array.isArray(scored?.reasons)
-          ? scored.reasons
-          : (Array.isArray(scored?.scoreReasons) ? scored.scoreReasons : []);
-        const matchedTokens = Array.isArray(scored?.overlapTokens)
-          ? scored.overlapTokens
-          : (Array.isArray(scored?.matchedTokens) ? scored.matchedTokens : []);
+        const scored = archivePolicyApi.scoreArchiveCandidateWithProfile(item, {
+          scoringProfile: activeScoringProfile,
+          queryText: userText,
+          queryTokens,
+          now,
+          queryVector,
+          vector,
+          activeContradictions,
+          openLoops: session.openLoops,
+        });
+        const score = Number.isFinite(Number(scored.activeScore)) ? Number(scored.activeScore) : 0;
+        const scoreComponents = scored.activeScoreComponents && typeof scored.activeScoreComponents === 'object'
+          ? scored.activeScoreComponents
+          : null;
+        const scoreReasons = Array.isArray(scored.activeScoreReasons) ? scored.activeScoreReasons : [];
+        const matchedTokens = Array.isArray(scored.baselineOverlapTokens) ? scored.baselineOverlapTokens : [];
         const candidate = {
           ...item,
           score,
-          confidence: Number.isFinite(Number(scored?.confidence))
-            ? Number(scored.confidence)
+          confidence: Number.isFinite(Number(scored.activeConfidence))
+            ? Number(scored.activeConfidence)
             : Math.max(0, Math.min(1, score / 12)),
+          scoringProfile: scored.scoringProfile,
+          activeScore: score,
+          activeScoreComponents: scoreComponents,
+          activeScoreReasons: scoreReasons,
+          ...(scored.scoringProfile === ARCHIVE_SCORING_PROFILES.HYBRID_V1 ? { baselineScore: scored.baselineScore } : {}),
+          ...(scored.scoringProfile === ARCHIVE_SCORING_PROFILES.BASELINE ? { hybridShadowScore: scored.hybridV1Score } : {}),
           scoreComponents,
           scoreReasons,
           matchedTokens,
-          evidenceSnippet: trimText(scored?.evidenceSnippet || item.text || '', 160),
+          evidenceSnippet: trimText(scored.baselineEvidenceSnippet || item.text || '', 160),
         };
-        if (shouldIncludeCandidateTrace) {
-          candidate.shadowScores = {
-            hybridV1: archivePolicyApi.scoreArchiveCandidateHybridShadow(candidate, {
-              queryText: userText,
-              queryTokens,
-              now,
-              baselineScore: score,
-              activeContradictions,
-              openLoops: session.openLoops,
-            }),
-          };
-        }
-        if (item.sensitivity === 'high' && score < SENSITIVE_RETRIEVAL_THRESHOLD) {
+        candidate.shadowScores = {
+          hybridV1: {
+            ...scored.hybridV1,
+            score: scored.hybridV1Score,
+            components: scored.hybridV1Components,
+            reasons: scored.hybridV1Reasons,
+          },
+        };
+        if (item.sensitivity === 'high' && scored.baselineScore < SENSITIVE_RETRIEVAL_THRESHOLD) {
           if (shouldIncludeCandidateTrace) {
             filtered.push({
               item: candidate,
@@ -2285,6 +2330,7 @@ function createMemoryArchiveApi({
       reasonCode: semanticMemory.ready && queryVector
         ? ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY
         : ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK,
+      scoringProfile: activeScoringProfile,
       embedModel: semanticMemory.ready ? configuredEmbedModel : '',
       semanticReady: semanticMemory.ready,
       semanticAttempted,
@@ -2300,6 +2346,7 @@ function createMemoryArchiveApi({
       archiveContext: {
         mode: retrieval.mode,
         reasonCode: retrieval.reasonCode,
+        scoringProfile: retrieval.scoringProfile,
         embedModel: retrieval.embedModel,
         session: retrieval.session,
         global: retrieval.global,
@@ -3060,6 +3107,7 @@ function createMemoryArchiveApi({
 
   return {
     configuredEmbedModel,
+    archiveScoringProfile,
     buildArchiveStore: (embedModel = configuredEmbedModel) => buildArchiveStore(embedModel, {
       backgroundVectorsEnabled: backgroundChatVectorsEnabled,
       backgroundVectorBatchLimit: backgroundChatVectorBatchLimit,
@@ -3086,6 +3134,7 @@ function createMemoryArchiveApi({
 }
 
 module.exports = {
+  ARCHIVE_SCORING_PROFILES,
   ARCHIVE_SCHEMA_VERSION,
   EMBEDDINGS_SCHEMA_VERSION,
   EXPLICIT_PROMPT_LIMIT,
@@ -3096,6 +3145,7 @@ module.exports = {
   SESSION_RECENCY_PROTECTED_EPISODES,
   SENSITIVE_RETRIEVAL_THRESHOLD,
   createMemoryArchiveApi,
+  normalizeArchiveScoringProfile,
   ARCHIVE_RETRIEVAL_REASON_CODES,
   ARCHIVE_COMPRESSION_REASON_CODES,
 };

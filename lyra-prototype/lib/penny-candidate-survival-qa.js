@@ -726,6 +726,8 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     eligible,
     rank,
     score: Number.isFinite(Number(source.score)) ? Number(source.score) : null,
+    scoringProfile: trimText(source.scoringProfile || '', 80),
+    activeScore: Number.isFinite(Number(source.activeScore)) ? Number(source.activeScore) : null,
     subject: trimText(source.subject || '', 120),
     relation: trimText(source.relation || '', 120),
     object: trimText(source.object || '', 160),
@@ -873,6 +875,8 @@ function summarizeTraceItem(item = null) {
     stage: item.stage || '',
     rank: item.rank,
     score: Number.isFinite(Number(item.score)) ? Number(item.score) : null,
+    scoringProfile: item.scoringProfile || '',
+    activeScore: Number.isFinite(Number(item.activeScore)) ? Number(item.activeScore) : null,
     raw: item.raw,
     ranked: item.ranked,
     selected: item.selected,
@@ -1176,6 +1180,51 @@ function buildHybridShadowComparison(normalizedCase = {}, traceLike = []) {
   };
 }
 
+function buildProfileSnapshot(normalizedCase = {}, traceLike = []) {
+  const trace = normalizeTraceArray(traceLike);
+  const expectedMatches = trace.filter((item) => matchCandidateAgainstOracle(item, normalizedCase.expected));
+  const best = findBestTraceMatch(trace, (item) => matchCandidateAgainstOracle(item, normalizedCase.expected));
+  return {
+    bestRank: best?.rank ?? null,
+    selected: expectedMatches.some((item) => item.selected),
+    rendered: expectedMatches.some((item) => item.rendered),
+  };
+}
+
+function compareProfileSnapshots(baseline = {}, hybridV1 = {}) {
+  const baselineRank = normalizeRank(baseline.bestRank);
+  const hybridRank = normalizeRank(hybridV1.bestRank);
+  if (baseline.rendered !== hybridV1.rendered) return hybridV1.rendered ? 'hybrid-rendered-more' : 'hybrid-rendered-less';
+  if (baseline.selected !== hybridV1.selected) return hybridV1.selected ? 'hybrid-selected-more' : 'hybrid-selected-less';
+  if (baselineRank !== null && hybridRank !== null && baselineRank !== hybridRank) {
+    return hybridRank < baselineRank ? 'hybrid-ranked-better' : 'hybrid-ranked-worse';
+  }
+  if (baselineRank === null && hybridRank !== null) return 'hybrid-ranked-better';
+  if (baselineRank !== null && hybridRank === null) return 'hybrid-ranked-worse';
+  return 'same';
+}
+
+function buildCandidateSurvivalProfileComparison(caseLike = {}, {
+  baselineTrace = [],
+  hybridV1Trace = [],
+} = {}) {
+  const normalizedCase = normalizeCandidateSurvivalCase(caseLike);
+  const baseline = buildProfileSnapshot(normalizedCase, baselineTrace);
+  const hybridV1 = buildProfileSnapshot(normalizedCase, hybridV1Trace);
+  const baselineSummary = summarizeCandidateTrace(baselineTrace);
+  const hybridSummary = summarizeCandidateTrace(hybridV1Trace);
+  const renderedCountDelta = hybridSummary.renderedCandidateCount - baselineSummary.renderedCandidateCount;
+  const verdict = renderedCountDelta === 0
+    ? compareProfileSnapshots(baseline, hybridV1)
+    : 'rendered-count-changed';
+  return {
+    baseline,
+    hybridV1,
+    renderedCountDelta,
+    verdict,
+  };
+}
+
 function getCandidateLabel(candidate = null) {
   if (!candidate) return '';
   return trimText(candidate.id || candidate.sourceId || candidate.object || candidate.textPreview || candidate.text || '', 160);
@@ -1386,6 +1435,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
   promptTruth = null,
   traceLike = null,
   topCandidateLimit = 8,
+  profileComparison = null,
 } = {}) {
   const normalizedCase = normalizeCandidateSurvivalCase(caseLike);
   const rawTrace = traceLike
@@ -1418,6 +1468,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
       includeCandidateTrace: true,
       semanticReady: semanticMemory.ready === true || retrieval.semanticReady === true || archiveContext.semanticReady === true,
       retrievalMode: String(retrieval.mode || archiveContext.mode || '').trim() || 'keyword',
+      scoringProfile: String(retrieval.scoringProfile || archiveContext.scoringProfile || '').trim() || 'baseline',
       supportAuthority: normalizedCase.support.authority || normalizedCase.expected.sourceAuthority || '',
       supportState: normalizedCase.support.supportState || '',
       verifiedAnswerSupport: supportStateLooksVerified(normalizedCase.support),
@@ -1428,6 +1479,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
     failureModeReason: failureClassification.failureModeReason,
     recommendedInspection: failureClassification.recommendedInspection,
     forbiddenSurvival: buildForbiddenSurvival(normalizedCase, trace),
+    ...(profileComparison ? { profileComparison } : {}),
     ...(shadowComparison ? { shadowComparison } : {}),
     traceSummary: summarizeCandidateTrace(trace),
     topCandidates: buildTopCandidateSummaries(trace, normalizedCase, topCandidateLimit),
@@ -1524,6 +1576,7 @@ module.exports = {
   applyPromptTruthToCandidateTrace,
   buildCandidateSurvivalArchiveUnitArtifact,
   buildCandidateSurvivalArchiveUnitCaseResult,
+  buildCandidateSurvivalProfileComparison,
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
   classifyCandidateFailureMode,

@@ -1,7 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createMemoryArchivePolicyApi } = require('../lib/penny-memory-archive-policy');
+const {
+  createMemoryArchivePolicyApi,
+  normalizeArchiveScoringProfile,
+} = require('../lib/penny-memory-archive-policy');
 
 function tokenizeMemoryText(text = '') {
   return String(text || '')
@@ -71,6 +74,14 @@ test('scoreArchiveCandidate exposes score components and reasons without changin
   assert.equal(scored.confidence, 1);
 });
 
+test('normalizeArchiveScoringProfile keeps baseline as the default and gates hybrid-v1 explicitly', () => {
+  assert.equal(normalizeArchiveScoringProfile(), 'baseline');
+  assert.equal(normalizeArchiveScoringProfile(''), 'baseline');
+  assert.equal(normalizeArchiveScoringProfile('bogus'), 'baseline');
+  assert.equal(normalizeArchiveScoringProfile('baseline'), 'baseline');
+  assert.equal(normalizeArchiveScoringProfile('hybrid-v1'), 'hybrid-v1');
+});
+
 test('scoreArchiveCandidate marks semantic similarity as unavailable when keyword fallback is active', () => {
   const policy = createMemoryArchivePolicyApi({
     tokenizeMemoryText,
@@ -132,6 +143,45 @@ test('scoreArchiveCandidateHybridShadow reports exact-anchor boost without chang
   assert.equal(shadow.reasons.includes('exact-anchor:favorite tea'), true);
   assert.equal(shadow.rank, null);
   assert.equal(shadow.wouldSelect, false);
+});
+
+test('scoreArchiveCandidateWithProfile activates hybrid-v1 without changing baseline score math', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const now = Date.parse('2026-04-21T00:00:00.000Z');
+  const queryTokens = new Set(['dryer', 'three']);
+  const candidate = {
+    id: 'exact-dryer-three',
+    text: 'A silver thermos was sitting on dryer three at the laundromat.',
+    sourceType: 'episode',
+    scope: 'session',
+    sensitivity: 'normal',
+    createdAt: '2026-04-21T00:00:00.000Z',
+  };
+
+  const baseline = policy.scoreArchiveCandidateWithProfile(candidate, {
+    scoringProfile: 'baseline',
+    queryText: 'dryer three',
+    queryTokens,
+    now,
+  });
+  const hybrid = policy.scoreArchiveCandidateWithProfile(candidate, {
+    scoringProfile: 'hybrid-v1',
+    queryText: 'dryer three',
+    queryTokens,
+    now,
+  });
+
+  assert.equal(baseline.scoringProfile, 'baseline');
+  assert.equal(hybrid.scoringProfile, 'hybrid-v1');
+  assert.equal(baseline.activeScore, baseline.baselineScore);
+  assert.equal(hybrid.baselineScore, baseline.baselineScore);
+  assert.equal(hybrid.activeScore, hybrid.hybridV1Score);
+  assert.ok(hybrid.activeScore > baseline.activeScore);
+  assert.equal(hybrid.activeScoreComponents.baselineScore, baseline.baselineScore);
+  assert.equal(hybrid.activeScoreReasons.some((reason) => reason.startsWith('exact-anchor:')), true);
 });
 
 test('scoreArchiveCandidateHybridShadow boosts current contradiction repairs and penalizes stale-only text', () => {

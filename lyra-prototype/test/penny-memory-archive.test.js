@@ -56,6 +56,7 @@ function buildArchiveApi({
   embedModel = 'text-embedding-nomic-embed-text-v1.5',
   enableBackgroundChatVectors = false,
   backgroundChatVectorBatchLimit = 2,
+  archiveScoringProfile = 'baseline',
   fetchImpl = null,
   statusInstalledModels = null,
   statusNativeAvailableModels = null,
@@ -90,6 +91,7 @@ function buildArchiveApi({
     LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
     LMSTUDIO_API_KEY: 'lm-studio-local',
     PENNY_LMSTUDIO_EMBED_MODEL: embedModel,
+    PENNY_ARCHIVE_SCORING_PROFILE: archiveScoringProfile,
     ENABLE_BACKGROUND_CHAT_VECTORS: enableBackgroundChatVectors,
     BACKGROUND_CHAT_VECTOR_BATCH_LIMIT: backgroundChatVectorBatchLimit,
     async getLmStudioConnectionStatus() {
@@ -530,6 +532,8 @@ test('buildArchiveContext includes bounded candidate trace only when explicitly 
     assert.equal(selectedTrace.ranked, true);
     assert.equal(selectedTrace.selected, true);
     assert.equal(selectedTrace.rendered, true);
+    assert.equal(selectedTrace.scoringProfile, 'baseline');
+    assert.equal(selectedTrace.activeScore, selectedTrace.score);
     assert.equal(selectedTrace.eligibility.eligible, true);
     assert.equal(selectedTrace.eligibility.filtered, false);
     assert.ok(selectedTrace.rank >= 1);
@@ -538,6 +542,7 @@ test('buildArchiveContext includes bounded candidate trace only when explicitly 
     assert.equal(selectedTrace.scoreComponents.semanticSimilarity, null);
     assert.equal(selectedTrace.scoreReasons.some((reason) => reason.startsWith('lexical-overlap:')), true);
     assert.ok(selectedTrace.shadowScores?.hybridV1);
+    assert.equal(selectedTrace.hybridShadowScore, selectedTrace.shadowScores.hybridV1.score);
     assert.ok(selectedTrace.shadowScores.hybridV1.rank >= 1);
     assert.equal(typeof selectedTrace.shadowScores.hybridV1.wouldSelect, 'boolean');
     assert.equal(selectedTrace.shadowScores.hybridV1.components.baselineScore, selectedTrace.score);
@@ -631,6 +636,96 @@ test('buildArchiveContext computes hybrid shadow rank without changing active se
   }
 });
 
+test('buildArchiveContext gates active hybrid-v1 scoring behind explicit profile config', async () => {
+  const files = makeTempFiles();
+  const baselineApi = buildArchiveApi({ ...files, embedReady: false }).api;
+  const hybridFiles = makeTempFiles();
+  const hybridApi = buildArchiveApi({ ...hybridFiles, embedReady: false, archiveScoringProfile: 'hybrid-v1' }).api;
+
+  function seed(api) {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'exact-dryer-three',
+          type: 'episode',
+          text: 'A silver thermos was sitting on dryer three at the laundromat.',
+          excerpt: 'A silver thermos was sitting on dryer three at the laundromat.',
+          userText: 'A silver thermos was sitting on dryer three at the laundromat.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+        {
+          id: 'split-dryer-three',
+          type: 'episode',
+          text: 'Dryer four had a blue sticker, and table three held a mug.',
+          excerpt: 'Dryer four had a blue sticker, and table three held a mug.',
+          userText: 'Dryer four had a blue sticker, and table three held a mug.',
+          createdAt: '2026-04-13T12:01:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+  }
+
+  try {
+    assert.equal(baselineApi.archiveScoringProfile, 'baseline');
+    assert.equal(hybridApi.archiveScoringProfile, 'hybrid-v1');
+    seed(baselineApi);
+    seed(hybridApi);
+    const request = {
+      sessionId: 'demo',
+      userText: 'dryer three',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      includeCandidateTrace: true,
+      candidateTraceLimit: 4,
+    };
+    const baselineResult = await baselineApi.buildArchiveContext(request);
+    const hybridResult = await hybridApi.buildArchiveContext(request);
+
+    assert.equal(baselineResult.retrieval.scoringProfile, 'baseline');
+    assert.equal(hybridResult.retrieval.scoringProfile, 'hybrid-v1');
+    assert.deepEqual(baselineResult.archiveContext.session.map((item) => item.id), ['split-dryer-three']);
+    assert.deepEqual(hybridResult.archiveContext.session.map((item) => item.id), ['exact-dryer-three']);
+    assert.equal(baselineResult.archiveContext.session.length, hybridResult.archiveContext.session.length);
+
+    const hybridWinner = hybridResult.retrieval.candidateTrace.find((item) => item.id === 'exact-dryer-three');
+    assert.ok(hybridWinner);
+    assert.equal(hybridWinner.scoringProfile, 'hybrid-v1');
+    assert.equal(hybridWinner.selected, true);
+    assert.equal(hybridWinner.rendered, true);
+    assert.equal(hybridWinner.activeScore, hybridWinner.score);
+    assert.ok(hybridWinner.baselineScore < hybridWinner.activeScore);
+    assert.equal(Object.prototype.hasOwnProperty.call(hybridWinner, 'hybridShadowScore'), false);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+    fs.rmSync(hybridFiles.root, { recursive: true, force: true });
+  }
+});
+
+test('createMemoryArchiveApi falls back to baseline for invalid archive scoring profile', () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, archiveScoringProfile: 'not-a-profile' });
+
+  try {
+    assert.equal(api.archiveScoringProfile, 'baseline');
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('buildArchiveContext hybrid shadow demotes stale contradiction-only candidates when metadata exists', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi({ ...files, embedReady: false });
@@ -715,6 +810,80 @@ test('buildArchiveContext hybrid shadow demotes stale contradiction-only candida
   }
 });
 
+test('buildArchiveContext active hybrid-v1 demotes stale contradiction-only candidates', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false, archiveScoringProfile: 'hybrid-v1' });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'tea-current',
+          type: 'episode',
+          text: 'Favorite tea is lapsang souchong now.',
+          excerpt: 'Favorite tea is lapsang souchong now.',
+          userText: 'Favorite tea is lapsang souchong now.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+        {
+          id: 'tea-stale',
+          type: 'episode',
+          text: 'Favorite tea is oolong.',
+          excerpt: 'Favorite tea is oolong.',
+          userText: 'Favorite tea is oolong.',
+          createdAt: '2026-04-13T12:02:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [
+        {
+          id: 'contr-tea',
+          oldText: 'Favorite tea is oolong',
+          newText: 'Favorite tea is lapsang souchong',
+          conflictKey: 'favorite tea',
+          status: 'active',
+          createdAt: '2026-04-13T12:02:00.000Z',
+        },
+      ],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const result = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'favorite tea',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      includeCandidateTrace: true,
+      candidateTraceLimit: 4,
+    });
+
+    assert.deepEqual(result.archiveContext.session.map((item) => item.id), ['tea-current']);
+    const stale = result.retrieval.candidateTrace.find((item) => item.id === 'tea-stale');
+    const current = result.retrieval.candidateTrace.find((item) => item.id === 'tea-current');
+    assert.ok(stale);
+    assert.ok(current);
+    assert.equal(current.selected, true);
+    assert.equal(current.rendered, true);
+    assert.equal(stale.selected, false);
+    assert.equal(stale.rendered, false);
+    assert.equal(stale.scoringProfile, 'hybrid-v1');
+    assert.ok(stale.activeScoreComponents.contradictionRepairScore < 0);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('buildArchiveContext suppresses weak sensitive matches instead of surfacing nonsense', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi({ ...files, embedReady: false });
@@ -778,6 +947,69 @@ test('buildArchiveContext suppresses weak sensitive matches instead of surfacing
     assert.equal(filtered.eligibility.filterReason, 'sensitive-low-confidence');
     assert.ok(filtered.scoreComponents);
     assert.equal(filtered.scoreReasons.includes('sensitivity-penalty:-1.50'), true);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext keeps weak sensitive matches suppressed under active hybrid-v1', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false, archiveScoringProfile: 'hybrid-v1' });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'safe-1',
+          type: 'episode',
+          text: 'Midnight rain on the windows felt safe again.',
+          excerpt: 'Midnight rain on the windows felt safe again.',
+          userText: 'Midnight rain on the windows felt safe again.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+          sensitivity: 'normal',
+        },
+        {
+          id: 'sensitive-1',
+          type: 'episode',
+          text: 'I feel broken and want to disappear tonight.',
+          excerpt: 'I feel broken and want to disappear tonight.',
+          userText: 'I feel broken and want to disappear tonight.',
+          createdAt: '2026-04-13T12:01:00.000Z',
+          sensitivity: 'high',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const result = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'Can you tell me about the midnight rain again?',
+      lane: 'chat',
+      includeCandidateTrace: true,
+    });
+
+    assert.equal(result.retrieval.scoringProfile, 'hybrid-v1');
+    assert.doesNotMatch(
+      result.archiveContext.session.map((item) => item.text).join('\n'),
+      /want to disappear|feel broken/i,
+    );
+    const filtered = result.retrieval.candidateTrace.find((item) => item.id === 'sensitive-1');
+    assert.ok(filtered);
+    assert.equal(filtered.ranked, false);
+    assert.equal(filtered.selected, false);
+    assert.equal(filtered.rendered, false);
+    assert.equal(filtered.eligibility.filterReason, 'sensitive-low-confidence');
+    assert.equal(filtered.scoringProfile, 'hybrid-v1');
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
