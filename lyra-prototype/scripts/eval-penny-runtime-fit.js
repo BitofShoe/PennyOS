@@ -404,6 +404,10 @@ function buildMarkdownSummary(report) {
     lines.push(`- Live answer drift measured: ${report.contextPressureFixture.liveAnswerDriftMeasured === true ? 'yes' : 'no'}`);
     lines.push(`- Variants: ${report.contextPressureFixture.contextVariants.map((item) => item.level).join(', ')}`);
     lines.push(`- Source-sensitive cases: ${report.contextPressureFixture.sourceSensitiveMemory.cases.length}`);
+    if (report.contextPressureFixture.candidateSurvivalCorrelation) {
+      const correlation = report.contextPressureFixture.candidateSurvivalCorrelation;
+      lines.push(`- Candidate-survival correlation: ${correlation.measurementMode || 'fixture-only'}, selection=${correlation.candidateSurvival?.selectionVerdict || 'not-run'}, rendered delta=${correlation.contextPressure?.renderedMemoryCountDelta ?? 'n/a'}, estimated token delta=${correlation.contextPressure?.estimatedPromptTokenDelta ?? 'n/a'}, drift=${correlation.contextPressure?.answerDrift || 'not-run'}`);
+    }
     lines.push('');
   }
   lines.push('## Recommendations');

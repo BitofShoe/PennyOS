@@ -1494,6 +1494,174 @@ function buildCandidateSurvivalProfileComparison(caseLike = {}, {
   };
 }
 
+function averageNumeric(values = []) {
+  const numbers = asArray(values)
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  if (!numbers.length) return null;
+  const total = numbers.reduce((sum, value) => sum + value, 0);
+  return Math.round((total / numbers.length) * 1000) / 1000;
+}
+
+function profileComparisonLooksImproved(comparison = {}) {
+  const verdict = normalizeKey(comparison.verdict || '');
+  if ([
+    'hybrid-rendered-more',
+    'hybrid-selected-more',
+    'hybrid-ranked-better',
+  ].includes(verdict)) return true;
+  const baselineRank = normalizeRank(comparison.baseline?.bestRank);
+  const hybridRank = normalizeRank(comparison.hybridV1?.bestRank);
+  return baselineRank !== null && hybridRank !== null && hybridRank < baselineRank;
+}
+
+function profileComparisonLooksWorse(comparison = {}) {
+  const verdict = normalizeKey(comparison.verdict || '');
+  if ([
+    'hybrid-rendered-less',
+    'hybrid-selected-less',
+    'hybrid-ranked-worse',
+    'rendered-count-changed',
+  ].includes(verdict)) return true;
+  const baselineRank = normalizeRank(comparison.baseline?.bestRank);
+  const hybridRank = normalizeRank(comparison.hybridV1?.bestRank);
+  return baselineRank !== null && hybridRank !== null && hybridRank > baselineRank;
+}
+
+function buildCandidateSurvivalCorrelationSummary({
+  generatedAt = new Date().toISOString(),
+  measurementMode = '',
+  artifact = null,
+  cases = null,
+} = {}) {
+  const sourceArtifact = artifact && typeof artifact === 'object' ? artifact : null;
+  const sourceCases = asArray(cases || sourceArtifact?.cases);
+  const hasProfileComparisons = sourceCases.some((item) => (
+    item?.profileComparison?.baseline && item?.profileComparison?.hybridV1
+  ));
+  const normalizedMode = hasProfileComparisons
+    ? 'archive-unit'
+    : (String(measurementMode || sourceArtifact?.measurementMode || 'fixture-only').trim() || 'fixture-only');
+
+  if (hasProfileComparisons) {
+    const comparisonCases = sourceCases.filter((item) => (
+      item?.profileComparison?.baseline && item?.profileComparison?.hybridV1
+    ));
+    const beforeRanks = comparisonCases.map((item) => item.profileComparison.baseline.bestRank);
+    const afterRanks = comparisonCases.map((item) => item.profileComparison.hybridV1.bestRank);
+    const renderedMemoryCountDelta = comparisonCases.reduce((sum, item) => (
+      sum + Number(item.profileComparison.renderedCountDelta || 0)
+    ), 0);
+    const improvedCaseIds = comparisonCases
+      .filter((item) => profileComparisonLooksImproved(item.profileComparison))
+      .map((item) => item.id)
+      .filter(Boolean);
+    const worsenedCaseIds = comparisonCases
+      .filter((item) => profileComparisonLooksWorse(item.profileComparison))
+      .map((item) => item.id)
+      .filter(Boolean);
+    const unchangedCaseIds = comparisonCases
+      .filter((item) => (
+        !profileComparisonLooksImproved(item.profileComparison)
+          && !profileComparisonLooksWorse(item.profileComparison)
+      ))
+      .map((item) => item.id)
+      .filter(Boolean);
+    const selectionVerdict = worsenedCaseIds.length
+      ? 'mixed-or-worse'
+      : (improvedCaseIds.length
+        ? (renderedMemoryCountDelta === 0 ? 'improved-without-rendered-count-growth' : 'improved-with-rendered-count-change')
+        : 'same');
+
+    return {
+      measurementMode: normalizedMode,
+      generatedAt,
+      liveModelCalls: false,
+      liveAnswerDriftMeasured: false,
+      candidateSurvival: {
+        comparisonState: 'profile-comparison',
+        comparisonSource: 'baseline-vs-hybrid-v1',
+        rankAggregation: 'mean-best-rank-across-profile-cases',
+        expectedObjectBestRankBefore: averageNumeric(beforeRanks),
+        expectedObjectBestRankAfter: averageNumeric(afterRanks),
+        selectedBefore: comparisonCases.filter((item) => item.profileComparison.baseline.selected === true).length,
+        selectedAfter: comparisonCases.filter((item) => item.profileComparison.hybridV1.selected === true).length,
+        renderedBefore: comparisonCases.filter((item) => item.profileComparison.baseline.rendered === true).length,
+        renderedAfter: comparisonCases.filter((item) => item.profileComparison.hybridV1.rendered === true).length,
+        improvedCaseIds,
+        unchangedCaseIds,
+        worsenedCaseIds,
+        selectionVerdict,
+      },
+      contextPressure: {
+        renderedMemoryCountDelta,
+        estimatedPromptTokenDelta: null,
+        estimatedPromptTokenDeltaMode: 'not-measured-in-archive-unit-profile-comparison',
+        promptBloatInferred: renderedMemoryCountDelta > 0,
+        answerDrift: 'not-run',
+      },
+      latency: {
+        firstTokenLatencyDeltaMs: null,
+        totalLatencyDeltaMs: null,
+      },
+      limits: [
+        'Candidate survival is retrieval-path evidence, not answer-quality evidence.',
+        'Profile correlation compares fixture/unit retrieval receipts only; live answer drift is not measured here.',
+        'Rendered-count delta is measured; prompt-token delta is not estimated for archive-unit profile comparisons.',
+        'Latency fields stay null unless a separate live runtime-fit run measures them.',
+      ],
+    };
+  }
+
+  const fixture = sourceCases.length
+    ? { cases: sourceCases, summary: summarizeCandidateSurvivalCases(sourceCases) }
+    : buildCandidateSurvivalQaFixture({ generatedAt });
+  const summary = fixture.summary || summarizeCandidateSurvivalCases(fixture.cases || []);
+  const byOutcome = summary.byOutcome || {};
+  const fixtureExpectedRendered = Number(byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.RENDERED] || 0);
+  const fixtureExpectedSelectedHeldBack = Number(byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.SELECTED_HELD_BACK] || 0);
+
+  return {
+    measurementMode: normalizedMode === 'archive-unit' ? 'archive-unit' : 'fixture-only',
+    generatedAt,
+    liveModelCalls: false,
+    liveAnswerDriftMeasured: false,
+    candidateSurvival: {
+      comparisonState: 'not-run',
+      comparisonSource: 'candidate-survival-fixture',
+      expectedObjectBestRankBefore: null,
+      expectedObjectBestRankAfter: null,
+      selectedBefore: null,
+      selectedAfter: null,
+      renderedBefore: null,
+      renderedAfter: null,
+      fixtureExpectedSelected: fixtureExpectedRendered + fixtureExpectedSelectedHeldBack,
+      fixtureExpectedRendered,
+      fixtureExpectedMissing: Number(byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.MISSING] || 0),
+      fixtureExpectedSuppressedOrRawOnly: Number(byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.RAW_ONLY] || 0),
+      summary,
+      selectionVerdict: 'not-run',
+    },
+    contextPressure: {
+      renderedMemoryCountDelta: 0,
+      estimatedPromptTokenDelta: 0,
+      estimatedPromptTokenDeltaMode: 'fixture-no-profile-change',
+      promptBloatInferred: false,
+      answerDrift: 'not-run',
+    },
+    latency: {
+      firstTokenLatencyDeltaMs: null,
+      totalLatencyDeltaMs: null,
+    },
+    limits: [
+      'Candidate survival is retrieval-path evidence, not answer-quality evidence.',
+      'Fixture-only correlation records the appendix shape; before/after selection comparison is not run.',
+      'Rendered-memory and estimated-token deltas are zero because this fixture does not change prompt limits.',
+      'Live answer drift and latency remain deferred to a separate isolated runtime-fit run.',
+    ],
+  };
+}
+
 function getCandidateLabel(candidate = null) {
   if (!candidate) return '';
   return trimText(candidate.id || candidate.sourceId || candidate.object || candidate.textPreview || candidate.text || '', 160);
@@ -1806,6 +1974,11 @@ function buildCandidateSurvivalArchiveUnitArtifact({
     cases: normalizedCases,
     cleanup,
     summary: summarizeCandidateSurvivalCases(normalizedCases),
+    candidateSurvivalCorrelation: buildCandidateSurvivalCorrelationSummary({
+      generatedAt,
+      measurementMode: 'archive-unit',
+      cases: normalizedCases,
+    }),
     limits: [
       'Candidate survival is retrieval-path evidence, not answer-quality evidence.',
       'This archive-unit mode does not generate live model answers.',
@@ -1842,6 +2015,11 @@ function buildCandidateSurvivalQaFixture({
     failureModeDefinitions: buildFailureModeDefinitionList(),
     cases: casesWithFailureModes,
     summary: summarizeCandidateSurvivalCases(casesWithFailureModes),
+    candidateSurvivalCorrelation: buildCandidateSurvivalCorrelationSummary({
+      generatedAt,
+      measurementMode: 'fixture-only',
+      cases: casesWithFailureModes,
+    }),
     limits: [
       'Candidate survival is retrieval evidence, not answer-quality evidence.',
       'Source-sensitive retrieval expectations are separate from answer-quality outcome buckets.',
@@ -1863,6 +2041,7 @@ module.exports = {
   applyPromptTruthToCandidateTrace,
   buildCandidateSurvivalArchiveUnitArtifact,
   buildCandidateSurvivalArchiveUnitCaseResult,
+  buildCandidateSurvivalCorrelationSummary,
   buildCandidateSurvivalProfileComparison,
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,

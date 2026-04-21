@@ -1,5 +1,8 @@
 const CONTEXT_PRESSURE_QA_SCHEMA = 'penny-context-pressure-memory-qa.v1';
 const SOURCE_SENSITIVE_MEMORY_QA_SCHEMA = 'penny-source-sensitive-memory-qa.v1';
+const {
+  buildCandidateSurvivalCorrelationSummary,
+} = require('./penny-candidate-survival-qa');
 
 const CONTEXT_PRESSURE_LEVELS = Object.freeze([
   'short',
@@ -709,6 +712,7 @@ function buildContextPressureQaArtifact({
   generatedAt = new Date().toISOString(),
   defaults = {},
   variants = null,
+  candidateSurvivalArtifact = null,
 } = {}) {
   const normalizedVariants = Array.isArray(variants) && variants.length
     ? variants
@@ -729,11 +733,16 @@ function buildContextPressureQaArtifact({
     comparisons: buildContextPressureComparisons(normalizedVariants),
     driftClasses: CONTEXT_PRESSURE_DRIFT_CLASSES,
     sourceSensitiveMemory: buildSourceSensitiveMemoryQaFixture({ generatedAt, defaults }),
+    candidateSurvivalCorrelation: buildCandidateSurvivalCorrelationSummary({
+      generatedAt,
+      artifact: candidateSurvivalArtifact,
+    }),
     invalidRunCriteria: [
       'Live latency fields are null in fixture mode.',
       'A live result is invalid if lane/model identity is missing or mismatched.',
       'A live result is invalid if disposable memory/archive/embedding/books/ledger files are not cleaned afterward.',
       'A live result is invalid if semantic readiness is assumed from candidate count alone.',
+      'A candidate-survival correlation is invalid if fixture/unit mode claims live answer drift or non-null live latency.',
     ],
     limits: [
       'This fixture-only artifact records rendered-context pressure shape; it does not make long context the default.',
@@ -742,6 +751,7 @@ function buildContextPressureQaArtifact({
       'Semantic readiness may be fixture-assumed in fixture artifacts; it is not runtime proof.',
       'PromptTruth remains a prompt-context receipt, not an answer-quality score.',
       'toolEvidenceReceipt remains a sibling runtime receipt and is not merged into PromptTruth.',
+      'Candidate-survival correlation is retrieval-path evidence only; it does not prove live answer quality.',
     ],
   };
 }
@@ -770,6 +780,21 @@ function buildContextPressureMarkdownSummary(report = {}) {
     lines.push(`- ${item.from} -> ${item.to}: +${item.estimatedPromptTokenDelta} estimated tokens, +${item.renderedMemoryDelta} rendered item(s), drift=${item.answerDrift}`);
   }
   lines.push('');
+  const correlation = report.candidateSurvivalCorrelation || null;
+  if (correlation) {
+    lines.push('## Candidate-Survival Correlation');
+    lines.push('');
+    lines.push(`- Mode: ${correlation.measurementMode || 'fixture-only'}`);
+    lines.push(`- Live model calls: ${correlation.liveModelCalls === true ? 'yes' : 'no'}`);
+    lines.push(`- Live answer drift measured: ${correlation.liveAnswerDriftMeasured === true ? 'yes' : 'no'}`);
+    lines.push(`- Selection verdict: ${correlation.candidateSurvival?.selectionVerdict || 'not-run'}`);
+    lines.push(`- Rendered memory delta: ${correlation.contextPressure?.renderedMemoryCountDelta ?? 'n/a'}`);
+    lines.push(`- Estimated prompt-token delta: ${correlation.contextPressure?.estimatedPromptTokenDelta ?? 'n/a'}`);
+    lines.push(`- Answer drift: ${correlation.contextPressure?.answerDrift || 'not-run'}`);
+    lines.push(`- First-token latency delta: ${correlation.latency?.firstTokenLatencyDeltaMs ?? 'n/a'}`);
+    lines.push(`- Total latency delta: ${correlation.latency?.totalLatencyDeltaMs ?? 'n/a'}`);
+    lines.push('');
+  }
   lines.push('## Source-Sensitive Cases');
   lines.push('');
   for (const item of Array.isArray(report.sourceSensitiveMemory?.cases) ? report.sourceSensitiveMemory.cases : []) {

@@ -112,6 +112,21 @@ test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary'
       liveAnswerDriftMeasured: false,
       contextVariants: [{ level: 'short' }, { level: 'medium' }, { level: 'long' }],
       sourceSensitiveMemory: { cases: [{ id: 'case-1' }, { id: 'case-2' }] },
+      candidateSurvivalCorrelation: {
+        measurementMode: 'fixture-only',
+        liveModelCalls: false,
+        liveAnswerDriftMeasured: false,
+        candidateSurvival: { selectionVerdict: 'not-run' },
+        contextPressure: {
+          renderedMemoryCountDelta: 0,
+          estimatedPromptTokenDelta: 0,
+          answerDrift: 'not-run',
+        },
+        latency: {
+          firstTokenLatencyDeltaMs: null,
+          totalLatencyDeltaMs: null,
+        },
+      },
     },
     recommendations: {},
   });
@@ -120,6 +135,7 @@ test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary'
   assert.match(markdown, /Mode: fixture-only/);
   assert.match(markdown, /Live answer drift measured: no/);
   assert.match(markdown, /Variants: short, medium, long/);
+  assert.match(markdown, /Candidate-survival correlation: fixture-only, selection=not-run, rendered delta=0, estimated token delta=0, drift=not-run/);
   assert.match(markdown, /Memory-heavy rendered context: 2 rendered \/ 3 selected/);
 });
 

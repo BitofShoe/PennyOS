@@ -39,7 +39,58 @@ test('context-pressure fixture compares short, medium, and long rendered context
   assert.equal(artifact.comparisons[0].from, 'short');
   assert.equal(artifact.comparisons[0].to, 'medium');
   assert.equal(artifact.comparisons[0].answerDrift, 'not-run');
+  assert.equal(artifact.candidateSurvivalCorrelation.measurementMode, 'fixture-only');
+  assert.equal(artifact.candidateSurvivalCorrelation.liveModelCalls, false);
+  assert.equal(artifact.candidateSurvivalCorrelation.liveAnswerDriftMeasured, false);
+  assert.equal(artifact.candidateSurvivalCorrelation.candidateSurvival.comparisonState, 'not-run');
+  assert.equal(artifact.candidateSurvivalCorrelation.contextPressure.answerDrift, 'not-run');
+  assert.equal(artifact.candidateSurvivalCorrelation.contextPressure.renderedMemoryCountDelta, 0);
+  assert.equal(artifact.candidateSurvivalCorrelation.contextPressure.estimatedPromptTokenDelta, 0);
+  assert.equal(artifact.candidateSurvivalCorrelation.contextPressure.promptBloatInferred, false);
+  assert.equal(artifact.candidateSurvivalCorrelation.latency.firstTokenLatencyDeltaMs, null);
+  assert.equal(artifact.candidateSurvivalCorrelation.latency.totalLatencyDeltaMs, null);
   assert.equal(artifact.sourceSensitiveMemory.cases.length >= 4, true);
+});
+
+test('context-pressure fixture can attach archive-unit candidate survival profile correlation', () => {
+  const artifact = buildContextPressureQaArtifact({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+    candidateSurvivalArtifact: {
+      measurementMode: 'archive-unit',
+      liveModelCalls: false,
+      cases: [
+        {
+          id: 'archive-coding-mascot-correction',
+          profileComparison: {
+            baseline: { bestRank: 3, selected: false, rendered: false },
+            hybridV1: { bestRank: 1, selected: true, rendered: true },
+            renderedCountDelta: 0,
+            verdict: 'hybrid-ranked-better',
+          },
+        },
+      ],
+    },
+  });
+
+  const correlation = artifact.candidateSurvivalCorrelation;
+  assert.equal(correlation.measurementMode, 'archive-unit');
+  assert.equal(correlation.liveModelCalls, false);
+  assert.equal(correlation.liveAnswerDriftMeasured, false);
+  assert.equal(correlation.candidateSurvival.expectedObjectBestRankBefore, 3);
+  assert.equal(correlation.candidateSurvival.expectedObjectBestRankAfter, 1);
+  assert.equal(correlation.candidateSurvival.selectedBefore, 0);
+  assert.equal(correlation.candidateSurvival.selectedAfter, 1);
+  assert.equal(correlation.candidateSurvival.renderedBefore, 0);
+  assert.equal(correlation.candidateSurvival.renderedAfter, 1);
+  assert.deepEqual(correlation.candidateSurvival.improvedCaseIds, ['archive-coding-mascot-correction']);
+  assert.equal(correlation.candidateSurvival.selectionVerdict, 'improved-without-rendered-count-growth');
+  assert.equal(correlation.contextPressure.renderedMemoryCountDelta, 0);
+  assert.equal(correlation.contextPressure.estimatedPromptTokenDelta, null);
+  assert.equal(correlation.contextPressure.estimatedPromptTokenDeltaMode, 'not-measured-in-archive-unit-profile-comparison');
+  assert.equal(correlation.contextPressure.promptBloatInferred, false);
+  assert.equal(correlation.contextPressure.answerDrift, 'not-run');
+  assert.equal(correlation.latency.firstTokenLatencyDeltaMs, null);
+  assert.equal(correlation.latency.totalLatencyDeltaMs, null);
 });
 
 test('source-sensitive memory fixture separates subject relation object source and surface wording', () => {

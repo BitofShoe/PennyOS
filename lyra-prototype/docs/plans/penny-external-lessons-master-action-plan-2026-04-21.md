@@ -285,6 +285,7 @@ Current repo evidence:
 - `lib/penny-context-pressure-qa.js` owns the context-pressure and source-sensitive fixture schemas, prompt-token estimates, selected/rendered memory counts, fixture semantic-readiness assumptions, nullable latency fields, answer-drift classes, and source-sensitive support outcomes.
 - `npm run eval:runtime-fit:context-pressure` writes the cheap short/medium/long rendered-context fixture-only artifact; it records field shape, not live latency or live answer drift.
 - `npm run qa:memory:source-sensitive` writes the source-sensitive memory fixture cases.
+- Context-pressure artifacts now include a candidate-survival correlation appendix. In fixture-only mode it records the appendix shape and `not-run` comparison; archive-unit candidate-survival artifacts can summarize baseline-vs-`hybrid-v1` profile comparisons against rendered-count pressure.
 - Targeted coverage lives in `test/penny-context-pressure-qa.test.js`, `test/penny-runtime-fit-script.test.js`, and `test/penny-memory-qa-script.test.js`.
 - Fixture artifacts were generated under `output/runtime-fit-context-pressure-2026-04-21T10-13-32-490Z.*` and `output/memory-qa-source-sensitive-2026-04-21T10-13-32-512Z.json`.
 - Browser smoke passed against the disposable mock-server path at `output/playwright/penny-browser-smoke-2026-04-21T10-18-34-534Z.json`; that verifies the streaming UI path, not live context-pressure answer drift.
@@ -296,10 +297,12 @@ Landed fixture/unit work:
 - Added source-sensitive memory cases that separate subject, relation, object, source, and surface wording.
 - Added support outcomes for cases where evidence is absent, weak, unsupported, repaired, or appropriately abstained.
 - Kept semantic recall and embeddings framed as discovery/candidate selection, never canonical memory truth.
+- Added candidate-survival correlation as retrieval-path evidence only: it can show whether sharper profile selection improved candidate survival without rendered-count growth, but it does not claim Penny's live answer improved.
 
 Still deferred:
 
 - Live LM Studio short/medium/long answer-drift measurement has not run.
+- Live answer-quality drift for candidate-survival changes remains deferred unless a separate isolated runtime-fit run is explicitly requested.
 - Any live run should use isolated/disposable memory, archive, embedding, books, ledger, and output paths, then clean generated QA residue afterward.
 
 Success criteria:

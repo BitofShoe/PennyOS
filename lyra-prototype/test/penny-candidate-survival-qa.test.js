@@ -8,6 +8,7 @@ const {
   applyPromptTruthToCandidateTrace,
   buildCandidateSurvivalArchiveUnitArtifact,
   buildCandidateSurvivalArchiveUnitCaseResult,
+  buildCandidateSurvivalCorrelationSummary,
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,
   classifyCandidateFailureMode,
@@ -84,6 +85,12 @@ test('candidate-survival fixture is fixture-only and carries explicit outcome de
   assert.ok(fixture.limits.includes('PromptTruth remains prompt-context receipt only.'));
   assert.ok(fixture.limits.includes('Semantic candidates remain discovery-only unless rendered or canonized elsewhere.'));
   assert.ok(fixture.limits.includes('This artifact does not change default rendered context limits.'));
+  assert.equal(fixture.candidateSurvivalCorrelation.measurementMode, 'fixture-only');
+  assert.equal(fixture.candidateSurvivalCorrelation.liveModelCalls, false);
+  assert.equal(fixture.candidateSurvivalCorrelation.liveAnswerDriftMeasured, false);
+  assert.equal(fixture.candidateSurvivalCorrelation.candidateSurvival.comparisonState, 'not-run');
+  assert.equal(fixture.candidateSurvivalCorrelation.contextPressure.answerDrift, 'not-run');
+  assert.equal(fixture.candidateSurvivalCorrelation.latency.firstTokenLatencyDeltaMs, null);
 });
 
 test('candidate-survival fixture includes Penny-native explicit archive semantic and absent cases', () => {
@@ -643,6 +650,60 @@ test('archive-unit artifact records no live model or server behavior', () => {
   assert.equal(artifact.failureModeDefinitions.length, 9);
   assert.equal(artifact.summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.MISSING], 1);
   assert.equal(artifact.summary.byFailureMode[CANDIDATE_FAILURE_MODES.MISSING_FROM_RAW], 1);
+  assert.equal(artifact.candidateSurvivalCorrelation.measurementMode, 'archive-unit');
+  assert.equal(artifact.candidateSurvivalCorrelation.candidateSurvival.comparisonState, 'not-run');
+  assert.equal(artifact.candidateSurvivalCorrelation.contextPressure.answerDrift, 'not-run');
+  assert.equal(artifact.candidateSurvivalCorrelation.latency.totalLatencyDeltaMs, null);
+});
+
+test('candidate-survival correlation summarizes archive-unit profile comparisons without live drift claims', () => {
+  const correlation = buildCandidateSurvivalCorrelationSummary({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+    artifact: {
+      measurementMode: 'archive-unit',
+      cases: [
+        {
+          id: 'archive-coding-mascot-correction',
+          profileComparison: {
+            baseline: { bestRank: 4, selected: false, rendered: false },
+            hybridV1: { bestRank: 1, selected: true, rendered: true },
+            renderedCountDelta: 0,
+            verdict: 'hybrid-ranked-better',
+          },
+        },
+        {
+          id: 'archive-cashier-watch-correction',
+          profileComparison: {
+            baseline: { bestRank: 2, selected: true, rendered: true },
+            hybridV1: { bestRank: 2, selected: true, rendered: true },
+            renderedCountDelta: 0,
+            verdict: 'same',
+          },
+        },
+      ],
+    },
+  });
+
+  assert.equal(correlation.measurementMode, 'archive-unit');
+  assert.equal(correlation.liveModelCalls, false);
+  assert.equal(correlation.liveAnswerDriftMeasured, false);
+  assert.equal(correlation.candidateSurvival.comparisonState, 'profile-comparison');
+  assert.equal(correlation.candidateSurvival.expectedObjectBestRankBefore, 3);
+  assert.equal(correlation.candidateSurvival.expectedObjectBestRankAfter, 1.5);
+  assert.equal(correlation.candidateSurvival.selectedBefore, 1);
+  assert.equal(correlation.candidateSurvival.selectedAfter, 2);
+  assert.equal(correlation.candidateSurvival.renderedBefore, 1);
+  assert.equal(correlation.candidateSurvival.renderedAfter, 2);
+  assert.deepEqual(correlation.candidateSurvival.improvedCaseIds, ['archive-coding-mascot-correction']);
+  assert.deepEqual(correlation.candidateSurvival.unchangedCaseIds, ['archive-cashier-watch-correction']);
+  assert.equal(correlation.candidateSurvival.selectionVerdict, 'improved-without-rendered-count-growth');
+  assert.equal(correlation.contextPressure.renderedMemoryCountDelta, 0);
+  assert.equal(correlation.contextPressure.estimatedPromptTokenDelta, null);
+  assert.equal(correlation.contextPressure.estimatedPromptTokenDeltaMode, 'not-measured-in-archive-unit-profile-comparison');
+  assert.equal(correlation.contextPressure.promptBloatInferred, false);
+  assert.equal(correlation.contextPressure.answerDrift, 'not-run');
+  assert.equal(correlation.latency.firstTokenLatencyDeltaMs, null);
+  assert.equal(correlation.latency.totalLatencyDeltaMs, null);
 });
 
 test('explicit-memory-owned case can be not applicable for archive candidate survival', () => {
