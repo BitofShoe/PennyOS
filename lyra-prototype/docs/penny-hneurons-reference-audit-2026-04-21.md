@@ -150,7 +150,7 @@ Add or standardize fields along these lines where web/tool evidence is represent
 
 This should land in helper-owned seams, not as broad `server.js` growth.
 
-2. **Over-compliance QA canaries**
+1. **Over-compliance QA canaries**
 
 Add fixed cases for:
 
@@ -165,7 +165,7 @@ Add fixed cases for:
 
 The success target is warm correction, not sterile refusal.
 
-3. **Truthfulness scoring that rewards abstention**
+1. **Truthfulness scoring that rewards abstention**
 
 QA should classify outputs as:
 
@@ -179,7 +179,7 @@ QA should classify outputs as:
 
 The key change is that "I need to verify that" can be a pass.
 
-4. **Agent snowball breakers**
+1. **Agent snowball breakers**
 
 Repo agents should follow a simple rule:
 
@@ -187,7 +187,7 @@ If a premise depends on a file, URL, package, command output, git state, or runt
 
 This comes straight out of snowball hallucination work and matches Penny's current tool-evidence laws.
 
-5. **Companion-specific sycophancy tests**
+1. **Companion-specific sycophancy tests**
 
 Test whether Penny's evaluation of an artifact changes just because the user frames it as:
 
@@ -212,7 +212,7 @@ Use resampling / meaning-clustering only for high-risk factual work:
 
 Do not run it on normal companion chat. It is too expensive and misses consistently wrong beliefs.
 
-2. **Offline activation or SAE probe**
+1. **Offline activation or SAE probe**
 
 Only if a local open-weight path exposes hidden states cleanly:
 
@@ -221,11 +221,11 @@ Only if a local open-weight path exposes hidden states cleanly:
 - compare against cheaper observable gates
 - do not expose it as a runtime truth oracle
 
-3. **Small graded calibration set**
+1. **Small graded calibration set**
 
 Kapoor-style graded examples and TruthRL-style ternary scoring are interesting later if Penny gets an offline tuning/eval loop. For now, use them as QA design pressure, not a training project.
 
-4. **Tail-fact / knowledge-graph comparison fixtures**
+1. **Tail-fact / knowledge-graph comparison fixtures**
 
 Head-to-Tail suggests testing long-tail facts and fabricated entities. Penny does not need a KG rewrite, but small tail-fact fixtures would strengthen source-trust QA.
 
@@ -259,55 +259,55 @@ This is not colder. It is more trustworthy.
 
 ## Reference Matrix
 
-| Source | Main lesson | Penny translation |
-| --- | --- | --- |
-| [H-Neurons](https://arxiv.org/abs/2512.01797) | Sparse internal signals are associated with hallucination and over-compliance. | Test over-compliance behavior; do not patch neurons in the app. |
-| [HalluLens](https://aclanthology.org/2025.acl-long.1176/) | Hallucination and factuality need cleaner taxonomy. | Keep PromptTruth, tool evidence, memory authority, and world factuality separate. |
-| [Vectara DeepSeek-R1 post](https://www.vectara.com/blog/deepseek-r1-hallucinates-more-than-deepseek-v3) | Reasoning-heavy models can still hallucinate in summarization benchmarks. | Verify model/lane behavior empirically; do not assume thinking mode solves trust. |
-| [Foundation Models risks](https://arxiv.org/abs/2108.07258) | Foundation-model failures propagate through downstream systems. | Penny needs local receipts and bounded architecture, not blind model trust. |
-| [GPT-3 few-shot](https://arxiv.org/abs/2005.14165) | Prompting can unlock behavior without changing weights. | Prompts help, but prompting is not verification. |
-| [Chelli et al.](https://www.jmir.org/2024/1/e53164/) | Reference generation can fabricate citations at high rates. | Verify citations, URLs, packages, files, and paper metadata with tools. |
-| [Safety neurons](https://arxiv.org/abs/2406.14144) | Safety/helpfulness may have localized internal mechanisms. | Add helpful-but-not-over-compliant evals; defer activation work. |
-| [Generative restoration hallucinations](https://papers.neurips.cc/paper_files/paper/2024/hash/2847d43f17410c5beb25b2736c3ae778-Abstract-Conference.html) | Polished restoration can create plausible false detail. | Semantic render and companion style must not make weak evidence sound stronger. |
-| [Cell cycle and cancer](https://www.pnas.org/doi/10.1073/pnas.94.7.2776) | Checkpoints prevent uncontrolled propagation. | Use only as a metaphor for promotion/QA gates. |
-| [Semantic entropy](https://www.nature.com/articles/s41586-024-07421-0) | Resampling by meaning can detect confabulations. | Maybe add targeted verifier for high-risk factual claims. |
-| [Knowledge awareness](https://openreview.net/forum?id=WCRQFlji2q) | Models can encode entity familiarity/awareness signals. | Add fabricated-entity and obscure-entity gates; defer hidden-state probing. |
-| [RAG survey](https://arxiv.org/abs/2312.10997) | Retrieval, augmentation, and generation are separable pipeline stages. | Evidence plumbing and receipts matter more than dumping more chunks. |
-| [MMLU](https://openreview.net/forum?id=d7KBjmI3GmQ) | Broad capability benchmark. | Useful for model capability context; not evidence-grounding proof. |
-| [MATH](https://arxiv.org/abs/2103.03874) | Hard reasoning benchmark. | Do not confuse math/reasoning score with source faithfulness. |
-| [FalseQA](https://aclanthology.org/2023.acl-long.309/) | Models can rebut false-premise questions if trained/stimulated. | Add false-premise and premise-repair QA. |
-| [NLG hallucination survey](https://arxiv.org/abs/2202.03629) | Hallucination definitions differ by task. | Keep task labels explicit: summary, QA, dialogue, source-grounded, tool-grounded. |
-| [Internal states risk](https://arxiv.org/abs/2407.03282) | Hidden states can estimate hallucination risk in studied models. | Build surrogate observable risk gates now; hidden-state work is later. |
-| [TriviaQA](https://arxiv.org/abs/1705.03551) | QA often requires evidence across noisy sources. | Use multi-evidence fixtures; exact lexical match is not enough. |
-| [Calibrated LMs must hallucinate](https://arxiv.org/abs/2311.14648) | Some long-tail hallucination pressure is statistically expected. | Retrieval and abstention are architectural needs. |
-| [Why LMs hallucinate](https://arxiv.org/abs/2509.04664) | Training/evals reward guessing over uncertainty. | Make abstention a QA success when evidence is absent. |
-| [Know what they don't know](https://proceedings.neurips.cc/paper_files/paper/2024/hash/9c20f16b05f5e5e70fa07e2a4364b80e-Abstract-Conference.html) | Prompting alone is not enough for calibration. | Do not rely on self-reported confidence; use receipts and graded QA. |
-| [Who lies?](https://smg.media.mit.edu/library/Kashy.DePaulo.WhoLies.pdf) | Social motives can shape lying in humans. | Analogy only: pleasing pressure can produce false outputs. |
-| [Natural Questions](https://research.google/pubs/natural-questions-a-benchmark-for-question-answering-research/) | Real questions can be answerable or not from source pages. | Treat no-answer as a first-class outcome. |
-| [Socially desirable responding](https://pubmed.ncbi.nlm.nih.gov/16448316/) | Human self-presentation has dimensions. | Analogy only: validate user feelings without validating false claims. |
-| [Factuality Enhanced LMs](https://arxiv.org/abs/2206.04624) | Sampling can harm factuality; training objectives matter. | Use factual-mode sampling/verification carefully; evaluate local defaults. |
-| [Factual knowledge causal analysis](https://aclanthology.org/2022.findings-acl.136/) | PLMs can depend on positional/co-occurrence shortcuts. | Add nearby-wrong and co-occurrence-trap fixtures. |
-| [TruthfulQA](https://aclanthology.org/2022.acl-long.229/) | Models may mimic common human falsehoods. | Add misconception and user-belief-bias tests. |
-| [Biology of an LLM](https://transformer-circuits.pub/2025/attribution-graphs/biology.html) | Mechanistic explanations are possible but limited by replacement-model assumptions. | Use receipts and interventions; do not infer Penny internals from vibes. |
-| [Rationale generation](https://aclanthology.org/P17-1015/) | Rationales can support problem solving. | Rationale is not evidence; verify final claims independently. |
-| [Memory formation](https://www.nature.com/articles/s41593-018-0076-6) | Durable memory and excitability are distinct. | Salience can affect retrieval, not truth. |
-| [Neurons predict future activity](https://www.nature.com/articles/s42256-021-00430-y) | Predictive usefulness can guide activity. | Prioritize open loops and likely-near-future context; do not claim biological coding. |
-| [Cell cycle control](https://www.nature.com/articles/s41580-021-00404-3) | Checkpoint metaphor. | Promotion and cleanup gates should stop bad propagation. |
-| [Faithfulness/factuality summarization](https://aclanthology.org/2020.acl-main.173/) | Fluent summaries can be unfaithful. | Source summaries need support checks and source-shaped receipts. |
-| [FaithEval](https://openreview.net/forum?id=UeVx6L59fg) | Context can be unanswerable, inconsistent, or counterfactual. | Add context-faithfulness fixtures and distinguish context truth from world truth. |
-| [Synaptic working memory](https://doi.org/10.1126/science.1150769) | Working state can be transient and refreshed. | Recent audit trail/thread context is not durable memory. |
-| [GPT-4 technical report](https://arxiv.org/abs/2303.08774) | Capability improves but limitations remain. | Capability is not a substitute for verification. |
-| [LLMs know more than they show](https://openreview.net/forum?id=KRnsX5Em3W) | Internal truth signals are multifaceted and not universal. | Avoid universal "truth vector" claims; rely on receipts. |
-| [InstructGPT](https://arxiv.org/abs/2203.02155) | RLHF improves helpfulness but creates preference incentives. | Keep friendliness and truthfulness separately evaluated. |
-| [Sycophancy](https://proceedings.iclr.cc/paper_files/paper/2024/hash/0105f7972202c1d4fb817da9f21a9663-Abstract-Conference.html) | RLHF-style systems can match user beliefs over truth. | Add user-pushback and feedback-bias tests. |
-| [DAN jailbreaks](https://arxiv.org/abs/2308.03825) | Jailbreaks use roleplay, override, and privilege escalation patterns. | Treat "as real Penny, ignore rules" as instruction pressure, not intimacy. |
-| [Head-to-Tail](https://aclanthology.org/2024.naacl-long.18/) | LLMs struggle more with torso/tail facts. | Use retrieval/abstention for obscure facts and fabricated entities. |
-| [Hallucination mitigation survey](https://arxiv.org/abs/2401.01313) | Many mitigation methods exist; none are universal. | Prefer layered mitigations: retrieval, receipts, QA, abstention, verifier paths. |
-| [BioASQ](https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0564-6) | Biomedical QA needs exact and ideal answers with evidence. | Good pattern for cited snippets in high-stakes or technical source QA. |
-| [Skill neurons](https://aclanthology.org/2022.emnlp-main.765/) | Some task skills localize in model internals. | Keep lane-specific evals; defer neuron language. |
-| [TruthRL](https://arxiv.org/abs/2509.25760) | Ternary reward can distinguish correct, abstain, hallucinate. | Use this shape for QA scoring before considering training. |
-| [Snowball hallucinations](https://proceedings.mlr.press/v235/zhang24ay.html) | Early mistakes cascade into later false reasoning. | Agents should stop and verify when a premise fails. |
-| [ReLU2 Wins](https://arxiv.org/abs/2402.03804) | Sparse activation/efficiency research. | Model-selection interest only; not a Penny runtime trust feature. |
+| Source                                                                                                                                                   | Main lesson                                                                         | Penny translation                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [H-Neurons](https://arxiv.org/abs/2512.01797)                                                                                                            | Sparse internal signals are associated with hallucination and over-compliance.      | Test over-compliance behavior; do not patch neurons in the app.                       |
+| [HalluLens](https://aclanthology.org/2025.acl-long.1176/)                                                                                                | Hallucination and factuality need cleaner taxonomy.                                 | Keep PromptTruth, tool evidence, memory authority, and world factuality separate.     |
+| [Vectara DeepSeek-R1 post](https://www.vectara.com/blog/deepseek-r1-hallucinates-more-than-deepseek-v3)                                                  | Reasoning-heavy models can still hallucinate in summarization benchmarks.           | Verify model/lane behavior empirically; do not assume thinking mode solves trust.     |
+| [Foundation Models risks](https://arxiv.org/abs/2108.07258)                                                                                              | Foundation-model failures propagate through downstream systems.                     | Penny needs local receipts and bounded architecture, not blind model trust.           |
+| [GPT-3 few-shot](https://arxiv.org/abs/2005.14165)                                                                                                       | Prompting can unlock behavior without changing weights.                             | Prompts help, but prompting is not verification.                                      |
+| [Chelli et al.](https://www.jmir.org/2024/1/e53164/)                                                                                                     | Reference generation can fabricate citations at high rates.                         | Verify citations, URLs, packages, files, and paper metadata with tools.               |
+| [Safety neurons](https://arxiv.org/abs/2406.14144)                                                                                                       | Safety/helpfulness may have localized internal mechanisms.                          | Add helpful-but-not-over-compliant evals; defer activation work.                      |
+| [Generative restoration hallucinations](https://papers.neurips.cc/paper_files/paper/2024/hash/2847d43f17410c5beb25b2736c3ae778-Abstract-Conference.html) | Polished restoration can create plausible false detail.                             | Semantic render and companion style must not make weak evidence sound stronger.       |
+| [Cell cycle and cancer](https://www.pnas.org/doi/10.1073/pnas.94.7.2776)                                                                                 | Checkpoints prevent uncontrolled propagation.                                       | Use only as a metaphor for promotion/QA gates.                                        |
+| [Semantic entropy](https://www.nature.com/articles/s41586-024-07421-0)                                                                                   | Resampling by meaning can detect confabulations.                                    | Maybe add targeted verifier for high-risk factual claims.                             |
+| [Knowledge awareness](https://openreview.net/forum?id=WCRQFlji2q)                                                                                        | Models can encode entity familiarity/awareness signals.                             | Add fabricated-entity and obscure-entity gates; defer hidden-state probing.           |
+| [RAG survey](https://arxiv.org/abs/2312.10997)                                                                                                           | Retrieval, augmentation, and generation are separable pipeline stages.              | Evidence plumbing and receipts matter more than dumping more chunks.                  |
+| [MMLU](https://openreview.net/forum?id=d7KBjmI3GmQ)                                                                                                      | Broad capability benchmark.                                                         | Useful for model capability context; not evidence-grounding proof.                    |
+| [MATH](https://arxiv.org/abs/2103.03874)                                                                                                                 | Hard reasoning benchmark.                                                           | Do not confuse math/reasoning score with source faithfulness.                         |
+| [FalseQA](https://aclanthology.org/2023.acl-long.309/)                                                                                                   | Models can rebut false-premise questions if trained/stimulated.                     | Add false-premise and premise-repair QA.                                              |
+| [NLG hallucination survey](https://arxiv.org/abs/2202.03629)                                                                                             | Hallucination definitions differ by task.                                           | Keep task labels explicit: summary, QA, dialogue, source-grounded, tool-grounded.     |
+| [Internal states risk](https://arxiv.org/abs/2407.03282)                                                                                                 | Hidden states can estimate hallucination risk in studied models.                    | Build surrogate observable risk gates now; hidden-state work is later.                |
+| [TriviaQA](https://arxiv.org/abs/1705.03551)                                                                                                             | QA often requires evidence across noisy sources.                                    | Use multi-evidence fixtures; exact lexical match is not enough.                       |
+| [Calibrated LMs must hallucinate](https://arxiv.org/abs/2311.14648)                                                                                      | Some long-tail hallucination pressure is statistically expected.                    | Retrieval and abstention are architectural needs.                                     |
+| [Why LMs hallucinate](https://arxiv.org/abs/2509.04664)                                                                                                  | Training/evals reward guessing over uncertainty.                                    | Make abstention a QA success when evidence is absent.                                 |
+| [Know what they don't know](https://proceedings.neurips.cc/paper_files/paper/2024/hash/9c20f16b05f5e5e70fa07e2a4364b80e-Abstract-Conference.html)        | Prompting alone is not enough for calibration.                                      | Do not rely on self-reported confidence; use receipts and graded QA.                  |
+| [Who lies?](https://smg.media.mit.edu/library/Kashy.DePaulo.WhoLies.pdf)                                                                                 | Social motives can shape lying in humans.                                           | Analogy only: pleasing pressure can produce false outputs.                            |
+| [Natural Questions](https://research.google/pubs/natural-questions-a-benchmark-for-question-answering-research/)                                         | Real questions can be answerable or not from source pages.                          | Treat no-answer as a first-class outcome.                                             |
+| [Socially desirable responding](https://pubmed.ncbi.nlm.nih.gov/16448316/)                                                                               | Human self-presentation has dimensions.                                             | Analogy only: validate user feelings without validating false claims.                 |
+| [Factuality Enhanced LMs](https://arxiv.org/abs/2206.04624)                                                                                              | Sampling can harm factuality; training objectives matter.                           | Use factual-mode sampling/verification carefully; evaluate local defaults.            |
+| [Factual knowledge causal analysis](https://aclanthology.org/2022.findings-acl.136/)                                                                     | PLMs can depend on positional/co-occurrence shortcuts.                              | Add nearby-wrong and co-occurrence-trap fixtures.                                     |
+| [TruthfulQA](https://aclanthology.org/2022.acl-long.229/)                                                                                                | Models may mimic common human falsehoods.                                           | Add misconception and user-belief-bias tests.                                         |
+| [Biology of an LLM](https://transformer-circuits.pub/2025/attribution-graphs/biology.html)                                                               | Mechanistic explanations are possible but limited by replacement-model assumptions. | Use receipts and interventions; do not infer Penny internals from vibes.              |
+| [Rationale generation](https://aclanthology.org/P17-1015/)                                                                                               | Rationales can support problem solving.                                             | Rationale is not evidence; verify final claims independently.                         |
+| [Memory formation](https://www.nature.com/articles/s41593-018-0076-6)                                                                                    | Durable memory and excitability are distinct.                                       | Salience can affect retrieval, not truth.                                             |
+| [Neurons predict future activity](https://www.nature.com/articles/s42256-021-00430-y)                                                                    | Predictive usefulness can guide activity.                                           | Prioritize open loops and likely-near-future context; do not claim biological coding. |
+| [Cell cycle control](https://www.nature.com/articles/s41580-021-00404-3)                                                                                 | Checkpoint metaphor.                                                                | Promotion and cleanup gates should stop bad propagation.                              |
+| [Faithfulness/factuality summarization](https://aclanthology.org/2020.acl-main.173/)                                                                     | Fluent summaries can be unfaithful.                                                 | Source summaries need support checks and source-shaped receipts.                      |
+| [FaithEval](https://openreview.net/forum?id=UeVx6L59fg)                                                                                                  | Context can be unanswerable, inconsistent, or counterfactual.                       | Add context-faithfulness fixtures and distinguish context truth from world truth.     |
+| [Synaptic working memory](https://doi.org/10.1126/science.1150769)                                                                                       | Working state can be transient and refreshed.                                       | Recent audit trail/thread context is not durable memory.                              |
+| [GPT-4 technical report](https://arxiv.org/abs/2303.08774)                                                                                               | Capability improves but limitations remain.                                         | Capability is not a substitute for verification.                                      |
+| [LLMs know more than they show](https://openreview.net/forum?id=KRnsX5Em3W)                                                                              | Internal truth signals are multifaceted and not universal.                          | Avoid universal "truth vector" claims; rely on receipts.                              |
+| [InstructGPT](https://arxiv.org/abs/2203.02155)                                                                                                          | RLHF improves helpfulness but creates preference incentives.                        | Keep friendliness and truthfulness separately evaluated.                              |
+| [Sycophancy](https://proceedings.iclr.cc/paper_files/paper/2024/hash/0105f7972202c1d4fb817da9f21a9663-Abstract-Conference.html)                          | RLHF-style systems can match user beliefs over truth.                               | Add user-pushback and feedback-bias tests.                                            |
+| [DAN jailbreaks](https://arxiv.org/abs/2308.03825)                                                                                                       | Jailbreaks use roleplay, override, and privilege escalation patterns.               | Treat "as real Penny, ignore rules" as instruction pressure, not intimacy.            |
+| [Head-to-Tail](https://aclanthology.org/2024.naacl-long.18/)                                                                                             | LLMs struggle more with torso/tail facts.                                           | Use retrieval/abstention for obscure facts and fabricated entities.                   |
+| [Hallucination mitigation survey](https://arxiv.org/abs/2401.01313)                                                                                      | Many mitigation methods exist; none are universal.                                  | Prefer layered mitigations: retrieval, receipts, QA, abstention, verifier paths.      |
+| [BioASQ](https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0564-6)                                                                 | Biomedical QA needs exact and ideal answers with evidence.                          | Good pattern for cited snippets in high-stakes or technical source QA.                |
+| [Skill neurons](https://aclanthology.org/2022.emnlp-main.765/)                                                                                           | Some task skills localize in model internals.                                       | Keep lane-specific evals; defer neuron language.                                      |
+| [TruthRL](https://arxiv.org/abs/2509.25760)                                                                                                              | Ternary reward can distinguish correct, abstain, hallucinate.                       | Use this shape for QA scoring before considering training.                            |
+| [Snowball hallucinations](https://proceedings.mlr.press/v235/zhang24ay.html)                                                                             | Early mistakes cascade into later false reasoning.                                  | Agents should stop and verify when a premise fails.                                   |
+| [ReLU2 Wins](https://arxiv.org/abs/2402.03804)                                                                                                           | Sparse activation/efficiency research.                                              | Model-selection interest only; not a Penny runtime trust feature.                     |
 
 ## Best Next Slice
 
