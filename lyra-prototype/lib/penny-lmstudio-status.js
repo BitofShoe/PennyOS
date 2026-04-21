@@ -1,3 +1,7 @@
+const {
+  buildGemmaRuntimeWatchArtifact,
+} = require('./penny-gemma-runtime-watch');
+
 function createLmStudioStatusApi({
   fetch,
   fs,
@@ -453,6 +457,8 @@ function createLmStudioStatusApi({
       clearTimeout(timer);
     }
 
+    value.gemmaRuntimeWatch = buildStatusGemmaRuntimeWatch(value);
+
     const cacheMs = value.reachable && (value.resolvedChatModel || value.resolvedToolModel)
       ? LMSTUDIO_STATUS_CACHE_MS
       : LMSTUDIO_STATUS_ERROR_CACHE_MS;
@@ -637,6 +643,32 @@ function createLmStudioStatusApi({
     return runtimePreferredChatModel;
   }
 
+  function buildStatusGemmaRuntimeWatch(status = {}) {
+    const value = status && typeof status === 'object' ? status : {};
+    return buildGemmaRuntimeWatchArtifact({
+      generatedAt: new Date().toISOString(),
+      measurementMode: 'status-only',
+      status: value,
+      visionBudget: {
+        exposed: false,
+        knobNames: [],
+        notes: 'LM Studio status does not expose a separate Gemma vision-budget knob.',
+      },
+      imagePolicy: {
+        currentTurnImageOnly: true,
+        imagePartBeforeText: true,
+      },
+      thinkingControls: {
+        exposed: null,
+        notes: 'Status only records the companion-chat default; explicit thinking eval remains separate.',
+      },
+      promptCacheRamRisk: {
+        contextLength: null,
+        notes: 'Status probe does not measure prompt-cache RAM pressure.',
+      },
+    });
+  }
+
   return {
     getLmStudioConnectionStatus,
     withLmStudioLaneModel,
@@ -646,6 +678,7 @@ function createLmStudioStatusApi({
     resetLmStudioStatusCache,
     pickLmStudioNativeModelId,
     shouldPreferLmStudioChatCompletions,
+    buildStatusGemmaRuntimeWatch,
     modelsLookEquivalent,
     normalizeModelKey,
   };

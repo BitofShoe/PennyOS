@@ -1,3 +1,30 @@
+function finiteNumberOrNull(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function buildLmStudioChatSamplingWatch({
+  temperature = 1.0,
+  topP = 0.95,
+  topK = 64,
+} = {}) {
+  return {
+    temperature: finiteNumberOrNull(temperature),
+    topP: finiteNumberOrNull(topP),
+    topK: finiteNumberOrNull(topK),
+  };
+}
+
+function normalizeLmStudioTransportForWatch(value = '') {
+  const transport = String(value || '').trim().toLowerCase();
+  if (transport === 'stateful-chat') return 'stateful-chat';
+  if (transport === 'chat-completions') return 'chat-completions';
+  if (transport === 'responses') return 'responses';
+  if (/^(stateful|native|native-chat)$/i.test(transport)) return 'stateful-chat';
+  if (/^(chat|chat-completion)$/i.test(transport)) return 'chat-completions';
+  return 'unknown';
+}
+
 function createLmStudioTransportApi({
   withLmStudioLaneModel,
   getLmStudioConnectionStatus,
@@ -74,19 +101,16 @@ function createLmStudioTransportApi({
     } catch {}
   }
 
-  function finiteNumberOrNull(value) {
-    const num = Number(value);
-    return Number.isFinite(num) ? num : null;
-  }
-
   function buildChatSamplingFields() {
-    const temperature = finiteNumberOrNull(LMSTUDIO_CHAT_TEMPERATURE);
-    const topP = finiteNumberOrNull(LMSTUDIO_CHAT_TOP_P);
-    const topK = finiteNumberOrNull(LMSTUDIO_CHAT_TOP_K);
+    const sampling = buildLmStudioChatSamplingWatch({
+      temperature: LMSTUDIO_CHAT_TEMPERATURE,
+      topP: LMSTUDIO_CHAT_TOP_P,
+      topK: LMSTUDIO_CHAT_TOP_K,
+    });
     return {
-      ...(temperature !== null ? { temperature } : {}),
-      ...(topP !== null ? { top_p: topP } : {}),
-      ...(topK !== null ? { top_k: topK } : {}),
+      ...(sampling.temperature !== null ? { temperature: sampling.temperature } : {}),
+      ...(sampling.topP !== null ? { top_p: sampling.topP } : {}),
+      ...(sampling.topK !== null ? { top_k: sampling.topK } : {}),
     };
   }
 
@@ -842,4 +866,6 @@ function createLmStudioTransportApi({
 
 module.exports = {
   createLmStudioTransportApi,
+  buildLmStudioChatSamplingWatch,
+  normalizeLmStudioTransportForWatch,
 };

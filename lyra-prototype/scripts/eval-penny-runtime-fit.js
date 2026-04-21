@@ -7,6 +7,13 @@ const {
   buildContextPressureQaArtifact,
   extractRuntimeContextMetrics,
 } = require('../lib/penny-context-pressure-qa');
+const {
+  buildGemmaRuntimeWatchArtifact,
+} = require('../lib/penny-gemma-runtime-watch');
+const {
+  buildLmStudioChatSamplingWatch,
+  normalizeLmStudioTransportForWatch,
+} = require('../lib/penny-lmstudio-transports');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
@@ -24,6 +31,9 @@ const DEFAULT_CONTEXT_LENGTH = Number(process.env.PENNY_RUNTIME_FIT_CONTEXT_DEFA
 const SHORT_CONTEXT_LENGTH = Number(process.env.PENNY_RUNTIME_FIT_CONTEXT_SHORT || 6144);
 const TOOL_CONTEXT_LENGTH = Number(process.env.PENNY_RUNTIME_FIT_TOOL_CONTEXT || 8192);
 const MAX_OUTPUT_TOKENS = String(process.env.PENNY_RUNTIME_FIT_MAX_OUTPUT_TOKENS || 320);
+const CHAT_TEMPERATURE = Number(process.env.PENNY_RUNTIME_FIT_CHAT_TEMPERATURE || process.env.PENNY_LMSTUDIO_CHAT_TEMPERATURE || 1.0);
+const CHAT_TOP_P = Number(process.env.PENNY_RUNTIME_FIT_CHAT_TOP_P || process.env.PENNY_LMSTUDIO_CHAT_TOP_P || 0.95);
+const CHAT_TOP_K = Number(process.env.PENNY_RUNTIME_FIT_CHAT_TOP_K || process.env.PENNY_LMSTUDIO_CHAT_TOP_K || 64);
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `runtime-fit-${STAMP}.json`);
 const SUMMARY_PATH = path.join(OUTPUT_DIR, `runtime-fit-${STAMP}.md`);
 const CONTEXT_PRESSURE_OUTPUT_PATH = path.join(OUTPUT_DIR, `runtime-fit-context-pressure-${STAMP}.json`);
@@ -72,6 +82,48 @@ function parseRuntimeFitArgs(argv = process.argv.slice(2)) {
 }
 
 const RUNTIME_FIT_ARGS = parseRuntimeFitArgs(process.argv.slice(2));
+
+function buildGemmaRuntimeWatchForRuntimeFit({
+  generatedAt = new Date().toISOString(),
+  measurementMode = 'runtime-fit',
+  status = {},
+  contextLength = DEFAULT_CONTEXT_LENGTH,
+} = {}) {
+  const safeStatus = status && typeof status === 'object' ? status : {};
+  const transport = normalizeLmStudioTransportForWatch(
+    safeStatus.localTransport || process.env.PENNY_LOCAL_LLM_TRANSPORT || process.env.PENNY_LMSTUDIO_TRANSPORT || 'chat',
+  );
+  return buildGemmaRuntimeWatchArtifact({
+    generatedAt,
+    measurementMode,
+    status: safeStatus,
+    transport,
+    requestedModel: safeStatus.chatPreferredModel || safeStatus.configuredChatModel || CHAT_MODEL,
+    resolvedModel: safeStatus.resolvedChatModel || safeStatus.resolvedModel || '',
+    visionBudget: {
+      exposed: false,
+      knobNames: [],
+      notes: 'Runtime-fit watch does not expose or change a separate Gemma vision-budget knob.',
+    },
+    imagePolicy: {
+      currentTurnImageOnly: true,
+      imagePartBeforeText: true,
+    },
+    thinkingControls: {
+      exposed: null,
+      notes: 'Thinking controls are recorded as watch-only; companion chat stays off by default unless an explicit eval opts in.',
+    },
+    promptCacheRamRisk: {
+      contextLength,
+      notes: 'Watch only; large context and high vision budgets still need explicit eval before default changes.',
+    },
+    chatSampling: buildLmStudioChatSamplingWatch({
+      temperature: CHAT_TEMPERATURE,
+      topP: CHAT_TOP_P,
+      topK: CHAT_TOP_K,
+    }),
+  });
+}
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -410,6 +462,20 @@ function buildMarkdownSummary(report) {
     }
     lines.push('');
   }
+  if (report.gemmaRuntimeWatch) {
+    const watch = report.gemmaRuntimeWatch;
+    const identity = watch.watchItems?.loadedModelIdentity || {};
+    const sampling = watch.watchItems?.chatSampling || {};
+    lines.push('## Gemma Runtime Watch');
+    lines.push('');
+    lines.push(`- Schema: ${watch.schema}`);
+    lines.push(`- Mode: ${watch.measurementMode}`);
+    lines.push(`- Transport: ${watch.servingPath?.transport || 'unknown'}`);
+    lines.push(`- Model: requested ${identity.requested || 'n/a'} / resolved ${identity.resolved || 'n/a'} (exact=${identity.exactMatch === true ? 'yes' : 'no'}, compatible=${identity.compatibleMatch === true ? 'yes' : 'no'})`);
+    lines.push(`- Chat sampling: temperature=${sampling.temperature ?? 'n/a'}, topP=${sampling.topP ?? 'n/a'}, topK=${sampling.topK ?? 'n/a'}`);
+    lines.push(`- Prompt-cache RAM risk: ${watch.watchItems?.promptCacheRamRisk?.status || 'watch'}, context=${watch.watchItems?.promptCacheRamRisk?.contextLength ?? 'n/a'}`);
+    lines.push('');
+  }
   lines.push('## Recommendations');
   lines.push('');
   if (report.recommendations.bestFirstTurn) {
@@ -538,13 +604,19 @@ async function runScenario(scenario) {
 async function main() {
   ensureDir(OUTPUT_DIR);
   if (RUNTIME_FIT_ARGS.contextPressureFixture) {
+    const generatedAt = new Date().toISOString();
     const report = buildContextPressureQaArtifact({
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       defaults: {
         chatModel: CHAT_MODEL,
         toolModel: TOOL_MODEL,
         embedModel: EMBED_MODEL,
       },
+    });
+    report.gemmaRuntimeWatch = buildGemmaRuntimeWatchForRuntimeFit({
+      generatedAt,
+      measurementMode: 'fixture-only',
+      contextLength: DEFAULT_CONTEXT_LENGTH,
     });
     writeJsonFile(CONTEXT_PRESSURE_OUTPUT_PATH, report);
     fs.writeFileSync(CONTEXT_PRESSURE_SUMMARY_PATH, buildContextPressureMarkdownSummary(report), 'utf8');
@@ -558,8 +630,10 @@ async function main() {
     const result = await runScenario(scenario);
     results.push(result);
   }
+  const generatedAt = new Date().toISOString();
+  const baselineStatus = results[0]?.startup?.lmStudio || results[0]?.status || {};
   const report = {
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     baseUrl: BASE_URL,
     defaults: {
       chatModel: CHAT_MODEL,
@@ -571,12 +645,18 @@ async function main() {
     },
     scenarios: results,
     contextPressureFixture: buildContextPressureQaArtifact({
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       defaults: {
         chatModel: CHAT_MODEL,
         toolModel: TOOL_MODEL,
         embedModel: EMBED_MODEL,
       },
+    }),
+    gemmaRuntimeWatch: buildGemmaRuntimeWatchForRuntimeFit({
+      generatedAt,
+      measurementMode: 'runtime-fit',
+      status: baselineStatus,
+      contextLength: DEFAULT_CONTEXT_LENGTH,
     }),
     recommendations: buildRecommendations(results),
   };
@@ -606,5 +686,6 @@ module.exports = {
   parseRuntimeFitArgs,
   buildRecommendations,
   buildMarkdownSummary,
+  buildGemmaRuntimeWatchForRuntimeFit,
   normalizeScenarioSummary,
 };
