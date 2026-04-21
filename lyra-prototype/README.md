@@ -90,6 +90,8 @@ Then open:
 
 - [http://localhost:4317](http://localhost:4317)
 
+For phone access, use the Windows Wi-Fi IPv4 address printed by the server, for example `http://10.0.0.141:4317`. Do not use the WSL adapter address such as `172.29.x.x` on a phone. If phone/LAN access stops working, use [docs/penny-lan-phone-reset-runbook-2026-04-21.md](./docs/penny-lan-phone-reset-runbook-2026-04-21.md) before debugging from scratch.
+
 Stop it later with:
 
 ```powershell

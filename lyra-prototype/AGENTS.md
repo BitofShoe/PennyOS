@@ -42,6 +42,7 @@ Optional overlay context:
 - Stop background server: `npm run stop`
 - Local environment check: `npm run preflight`
 - Tests: `npm test`
+- Phone/LAN reset runbook: `docs/penny-lan-phone-reset-runbook-2026-04-21.md`
 
 ## File map
 
@@ -66,6 +67,7 @@ Optional overlay context:
 - Keep docs honest about the current implementation, especially around local-only, single-user, and frontend/backend ownership boundaries.
 - Route/regression verification must use an isolated mock or dedicated temporary LM Studio server instead of the user's live loaded model. This pattern is proven in-project and should carry forward.
 - Heavy LM Studio QA and eval runs should happen one harness at a time. Do not overlap full voice QA, memory QA, and probe/eval runs against the same local model setup.
+- For phone/LAN access failures, do not rediscover WSL/PowerShell behavior from scratch. Use [docs/penny-lan-phone-reset-runbook-2026-04-21.md](./docs/penny-lan-phone-reset-runbook-2026-04-21.md): verify Windows port `4317`, clear orphaned listeners, restart with `PENNY_SKIP_LMSTUDIO_PREP=1` when preserving the loaded model state, and give the phone the Windows Wi-Fi IPv4 URL, not `localhost` or the WSL adapter.
 - After QA runs, clear all disposable QA-generated explicit memory, archive memory, and embedding files so the next pass does not inherit test pollution.
 
 ## Delegation-First Workflow

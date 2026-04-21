@@ -83,6 +83,7 @@ This section keeps current law first, then follows the interpretive order from [
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
 | [../server-js-section-map.md](../server-js-section-map.md), [../frontend-section-map.md](../frontend-section-map.md), [penny-module-ownership.md](./penny-module-ownership.md) | Ownership and orchestration boundaries | Strong guidance | Current | who owns what when editing shells and subsystems | product-law disputes without code checks |
+| [penny-lan-phone-reset-runbook-2026-04-21.md](./penny-lan-phone-reset-runbook-2026-04-21.md) | Local operations runbook | Strong guidance | Current | phone/LAN access resets, Windows-vs-WSL port truth, stale listener cleanup, and `start-lyra.ps1` launcher traps | broad LAN security posture or model-quality diagnosis |
 | [../OPENCLAW_SHADOW_EVAL.md](../OPENCLAW_SHADOW_EVAL.md) | Shadow-mode verdict | Strong guidance | Current | current keep/park policy for shadow mode | general runtime law beyond shadow scope |
 | [penny-docs-and-live-qa-agent-brief.md](./penny-docs-and-live-qa-agent-brief.md) | Interpretive brief | Strong guidance | Needs verification | docs interpretation and recent QA framing | current repo law or exact repo snapshot truth |
 
