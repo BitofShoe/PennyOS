@@ -391,7 +391,7 @@ function buildMarkdownSummary(report) {
     lines.push(`- Tool-heavy turn: ${scenario.summary.toolTurnSeconds ?? 'n/a'}s`);
     lines.push(`- First token: ${scenario.summary.firstTokenMs ?? 'n/a'}ms`);
     lines.push(`- Memory-heavy rendered context: ${scenario.summary.turnMetrics?.memoryHeavy?.renderedMemoryCount ?? 'n/a'} rendered / ${scenario.summary.turnMetrics?.memoryHeavy?.selectedMemoryCount ?? 'n/a'} selected item(s)`);
-    lines.push(`- Memory-heavy estimated prompt tokens: ${scenario.summary.turnMetrics?.memoryHeavy?.estimatedPromptTokens ?? 'n/a'}`);
+    lines.push(`- Memory-heavy estimated request-message tokens: ${scenario.summary.turnMetrics?.memoryHeavy?.estimatedRequestMessageTokens ?? scenario.summary.turnMetrics?.memoryHeavy?.estimatedPromptTokens ?? 'n/a'}`);
     lines.push(`- Warm state: ${scenario.summary.readiness?.warmState || 'unknown'}`);
     lines.push('');
   }

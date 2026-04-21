@@ -68,6 +68,8 @@ test('normalizeScenarioSummary includes prompt-context pressure metrics for runt
   assert.equal(summary.firstTokenMs, 450);
   assert.equal(summary.turnMetrics.memoryHeavy.selectedMemoryCount, 4);
   assert.equal(summary.turnMetrics.memoryHeavy.renderedMemoryCount, 2);
+  assert.equal(summary.turnMetrics.memoryHeavy.estimatedRequestMessageTokens > 0, true);
+  assert.equal(summary.turnMetrics.memoryHeavy.estimatedPromptTokensScope, 'request-message-text');
   assert.equal(summary.turnMetrics.memoryHeavy.lane, 'chat');
   assert.equal(summary.turnMetrics.memoryHeavy.modelIdentity, 'q6');
   assert.equal(summary.turnMetrics.memoryHeavy.semanticReadiness.ready, true);
@@ -99,6 +101,7 @@ test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary'
             memoryHeavy: {
               renderedMemoryCount: 2,
               selectedMemoryCount: 3,
+              estimatedRequestMessageTokens: 42,
               estimatedPromptTokens: 42,
             },
           },
@@ -137,6 +140,7 @@ test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary'
   assert.match(markdown, /Variants: short, medium, long/);
   assert.match(markdown, /Candidate-survival correlation: fixture-only, selection=not-run, rendered delta=0, estimated token delta=0, drift=not-run/);
   assert.match(markdown, /Memory-heavy rendered context: 2 rendered \/ 3 selected/);
+  assert.match(markdown, /Memory-heavy estimated request-message tokens: 42/);
 });
 
 test('runtime-fit disposable environment isolates the memory ledger file', () => {

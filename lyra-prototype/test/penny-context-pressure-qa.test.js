@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   CONTEXT_PRESSURE_QA_SCHEMA,
+  SOURCE_SENSITIVE_OUTCOME_DEFINITIONS,
   SOURCE_SENSITIVE_OUTCOMES,
   SOURCE_SENSITIVE_MEMORY_CASES,
   buildContextPressureQaArtifact,
@@ -30,6 +31,7 @@ test('context-pressure fixture compares short, medium, and long rendered context
   assert.deepEqual(artifact.contextVariants.map((variant) => variant.level), ['short', 'medium', 'long']);
   assert.ok(artifact.contextVariants[0].estimatedPromptTokens < artifact.contextVariants[1].estimatedPromptTokens);
   assert.ok(artifact.contextVariants[1].estimatedPromptTokens < artifact.contextVariants[2].estimatedPromptTokens);
+  assert.equal(artifact.contextVariants[1].estimatedPromptTokensScope, 'fixture-prompt-plus-rendered-context-text');
   assert.deepEqual(artifact.contextVariants.map((variant) => variant.renderedMemoryCount), [1, 3, 7]);
   assert.equal(artifact.contextVariants[0].firstTokenLatencyMs, null);
   assert.equal(artifact.contextVariants[0].semanticReadiness.ready, null);
@@ -109,6 +111,8 @@ test('source-sensitive memory fixture separates subject relation object source a
   assert.equal(semanticCase.expectedClassifierOutcome, SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED);
   assert.equal(semanticCase.passingAnswerOutcomes.includes(SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED), false);
   assert.deepEqual(semanticCase.diagnosticAnswerOutcomes, [SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED]);
+  assert.equal(fixture.outcomeDefinitions[SOURCE_SENSITIVE_OUTCOMES.VERIFIED], SOURCE_SENSITIVE_OUTCOME_DEFINITIONS[SOURCE_SENSITIVE_OUTCOMES.VERIFIED]);
+  assert.match(fixture.outcomeDefinitions[SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED], /diagnostic/);
   assert.equal(semanticCase.retrievalExpectation.owner, 'archive-candidate');
   assert.equal(semanticCase.retrievalExpectation.shouldRender, false);
   assert.ok(Array.isArray(semanticCase.surfaceWording));
@@ -274,7 +278,9 @@ test('runtime context metrics pull latency, lane, model, semantic readiness, and
     },
   });
 
-  assert.equal(metrics.estimatedPromptTokens, estimatePromptTokens('What is my favorite tea?'));
+  assert.equal(metrics.estimatedRequestMessageTokens, estimatePromptTokens('What is my favorite tea?'));
+  assert.equal(metrics.estimatedPromptTokens, metrics.estimatedRequestMessageTokens);
+  assert.equal(metrics.estimatedPromptTokensScope, 'request-message-text');
   assert.equal(metrics.selectedMemoryCount, 3);
   assert.equal(metrics.renderedMemoryCount, 2);
   assert.equal(metrics.firstTokenLatencyMs, 321);

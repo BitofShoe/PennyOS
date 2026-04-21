@@ -135,7 +135,7 @@ npm run bundle:review
 Practical notes:
 
 - `npm run qa:browser:smoke` checks the real streaming browser path against a disposable current-code server and mock LM Studio.
-- `npm run eval:runtime-fit` measures latency/context/semantic-readiness tradeoffs instead of only correctness.
+- `npm run eval:runtime-fit` measures latency/context/semantic-readiness tradeoffs instead of only correctness. Runtime token counts are request-message estimates unless a future artifact exposes true assembled-prompt/tokenizer counts.
 - `npm run eval:runtime-fit:context-pressure` writes a cheap short/medium/long rendered-context fixture-only artifact with nullable latency fields and a candidate-survival correlation appendix; answer drift remains `not-run` until live eval, and semantic readiness may be fixture-assumed.
 - `npm run qa:memory:source-sensitive` writes the source-sensitive memory QA fixture with subject/relation/object/source/surface cases and outcome classes.
 - `npm run qa:memory:candidate-survival-fixture` writes the fixture-only candidate-survival schema and failure taxonomy. It is model-answer-free and does not require LM Studio.

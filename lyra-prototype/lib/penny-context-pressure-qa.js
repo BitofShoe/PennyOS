@@ -3,6 +3,10 @@ const SOURCE_SENSITIVE_MEMORY_QA_SCHEMA = 'penny-source-sensitive-memory-qa.v1';
 const {
   buildCandidateSurvivalCorrelationSummary,
 } = require('./penny-candidate-survival-qa');
+const {
+  PROMPT_TRUTH_CHANNEL_KEYS,
+  normalizePromptTruth,
+} = require('./penny-prompttruth');
 
 const CONTEXT_PRESSURE_LEVELS = Object.freeze([
   'short',
@@ -26,6 +30,15 @@ const SOURCE_SENSITIVE_OUTCOMES = Object.freeze({
   UNKNOWN: 'unknown',
   APPROPRIATELY_ABSTAINED: 'appropriately-abstained',
   UNSUPPORTED: 'unsupported',
+});
+
+const SOURCE_SENSITIVE_OUTCOME_DEFINITIONS = Object.freeze({
+  [SOURCE_SENSITIVE_OUTCOMES.VERIFIED]: 'Answer matches the expected object and the case declares canonical, rendered, or source-rendered support; this means source-supported for the QA case, not global truth.',
+  [SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED]: 'Answer matches the expected object, but support is candidate-only, weak, absent, or unknown; diagnostic, not automatically passing.',
+  [SOURCE_SENSITIVE_OUTCOMES.PREMISE_REPAIRED]: 'Answer corrects a false premise while preserving the supported object and explicitly rejecting stale premise content if it is mentioned.',
+  [SOURCE_SENSITIVE_OUTCOMES.UNKNOWN]: 'Answer is empty, abstains under unknown support, or cannot be classified with the available source state.',
+  [SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED]: 'Evidence is absent or weak and the answer declines to invent an unsupported object.',
+  [SOURCE_SENSITIVE_OUTCOMES.UNSUPPORTED]: 'Answer asserts forbidden, unrepaired, fabricated, or otherwise unsupported content for the case.',
 });
 
 const STRONG_SUPPORT_STATES = new Set([
@@ -379,14 +392,14 @@ function estimatePromptTokens(value = '') {
 }
 
 function normalizePromptTruthCounts(promptTruth = {}) {
-  const channels = promptTruth?.channels && typeof promptTruth.channels === 'object'
-    ? promptTruth.channels
+  const normalizedPromptTruth = normalizePromptTruth(promptTruth);
+  const channels = normalizedPromptTruth?.channels && typeof normalizedPromptTruth.channels === 'object'
+    ? normalizedPromptTruth.channels
     : {};
-  const channelKeys = ['stableFacts', 'memoryBooks', 'sessionArchive', 'globalArchive', 'researchLedger'];
   const byChannel = {};
   let selectedMemoryCount = 0;
   let renderedMemoryCount = 0;
-  for (const channel of channelKeys) {
+  for (const channel of PROMPT_TRUTH_CHANNEL_KEYS) {
     const value = channels[channel] && typeof channels[channel] === 'object' ? channels[channel] : {};
     const candidateCount = Math.max(0, Number(value.candidateCount || 0));
     const renderedCount = Math.max(0, Number(value.renderedCount || 0));
@@ -432,10 +445,13 @@ function extractRuntimeContextMetrics({
   const semanticReady = artifact?.context?.semanticMemoryReady === true
     || readiness.embeddingReady === true
     || performance?.archiveRetrieval?.semanticReady === true;
+  const estimatedRequestMessageTokens = estimatePromptTokens(prompt);
   return {
     label: trimText(label, 80),
     measurementMode: artifact ? 'runtime-artifact' : 'fixture-or-missing-artifact',
-    estimatedPromptTokens: estimatePromptTokens(prompt),
+    estimatedRequestMessageTokens,
+    estimatedPromptTokens: estimatedRequestMessageTokens,
+    estimatedPromptTokensScope: 'request-message-text',
     selectedMemoryCount: promptTruthCounts.selectedMemoryCount,
     renderedMemoryCount: promptTruthCounts.renderedMemoryCount,
     promptTruth: promptTruthCounts,
@@ -589,6 +605,7 @@ function makeVariant(level, items, {
       prompt,
       ...renderedContext.map((item) => item.text),
     ]),
+    estimatedPromptTokensScope: 'fixture-prompt-plus-rendered-context-text',
     selectedMemoryCount: renderedContext.length,
     renderedMemoryCount: renderedContext.length,
     selectedByChannel: byChannel,
@@ -684,6 +701,7 @@ function buildSourceSensitiveMemoryQaFixture({
       embedModel: String(defaults.embedModel || '').trim(),
     },
     outcomeClasses: Object.values(SOURCE_SENSITIVE_OUTCOMES),
+    outcomeDefinitions: { ...SOURCE_SENSITIVE_OUTCOME_DEFINITIONS },
     cases: SOURCE_SENSITIVE_MEMORY_CASES.map((item) => ({
       ...item,
       surfaceWording: item.surfaceWording.map((surface) => ({ ...surface })),
@@ -812,6 +830,7 @@ module.exports = {
   CONTEXT_PRESSURE_LEVELS,
   CONTEXT_PRESSURE_DRIFT_CLASSES,
   SOURCE_SENSITIVE_OUTCOMES,
+  SOURCE_SENSITIVE_OUTCOME_DEFINITIONS,
   SOURCE_SENSITIVE_MEMORY_CASES,
   buildContextPressureMarkdownSummary,
   buildContextPressureQaArtifact,
