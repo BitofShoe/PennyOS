@@ -2,7 +2,7 @@
 
 > Category: Implementation plan
 > Authority: Draft master plan
-> Status: Revised draft as of 2026-04-21
+> Status: Revised status plan as of 2026-04-21
 > Use this for: choosing bounded follow-up slices from the April 20-21 external research notes, including the H-Neurons reference audit, LLM geometry/runtime lessons, and pressure/persuasion pass.
 > Do not use this for: current runtime law, proof that a slice shipped, or license to merge/replace the source research docs.
 
@@ -84,16 +84,27 @@ No subagent edited files. The primary editor created this plan after consolidati
 | Slice | Name | Status | Priority | Risk | Verification Shape |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Docs / Skills Task-Fit Hardening | Landed, minor follow-up optional | Complete | Low | Docs review |
-| 2 | Over-Compliance, Remote-Content, and Agent-Integrity Trust QA | Next recommended expanded slice | High | Low | Targeted tests plus QA artifacts |
-| 3 | Source-Shaped Tool/Web Evidence Hardening | After Slice 2 or a proven direct-tool gap | High | Low-medium | Tool-loop/direct-tool/runtime-artifact tests |
+| 2 | Over-Compliance, Remote-Content, and Agent-Integrity Trust QA | Landed as QA/eval coverage | High | Low | Targeted tests plus QA artifacts |
+| 3 | Source-Shaped Tool/Web Evidence Hardening | Landed as helper-owned evidence hardening | High | Low-medium | Tool-loop/direct-tool/runtime-artifact tests |
 | 4 | Context-Pressure and Source-Sensitive Memory QA | Landed fixture/unit harness; live drift deferred | Medium | Medium | Runtime-fit/memory QA artifacts |
-| 5 | Friendlier Local Readiness / Receipt Summary | Verify-first | Medium | Low-medium | Targeted tests plus browser smoke if UI changes |
-| 6 | Offline Ingestion Provenance Hardening | Later bounded runtime slice | Medium | Medium | Knowledge ingestion tests and offline fixtures |
+| 5 | Friendlier Local Readiness / Receipt Summary | Landed local readiness summary coverage | Medium | Low-medium | Targeted tests plus browser smoke if UI changes |
+| 6 | Offline Ingestion Provenance Hardening | Landed offline provenance hardening | Medium | Medium | Knowledge ingestion tests and offline fixtures |
 | 7 | Dangerous Tool Approval Metadata | Gated future slice | Low-medium | Medium | Registry and runtime-artifact tests |
 | 8 | Static Embedding Provider Experiment | Gated research/eval slice | Low | High if rushed | Dedicated benchmark/eval harness |
 | 9 | SQLite / DuckDB Storage and Artifact Study | Gated study, not migration | Low | Medium | Docs/eval artifact proof first |
 | 10 | LiteLLM / SearXNG Adapter Review | Gated optional adapter study | Low | Medium | Pain-driven spike only |
 | 11 | Presence / Audio Capability Receipts | Gated on real audio path | Low | Medium-high | Audio-path QA and browser/manual checks |
+
+## April 21 Link-Batch Follow-through Status
+
+This status overlay records follow-through that landed after the original master-plan draft. It is a navigation aid only; code, tests, command output, and generated artifacts still outrank this prose.
+
+- Pressure-watch trust canaries landed as QA/eval coverage. The trust prompt set now covers repeated pushback, fake authority, social/subagent pressure, companion-feedback bias, source-boundary pressure, and agent-integrity receipt cases, with `penny-pressure-watch-qa.v1` artifact summaries.
+- Gemma runtime watch landed as fixture/status artifact coverage only. `penny-gemma-runtime-watch.v1`, status/preflight data, and `npm run eval:runtime-fit:gemma-watch` record watch items such as vision-budget exposure, thinking-control default-off state, prompt-cache/RAM risk, loaded-model identity, current-turn image policy, and chat sampling; they do not run live chat generation or change LM Studio defaults.
+- Token/output-cost descriptors landed as advisory planning metadata. Tool descriptors expose normalized optional output/source cost hints, and runtime artifacts can include sibling `toolCostSummary` / source-ref cost hints, but this does not change planner authority or routing.
+- The external link review workflow landed as repo-local skill and planning-template guidance. It standardizes future source-health, landed/strengthen/maybe-later/do-not-add, license, privacy, platformization, current-law, owner, verification, and artifact-scope buckets.
+- Deterministic extraction landed as a later-if-needed docs plan only. The `penny-document-extraction-qa.v1` fixture shape is planned for future numeric/document extraction QA; OCR, hosted document tools, CMS/source warehouse behavior, runtime ingestion, memory promotion, and LLM reasoning gates remain deferred.
+- No follow-through slice changed runtime voice, expanded `promptTruth`, expanded `toolEvidenceReceipt` beyond optional sibling artifact cost metadata, enabled default thinking, raised default context/rendered-memory limits, changed the default embedding provider, or imported an external dependency.
 
 ## Sharper Candidate Selection Follow-up Status
 
@@ -139,18 +150,25 @@ Do not reopen this slice just to rephrase already-landed guidance.
 
 ## Slice 2 - Over-Compliance, Remote-Content, and Agent-Integrity Trust QA
 
-Status: Next recommended slice.
+Status: Landed as QA/eval coverage; live runtime behavior unchanged.
 
 Goal:
 
 Add fixed QA/eval coverage that tests Penny's ability to stay warm and truthful under pressure to please, comply, obey untrusted source text, or report agent work as done without receipts.
 
-Why this comes next:
+Why this came next:
 
 - The H-Neurons note reframes hallucination risk as over-compliance pressure, not only missing knowledge.
 - The Reddit source contained prompt-injection-shaped text, making remote-content trust a concrete QA fixture.
 - The pressure/persuasion pass adds repeated pushback, social-majority pressure, persuasion-bombing, and agent-integrity pressure to the same failure family.
 - This creates evidence before changing prompts, retrieval, memory, tool behavior, or runtime voice.
+
+Current repo evidence:
+
+- `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, and `lib/penny-qa-trace.js` carry pressure-watch trust cases and artifact summaries.
+- Trust QA now covers repeated pushback, fake authority, social/subagent pressure, companion-feedback bias, source-boundary pressure, and agent-integrity receipt cases.
+- `penny-pressure-watch-qa.v1` records measurement mode, live-model-call flag, lane/model details, degraded/invalid reasons, case summaries, not-measured limits, and outcome buckets.
+- This landed as QA/eval coverage only; runtime voice, PromptTruth, toolEvidenceReceipt schema/authority, LM Studio defaults, prompt text, and live model behavior did not change.
 
 Owner seams to inspect:
 
@@ -204,7 +222,7 @@ Out of scope:
 
 ## Slice 3 - Source-Shaped Tool/Web Evidence Hardening
 
-Status: Follow-up after Slice 2, or earlier only if a direct-tool/source gap is already proven by existing tests.
+Status: Landed as source-shaped evidence hardening; no broad research platform added.
 
 Goal:
 
@@ -216,6 +234,13 @@ Source pressure:
 - H-Neurons / utility note: source-shaped tool output checklist and remote-content prompt-injection handling.
 - H-Neurons reference audit: source role, trust status, fetch state, source-instruction detection, and support class should be explicit where consequential.
 - LLM geometry/runtime lessons: fetched/pasted/source text is evidence, semantic similarity is candidate discovery, and source-state must not be collapsed into PromptTruth.
+
+Current repo evidence:
+
+- Remote/fetched text stays source-bound instead of becoming an instruction channel.
+- URL fetch failures preserve supplied source text or explicit source-failure state where relevant.
+- Unsupported workspace side-effect claims route through deterministic/tool verification instead of chat-only agreement.
+- `toolEvidenceReceipt` remains sibling runtime evidence; PromptTruth was not expanded.
 
 Owner seams to inspect:
 
@@ -348,7 +373,7 @@ Out of scope:
 
 ## Slice 5 - Friendlier Local Readiness / Receipt Summary
 
-Status: Verify-first medium-priority slice.
+Status: Landed local readiness summary coverage.
 
 Goal:
 
@@ -405,7 +430,7 @@ Out of scope:
 
 ## Slice 6 - Offline Ingestion Provenance Hardening
 
-Status: Later bounded runtime slice.
+Status: Landed offline provenance hardening.
 
 Goal:
 
@@ -724,14 +749,14 @@ Do not turn any of these into Penny roadmap items from these source docs:
 
 Use this as the kickoff for the next implementation chat:
 
-> We are in `C:\Users\malac\.openclaw\workspace-main\lyra-prototype`. Follow AGENTS.md first and use WSL when practical. Use `docs/plans/penny-external-lessons-master-action-plan-2026-04-21.md` as the source plan. Implement the newly expanded Slice 2 pressure/agent-integrity addendum only. Do not reopen revised Slice 4 except to consume its landed fixture helpers/artifacts. Keep the slice QA/evidence-first; do not change live runtime behavior unless a tiny harness helper is required. Preserve Penny companion-first, local-first, explicit-memory-canonical, and keep PromptTruth separate from toolEvidenceReceipt. Start by inspecting the named owner seams and current tests, then propose the smallest coherent fixture/test patch before editing.
+> We are in `C:\Users\malac\.openclaw\workspace-main\lyra-prototype`. Follow AGENTS.md first and use WSL when practical. Use `docs/plans/penny-external-lessons-master-action-plan-2026-04-21.md` and `docs/penny-link-batch-research-pass-2026-04-21.md` as status maps, but verify against code/tests/artifacts before claiming anything landed. Choose the next bounded slice from the remaining deferred/gated work; do not reopen pressure-watch, source-shaped evidence, context-pressure fixture, Gemma runtime watch, advisory tool-cost metadata, link-review workflow, or deterministic extraction planning unless a fresh bug proves drift. Preserve Penny companion-first, local-first, explicit-memory-canonical, and keep PromptTruth separate from toolEvidenceReceipt.
 
 ## Handoff Notes
 
 - Slice 1 is complete enough to stop treating it as an open prerequisite.
-- The highest-value next work is the newly expanded Slice 2 pressure/agent-integrity addendum because it creates evidence before prompt/runtime changes.
-- Slice 3 should follow Slice 2 unless current tests already prove a concrete direct-tool/source gap.
+- Slice 2 pressure/agent-integrity work has landed as QA/eval coverage and pressure-watch artifacts, not runtime voice behavior.
+- Slice 3 source-shaped evidence hardening has landed narrowly; do not expand PromptTruth or make fetched content instructional because of it.
 - Slice 4 now has the fixture/unit harness for context/source-sensitive memory QA; live answer-drift measurement remains deferred until explicitly needed.
-- Slice 5 should not be reordered ahead of Slice 2 unless the user explicitly wants UI/operator truth work first.
-- Slice 6 is the cleanest later runtime architecture slice.
-- Slices 7-11 are gates, not commitments.
+- Slice 5 local readiness summary coverage and Slice 6 offline provenance hardening have landed.
+- The April 21 link-batch follow-through also landed Gemma runtime watch status artifacts, advisory tool-cost metadata, the external link review skill, and the deterministic extraction planning note.
+- Remaining gated ideas are not commitments: dangerous-tool approval metadata, static embedding provider experiments, SQLite/DuckDB study, LiteLLM/SearXNG adapter review, presence/audio receipts, OCR/document extraction wiring, hosted document tooling, external dependency imports, default thinking, default context increases, and default embedding-provider changes.

@@ -6,6 +6,7 @@ const path = require('node:path');
 const repoRoot = path.join(__dirname, '..');
 const skillsRoot = path.join(repoRoot, '.codex', 'skills');
 const expectedSkills = [
+  'penny-link-review',
   'penny-lmstudio-ops',
   'penny-memory-inspector',
   'penny-qa-release',

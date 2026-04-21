@@ -1,6 +1,15 @@
 ---
 name: penny-link-review
 description: Standardize Penny external link-batch research and source review passes. Use when Codex is given external URLs, papers, repos, articles, Reddit threads, docs, or source bundles and needs to assess source health, repo applicability, risks, authority conflicts, owner seams, verification commands, and bounded next slices without adding runtime infrastructure.
+compatibility:
+  os:
+    - Windows
+  shell:
+    - PowerShell
+  node: ">=24 <25"
+  npm: ">=11 <12"
+allowed-tools:
+  - functions.shell_command
 ---
 
 # Penny Link Review

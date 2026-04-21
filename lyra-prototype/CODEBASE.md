@@ -286,6 +286,7 @@ Current modules worth knowing:
 - [lib/penny-qa-trust.js](./lib/penny-qa-trust.js)
 - [lib/penny-context-pressure-qa.js](./lib/penny-context-pressure-qa.js)
 - [lib/penny-candidate-survival-qa.js](./lib/penny-candidate-survival-qa.js)
+- [lib/penny-gemma-runtime-watch.js](./lib/penny-gemma-runtime-watch.js)
 - [lib/penny-route-handlers.js](./lib/penny-route-handlers.js)
 - [lib/penny-server-http.js](./lib/penny-server-http.js)
 - [lib/penny-chat-runtime.js](./lib/penny-chat-runtime.js)
@@ -348,10 +349,11 @@ Likely modules you will touch:
 - direct tool intent routing in `lib/penny-direct-intents.js`
 - direct deterministic tool execution in `lib/penny-direct-tool-assist.js`
 - concrete tool implementations in `lib/penny-*-tools.js`
-- internal tool capability descriptors in `lib/penny-tool-registry.js`, including advisory output/source-cost metadata that can be echoed into runtime artifact `toolCostSummary` without changing planner behavior by itself
+- internal tool capability descriptors in `lib/penny-tool-registry.js`, including advisory output/source-cost metadata that can be echoed into runtime artifact `toolCostSummary` without changing planner behavior or becoming runtime authority by itself
 - LM Studio status/model resolution in `lib/penny-lmstudio-status.js`
 - LM Studio transport selection in `lib/penny-lmstudio-transports.js`
 - Gemma chat sampling defaults and transport payload fields in `lib/penny-lmstudio-transports.js`, with env wiring in `server.js`
+- Gemma runtime watch artifacts in `lib/penny-gemma-runtime-watch.js`, `lib/penny-lmstudio-status.js`, `scripts/penny-preflight.js`, and `scripts/eval-penny-runtime-fit.js`; this is fixture/status evidence only, not a default-thinking, context-increase, or embedding-provider change
 - route/runtime artifact assembly in `lib/penny-route-handlers.js` and `lib/penny-runtime-artifacts.js`
 
 ### Change trace/provenance or inspector surfaces
@@ -405,6 +407,7 @@ Start here:
 - `scripts/eval-penny-runtime-fit.js`
 - `lib/penny-context-pressure-qa.js`
 - `lib/penny-candidate-survival-qa.js`
+- `lib/penny-gemma-runtime-watch.js`
 - `scripts/qa-penny-voice-redo.js`
 - `lib/penny-qa-trace.js`
 - `lib/penny-qa-validity.js`
@@ -412,6 +415,8 @@ Start here:
 - `PENNY_MODEL_EVAL.md`
 
 `scripts/qa-penny-memory.js` now also carries semantic-correction grading, source-sensitive fixture cases, candidate-survival fixture/archive-unit modes, and `runIdentity` harness canaries; treat those traces as first-pass environment drift checks, not as a new benchmark platform. `lib/penny-memory-archive.js` owns archive retrieval, `lib/penny-memory-archive-policy.js` owns ranking policy, `lib/penny-candidate-survival-qa.js` owns candidate-survival artifact interpretation, `lib/penny-context-pressure-qa.js` owns context-pressure/source-sensitive answer fixtures, and `scripts/qa-penny-memory.js` is the QA runner. `eval:runtime-fit:context-pressure`, `qa:memory:source-sensitive`, `qa:memory:candidate-survival-fixture`, and `qa:memory:candidate-survival` are cheap fixture/archive-unit artifact runs; they define and record fields, may use fixture-assumed semantic readiness, and do not prove live LM Studio answer drift without a separate isolated runtime-fit run.
+
+Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, `lib/penny-qa-trace.js`, and their tests cover social pressure, companion-feedback bias, remote/source pressure, and agent-integrity receipt canaries. Gemma runtime watch lives in `lib/penny-gemma-runtime-watch.js` plus status/preflight/runtime-fit artifacts. Tool output-cost descriptors live in `lib/penny-tool-registry.js` and optional sibling runtime artifact cost summaries. None of those status surfaces change runtime voice, expand `promptTruth`, switch default embeddings, enable default thinking, raise default context, or import external dependencies.
 
 ### Change shadow/OpenClaw behavior
 

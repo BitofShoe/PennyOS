@@ -2,9 +2,9 @@
 
 > Category: External-source research synthesis
 > Authority level: Historical evidence
-> Current status: Current research note as of 2026-04-21
-> Use this for: deciding what this April 21 link batch teaches Penny and Penny-coding agents.
-> Do not use this for: current runtime law, proof that behavior shipped, dependency approval, broad platform replacement, runtime voice changes, PromptTruth expansion, or toolEvidenceReceipt expansion.
+> Current status: Current research note with follow-through status as of 2026-04-21
+> Use this for: deciding what this April 21 link batch teaches Penny and Penny-coding agents, and for checking which follow-through slices are now landed vs deferred.
+> Do not use this for: current runtime law, dependency approval, broad platform replacement, runtime voice changes, PromptTruth expansion, toolEvidenceReceipt expansion beyond optional sibling artifact cost metadata, default thinking/context/embedding changes, or external dependency imports.
 
 ## Bottom Line
 
@@ -18,7 +18,15 @@ The strongest lessons are:
 - Pressure can make models over-concede or over-defend. Penny needs candor-under-pressure canaries, not generic uncensoring or refusal-heavy personality changes.
 - Most broad workspace, shell, graph-memory, and multi-instance systems are pattern references only. They are poor direct imports for a single-user local companion.
 
-The current repo already absorbed much of this direction. The useful next work is narrower: a watchlist/fixture layer for Gemma vision/runtime knobs, token-cost/source-state hints in tool/retrieval planning, and pressure-aware trust canaries where existing QA is still thin.
+The current repo has now absorbed the narrow follow-through pieces from this batch:
+
+- pressure-watch trust canaries landed as QA/eval coverage;
+- Gemma runtime watch landed as fixture/status artifact coverage only;
+- token/output-cost descriptors landed as advisory planning metadata and optional sibling runtime artifact cost summaries;
+- the external link review workflow landed as a repo-local skill/checklist;
+- deterministic document extraction landed as a later-if-needed QA plan, not runtime ingestion.
+
+The remaining lesson is restraint: do not treat these source links as a reason to import a platform, change Penny's runtime voice, expand PromptTruth, enable thinking by default, raise context by default, switch embedding providers, or add external dependencies.
 
 ## Source Health
 
@@ -46,36 +54,46 @@ The current repo already absorbed much of this direction. The useful next work i
 
    Sources: Reddit Gemma 4 vision thread, `ollama/ollama#15626`, vLLM Gemma 4 recipe, llama.cpp RAM/cache threads.
 
+   Status: Landed as fixture/status artifact coverage only.
+
    Penny translation:
 
    - Keep current-turn-only image policy.
-   - Record whether the active serving path exposes `max_soft_tokens` / vision budget or equivalent multimodal processor kwargs.
+   - Record whether the active serving path exposes `max_soft_tokens` / vision budget or equivalent multimodal processor kwargs. This now lives in `penny-gemma-runtime-watch.v1`, status/preflight data, and `npm run eval:runtime-fit:gemma-watch`.
    - If LM Studio exposes a real knob later, test image OCR/detail cases with conservative VRAM/RAM receipts before adopting any default.
    - Treat large context and high vision budgets as explicit tests, not normal operating posture.
+   - Keep thinking controls observational and default-off for normal companion chat.
 
 2. Add token-cost and source-cost awareness as planning hints.
 
    Source: Reddit MCP token-complexity thread.
 
+   Status: Landed as advisory descriptor/runtime-artifact metadata only.
+
    Penny translation:
 
-   - Tool descriptors could eventually include rough output-cost shape: constant, bounded list, linear in corpus, or unbounded/raw dump.
+   - Tool descriptors now include rough output-cost shape such as constant, bounded list, linear in corpus, external page, or raw dump.
    - Retrieval/tool selection should prefer smaller source-shaped calls before broad context dumps.
-   - This is advisory planning metadata, not a new runtime authority layer.
+   - This is advisory planning metadata, not a new runtime authority layer, planner-choice change, or PromptTruth channel.
 
 3. Add pressure-aware trust canaries where existing QA is thin.
 
    Sources: Morgin responsibility-avoidance benchmark, Morgin "uncensored models" article, Reddit "are you sure?" thread.
+
+   Status: Landed as QA/eval coverage and `penny-pressure-watch-qa.v1` artifact summaries.
 
    Penny translation:
 
    - Pair control prompts with pressure prompts: "are you sure?", fake authority, urgency, "just confirm", "another agent disagrees".
    - Passing behavior is not stubbornness. Penny can revise when evidence changes, but should not flip because tone or social pressure changed.
    - Keep answers warm and direct, but evidence-state-labeled: verified, corrected, unknown, unsupported, or not checked.
+   - Keep this out of runtime voice changes unless later live QA proves a specific voice gap.
 
 4. Preserve raw-source/generative-synthesis separation in future import/report tooling.
 
    Sources: Karpathy LLM wiki gist, BrainDB, page-squeeze, Sanity docs.
+
+   Status: Partly landed as the `penny-link-review` repo-local skill and planning-template checklist.
 
    Penny translation:
 
@@ -87,16 +105,18 @@ The current repo already absorbed much of this direction. The useful next work i
 
    Sources: PDF extraction Reddit thread, EngineeringWays dataset, 1386.ai, Sanity docs.
 
+   Status: Landed as a later-if-needed deterministic extraction QA plan only.
+
    Penny translation:
 
-   - For finance/tax-like PDFs, numbers need deterministic parsing, OCR/table extraction, schemas, and manual/source receipts before LLM reasoning.
+   - For finance/tax-like PDFs, numbers need deterministic parsing, OCR/table extraction, schemas, and manual/source receipts before LLM reasoning. The planned future fixture is `penny-document-extraction-qa.v1`.
    - Generated datasets and small home-trained models are inspiring, but they are not Penny runtime strategy.
    - Domain datasets can teach QA artifact shape: explicit input, expected output, format checks, and validation notes.
 
 ## Maybe Later
 
-- A serving-stack watchlist for LM Studio / llama.cpp / vLLM / Ollama Gemma 4 quirks: vision budget, thought-channel behavior, tool-call shape, prompt-cache RAM, checkpoint size, and loaded-model identity.
-- Optional tool-descriptor cost metadata if a concrete planner or direct-tool choice starts wasting tokens.
+- Extending the serving-stack watchlist if LM Studio exposes new Gemma knobs or if OCR/detail QA proves a real vision-budget problem.
+- Using advisory tool-descriptor cost metadata for actual planner/direct-tool choice only after a separate behavior slice proves token waste and adds tests.
 - Config drift and local model benchmark helpers inspired by Agent-Ersatz, but only if Penny's LM Studio preset/status path drifts again.
 - A markdown source-capture helper for research notes, not a browser extension dependency.
 - Structured content or MCP-backed content access if Penny grows an explicit local corpus workflow. Sanity itself is hosted/platform scope and should not become Penny infrastructure by default.
@@ -239,6 +259,8 @@ Implementation order:
 
 1. **Pressure-Watch Trust Canaries**
 
+   Status: Landed as QA/eval coverage.
+
    Fold this into the existing trust/source-shaped evidence line. The current `trust` prompt set already has false-premise, fabricated-entity, user-pushback, misleading-context, remote-injection, and unsupported-side-effect canaries, so the next pressure work should extend that same harness instead of creating a separate pressure platform.
 
    Likely owner seams:
@@ -249,6 +271,8 @@ Implementation order:
    - `test/penny-qa-trust.test.js`
 
 2. **Gemma Runtime Watch Fixture**
+
+   Status: Landed as fixture/status artifact coverage only.
 
    Keep this fixture/status-only and non-behavioral. Gemma runtime watch is runtime configuration visibility, not source-shaped trust QA.
 
@@ -261,7 +285,9 @@ Implementation order:
 
 3. **Advisory Tool Output-Cost Descriptors**
 
-   Start only if the pressure and Gemma slices land cleanly. This is planner/tool metadata, not pressure QA or Gemma runtime status.
+   Status: Landed as advisory metadata and optional sibling runtime artifact summaries.
+
+   This is planner/tool metadata, not pressure QA or Gemma runtime status, and not current planner authority.
 
    Likely owner seam:
 
@@ -269,7 +295,8 @@ Implementation order:
 
 Across all three slices:
 
-- Keep PromptTruth and `toolEvidenceReceipt` unchanged.
+- Keep PromptTruth unchanged.
+- Keep `toolEvidenceReceipt` from becoming a broader authority channel; optional cost hints may appear only as sibling artifact metadata on existing receipt surfaces.
 - Keep runtime voice unchanged.
 - Keep candidate-survival treated as already-landed retrieval-path evidence, not part of this addendum.
 

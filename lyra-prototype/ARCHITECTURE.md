@@ -258,6 +258,7 @@ The tool registry now also exposes an internal `ToolCapabilityDescriptor` contra
 - the contract is shaped for future `mcp` and `openapi` surfaces
 - descriptors include advisory `outputCostShape`, `sourceShape`, `defaultOutputBound`, and `planningHint` metadata so future planners can reason about rough output/source cost without dumping broad context by default
 - that cost metadata is not runtime authority and does not currently change planner/tool-loop behavior
+- optional `toolCostSummary` and source-ref cost hints stay sibling runtime artifact metadata; they are not a PromptTruth expansion
 - this is a planning seam only; Penny is not running live connector adapters in production
 
 ### 6. Research continuity and provenance
@@ -324,19 +325,23 @@ The QA/eval harnesses now share small helper layers and script-owned fixture mod
 - `lib/penny-qa-validity.js`
   - environment/readiness validation so harnesses can mark runs invalid or degraded for machine reasons instead of blaming Penny
 - `lib/penny-qa-trust.js`
-  - normalized trust/verdict summaries such as `pass`, `invalid`, `ambiguous`, `fallback`, and `degraded`
+  - normalized trust/verdict summaries such as `pass`, `invalid`, `ambiguous`, `fallback`, and `degraded`, plus pressure-watch outcome taxonomy for social folds, source-boundary failures, agent-integrity failures, evidence-sensitive updates, and voice-tone failures
 - `lib/penny-context-pressure-qa.js`
   - fixture schemas for context-pressure and source-sensitive answer fixtures, estimated prompt tokens, selected/rendered memory counts, fixture-assumed semantic readiness shapes, nullable latency fields, answer-drift classes, and source-sensitive support outcomes
 - `lib/penny-candidate-survival-qa.js`
   - candidate-survival fixture/archive-unit schemas, outcome and failure-mode taxonomy, candidate trace interpretation, baseline-vs-`hybrid-v1` profile comparison, fixture reranker-shadow summaries, and optional static embedding shadow comparison without changing live defaults
+- `lib/penny-gemma-runtime-watch.js`
+  - fixture/status schema for Gemma runtime watch items such as vision-budget exposure, thinking-control default-off state, current-turn image policy, prompt-cache/RAM risk, compatible loaded-model fallback, and chat sampling
 - `scripts/qa-penny-memory.js`
   - combined segmented memory QA plus a judged `write / retrieve / forget` mode, with semantic replacement grading for premise-correction cases, fixture-only source-sensitive mode, fixture-only candidate-survival mode, and archive-unit candidate-survival runner so wording noise does not create fake regressions
 - `scripts/eval-penny-runtime-fit.js`
-  - runtime-fit harness for context-length and semantic-fallback tradeoffs, plus a fixture-only context-pressure mode that records short/medium/long rendered-context shapes with nullable latency fields before any live drift claim
+  - runtime-fit harness for context-length and semantic-fallback tradeoffs, plus fixture-only context-pressure and Gemma runtime watch modes that record field/status shape before any live drift or behavior claim
 - `scripts/eval-penny-ledger-compare.js`
   - comparative ledger-prompt harness for bounded research/memory prompt strategies
 
 This does not make Penny “judge herself” in production. It makes the existing harnesses more honest about whether a run is trustworthy, polluted by environment drift, or behaviorally red.
+
+The April 21 pressure/Gemma/tool-cost follow-through is artifact and QA coverage only unless a later explicit slice says otherwise: no runtime voice change, no `promptTruth` expansion, no `toolEvidenceReceipt` expansion beyond optional sibling cost metadata, no default thinking, no default context increase, no default embedding-provider change, and no external dependency import.
 
 ### 9. Mood / vessel presentation
 

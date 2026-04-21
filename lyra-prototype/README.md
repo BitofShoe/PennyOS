@@ -47,8 +47,11 @@ Read these in order if you need the current truth:
   - the archive layer is additive and reviewable; it does not silently overwrite explicit facts
 - The archive layer can do bounded post-turn shadow vector prewarm for recent chat history, but only when explicitly enabled and only off the reply-latency path. It still shares the same process, embedding backend, and cache/store.
 - The backend memory inspector now exposes runtime artifacts, trace provenance, research continuity topics, recency protection, bounded background-vectorization telemetry, compact prompt-slot composition, prompt-truth receipts, cleanup-transform class/materiality, reasoning-policy receipts, approximate-path policy, and advisory-merge provenance summaries. The in-app Memory debug tab now starts with a latest-reply-at-a-glance summary, then keeps the deeper inspector sections below it.
-- Runtime artifacts now keep prompt-time `promptTruth` separate from sibling `toolEvidenceReceipt`: `promptTruth` covers candidate-vs-rendered memory/research context plus holdback truth, while `toolEvidenceReceipt` covers deterministic-only, provenance-only, prompt-visible raw JSON, auto-verification, and summarized tool-evidence paths without widening PromptTruth. Tool-cost hints and `toolCostSummary` stay sibling runtime artifact metadata and do not change planner behavior.
+- Runtime artifacts now keep prompt-time `promptTruth` separate from sibling `toolEvidenceReceipt`: `promptTruth` covers candidate-vs-rendered memory/research context plus holdback truth, while `toolEvidenceReceipt` covers deterministic-only, provenance-only, prompt-visible raw JSON, auto-verification, and summarized tool-evidence paths without widening PromptTruth. Tool-cost hints and `toolCostSummary` are advisory sibling runtime artifact metadata; they do not change planner behavior or make cost metadata a runtime authority layer.
 - Context-pressure and source-sensitive memory QA now have lightweight fixture-only artifacts and helpers that record estimated prompt tokens, selected/rendered memory counts, lane/model identity placeholders, fixture-assumed semantic readiness, nullable latency fields, `not-run` answer drift, source-sensitive retrieval expectations, candidate-survival correlation, and separate answer outcome buckets without making long context the default.
+- Pressure-watch trust canaries now live in QA/eval coverage and `penny-pressure-watch-qa.v1` artifacts. They test truthfulness under user, source, social, companion-feedback, and agent-integrity pressure without changing runtime voice.
+- Gemma runtime watch now lives as fixture/status artifact coverage and status/preflight output, not as a behavior change. It records watch items such as vision budget exposure, thinking-control state, prompt-cache/RAM risk, loaded-model identity, and chat sampling without enabling default thinking, raising default context, or changing the default embedding provider.
+- The April 21 external-link follow-through did not import external dependencies, change runtime voice, expand `promptTruth`, broaden `toolEvidenceReceipt` beyond optional cost metadata on existing runtime artifact surfaces, enable default thinking, raise default context/rendered-memory limits, or switch embedding providers.
 - The research continuity ledger is question-scoped instead of file-scoped: one repo anchor can hold multiple bounded topics, and the inspector exposes each topic's anchor/scope identity instead of flattening them together.
 - Question-scoped ledger topics only settle when verified non-`query` evidence supports an evidence-tight summary. Otherwise Penny keeps the topic provisional, leaves the durable conclusion empty, and falls back to the question or open follow-up instead of laundering assistant wording into continuity.
 - Generic authored file-write turns stay out of the research ledger unless the turn was genuinely research-shaped and anchored by verified read evidence. Penny's Playground free-writing can matter to archive/audit continuity without pretending it was research provenance.
@@ -127,6 +130,7 @@ npm run eval:epistemic-compare:synthesis
 npm run eval:ledger-compare
 npm run eval:runtime-fit
 npm run eval:runtime-fit:context-pressure
+npm run eval:runtime-fit:gemma-watch
 npm run qa:voice-redo
 npm run eval:models
 npm run ingest:conversations
@@ -139,6 +143,7 @@ Practical notes:
 - `npm run qa:browser:smoke` checks the real streaming browser path against a disposable current-code server and mock LM Studio.
 - `npm run eval:runtime-fit` measures latency/context/semantic-readiness tradeoffs instead of only correctness. Runtime token counts are request-message estimates unless a future artifact exposes true assembled-prompt/tokenizer counts.
 - `npm run eval:runtime-fit:context-pressure` writes a cheap short/medium/long rendered-context fixture-only artifact with nullable latency fields and a candidate-survival correlation appendix; answer drift remains `not-run` until live eval, and semantic readiness may be fixture-assumed.
+- `npm run eval:runtime-fit:gemma-watch` writes a status/preflight-only Gemma runtime watch artifact. It does not run live chat generation, change LM Studio defaults, enable thinking by default, or raise context/vision budgets.
 - `npm run qa:memory:source-sensitive` writes the source-sensitive memory QA fixture with subject/relation/object/source/surface cases and outcome classes.
 - `npm run qa:memory:candidate-survival-fixture` writes the fixture-only candidate-survival schema and failure taxonomy. It is model-answer-free and does not require LM Studio.
 - `npm run qa:memory:candidate-survival` writes the archive-unit candidate-survival artifact against disposable seeded stores, compares `baseline` and gated `hybrid-v1` profile ordering, and cleans the disposable memory/archive/embedding/book/ledger state. It is model-answer-free and does not require LM Studio.
@@ -217,6 +222,7 @@ The browser cache is not the source of truth for long-term memory.
   - `PENNY_LMSTUDIO_CHAT_TEMPERATURE` defaults to `1.0`
   - `PENNY_LMSTUDIO_CHAT_TOP_P` defaults to `0.95`
   - `PENNY_LMSTUDIO_CHAT_TOP_K` defaults to `64`
+- Gemma runtime watch is observational only: status and eval artifacts can record vision-budget exposure, thinking-control availability/default-off state, prompt-cache/RAM risk, compatible loaded-model fallback, and chat sampling, but Penny does not enable thinking by default or raise context/vision budgets because those fields exist.
 - Semantic memory uses a separate soft-dependency model:
   - `PENNY_LMSTUDIO_EMBED_MODEL` defaults to `text-embedding-nomic-embed-text-v1.5`
   - if that model is missing or unloaded, Penny falls back to keyword-style archive retrieval instead of failing chat
