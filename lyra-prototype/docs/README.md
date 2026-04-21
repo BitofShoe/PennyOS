@@ -49,6 +49,7 @@ If you need the recurring product instinct behind Penny's bounded slices after y
   `Penny should not become sterile` is product philosophy. `researchLedgerPromptInjected must mean actually rendered into the prompt` is engineering law.
 - Some docs describe intended truth more cleanly than the runtime currently implements. Treat those as `Needs verification` or `Aspirational / not fully code-verified`, not as proof.
 - Persuasive prose never outranks prompt-time receipts, runtime artifacts, passing tests, or the current code path.
+- Candidate-survival artifacts are retrieval-path evidence, not PromptTruth and not answer-quality proof. Use [../README.md](../README.md), [../ARCHITECTURE.md](../ARCHITECTURE.md), and [../CODEBASE.md](../CODEBASE.md) for the current operator interpretation before changing retrieval, ranking, PromptTruth, embedding defaults, or rendered-context limits.
 
 ## Enforcement questions
 

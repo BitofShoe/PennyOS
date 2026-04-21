@@ -114,6 +114,8 @@ npm run qa:memory:smoke
 npm run qa:memory
 npm run qa:memory:judged
 npm run qa:memory:source-sensitive
+npm run qa:memory:candidate-survival-fixture
+npm run qa:memory:candidate-survival
 npm run qa:voice:tiebreak
 npm run qa:browser:smoke
 npm run qa:next-cycle
@@ -136,6 +138,8 @@ Practical notes:
 - `npm run eval:runtime-fit` measures latency/context/semantic-readiness tradeoffs instead of only correctness.
 - `npm run eval:runtime-fit:context-pressure` writes a cheap short/medium/long rendered-context fixture-only artifact with nullable latency fields and a candidate-survival correlation appendix; answer drift remains `not-run` until live eval, and semantic readiness may be fixture-assumed.
 - `npm run qa:memory:source-sensitive` writes the source-sensitive memory QA fixture with subject/relation/object/source/surface cases and outcome classes.
+- `npm run qa:memory:candidate-survival-fixture` writes the fixture-only candidate-survival schema and failure taxonomy. It is model-answer-free and does not require LM Studio.
+- `npm run qa:memory:candidate-survival` writes the archive-unit candidate-survival artifact against disposable seeded stores, compares `baseline` and gated `hybrid-v1` profile ordering, and cleans the disposable memory/archive/embedding/book/ledger state. It is model-answer-free and does not require LM Studio.
 - `npm run bundle:review` builds a filtered copy under `tmp/review-bundle/` for outside review.
 
 ## Memory model
@@ -173,6 +177,29 @@ For automated QA, the standard baseline is Q6 chat/memory plus `google/gemma-4-e
 The QA/eval artifacts also carry a normalized trust summary (`pass`, `invalid`, `ambiguous`, `fallback`, `degraded`) so outside review can distinguish Penny-behavior failures from environment drift.
 They also carry a compact `runIdentity` canary with the resolved models, loaded-model snapshot, execution-path facts, runtime-artifact version, semantic-readiness state, and fallback/degraded counters so harness drift is easier to spot before blaming Penny.
 They also carry additive drift/fixation canaries such as first drift reason/turn, fixation repeat count, and whether the run recovered after drift. These are diagnostic facts derived from artifacts, not a thinking-quality score.
+
+### Candidate-survival operator guide
+
+Candidate survival QA shows retrieval-path evidence: whether the expected memory/source existed, whether it entered the raw candidate set, whether it passed eligibility gates, what rank it received, whether it was selected/rendered/held back, and why it ranked that way. It does not prove answer quality by itself.
+
+Read failure modes as a pointer to the layer to inspect:
+
+- `missing-from-raw`: inspect candidate discovery, lexical matching, semantic readiness, and archive seeding.
+- `filtered-out`: inspect sensitivity and eligibility gates before touching ranking.
+- `low-rank`: inspect scoring/ranking, exact anchors, source authority, and contradiction repair.
+- `selected-not-rendered`: inspect prompt budget, render limits, and authority suppression.
+- `wrong-authority-selected`: inspect stale advisory/current correction handling.
+- `forbidden-rendered`: treat this as a trust-boundary bug.
+- `answer-layer-failure`: retrieval worked; do not fix retrieval first.
+- `no-failure`: retrieval path met the case expectation.
+
+Non-goals are intentionally boring: candidate-survival trace is not PromptTruth; PromptTruth remains prompt-time rendered/candidate memory/research context; tool evidence remains separate; retrieved candidates are not canonical memory; candidate-only support is not verified answer truth; default prompt/rendered memory limits are unchanged; the default embedding provider is unchanged unless a later explicit slice changes it; runtime voice is unchanged.
+
+Example interpretation:
+
+```text
+If the silver thermos candidate appears at raw rank 3 and selected=false because prompt limit is 2, the failure is low-rank/prompt-selection, not absent memory. Do not fix this by expanding PromptTruth or claiming Penny verified the detail.
+```
 
 For handoffs and outside review, use `npm run bundle:review` to build a filtered copy under `tmp/review-bundle/` without QA artifacts, local logs, or runtime debris.
 

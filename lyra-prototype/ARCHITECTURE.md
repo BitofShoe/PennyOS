@@ -175,6 +175,8 @@ Hybrid archive overlay:
 Current archive-policy behavior:
 
 - explicit memory is still canonical
+- archive retrieval is owned by `lib/penny-memory-archive.js`
+- archive candidate/ranking policy is owned by `lib/penny-memory-archive-policy.js`
 - archive utility scoring lives in `lib/penny-memory-archive-policy.js`
 - that utility score is currently used for evals plus live background-prewarm candidate ranking, not live auto-forgetting
 - archive retrieval scoring defaults to the `baseline` profile
@@ -184,6 +186,8 @@ Current archive-policy behavior:
 - the scoring profile gate does not change the default embedding provider, does not auto-promote archive hits into explicit memory, and does not expand `promptTruth` or `toolEvidenceReceipt`
 - background chat vectorization now defaults on, but it still runs only after `archiveCompletedTurn`, never in prompt assembly, and can be disabled with `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=0`. It is off the reply-latency path, but it still shares process, embedding-backend, and cache/store capacity.
 - inspector payloads expose background-vectorization telemetry, including the session `lastArchivedAt` timestamp, and the in-app panel now surfaces a compact background-vectorization summary so the behavior stays inspectable in practice
+
+Candidate-survival QA is an artifact layer over retrieval, not a new runtime authority layer. It records whether the expected memory/source existed, entered the raw candidate set, passed eligibility gates, what rank it received, whether it was selected/rendered/held back, and why it ranked that way. It does not prove answer quality; `answer-layer-failure` means retrieval supplied the expected support and the answer layer should be inspected first.
 
 Important trust boundary:
 
@@ -319,9 +323,11 @@ The QA/eval harnesses now share small helper layers and script-owned fixture mod
 - `lib/penny-qa-trust.js`
   - normalized trust/verdict summaries such as `pass`, `invalid`, `ambiguous`, `fallback`, and `degraded`
 - `lib/penny-context-pressure-qa.js`
-  - fixture schemas for context-pressure and source-sensitive memory QA, estimated prompt tokens, selected/rendered memory counts, fixture-assumed semantic readiness shapes, nullable latency fields, answer-drift classes, and source-sensitive support outcomes
+  - fixture schemas for context-pressure and source-sensitive answer fixtures, estimated prompt tokens, selected/rendered memory counts, fixture-assumed semantic readiness shapes, nullable latency fields, answer-drift classes, and source-sensitive support outcomes
+- `lib/penny-candidate-survival-qa.js`
+  - candidate-survival fixture/archive-unit schemas, outcome and failure-mode taxonomy, candidate trace interpretation, baseline-vs-`hybrid-v1` profile comparison, fixture reranker-shadow summaries, and optional static embedding shadow comparison without changing live defaults
 - `scripts/qa-penny-memory.js`
-  - combined segmented memory QA plus a judged `write / retrieve / forget` mode, with semantic replacement grading for premise-correction cases and a fixture-only source-sensitive mode so wording noise does not create fake regressions
+  - combined segmented memory QA plus a judged `write / retrieve / forget` mode, with semantic replacement grading for premise-correction cases, fixture-only source-sensitive mode, fixture-only candidate-survival mode, and archive-unit candidate-survival runner so wording noise does not create fake regressions
 - `scripts/eval-penny-runtime-fit.js`
   - runtime-fit harness for context-length and semantic-fallback tradeoffs, plus a fixture-only context-pressure mode that records short/medium/long rendered-context shapes with nullable latency fields before any live drift claim
 - `scripts/eval-penny-ledger-compare.js`
@@ -441,7 +447,7 @@ Ledger compare harness for bounded research-ledger prompt strategies.
 - `scripts/eval-penny-runtime-fit.js`
 Runtime-fit harness for context-length and semantic-fallback tradeoff measurement, with a fixture-only context-pressure mode for short/medium/long rendered-context artifacts whose answer drift remains `not-run` until live eval.
 - `scripts/qa-penny-memory.js`
-Segmented memory QA harness with trace-first runtime artifact validation, judged `write / retrieve / forget` suites, and fixture-only source-sensitive memory cases.
+Segmented memory QA harness with trace-first runtime artifact validation, judged `write / retrieve / forget` suites, fixture-only source-sensitive memory cases, fixture-only candidate-survival schema output, and archive-unit candidate-survival artifacts.
 - `scripts/qa-penny-voice-redo.js`
 Chat-lane voice QA harness that records prompt-set, lane/model/fallback metadata, and normalized trust.
 - `scripts/qa-penny-browser-smoke.js`

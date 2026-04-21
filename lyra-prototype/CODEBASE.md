@@ -198,7 +198,7 @@ Comparative ledger-prompt harness for the current off vs synthesis-focused resea
 - [scripts/eval-penny-runtime-fit.js](./scripts/eval-penny-runtime-fit.js)
 Latency/runtime-fit harness for context-length and semantic-readiness tradeoffs; `eval:runtime-fit:context-pressure` adds a fixture-only short/medium/long rendered-context artifact with nullable latency fields and `not-run` answer drift.
 - [scripts/qa-penny-memory.js](./scripts/qa-penny-memory.js)
-Segmented plus judged memory QA harness with trace-first runtime artifact validation; `qa:memory:source-sensitive` adds fixture-only subject/relation/object/source/surface cases and support outcome classes.
+Segmented plus judged memory QA harness with trace-first runtime artifact validation; `qa:memory:source-sensitive` adds fixture-only subject/relation/object/source/surface cases and support outcome classes, `qa:memory:candidate-survival-fixture` writes the fixture-only candidate-survival schema, and `qa:memory:candidate-survival` writes the model-answer-free archive-unit artifact against disposable stores.
 - [scripts/qa-penny-voice-redo.js](./scripts/qa-penny-voice-redo.js)
 Chat-lane voice QA harness.
 - [scripts/qa-penny-browser-smoke.js](./scripts/qa-penny-browser-smoke.js)
@@ -285,6 +285,7 @@ Current modules worth knowing:
 - [lib/penny-qa-validity.js](./lib/penny-qa-validity.js)
 - [lib/penny-qa-trust.js](./lib/penny-qa-trust.js)
 - [lib/penny-context-pressure-qa.js](./lib/penny-context-pressure-qa.js)
+- [lib/penny-candidate-survival-qa.js](./lib/penny-candidate-survival-qa.js)
 - [lib/penny-route-handlers.js](./lib/penny-route-handlers.js)
 - [lib/penny-server-http.js](./lib/penny-server-http.js)
 - [lib/penny-chat-runtime.js](./lib/penny-chat-runtime.js)
@@ -403,13 +404,14 @@ Start here:
 - `scripts/qa-penny-browser-smoke.js`
 - `scripts/eval-penny-runtime-fit.js`
 - `lib/penny-context-pressure-qa.js`
+- `lib/penny-candidate-survival-qa.js`
 - `scripts/qa-penny-voice-redo.js`
 - `lib/penny-qa-trace.js`
 - `lib/penny-qa-validity.js`
 - `lib/penny-qa-trust.js`
 - `PENNY_MODEL_EVAL.md`
 
-`scripts/qa-penny-memory.js` now also carries semantic-correction grading, source-sensitive fixture cases, and `runIdentity` harness canaries; treat those traces as first-pass environment drift checks, not as a new benchmark platform. `eval:runtime-fit:context-pressure` and `qa:memory:source-sensitive` are cheap fixture/artifact runs; they define and record fixture fields, may use fixture-assumed semantic readiness, and do not prove live LM Studio answer drift without a separate isolated runtime-fit run.
+`scripts/qa-penny-memory.js` now also carries semantic-correction grading, source-sensitive fixture cases, candidate-survival fixture/archive-unit modes, and `runIdentity` harness canaries; treat those traces as first-pass environment drift checks, not as a new benchmark platform. `lib/penny-memory-archive.js` owns archive retrieval, `lib/penny-memory-archive-policy.js` owns ranking policy, `lib/penny-candidate-survival-qa.js` owns candidate-survival artifact interpretation, `lib/penny-context-pressure-qa.js` owns context-pressure/source-sensitive answer fixtures, and `scripts/qa-penny-memory.js` is the QA runner. `eval:runtime-fit:context-pressure`, `qa:memory:source-sensitive`, `qa:memory:candidate-survival-fixture`, and `qa:memory:candidate-survival` are cheap fixture/archive-unit artifact runs; they define and record fields, may use fixture-assumed semantic readiness, and do not prove live LM Studio answer drift without a separate isolated runtime-fit run.
 
 ### Change shadow/OpenClaw behavior
 

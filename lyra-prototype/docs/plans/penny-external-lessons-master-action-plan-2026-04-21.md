@@ -95,6 +95,17 @@ No subagent edited files. The primary editor created this plan after consolidati
 | 10 | LiteLLM / SearXNG Adapter Review | Gated optional adapter study | Low | Medium | Pain-driven spike only |
 | 11 | Presence / Audio Capability Receipts | Gated on real audio path | Low | Medium-high | Audio-path QA and browser/manual checks |
 
+## Sharper Candidate Selection Follow-up Status
+
+This master plan predates the later "Sharper Candidate Selection / Candidate Survival" slice numbering. Treat this section as a status overlay, not as proof by itself; code, tests, and generated artifacts still outrank this prose.
+
+- Candidate-survival schema landed in `lib/penny-candidate-survival-qa.js`, with explicit outcome and failure-mode definitions.
+- Candidate trace interpretation landed for fixture/archive-unit QA: artifacts can report raw candidate presence, eligibility/ranked state, selected/rendered/held-back state, rank, top-candidate summaries, and recommended inspection targets.
+- The archive-unit artifact landed behind `npm run qa:memory:candidate-survival`; it seeds disposable memory/archive/embedding/book/ledger stores, compares `baseline` vs `hybrid-v1`, writes a model-answer-free artifact, and cleans those disposable stores.
+- QA-only shadow comparison landed narrowly: baseline-vs-`hybrid-v1` profile comparison and fixture reranker-shadow summaries are artifact-only, while static embedding shadow comparison is gated by `-- --shadow-embed-provider=static` or `PENNY_EMBED_SHADOW_PROVIDER=static`. None of this changes the default embedding provider or rendered-memory limits.
+- Live answer drift remains deferred. No live short/medium/long answer-quality drift run is claimed here; candidate survival remains retrieval-path evidence, not answer-quality evidence.
+- Slice 14 is docs/operator interpretation only. It should not change scoring logic, PromptTruth, toolEvidenceReceipt, runtime voice, provider defaults, or prompt/rendered memory limits.
+
 ## Slice 1 - Docs / Skills Task-Fit Hardening
 
 Status: Landed, with small optional follow-up.
@@ -283,10 +294,13 @@ Owner seams to inspect:
 Current repo evidence:
 
 - `lib/penny-context-pressure-qa.js` owns the context-pressure and source-sensitive fixture schemas, prompt-token estimates, selected/rendered memory counts, fixture semantic-readiness assumptions, nullable latency fields, answer-drift classes, and source-sensitive support outcomes.
+- `lib/penny-candidate-survival-qa.js` owns the candidate-survival fixture/archive-unit schema, failure taxonomy, trace interpretation, profile comparison, fixture reranker-shadow summaries, and optional static embedding shadow comparison.
 - `npm run eval:runtime-fit:context-pressure` writes the cheap short/medium/long rendered-context fixture-only artifact; it records field shape, not live latency or live answer drift.
 - `npm run qa:memory:source-sensitive` writes the source-sensitive memory fixture cases.
+- `npm run qa:memory:candidate-survival-fixture` writes the fixture-only candidate-survival schema and taxonomy. It is model-answer-free and does not require LM Studio.
+- `npm run qa:memory:candidate-survival` writes the archive-unit candidate-survival artifact against disposable seeded stores. It is model-answer-free, does not require LM Studio, compares `baseline` vs `hybrid-v1`, and cleans disposable state.
 - Context-pressure artifacts now include a candidate-survival correlation appendix. In fixture-only mode it records the appendix shape and `not-run` comparison; archive-unit candidate-survival artifacts can summarize baseline-vs-`hybrid-v1` profile comparisons against rendered-count pressure.
-- Targeted coverage lives in `test/penny-context-pressure-qa.test.js`, `test/penny-runtime-fit-script.test.js`, and `test/penny-memory-qa-script.test.js`.
+- Targeted coverage lives in `test/penny-context-pressure-qa.test.js`, `test/penny-candidate-survival-qa.test.js`, `test/penny-runtime-fit-script.test.js`, and `test/penny-memory-qa-script.test.js`.
 - Fixture artifacts were generated under `output/runtime-fit-context-pressure-2026-04-21T10-13-32-490Z.*` and `output/memory-qa-source-sensitive-2026-04-21T10-13-32-512Z.json`.
 - Browser smoke passed against the disposable mock-server path at `output/playwright/penny-browser-smoke-2026-04-21T10-18-34-534Z.json`; that verifies the streaming UI path, not live context-pressure answer drift.
 
@@ -297,13 +311,14 @@ Landed fixture/unit work:
 - Added source-sensitive memory cases that separate subject, relation, object, source, and surface wording.
 - Added support outcomes for cases where evidence is absent, weak, unsupported, repaired, or appropriately abstained.
 - Kept semantic recall and embeddings framed as discovery/candidate selection, never canonical memory truth.
-- Added candidate-survival correlation as retrieval-path evidence only: it can show whether sharper profile selection improved candidate survival without rendered-count growth, but it does not claim Penny's live answer improved.
+- Added candidate-survival schema, trace interpretation, archive-unit artifacts, and candidate-survival correlation as retrieval-path evidence only: they can show whether the expected source existed, survived ranking, was selected/rendered/held back, and whether sharper profile selection improved candidate survival without rendered-count growth, but they do not claim Penny's live answer improved.
 
 Still deferred:
 
 - Live LM Studio short/medium/long answer-drift measurement has not run.
 - Live answer-quality drift for candidate-survival changes remains deferred unless a separate isolated runtime-fit run is explicitly requested.
 - Any live run should use isolated/disposable memory, archive, embedding, books, ledger, and output paths, then clean generated QA residue afterward.
+- Runtime scoring changes, PromptTruth expansion, `toolEvidenceReceipt` expansion, default embedding-provider changes, default context-limit changes, runtime voice changes, and auto-promotion of retrieval hits remain out of scope unless a later explicit slice changes them.
 
 Success criteria:
 
@@ -314,10 +329,13 @@ Success criteria:
 Verification:
 
 - `node --test test/penny-context-pressure-qa.test.js test/penny-runtime-fit-script.test.js test/penny-memory-qa-script.test.js`
+- `node --test test/penny-candidate-survival-qa.test.js`
 - `npm test`
 - `git diff --check`
 - `npm run eval:runtime-fit:context-pressure`
 - `npm run qa:memory:source-sensitive`
+- `npm run qa:memory:candidate-survival-fixture`
+- `npm run qa:memory:candidate-survival`
 - Live LM Studio runs only if the next question explicitly needs real model behavior, using isolated memory/archive/embedding/books/ledger paths and cleanup afterward.
 
 Out of scope:
