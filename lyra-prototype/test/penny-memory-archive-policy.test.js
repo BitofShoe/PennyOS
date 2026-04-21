@@ -101,6 +101,85 @@ test('scoreArchiveCandidate marks semantic similarity as unavailable when keywor
   ]);
 });
 
+test('scoreArchiveCandidateHybridShadow reports exact-anchor boost without changing active score', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const now = Date.parse('2026-04-21T00:00:00.000Z');
+  const queryTokens = new Set(['favorite', 'tea']);
+  const candidate = {
+    id: 'tea-current',
+    text: 'Correction episode: my favorite tea is lapsang souchong now.',
+    sourceType: 'episode',
+    scope: 'session',
+    sensitivity: 'normal',
+    createdAt: '2026-04-21T00:00:00.000Z',
+  };
+
+  const active = policy.scoreArchiveCandidate(candidate, queryTokens, now);
+  const shadow = policy.scoreArchiveCandidateHybridShadow(candidate, {
+    queryText: 'what is my favorite tea now?',
+    queryTokens,
+    now,
+    baselineScore: active.score,
+  });
+
+  assert.equal(active.score, 2.5 + (2 * 2.25) + 1.5 + 0.75);
+  assert.equal(shadow.components.baselineScore, active.score);
+  assert.equal(shadow.components.exactAnchorScore, 1.75);
+  assert.equal(shadow.components.sourceAuthorityScore, 0.7);
+  assert.equal(shadow.reasons.includes('exact-anchor:favorite tea'), true);
+  assert.equal(shadow.rank, null);
+  assert.equal(shadow.wouldSelect, false);
+});
+
+test('scoreArchiveCandidateHybridShadow boosts current contradiction repairs and penalizes stale-only text', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const queryTokens = new Set(['favorite', 'tea']);
+  const activeContradictions = [
+    {
+      id: 'contr-tea',
+      oldText: 'Favorite tea is oolong',
+      newText: 'Favorite tea is lapsang souchong',
+      conflictKey: 'favorite tea',
+      status: 'active',
+    },
+  ];
+
+  const current = policy.scoreArchiveCandidateHybridShadow({
+    id: 'tea-current',
+    text: 'Favorite tea is lapsang souchong now.',
+    sourceType: 'episode',
+    scope: 'session',
+  }, {
+    queryText: 'favorite tea',
+    queryTokens,
+    baselineScore: 7,
+    activeContradictions,
+  });
+  const stale = policy.scoreArchiveCandidateHybridShadow({
+    id: 'tea-stale',
+    text: 'Favorite tea is oolong.',
+    sourceType: 'episode',
+    scope: 'session',
+  }, {
+    queryText: 'favorite tea',
+    queryTokens,
+    baselineScore: 7,
+    activeContradictions,
+  });
+
+  assert.equal(current.components.contradictionRepairScore, 2.4);
+  assert.equal(stale.components.contradictionRepairScore, -3.2);
+  assert.ok(current.score > stale.score);
+  assert.equal(current.reasons.includes('contradiction-repair:favorite tea:+2.40'), true);
+  assert.equal(stale.reasons.includes('stale-contradiction:favorite tea:-3.20'), true);
+});
+
 test('scoreArchiveCandidate preserves lexical semantic and sensitivity ordering signals', () => {
   const policy = createMemoryArchivePolicyApi({
     tokenizeMemoryText,

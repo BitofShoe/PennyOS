@@ -537,7 +537,179 @@ test('buildArchiveContext includes bounded candidate trace only when explicitly 
     assert.ok(selectedTrace.scoreComponents);
     assert.equal(selectedTrace.scoreComponents.semanticSimilarity, null);
     assert.equal(selectedTrace.scoreReasons.some((reason) => reason.startsWith('lexical-overlap:')), true);
+    assert.ok(selectedTrace.shadowScores?.hybridV1);
+    assert.ok(selectedTrace.shadowScores.hybridV1.rank >= 1);
+    assert.equal(typeof selectedTrace.shadowScores.hybridV1.wouldSelect, 'boolean');
+    assert.equal(selectedTrace.shadowScores.hybridV1.components.baselineScore, selectedTrace.score);
+    assert.equal(
+      selectedTrace.shadowScores.hybridV1.reasons.some((reason) => reason.startsWith('source-strength:')),
+      true,
+    );
     assert.match(selectedTrace.textPreview, /midnight rain/i);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext computes hybrid shadow rank without changing active selection or rendered context', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'exact-dryer-three',
+          type: 'episode',
+          text: 'A silver thermos was sitting on dryer three at the laundromat.',
+          excerpt: 'A silver thermos was sitting on dryer three at the laundromat.',
+          userText: 'A silver thermos was sitting on dryer three at the laundromat.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+        {
+          id: 'split-dryer-three',
+          type: 'episode',
+          text: 'Dryer four had a blue sticker, and table three held a mug.',
+          excerpt: 'Dryer four had a blue sticker, and table three held a mug.',
+          userText: 'Dryer four had a blue sticker, and table three held a mug.',
+          createdAt: '2026-04-13T12:01:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const request = {
+      sessionId: 'demo',
+      userText: 'dryer three',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+    };
+    const defaultResult = await api.buildArchiveContext(request);
+    const tracedResult = await api.buildArchiveContext({
+      ...request,
+      includeCandidateTrace: true,
+      candidateTraceLimit: 4,
+    });
+
+    assert.deepEqual(
+      tracedResult.archiveContext.session.map((item) => item.id),
+      defaultResult.archiveContext.session.map((item) => item.id),
+    );
+    assert.deepEqual(defaultResult.archiveContext.session.map((item) => item.id), ['split-dryer-three']);
+
+    const activeWinner = tracedResult.retrieval.candidateTrace.find((item) => item.id === 'split-dryer-three');
+    const hybridWinner = tracedResult.retrieval.candidateTrace.find((item) => item.id === 'exact-dryer-three');
+    assert.ok(activeWinner);
+    assert.ok(hybridWinner);
+    assert.equal(activeWinner.rank, 1);
+    assert.equal(activeWinner.selected, true);
+    assert.equal(activeWinner.rendered, true);
+    assert.equal(hybridWinner.rank, 2);
+    assert.equal(hybridWinner.selected, false);
+    assert.equal(hybridWinner.rendered, false);
+    assert.equal(hybridWinner.shadowScores.hybridV1.rank, 1);
+    assert.equal(hybridWinner.shadowScores.hybridV1.wouldSelect, true);
+    assert.equal(hybridWinner.shadowScores.hybridV1.rankDelta, 1);
+    assert.equal(hybridWinner.shadowScores.hybridV1.components.exactAnchorScore, 1.75);
+    assert.equal(activeWinner.shadowScores.hybridV1.rank, 2);
+    assert.equal(activeWinner.shadowScores.hybridV1.wouldSelect, false);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext hybrid shadow demotes stale contradiction-only candidates when metadata exists', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'tea-current',
+          type: 'episode',
+          text: 'Favorite tea is lapsang souchong now.',
+          excerpt: 'Favorite tea is lapsang souchong now.',
+          userText: 'Favorite tea is lapsang souchong now.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+        {
+          id: 'tea-stale',
+          type: 'episode',
+          text: 'Favorite tea is oolong.',
+          excerpt: 'Favorite tea is oolong.',
+          userText: 'Favorite tea is oolong.',
+          createdAt: '2026-04-13T12:02:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [
+        {
+          id: 'contr-tea',
+          oldText: 'Favorite tea is oolong',
+          newText: 'Favorite tea is lapsang souchong',
+          conflictKey: 'favorite tea',
+          status: 'active',
+          createdAt: '2026-04-13T12:02:00.000Z',
+        },
+      ],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const request = {
+      sessionId: 'demo',
+      userText: 'favorite tea',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+    };
+    const defaultResult = await api.buildArchiveContext(request);
+    const tracedResult = await api.buildArchiveContext({
+      ...request,
+      includeCandidateTrace: true,
+      candidateTraceLimit: 4,
+    });
+
+    assert.deepEqual(
+      tracedResult.archiveContext.session.map((item) => item.id),
+      defaultResult.archiveContext.session.map((item) => item.id),
+    );
+    assert.deepEqual(defaultResult.archiveContext.session.map((item) => item.id), ['tea-stale']);
+
+    const stale = tracedResult.retrieval.candidateTrace.find((item) => item.id === 'tea-stale');
+    const current = tracedResult.retrieval.candidateTrace.find((item) => item.id === 'tea-current');
+    assert.ok(stale);
+    assert.ok(current);
+    assert.equal(stale.selected, true);
+    assert.equal(stale.rendered, true);
+    assert.ok(stale.shadowScores.hybridV1.components.contradictionRepairScore < 0);
+    assert.ok(current.shadowScores.hybridV1.components.contradictionRepairScore > 0);
+    assert.equal(current.shadowScores.hybridV1.rank, 1);
+    assert.equal(current.shadowScores.hybridV1.wouldSelect, true);
+    assert.equal(stale.shadowScores.hybridV1.rank > current.shadowScores.hybridV1.rank, true);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

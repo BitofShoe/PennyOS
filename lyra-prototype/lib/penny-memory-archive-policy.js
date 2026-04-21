@@ -31,6 +31,170 @@ function createMemoryArchivePolicyApi({
     return Number(value || 0).toFixed(2);
   }
 
+  function roundShadowScore(value = 0) {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number)) return 0;
+    return Math.round(number * 1000) / 1000;
+  }
+
+  const exactAnchorStopwords = new Set([
+    'a', 'an', 'and', 'are', 'at', 'be', 'can', 'could', 'did', 'do', 'does',
+    'for', 'from', 'how', 'i', 'in', 'is', 'it', 'me', 'my', 'of', 'on',
+    'our', 'please', 'remember', 'tell', 'that', 'the', 'this', 'to', 'was',
+    'were', 'what', 'when', 'where', 'which', 'who', 'why', 'with', 'would',
+    'you', 'your',
+  ]);
+
+  function tokenizeAnchorText(value = '') {
+    return String(value || '').toLowerCase().match(/[a-z0-9]+/g) || [];
+  }
+
+  function normalizeAnchorQueryTokens(queryText = '', queryTokens = new Set()) {
+    const rawTokens = tokenizeAnchorText(queryText);
+    const sourceTokens = rawTokens.length
+      ? rawTokens
+      : [...(queryTokens instanceof Set ? queryTokens : new Set(queryTokens || []))];
+    return sourceTokens
+      .map((token) => String(token || '').trim().toLowerCase())
+      .filter((token) => token && !exactAnchorStopwords.has(token));
+  }
+
+  function buildExactAnchorPhrases(queryText = '', queryTokens = new Set()) {
+    const tokens = normalizeAnchorQueryTokens(queryText, queryTokens);
+    const phrases = [];
+    const seen = new Set();
+    for (const size of [3, 2]) {
+      for (let index = 0; index <= tokens.length - size; index += 1) {
+        const phraseTokens = tokens.slice(index, index + size);
+        if (phraseTokens.some((token) => token.length < 2)) continue;
+        const phrase = phraseTokens.join(' ');
+        if (seen.has(phrase)) continue;
+        seen.add(phrase);
+        phrases.push(phraseTokens);
+        if (phrases.length >= 6) return phrases;
+      }
+    }
+    return phrases;
+  }
+
+  function tokenSequenceIncludes(haystackTokens = [], phraseTokens = []) {
+    if (!haystackTokens.length || !phraseTokens.length || phraseTokens.length > haystackTokens.length) return false;
+    for (let index = 0; index <= haystackTokens.length - phraseTokens.length; index += 1) {
+      let matched = true;
+      for (let offset = 0; offset < phraseTokens.length; offset += 1) {
+        if (haystackTokens[index + offset] !== phraseTokens[offset]) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) return true;
+    }
+    return false;
+  }
+
+  function scoreExactAnchorShadow(candidate = {}, queryText = '', queryTokens = new Set()) {
+    const candidateTokens = tokenizeAnchorText(candidate.text || candidate.excerpt || candidate.evidenceSnippet || '');
+    const matchedPhrases = buildExactAnchorPhrases(queryText, queryTokens)
+      .filter((phraseTokens) => tokenSequenceIncludes(candidateTokens, phraseTokens))
+      .map((phraseTokens) => phraseTokens.join(' '))
+      .slice(0, 3);
+    return {
+      score: roundShadowScore(Math.min(3.5, matchedPhrases.length * 1.75)),
+      matchedPhrases,
+    };
+  }
+
+  function textMentionsContradictionSide(text = '', sideText = '', conflictKey = '') {
+    if (!text || !sideText) return false;
+    if (textMentionsNeedle(text, sideText)) return true;
+    const sourceTokens = new Set(tokenizeAnchorText(text));
+    const conflictTokens = new Set(tokenizeAnchorText(conflictKey));
+    const sideTokens = tokenizeAnchorText(sideText)
+      .filter((token) => !exactAnchorStopwords.has(token));
+    const distinctiveTokens = sideTokens
+      .filter((token) => !conflictTokens.has(token));
+    const conflictMentioned = !conflictTokens.size
+      || [...conflictTokens].every((token) => sourceTokens.has(token));
+    if (!conflictMentioned || !distinctiveTokens.length) return false;
+    const matchedDistinctive = distinctiveTokens.filter((token) => sourceTokens.has(token));
+    return matchedDistinctive.length >= Math.min(2, distinctiveTokens.length);
+  }
+
+  function scoreContradictionRepairShadow(candidate = {}, activeContradictions = []) {
+    const text = candidate.text || candidate.excerpt || candidate.evidenceSnippet || '';
+    const candidateIds = new Set(normalizeEvidenceIds([
+      candidate.id,
+      ...(Array.isArray(candidate.sourceEpisodeIds) ? candidate.sourceEpisodeIds : []),
+      ...(Array.isArray(candidate.evidenceIds) ? candidate.evidenceIds : []),
+    ]));
+    let score = 0;
+    const repairs = [];
+    const stale = [];
+    for (const contradiction of normalizeContradictionList(activeContradictions, sessionActiveContradictionLimit)) {
+      if (!isActiveContradiction(contradiction)) continue;
+      const conflictKey = trimText(contradiction.conflictKey || contradiction.topicKey || '', 80);
+      const mentionsNew = textMentionsContradictionSide(text, contradiction.newText, conflictKey);
+      const mentionsOld = textMentionsContradictionSide(text, contradiction.oldText, conflictKey);
+      const touchesCorrectionEpisode = candidateIds.has(String(contradiction.sourceEpisodeId || '').trim());
+      if (mentionsNew || (candidate.contradictionLinked === true && touchesCorrectionEpisode)) {
+        score += 2.4;
+        repairs.push(conflictKey || 'current-correction');
+      }
+      if (mentionsOld && !mentionsNew) {
+        score -= 3.2;
+        stale.push(conflictKey || 'stale-correction');
+      }
+    }
+    return {
+      score: roundShadowScore(score),
+      repairs: repairs.slice(0, 3),
+      stale: stale.slice(0, 3),
+    };
+  }
+
+  function scoreSourceAuthorityShadow(candidate = {}) {
+    const authority = String(candidate.sourceAuthority || candidate.authority || '').trim().toLowerCase();
+    const sourceType = String(candidate.sourceType || 'archive').trim().toLowerCase();
+    if (authority === 'canonical' || authority === 'verified') return { score: 1.4, label: authority };
+    if (authority === 'advisory') return { score: 0.35, label: 'advisory' };
+    const sourceScores = {
+      episode: 0.7,
+      pattern: 0.65,
+      summary: 0.55,
+      chapter: 0.45,
+      promotion: 0.35,
+      'review-candidate': 0.35,
+    };
+    return {
+      score: roundShadowScore(sourceScores[sourceType] || 0),
+      label: sourceScores[sourceType] ? sourceType : '',
+    };
+  }
+
+  function scoreEvidenceCountShadow(candidate = {}) {
+    const evidenceCount = Number(candidate.evidenceCount);
+    if (!Number.isFinite(evidenceCount) || evidenceCount <= 1) {
+      return { score: 0, evidenceCount: Number.isFinite(evidenceCount) ? Math.max(0, evidenceCount) : null };
+    }
+    return {
+      score: roundShadowScore(Math.min(1.2, Math.log2(Math.max(1, evidenceCount)) * 0.35)),
+      evidenceCount: Math.max(1, Math.round(evidenceCount)),
+    };
+  }
+
+  function scoreOpenLoopShadow(candidate = {}, openLoops = []) {
+    const text = candidate.text || candidate.excerpt || candidate.evidenceSnippet || '';
+    const linked = candidate.openLoopLinked === true
+      || (Array.isArray(openLoops) && openLoops.some((item) => {
+        const loopText = item?.text || item?.query || item?.summary || '';
+        return loopText && textMentionsNeedle(text, loopText);
+      }));
+    return {
+      score: linked ? 1.1 : 0,
+      linked,
+    };
+  }
+
   function scoreArchiveUtilityCandidate(candidate = {}, now = Date.now()) {
     const createdAtMs = Date.parse(candidate.createdAt || '');
     const ageDays = Number.isFinite(createdAtMs)
@@ -136,6 +300,59 @@ function createMemoryArchivePolicyApi({
       evidenceSnippet: trimText(candidate.text || '', 160),
       components,
       reasons,
+    };
+  }
+
+  function scoreArchiveCandidateHybridShadow(candidate = {}, {
+    queryText = '',
+    queryTokens = new Set(),
+    now = Date.now(),
+    baselineScore = null,
+    activeContradictions = [],
+    openLoops = [],
+  } = {}) {
+    const activeScore = Number.isFinite(Number(baselineScore))
+      ? Number(baselineScore)
+      : scoreArchiveCandidate(candidate, queryTokens, now).score;
+    const exactAnchor = scoreExactAnchorShadow(candidate, queryText, queryTokens);
+    const contradictionRepair = scoreContradictionRepairShadow(candidate, activeContradictions);
+    const sourceAuthority = scoreSourceAuthorityShadow(candidate);
+    const evidenceCount = scoreEvidenceCountShadow(candidate);
+    const openLoop = scoreOpenLoopShadow(candidate, openLoops);
+    const components = {
+      baselineScore: activeScore,
+      exactAnchorScore: exactAnchor.score,
+      contradictionRepairScore: contradictionRepair.score,
+      sourceAuthorityScore: sourceAuthority.score,
+      evidenceCountScore: evidenceCount.score,
+      openLoopRelevanceScore: openLoop.score,
+    };
+    const reasons = [];
+    if (exactAnchor.matchedPhrases.length) {
+      reasons.push(`exact-anchor:${exactAnchor.matchedPhrases.join(',')}`);
+    }
+    for (const label of contradictionRepair.repairs) {
+      reasons.push(`contradiction-repair:${label}:+2.40`);
+    }
+    for (const label of contradictionRepair.stale) {
+      reasons.push(`stale-contradiction:${label}:-3.20`);
+    }
+    if (sourceAuthority.score > 0 && sourceAuthority.label) {
+      reasons.push(`source-strength:${sourceAuthority.label}:${formatScoreComponent(sourceAuthority.score)}`);
+    }
+    if (evidenceCount.score > 0) {
+      reasons.push(`evidence-count:${evidenceCount.evidenceCount}:${formatScoreComponent(evidenceCount.score)}`);
+    }
+    if (openLoop.linked) {
+      reasons.push(`open-loop:linked:${formatScoreComponent(openLoop.score)}`);
+    }
+    return {
+      score: roundShadowScore(Object.values(components).reduce((total, value) => total + Number(value || 0), 0)),
+      components,
+      reasons,
+      rank: null,
+      wouldSelect: false,
+      rankDelta: null,
     };
   }
 
@@ -345,6 +562,7 @@ function createMemoryArchivePolicyApi({
     buildCompressionState,
     scoreArchiveUtilityCandidate,
     scoreArchiveCandidate,
+    scoreArchiveCandidateHybridShadow,
     buildSessionChapterText,
     buildSessionChapters,
     looksLikeScaffoldingText,

@@ -698,6 +698,48 @@ function createMemoryArchiveApi({
     return out;
   }
 
+  function normalizeArchiveHybridShadowComponents(raw = null) {
+    if (!raw || typeof raw !== 'object') return null;
+    const keys = [
+      'baselineScore',
+      'exactAnchorScore',
+      'contradictionRepairScore',
+      'sourceAuthorityScore',
+      'evidenceCountScore',
+      'openLoopRelevanceScore',
+    ];
+    const out = {};
+    let found = false;
+    for (const key of keys) {
+      if (!Object.prototype.hasOwnProperty.call(raw, key)) continue;
+      const value = Number(raw[key]);
+      if (!Number.isFinite(value)) continue;
+      out[key] = value;
+      found = true;
+    }
+    return found ? out : null;
+  }
+
+  function normalizeArchiveShadowScores(raw = null) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const hybrid = source.hybridV1 && typeof source.hybridV1 === 'object' ? source.hybridV1 : null;
+    if (!hybrid) return null;
+    const components = normalizeArchiveHybridShadowComponents(hybrid.components);
+    const reasons = normalizeArchiveScoreReasons(hybrid.reasons);
+    const score = Number(hybrid.score);
+    if (!Number.isFinite(score) && !components && !reasons.length) return null;
+    return {
+      hybridV1: compactCandidateTraceObject({
+        score: Number.isFinite(score) ? score : 0,
+        ...(components ? { components } : {}),
+        ...(reasons.length ? { reasons } : {}),
+        rank: Number.isFinite(Number(hybrid.rank)) ? Number(hybrid.rank) : null,
+        wouldSelect: hybrid.wouldSelect === true,
+        rankDelta: Number.isFinite(Number(hybrid.rankDelta)) ? Number(hybrid.rankDelta) : null,
+      }),
+    };
+  }
+
   function normalizeCandidateTraceLimit(value = DEFAULT_CANDIDATE_TRACE_LIMIT) {
     const number = Number(value);
     if (!Number.isFinite(number)) return DEFAULT_CANDIDATE_TRACE_LIMIT;
@@ -751,6 +793,7 @@ function createMemoryArchiveApi({
     const item = raw && typeof raw === 'object' ? raw : {};
     const scoreComponents = normalizeArchiveScoreComponents(item.scoreComponents);
     const scoreReasons = normalizeArchiveScoreReasons(item.scoreReasons);
+    const shadowScores = normalizeArchiveShadowScores(item.shadowScores);
     const semanticSimilarity = scoreComponents ? scoreComponents.semanticSimilarity : null;
     const semanticScore = semanticSimilarity == null
       ? null
@@ -789,6 +832,7 @@ function createMemoryArchiveApi({
       semanticScore,
       ...(scoreComponents ? { scoreComponents } : {}),
       ...(scoreReasons.length ? { scoreReasons } : {}),
+      ...(shadowScores ? { shadowScores } : {}),
       eligibility: normalizedEligibility,
       sourceEpisodeIds: normalizeEvidenceIds(item.sourceEpisodeIds || item.evidenceIds || []),
       sourceSessionIds: normalizeEvidenceIds(
@@ -2086,6 +2130,18 @@ function createMemoryArchiveApi({
           matchedTokens,
           evidenceSnippet: trimText(scored?.evidenceSnippet || item.text || '', 160),
         };
+        if (shouldIncludeCandidateTrace) {
+          candidate.shadowScores = {
+            hybridV1: archivePolicyApi.scoreArchiveCandidateHybridShadow(candidate, {
+              queryText: userText,
+              queryTokens,
+              now,
+              baselineScore: score,
+              activeContradictions,
+              openLoops: session.openLoops,
+            }),
+          };
+        }
         if (item.sensitivity === 'high' && score < SENSITIVE_RETRIEVAL_THRESHOLD) {
           if (shouldIncludeCandidateTrace) {
             filtered.push({
@@ -2108,6 +2164,40 @@ function createMemoryArchiveApi({
       ranked.sort((left, right) => right.score - left.score || String(right.createdAt).localeCompare(String(left.createdAt)));
       const selected = uniqueCandidateList(ranked, limit);
       if (shouldIncludeCandidateTrace) {
+        const shadowRanked = ranked
+          .slice()
+          .sort((left, right) => {
+            const rightScore = Number(right.shadowScores?.hybridV1?.score || 0);
+            const leftScore = Number(left.shadowScores?.hybridV1?.score || 0);
+            return rightScore - leftScore
+              || right.score - left.score
+              || String(right.createdAt).localeCompare(String(left.createdAt));
+          });
+        const shadowRanks = new Map();
+        shadowRanked.forEach((item, index) => {
+          const key = archiveCandidateTraceKey(item);
+          if (key && !shadowRanks.has(key)) shadowRanks.set(key, index + 1);
+        });
+        const shadowSelectedKeys = new Set(
+          uniqueCandidateList(shadowRanked, limit)
+            .map(archiveCandidateTraceKey)
+            .filter(Boolean),
+        );
+        ranked.forEach((item, index) => {
+          const shadow = item.shadowScores?.hybridV1;
+          if (!shadow) return;
+          const key = archiveCandidateTraceKey(item);
+          const shadowRank = shadowRanks.get(key) || null;
+          item.shadowScores = {
+            ...item.shadowScores,
+            hybridV1: {
+              ...shadow,
+              rank: shadowRank,
+              wouldSelect: key ? shadowSelectedKeys.has(key) : false,
+              rankDelta: shadowRank == null ? null : (index + 1) - shadowRank,
+            },
+          };
+        });
         const selectedRanks = new Map();
         selected.forEach((item, index) => {
           const key = archiveCandidateTraceKey(item);

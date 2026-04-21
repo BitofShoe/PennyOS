@@ -597,10 +597,28 @@ function normalizeRank(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function normalizeCandidateShadowScores(raw = null) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const hybrid = source.hybridV1 && typeof source.hybridV1 === 'object' ? source.hybridV1 : null;
+  if (!hybrid) return null;
+  const score = Number(hybrid.score);
+  const rank = normalizeRank(hybrid.rank);
+  const rankDelta = Number(hybrid.rankDelta);
+  return {
+    hybridV1: compactObject({
+      score: Number.isFinite(score) ? score : null,
+      rank,
+      wouldSelect: hybrid.wouldSelect === true,
+      rankDelta: Number.isFinite(rankDelta) ? rankDelta : null,
+    }),
+  };
+}
+
 function normalizeCandidateTraceItem(itemLike = {}) {
   const source = itemLike && typeof itemLike === 'object' ? itemLike : { text: String(itemLike || '') };
   const stage = normalizeKey(source.stage || source.status || source.outcome || source.state || '');
   const rank = normalizeRank(source.rank ?? source.rankIndex ?? source.position ?? source.scoreRank);
+  const shadowScores = normalizeCandidateShadowScores(source.shadowScores);
   const eligibilitySource = source.eligibility && typeof source.eligibility === 'object'
     ? source.eligibility
     : {};
@@ -653,6 +671,7 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     sensitivity: source.sensitivity === 'high' ? 'high' : '',
     text: trimText(source.text || source.textPreview || source.summary || source.content || source.label || '', 500),
     heldBackReason: trimText(source.heldBackReason || source.holdbackReason || source.reason || eligibilitySource.filterReason || '', 200),
+    shadowScores,
   });
 }
 
@@ -799,6 +818,18 @@ function summarizeTraceItem(item = null) {
     object: item.object || '',
     textPreview: trimText(item.text || '', 180),
     heldBackReason: item.heldBackReason || '',
+    shadowHybridV1: item.shadowScores?.hybridV1
+      ? compactObject({
+          rank: item.shadowScores.hybridV1.rank,
+          score: Number.isFinite(Number(item.shadowScores.hybridV1.score))
+            ? Number(item.shadowScores.hybridV1.score)
+            : null,
+          wouldSelect: item.shadowScores.hybridV1.wouldSelect === true,
+          rankDelta: Number.isFinite(Number(item.shadowScores.hybridV1.rankDelta))
+            ? Number(item.shadowScores.hybridV1.rankDelta)
+            : null,
+        })
+      : null,
   });
 }
 
@@ -1044,6 +1075,28 @@ function buildTopCandidateSummaries(traceLike = [], normalizedCase = {}, limit =
   }));
 }
 
+function buildHybridShadowComparison(normalizedCase = {}, traceLike = []) {
+  const trace = normalizeTraceArray(traceLike);
+  if (!trace.some((item) => item.shadowScores?.hybridV1)) return null;
+  const expectedMatches = trace.filter((item) => matchCandidateAgainstOracle(item, normalizedCase.expected));
+  const activeRanks = expectedMatches
+    .map((item) => normalizeRank(item.rank))
+    .filter((rank) => rank !== null);
+  const shadowRanks = expectedMatches
+    .map((item) => normalizeRank(item.shadowScores?.hybridV1?.rank))
+    .filter((rank) => rank !== null);
+  const activeBestRank = activeRanks.length ? Math.min(...activeRanks) : null;
+  const shadowBestRank = shadowRanks.length ? Math.min(...shadowRanks) : null;
+  return {
+    profile: 'hybrid-v1',
+    activeBestRank,
+    shadowBestRank,
+    activeSelected: expectedMatches.some((item) => item.selected),
+    shadowWouldSelect: expectedMatches.some((item) => item.shadowScores?.hybridV1?.wouldSelect === true),
+    rankDelta: activeBestRank !== null && shadowBestRank !== null ? activeBestRank - shadowBestRank : null,
+  };
+}
+
 function supportStateLooksVerified(support = {}) {
   const state = normalizeKey(support.supportState || support.state || '');
   const authority = normalizeKey(support.authority || '');
@@ -1073,6 +1126,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
   const archiveContext = retrievalResult?.archiveContext && typeof retrievalResult.archiveContext === 'object'
     ? retrievalResult.archiveContext
     : {};
+  const shadowComparison = buildHybridShadowComparison(normalizedCase, trace);
   return {
     id: normalizedCase.id,
     query: normalizedCase.query,
@@ -1093,6 +1147,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
     },
     survival: buildExpectedObjectSurvival(normalizedCase, trace, classification.outcome),
     forbiddenSurvival: buildForbiddenSurvival(normalizedCase, trace),
+    ...(shadowComparison ? { shadowComparison } : {}),
     traceSummary: summarizeCandidateTrace(trace),
     topCandidates: buildTopCandidateSummaries(trace, normalizedCase, topCandidateLimit),
   };

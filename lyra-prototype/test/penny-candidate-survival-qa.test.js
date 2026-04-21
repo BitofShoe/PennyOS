@@ -350,6 +350,14 @@ test('archive-unit case result uses required survival and trace summary shape', 
             rendered: true,
             rank: 1,
             score: 12,
+            shadowScores: {
+              hybridV1: {
+                score: 13.75,
+                rank: 1,
+                wouldSelect: true,
+                rankDelta: 0,
+              },
+            },
             eligibility: { eligible: true, filtered: false },
           },
         ],
@@ -365,6 +373,15 @@ test('archive-unit case result uses required survival and trace summary shape', 
   assert.equal(result.survival.expectedObjectRendered, true);
   assert.equal(result.traceSummary.rawCandidateCount, 1);
   assert.equal(result.topCandidates[0].matchedExpected, true);
+  assert.deepEqual(result.shadowComparison, {
+    profile: 'hybrid-v1',
+    activeBestRank: 1,
+    shadowBestRank: 1,
+    activeSelected: true,
+    shadowWouldSelect: true,
+    rankDelta: 0,
+  });
+  assert.equal(result.topCandidates[0].shadowHybridV1.rank, 1);
 });
 
 test('archive-unit artifact records no live model or server behavior', () => {
