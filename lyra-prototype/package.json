@@ -15,6 +15,7 @@
     "preflight": "node scripts/penny-preflight.js",
     "test": "node --test test/*.test.js",
     "qa:voice-redo": "node scripts/qa-penny-voice-redo.js",
+    "qa:voice-writing-compare": "node scripts/qa-penny-voice-writing-compare.js",
     "qa:voice:tiebreak": "node scripts/qa-penny-voice-redo.js --prompt-set tiebreak",
     "qa:memory:smoke": "node scripts/qa-penny-memory.js --smoke",
     "qa:memory": "node scripts/qa-penny-memory.js",

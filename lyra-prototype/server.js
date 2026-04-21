@@ -2562,7 +2562,7 @@ function buildLmStudioStatefulInput({ userText, messages, memories, image, file,
     : buildLmStudioStatefulSeedText({ userText: latestInput, messages, memories, file: null, latencyBudget: budget });
   if (!image) return text;
   return [
-    { type: 'message', content: text },
+    { type: 'text', content: text },
     { type: 'image', data_url: image },
   ];
 }

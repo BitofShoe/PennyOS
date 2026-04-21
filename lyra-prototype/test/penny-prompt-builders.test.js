@@ -57,6 +57,27 @@ test('LM Studio prompt builders keep prompt memories single-sourced per turn', (
   assert.equal((String(statefulContinuation).match(/Favorite tea is lapsang souchong/g) || []).length, 1);
 });
 
+test('LM Studio stateful image input uses native text-plus-image parts', () => {
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const { buildLmStudioStatefulInput } = require('../server.js');
+
+  const statefulInput = buildLmStudioStatefulInput({
+    userText: 'Tell me what you see in this image.',
+    messages: [
+      { role: 'user', content: 'Tell me what you see in this image.' },
+    ],
+    memories: {},
+    image: 'data:image/png;base64,abc123',
+    hasThread: false,
+  });
+
+  assert.deepEqual(statefulInput, [
+    { type: 'text', content: 'Tell me what you see in this image.' },
+    { type: 'image', data_url: 'data:image/png;base64,abc123' },
+  ]);
+});
+
 test('LM Studio prompt builders respect latency-budget history and memory limits without flattening recall turns', () => {
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
