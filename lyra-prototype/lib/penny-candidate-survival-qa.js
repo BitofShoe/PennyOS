@@ -345,7 +345,7 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     || rank !== null
     || stageMatches(stage, ['ranked', 'ranked-not-selected']);
   const hasCandidateContent = Boolean(
-    source.id || source.candidateId || source.sourceId || source.text || source.summary || source.object,
+    source.id || source.candidateId || source.sourceId || source.text || source.textPreview || source.summary || source.object,
   );
   const raw = source.inCandidatePool === false || source.inRawPool === false
     ? false
@@ -375,7 +375,7 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     sourceType: trimText(source.sourceType || source.type || source.channel || source.source?.type || '', 120),
     supportOwner: trimText(source.supportOwner || source.owner || source.source?.owner || '', 120),
     sourceAuthority: trimText(source.sourceAuthority || source.authority || source.source?.authority || '', 120),
-    text: trimText(source.text || source.summary || source.content || source.label || '', 500),
+    text: trimText(source.text || source.textPreview || source.summary || source.content || source.label || '', 500),
     heldBackReason: trimText(source.heldBackReason || source.holdbackReason || source.reason || '', 200),
   });
 }

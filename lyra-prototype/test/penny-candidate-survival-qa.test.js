@@ -139,13 +139,14 @@ test('trace normalization infers stage booleans without runtime dependencies', (
     id: 'session:arcade-mug',
     stage: 'filtered',
     eligible: false,
-    object: 'chipped moon mug',
+    textPreview: 'A chipped moon mug was near the arcade register.',
   });
   assert.equal(rawOnly.raw, true);
   assert.equal(rawOnly.ranked, false);
   assert.equal(rawOnly.selected, false);
   assert.equal(rawOnly.rendered, false);
   assert.equal(rawOnly.eligible, false);
+  assert.equal(rawOnly.text, 'A chipped moon mug was near the arcade register.');
 });
 
 test('candidate survival classifier distinguishes expected trace stages', () => {

@@ -451,6 +451,8 @@ test('buildArchiveContext falls back cleanly to keyword retrieval and keeps sepa
     assert.equal(result.semanticMemory.ready, false);
     assert.equal(result.archiveContext.mode, 'keyword');
     assert.equal(result.archiveContext.reasonCode, ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK);
+    assert.equal(Object.prototype.hasOwnProperty.call(result.retrieval, 'candidateTrace'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(result.archiveContext, 'candidateTrace'), false);
     assert.ok(result.archiveContext.session.length <= 2);
     assert.ok(result.archiveContext.global.length <= 2);
     assert.match(result.archiveContext.session[0].text, /midnight rain/i);
@@ -460,6 +462,82 @@ test('buildArchiveContext falls back cleanly to keyword retrieval and keeps sepa
     assert.equal(result.archiveContext.session[0].scoreReasons.includes('source:episode'), true);
     assert.equal(result.archiveContext.session[0].scoreReasons.some((reason) => reason.startsWith('lexical-overlap:')), true);
     assert.equal(getFetchCalls(), 0);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext includes bounded candidate trace only when explicitly requested', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        { id: 's1', type: 'episode', text: 'Midnight rain on the arcade window.', excerpt: 'Midnight rain on the arcade window.', userText: 'Midnight rain on the arcade window.', createdAt: '2026-04-13T12:00:00.000Z' },
+        { id: 's2', type: 'episode', text: 'Coffee helped during the late storm.', excerpt: 'Coffee helped during the late storm.', userText: 'Coffee helped during the late storm.', createdAt: '2026-04-13T12:01:00.000Z' },
+        { id: 's3', type: 'episode', text: 'City lights looked softer after midnight.', excerpt: 'City lights looked softer after midnight.', userText: 'City lights looked softer after midnight.', createdAt: '2026-04-13T12:02:00.000Z' },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    archive.global.summaries = [
+      { id: 'g1', type: 'summary', text: 'Longer-term themes: midnight rain; city lights.', createdAt: '2026-04-13T12:03:00.000Z' },
+    ];
+    archive.global.patterns = [
+      { id: 'p1', type: 'pattern', text: 'They keep returning to midnight rain.', createdAt: '2026-04-13T12:04:00.000Z', patternKey: 'midnight rain' },
+    ];
+    api.writeArchiveStore(archive);
+
+    const request = {
+      sessionId: 'demo',
+      userText: 'Tell me about midnight rain and coffee again.',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+    };
+
+    const defaultResult = await api.buildArchiveContext(request);
+    const tracedResult = await api.buildArchiveContext({
+      ...request,
+      includeCandidateTrace: true,
+      candidateTraceLimit: 3,
+    });
+
+    assert.equal(Object.prototype.hasOwnProperty.call(defaultResult.retrieval, 'candidateTrace'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(tracedResult.archiveContext, 'candidateTrace'), false);
+    assert.equal(tracedResult.retrieval.candidateTrace.length, 3);
+    assert.deepEqual(
+      tracedResult.archiveContext.session.map((item) => ({ id: item.id, text: item.text })),
+      defaultResult.archiveContext.session.map((item) => ({ id: item.id, text: item.text })),
+    );
+    assert.deepEqual(
+      tracedResult.archiveContext.global.map((item) => ({ id: item.id, text: item.text })),
+      defaultResult.archiveContext.global.map((item) => ({ id: item.id, text: item.text })),
+    );
+
+    const selectedTrace = tracedResult.retrieval.candidateTrace.find((item) => item.id === 's1');
+    assert.ok(selectedTrace);
+    assert.equal(selectedTrace.group, 'session');
+    assert.equal(selectedTrace.raw, true);
+    assert.equal(selectedTrace.ranked, true);
+    assert.equal(selectedTrace.selected, true);
+    assert.equal(selectedTrace.rendered, true);
+    assert.equal(selectedTrace.eligibility.eligible, true);
+    assert.equal(selectedTrace.eligibility.filtered, false);
+    assert.ok(selectedTrace.rank >= 1);
+    assert.ok(selectedTrace.selectedRank >= 1);
+    assert.ok(selectedTrace.scoreComponents);
+    assert.equal(selectedTrace.scoreComponents.semanticSimilarity, null);
+    assert.equal(selectedTrace.scoreReasons.some((reason) => reason.startsWith('lexical-overlap:')), true);
+    assert.match(selectedTrace.textPreview, /midnight rain/i);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }
@@ -508,6 +586,7 @@ test('buildArchiveContext suppresses weak sensitive matches instead of surfacing
       sessionId: 'demo',
       userText: 'Can you tell me about the midnight rain again?',
       lane: 'chat',
+      includeCandidateTrace: true,
     });
 
     const surfacedTexts = [
@@ -516,6 +595,17 @@ test('buildArchiveContext suppresses weak sensitive matches instead of surfacing
     ].join('\n');
     assert.match(surfacedTexts, /midnight rain/i);
     assert.doesNotMatch(surfacedTexts, /want to disappear|feel broken/i);
+    const filtered = result.retrieval.candidateTrace.find((item) => item.id === 'sensitive-1');
+    assert.ok(filtered);
+    assert.equal(filtered.raw, true);
+    assert.equal(filtered.ranked, false);
+    assert.equal(filtered.selected, false);
+    assert.equal(filtered.rendered, false);
+    assert.equal(filtered.eligibility.eligible, false);
+    assert.equal(filtered.eligibility.filtered, true);
+    assert.equal(filtered.eligibility.filterReason, 'sensitive-low-confidence');
+    assert.ok(filtered.scoreComponents);
+    assert.equal(filtered.scoreReasons.includes('sensitivity-penalty:-1.50'), true);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

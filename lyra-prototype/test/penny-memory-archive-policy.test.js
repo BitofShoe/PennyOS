@@ -9,6 +9,21 @@ function tokenizeMemoryText(text = '') {
     .match(/[a-z0-9]+/g) || [];
 }
 
+function cosineSimilarity(left = [], right = []) {
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = Number(left[index] || 0);
+    const b = Number(right[index] || 0);
+    dot += a * b;
+    leftNorm += a * a;
+    rightNorm += b * b;
+  }
+  if (!leftNorm || !rightNorm) return 0;
+  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
+}
+
 test('scoreArchiveCandidate exposes score components and reasons without changing the score total', () => {
   const policy = createMemoryArchivePolicyApi({
     tokenizeMemoryText,
@@ -84,4 +99,54 @@ test('scoreArchiveCandidate marks semantic similarity as unavailable when keywor
     'source:summary',
     'lexical-overlap:midnight,rain',
   ]);
+});
+
+test('scoreArchiveCandidate preserves lexical semantic and sensitivity ordering signals', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    cosineSimilarity,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const now = Date.parse('2026-04-21T00:00:00.000Z');
+  const baseCandidate = {
+    sourceType: 'episode',
+    scope: 'session',
+    sensitivity: 'normal',
+    createdAt: '2026-04-21T00:00:00.000Z',
+  };
+
+  const lexicalWinner = policy.scoreArchiveCandidate({
+    ...baseCandidate,
+    id: 'candidate-a',
+    text: 'Favorite tea detail.',
+  }, new Set(['favorite', 'tea']), now);
+  const lexicalLoser = policy.scoreArchiveCandidate({
+    ...baseCandidate,
+    id: 'candidate-b',
+    text: 'Favorite coffee detail.',
+  }, new Set(['favorite', 'tea']), now);
+
+  assert.ok(lexicalWinner.score > lexicalLoser.score);
+
+  const semanticWinner = policy.scoreArchiveCandidate({
+    ...baseCandidate,
+    id: 'semantic-a',
+    text: 'Unrelated archive detail A.',
+  }, new Set(), now, [1, 0], [1, 0]);
+  const semanticLoser = policy.scoreArchiveCandidate({
+    ...baseCandidate,
+    id: 'semantic-b',
+    text: 'Unrelated archive detail B.',
+  }, new Set(), now, [1, 0], [0, 1]);
+
+  assert.ok(semanticWinner.score > semanticLoser.score);
+
+  const sensitiveWinner = policy.scoreArchiveCandidate({
+    ...baseCandidate,
+    id: 'candidate-a-sensitive',
+    text: 'Favorite tea detail.',
+    sensitivity: 'high',
+  }, new Set(['favorite', 'tea']), now);
+
+  assert.equal(sensitiveWinner.score, lexicalWinner.score - 1.5);
 });
