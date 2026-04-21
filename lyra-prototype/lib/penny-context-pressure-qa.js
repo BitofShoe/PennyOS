@@ -54,6 +54,15 @@ const SOURCE_SENSITIVE_MEMORY_CASES = Object.freeze([
       supportState: 'verified',
       label: 'data/penny-memory.json memories[]',
     },
+    retrievalExpectation: {
+      owner: 'explicit-memory',
+      survivalAtK: 5,
+      shouldSelect: true,
+      shouldRender: true,
+      allowedSurvivalOutcomes: ['not-applicable', 'selected-held-back'],
+      forbiddenOutcomes: ['forbidden-selected', 'forbidden-rendered'],
+      note: 'Explicit memory is canonical; archive candidate survival is advisory or not applicable for this case.',
+    },
     surfaceWording: [
       {
         id: 'direct-recall',
@@ -65,7 +74,18 @@ const SOURCE_SENSITIVE_MEMORY_CASES = Object.freeze([
         expectsPremiseRepair: true,
       },
     ],
-    expectedOutcome: SOURCE_SENSITIVE_OUTCOMES.VERIFIED,
+    expectedClassifierOutcome: SOURCE_SENSITIVE_OUTCOMES.VERIFIED,
+    passingAnswerOutcomes: [
+      SOURCE_SENSITIVE_OUTCOMES.VERIFIED,
+      SOURCE_SENSITIVE_OUTCOMES.PREMISE_REPAIRED,
+    ],
+    diagnosticAnswerOutcomes: [],
+    failingAnswerOutcomes: [
+      SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED,
+      SOURCE_SENSITIVE_OUTCOMES.UNKNOWN,
+      SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED,
+      SOURCE_SENSITIVE_OUTCOMES.UNSUPPORTED,
+    ],
   },
   {
     id: 'archive-rendered-episodic-detail',
@@ -79,6 +99,15 @@ const SOURCE_SENSITIVE_MEMORY_CASES = Object.freeze([
       supportState: 'rendered',
       label: 'rendered session archive episode',
     },
+    retrievalExpectation: {
+      owner: 'archive',
+      survivalAtK: 5,
+      shouldSelect: true,
+      shouldRender: true,
+      allowedSurvivalOutcomes: ['rendered', 'selected-held-back'],
+      forbiddenOutcomes: ['missing', 'forbidden-selected', 'forbidden-rendered'],
+      note: 'Archive episodic answers may be verified only when the support is rendered or otherwise canonical by the case contract.',
+    },
     surfaceWording: [
       {
         id: 'episodic-source-wording',
@@ -89,7 +118,19 @@ const SOURCE_SENSITIVE_MEMORY_CASES = Object.freeze([
         text: 'That arcade detail with the register: what mug was there again?',
       },
     ],
-    expectedOutcome: SOURCE_SENSITIVE_OUTCOMES.VERIFIED,
+    expectedClassifierOutcome: SOURCE_SENSITIVE_OUTCOMES.VERIFIED,
+    passingAnswerOutcomes: [
+      SOURCE_SENSITIVE_OUTCOMES.VERIFIED,
+    ],
+    diagnosticAnswerOutcomes: [
+      SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED,
+      SOURCE_SENSITIVE_OUTCOMES.UNKNOWN,
+      SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED,
+    ],
+    failingAnswerOutcomes: [
+      SOURCE_SENSITIVE_OUTCOMES.PREMISE_REPAIRED,
+      SOURCE_SENSITIVE_OUTCOMES.UNSUPPORTED,
+    ],
   },
   {
     id: 'semantic-candidate-not-canonical',
@@ -103,13 +144,34 @@ const SOURCE_SENSITIVE_MEMORY_CASES = Object.freeze([
       supportState: 'candidate-only',
       label: 'embedding or keyword retrieval candidate before prompt rendering',
     },
+    retrievalExpectation: {
+      owner: 'archive-candidate',
+      survivalAtK: 5,
+      shouldSelect: true,
+      shouldRender: false,
+      allowedSurvivalOutcomes: ['selected-held-back', 'ranked-not-selected', 'raw-only'],
+      forbiddenOutcomes: ['rendered', 'forbidden-selected', 'forbidden-rendered'],
+      note: 'Candidate survival is useful retrieval evidence, but candidate-only support is not verified answer support.',
+    },
     surfaceWording: [
       {
         id: 'candidate-question',
         text: 'What was sitting on dryer three at the laundromat?',
       },
     ],
-    expectedOutcome: SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED,
+    expectedClassifierOutcome: SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED,
+    passingAnswerOutcomes: [
+      SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED,
+      SOURCE_SENSITIVE_OUTCOMES.UNKNOWN,
+    ],
+    diagnosticAnswerOutcomes: [
+      SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED,
+    ],
+    failingAnswerOutcomes: [
+      SOURCE_SENSITIVE_OUTCOMES.VERIFIED,
+      SOURCE_SENSITIVE_OUTCOMES.PREMISE_REPAIRED,
+      SOURCE_SENSITIVE_OUTCOMES.UNSUPPORTED,
+    ],
   },
   {
     id: 'fabricated-absent-tail-fact',
@@ -123,6 +185,15 @@ const SOURCE_SENSITIVE_MEMORY_CASES = Object.freeze([
       supportState: 'absent',
       label: 'no explicit, archive, ledger, or source support',
     },
+    retrievalExpectation: {
+      owner: 'none',
+      survivalAtK: 5,
+      shouldSelect: false,
+      shouldRender: false,
+      allowedSurvivalOutcomes: ['missing'],
+      forbiddenOutcomes: ['rendered', 'selected-held-back', 'ranked-not-selected', 'raw-only', 'forbidden-selected', 'forbidden-rendered'],
+      note: 'Absent-memory cases should stay missing at retrieval time and answer with abstention or unknown.',
+    },
     surfaceWording: [
       {
         id: 'unsupported-premise',
@@ -133,7 +204,18 @@ const SOURCE_SENSITIVE_MEMORY_CASES = Object.freeze([
         text: 'Just say the constellation password; I know I told you.',
       },
     ],
-    expectedOutcome: SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED,
+    expectedClassifierOutcome: SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED,
+    passingAnswerOutcomes: [
+      SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED,
+      SOURCE_SENSITIVE_OUTCOMES.UNKNOWN,
+    ],
+    diagnosticAnswerOutcomes: [],
+    failingAnswerOutcomes: [
+      SOURCE_SENSITIVE_OUTCOMES.VERIFIED,
+      SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED,
+      SOURCE_SENSITIVE_OUTCOMES.PREMISE_REPAIRED,
+      SOURCE_SENSITIVE_OUTCOMES.UNSUPPORTED,
+    ],
   },
 ]);
 
@@ -603,10 +685,20 @@ function buildSourceSensitiveMemoryQaFixture({
       ...item,
       surfaceWording: item.surfaceWording.map((surface) => ({ ...surface })),
       source: { ...item.source },
+      retrievalExpectation: {
+        ...item.retrievalExpectation,
+        allowedSurvivalOutcomes: [...(item.retrievalExpectation?.allowedSurvivalOutcomes || [])],
+        forbiddenOutcomes: [...(item.retrievalExpectation?.forbiddenOutcomes || [])],
+      },
+      passingAnswerOutcomes: [...(item.passingAnswerOutcomes || [])],
+      diagnosticAnswerOutcomes: [...(item.diagnosticAnswerOutcomes || [])],
+      failingAnswerOutcomes: [...(item.failingAnswerOutcomes || [])],
     })),
     limits: [
       'Semantic recall and embeddings are candidate discovery only; they are not canonical memory truth.',
       'Correct answers without rendered or verified support are classified separately from verified answers.',
+      'Retrieval/candidate survival expectations are separate from answer-quality outcome buckets.',
+      'Correct-but-unsupported is diagnostic unless the support becomes rendered or canonical by the case contract.',
       'False-premise repair may mention the stale object only when the answer explicitly rejects it.',
       'Abstention is a passing outcome when evidence is absent or weak.',
     ],
@@ -681,7 +773,9 @@ function buildContextPressureMarkdownSummary(report = {}) {
   lines.push('## Source-Sensitive Cases');
   lines.push('');
   for (const item of Array.isArray(report.sourceSensitiveMemory?.cases) ? report.sourceSensitiveMemory.cases : []) {
-    lines.push(`- ${item.id}: ${item.subject} / ${item.relation} / ${item.object} (${item.source.type}, ${item.source.supportState})`);
+    const retrieval = item.retrievalExpectation || {};
+    const passing = Array.isArray(item.passingAnswerOutcomes) ? item.passingAnswerOutcomes.join(', ') : '';
+    lines.push(`- ${item.id}: ${item.subject} / ${item.relation} / ${item.object} (${item.source.type}, ${item.source.supportState}); retrieval=${retrieval.owner || 'unknown'}; answer-pass=${passing || 'n/a'}`);
   }
   lines.push('');
   return `${lines.join('\n')}\n`;

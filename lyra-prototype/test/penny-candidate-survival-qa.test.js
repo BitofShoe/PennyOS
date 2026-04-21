@@ -84,20 +84,53 @@ test('candidate-survival fixture includes Penny-native explicit archive semantic
   assert.equal(explicitCase.forbidden[0].object, 'oolong');
   assert.equal(explicitCase.support.owner, 'explicit-memory');
   assert.equal(explicitCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.NOT_APPLICABLE);
+  assert.equal(explicitCase.retrievalExpectation.owner, 'explicit-memory');
+  assert.equal(explicitCase.retrievalExpectation.allowedSurvivalOutcomes.includes(CANDIDATE_SURVIVAL_OUTCOMES.NOT_APPLICABLE), true);
 
   assert.equal(archiveCase.expected.object, 'chipped moon mug');
   assert.equal(archiveCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.RENDERED);
+  assert.equal(archiveCase.retrievalExpectation.owner, 'archive');
+  assert.equal(archiveCase.retrievalExpectation.shouldRender, true);
 
   assert.equal(semanticCase.expected.object, 'silver thermos');
   assert.equal(semanticCase.support.authority, 'candidate-only/advisory');
   assert.equal(semanticCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.RANKED_NOT_SELECTED);
+  assert.equal(semanticCase.retrievalExpectation.owner, 'archive-candidate');
+  assert.equal(semanticCase.retrievalExpectation.shouldRender, false);
+  assert.equal(semanticCase.retrievalExpectation.forbiddenOutcomes.includes(CANDIDATE_SURVIVAL_OUTCOMES.RENDERED), true);
   assert.equal(semanticCase.notes.some((note) => (
     note.includes('Candidate survival is a retrieval-path diagnostic')
   )), true);
 
   assert.equal(absentCase.support.supportState, 'absent');
   assert.equal(absentCase.expectedSurvival, CANDIDATE_SURVIVAL_OUTCOMES.MISSING);
+  assert.equal(absentCase.retrievalExpectation.owner, 'none');
+  assert.deepEqual(absentCase.retrievalExpectation.allowedSurvivalOutcomes, [CANDIDATE_SURVIVAL_OUTCOMES.MISSING]);
   assert.equal(fixture.summary.byOutcome[CANDIDATE_SURVIVAL_OUTCOMES.MISSING], 1);
+});
+
+test('candidate-survival fixture carries source-sensitive retrieval expectations', () => {
+  const fixture = buildCandidateSurvivalQaFixture({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+  });
+  const byId = new Map(fixture.cases.map((item) => [item.id, item]));
+
+  assert.equal(fixture.cases.every((item) => (
+    item.retrievalExpectation
+      && item.retrievalExpectation.owner
+      && Number.isInteger(item.retrievalExpectation.survivalAtK)
+      && Array.isArray(item.retrievalExpectation.allowedSurvivalOutcomes)
+      && Array.isArray(item.retrievalExpectation.forbiddenOutcomes)
+  )), true);
+  assert.equal(byId.get('semantic-candidate-not-canonical').retrievalExpectation.shouldRender, false);
+  assert.equal(
+    byId.get('semantic-candidate-not-canonical').retrievalExpectation.forbiddenOutcomes.includes(CANDIDATE_SURVIVAL_OUTCOMES.RENDERED),
+    true,
+  );
+  assert.deepEqual(
+    byId.get('fabricated-absent-tail-fact').retrievalExpectation.allowedSurvivalOutcomes,
+    [CANDIDATE_SURVIVAL_OUTCOMES.MISSING],
+  );
 });
 
 test('candidate matching uses ids and expected source/object anchors', () => {

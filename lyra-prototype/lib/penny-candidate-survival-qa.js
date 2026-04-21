@@ -48,6 +48,15 @@ const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
       supportState: 'verified',
       label: 'data/penny-memory.json memories[]',
     },
+    retrievalExpectation: {
+      owner: 'explicit-memory',
+      survivalAtK: 5,
+      shouldSelect: true,
+      shouldRender: true,
+      allowedSurvivalOutcomes: ['not-applicable', 'selected-held-back'],
+      forbiddenOutcomes: ['forbidden-selected', 'forbidden-rendered'],
+      note: 'Explicit memory is canonical; archive candidate survival is advisory or not applicable for this case.',
+    },
     expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.NOT_APPLICABLE,
     notes: [
       'Explicit memory is canonical; archive candidate survival is not the owner for this case.',
@@ -77,6 +86,15 @@ const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
       supportState: 'rendered',
       label: 'rendered session archive episode',
     },
+    retrievalExpectation: {
+      owner: 'archive',
+      survivalAtK: 5,
+      shouldSelect: true,
+      shouldRender: true,
+      allowedSurvivalOutcomes: ['rendered', 'selected-held-back'],
+      forbiddenOutcomes: ['missing', 'forbidden-selected', 'forbidden-rendered'],
+      note: 'Archive episodic answers may be verified only when the support is rendered or otherwise canonical by the case contract.',
+    },
     expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.RENDERED,
     notes: [
       'Archive retrieval owns this diagnostic case because the expected support is episodic.',
@@ -105,6 +123,15 @@ const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
       supportState: 'candidate-only',
       label: 'embedding or keyword retrieval candidate before verified support',
     },
+    retrievalExpectation: {
+      owner: 'archive-candidate',
+      survivalAtK: 5,
+      shouldSelect: true,
+      shouldRender: false,
+      allowedSurvivalOutcomes: ['selected-held-back', 'ranked-not-selected', 'raw-only'],
+      forbiddenOutcomes: ['rendered', 'forbidden-selected', 'forbidden-rendered'],
+      note: 'Candidate survival is useful retrieval evidence, but candidate-only support is not verified answer support.',
+    },
     expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.RANKED_NOT_SELECTED,
     notes: [
       'Candidate survival is a retrieval-path diagnostic. It does not equal verified answer support.',
@@ -128,6 +155,15 @@ const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
       authority: 'none',
       supportState: 'absent',
       label: 'no explicit, archive, ledger, or source support',
+    },
+    retrievalExpectation: {
+      owner: 'none',
+      survivalAtK: 5,
+      shouldSelect: false,
+      shouldRender: false,
+      allowedSurvivalOutcomes: ['missing'],
+      forbiddenOutcomes: ['rendered', 'selected-held-back', 'ranked-not-selected', 'raw-only', 'forbidden-selected', 'forbidden-rendered'],
+      note: 'Absent-memory cases should stay missing at retrieval time and answer with abstention or unknown.',
     },
     expectedSurvival: CANDIDATE_SURVIVAL_OUTCOMES.MISSING,
     notes: [
@@ -490,6 +526,20 @@ function normalizeSupport(supportLike = {}, expected = {}) {
   });
 }
 
+function normalizeRetrievalExpectation(expectationLike = {}) {
+  const source = expectationLike && typeof expectationLike === 'object' ? expectationLike : {};
+  const survivalAtK = Number(source.survivalAtK);
+  return compactObject({
+    owner: trimText(source.owner || '', 120),
+    survivalAtK: Number.isFinite(survivalAtK) && survivalAtK > 0 ? Math.round(survivalAtK) : null,
+    shouldSelect: source.shouldSelect === true ? true : (source.shouldSelect === false ? false : null),
+    shouldRender: source.shouldRender === true ? true : (source.shouldRender === false ? false : null),
+    allowedSurvivalOutcomes: uniqueStrings(source.allowedSurvivalOutcomes || [], 12),
+    forbiddenOutcomes: uniqueStrings(source.forbiddenOutcomes || [], 12),
+    note: trimText(source.note || '', 240),
+  });
+}
+
 function inferDefaultSurvivalOutcome({ support = {}, expected = {} } = {}) {
   const supportState = normalizeKey(support.supportState || '');
   const supportOwner = normalizeForComparison([
@@ -523,6 +573,7 @@ function normalizeCandidateSurvivalCase(caseLike = {}) {
     source.expectedSurvival || source.expectedSurvivalOutcome || source.survivalOutcome,
     inferDefaultSurvivalOutcome({ support, expected }),
   );
+  const retrievalExpectation = normalizeRetrievalExpectation(source.retrievalExpectation || {});
 
   return {
     id: trimText(source.id || '', 120),
@@ -530,6 +581,7 @@ function normalizeCandidateSurvivalCase(caseLike = {}) {
     expected,
     forbidden,
     support,
+    retrievalExpectation,
     expectedSurvival,
     notes: uniqueStrings(source.notes || [], 12),
   };
@@ -758,6 +810,7 @@ function buildClassificationResult({ normalizedCase, outcome, matchedExpected = 
     outcomeDefinition: CANDIDATE_SURVIVAL_OUTCOME_DEFINITIONS[outcome],
     expected: normalizedCase?.expected || {},
     support: normalizedCase?.support || {},
+    retrievalExpectation: normalizedCase?.retrievalExpectation || {},
     matchedExpectedCandidate: summarizeTraceItem(matchedExpected),
     matchedForbiddenCandidate: summarizeTraceItem(matchedForbidden),
     traceCount,
@@ -1026,6 +1079,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
     expected: normalizedCase.expected,
     forbidden: normalizedCase.forbidden,
     support: normalizedCase.support,
+    retrievalExpectation: normalizedCase.retrievalExpectation,
     archiveUnit: {
       measurementMode: 'archive-unit',
       liveModelCalls: false,
@@ -1073,6 +1127,7 @@ function buildCandidateSurvivalArchiveUnitArtifact({
       'This archive-unit mode does not generate live model answers.',
       'Explicit memory remains canonical; archive/session/global/research memories remain advisory.',
       'Semantic candidates are discovery machinery, not truth authority.',
+      'Source-sensitive retrieval expectations do not make candidate-only hits verified answer support.',
       'PromptTruth remains prompt-time and memory/research-focused.',
       'Default prompt/rendered memory limits are unchanged.',
     ],
@@ -1095,6 +1150,7 @@ function buildCandidateSurvivalQaFixture({
     summary: summarizeCandidateSurvivalCases(normalizedCases),
     limits: [
       'Candidate survival is retrieval evidence, not answer-quality evidence.',
+      'Source-sensitive retrieval expectations are separate from answer-quality outcome buckets.',
       'PromptTruth remains prompt-context receipt only.',
       'Semantic candidates remain discovery-only unless rendered or canonized elsewhere.',
       'This artifact does not change default rendered context limits.',

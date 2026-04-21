@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   CONTEXT_PRESSURE_QA_SCHEMA,
   SOURCE_SENSITIVE_OUTCOMES,
+  SOURCE_SENSITIVE_MEMORY_CASES,
   buildContextPressureQaArtifact,
   buildSourceSensitiveMemoryQaFixture,
   classifyContextPressureDrift,
@@ -54,10 +55,55 @@ test('source-sensitive memory fixture separates subject relation object source a
   assert.equal(semanticCase.relation, 'object sitting on top');
   assert.equal(semanticCase.object, 'silver thermos');
   assert.equal(semanticCase.source.supportState, 'candidate-only');
-  assert.equal(semanticCase.expectedOutcome, SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED);
+  assert.equal(semanticCase.expectedClassifierOutcome, SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED);
+  assert.equal(semanticCase.passingAnswerOutcomes.includes(SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED), false);
+  assert.deepEqual(semanticCase.diagnosticAnswerOutcomes, [SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED]);
+  assert.equal(semanticCase.retrievalExpectation.owner, 'archive-candidate');
+  assert.equal(semanticCase.retrievalExpectation.shouldRender, false);
   assert.ok(Array.isArray(semanticCase.surfaceWording));
   assert.equal(absentCase.source.supportState, 'absent');
+  assert.equal(absentCase.retrievalExpectation.owner, 'none');
+  assert.deepEqual(absentCase.retrievalExpectation.allowedSurvivalOutcomes, ['missing']);
+  assert.deepEqual(absentCase.passingAnswerOutcomes, [
+    SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED,
+    SOURCE_SENSITIVE_OUTCOMES.UNKNOWN,
+  ]);
   assert.equal(fixture.outcomeClasses.includes(SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED), true);
+});
+
+test('source-sensitive cases bind retrieval expectations separately from answer outcomes', () => {
+  const fixture = buildSourceSensitiveMemoryQaFixture({
+    generatedAt: '2026-04-21T12:00:00.000Z',
+  });
+  assert.equal(SOURCE_SENSITIVE_MEMORY_CASES.length, fixture.cases.length);
+  assert.equal(fixture.cases.every((item) => (
+    item.retrievalExpectation
+      && item.retrievalExpectation.owner
+      && Number.isInteger(item.retrievalExpectation.survivalAtK)
+      && Array.isArray(item.retrievalExpectation.allowedSurvivalOutcomes)
+      && Array.isArray(item.retrievalExpectation.forbiddenOutcomes)
+      && Array.isArray(item.passingAnswerOutcomes)
+      && Array.isArray(item.diagnosticAnswerOutcomes)
+      && Array.isArray(item.failingAnswerOutcomes)
+  )), true);
+
+  const byId = new Map(fixture.cases.map((item) => [item.id, item]));
+  assert.equal(
+    byId.get('semantic-candidate-not-canonical').passingAnswerOutcomes.includes(SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED),
+    false,
+  );
+  assert.deepEqual(
+    byId.get('semantic-candidate-not-canonical').diagnosticAnswerOutcomes,
+    [SOURCE_SENSITIVE_OUTCOMES.CORRECT_BUT_UNSUPPORTED],
+  );
+  assert.deepEqual(
+    byId.get('fabricated-absent-tail-fact').retrievalExpectation.allowedSurvivalOutcomes,
+    ['missing'],
+  );
+  assert.equal(
+    byId.get('explicit-current-preference').passingAnswerOutcomes.includes(SOURCE_SENSITIVE_OUTCOMES.PREMISE_REPAIRED),
+    true,
+  );
 });
 
 test('source-sensitive outcome classifier distinguishes support and abstention classes', () => {
