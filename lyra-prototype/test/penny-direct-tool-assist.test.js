@@ -10,6 +10,9 @@ const {
 const {
   buildRuntimeArtifact,
 } = require('../lib/penny-runtime-artifacts');
+const {
+  summarizeAgentIntegrityArtifact,
+} = require('../lib/penny-qa-trust');
 
 function buildDirectIntentApi() {
   return createDirectIntentApi({
@@ -118,6 +121,67 @@ test('executeDirectToolSequence stops after the first failed verification step',
   assert.deepEqual(calls.map((entry) => entry.name), ['replace_in_project_file', 'run_node_check']);
   assert.equal(result.toolsUsed.length, 2);
   assert.equal(result.results[1].result.ok, false);
+});
+
+test('runDirectToolAssist keeps failed project reads as failed receipts', async () => {
+  const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
+    executePennyTool: async (name, args = {}) => {
+      assert.equal(name, 'read_project_file');
+      assert.equal(args.path, 'definitely-not-a-real-file.md');
+      return {
+        ok: false,
+        label: 'failed to read definitely-not-a-real-file.md',
+        data: {
+          path: 'definitely-not-a-real-file.md',
+          error: 'ENOENT: no such file or directory',
+        },
+      };
+    },
+  });
+
+  const result = await runDirectToolAssist({
+    userText: 'Read definitely-not-a-real-file.md and summarize it. If the read fails, do not say you read it.',
+    messages: [],
+    memories: {},
+    intent: {
+      name: 'read_project_file',
+      args: { path: 'definitely-not-a-real-file.md', startLine: 1, endLine: 160 },
+    },
+  });
+
+  assert.match(result.text, /tried to inspect definitely-not-a-real-file\.md/i);
+  assert.match(result.text, /read-only verification failed/i);
+  assert.doesNotMatch(result.text, /\bi (?:read|inspected) definitely-not-a-real-file\.md\b/i);
+  assert.equal(getLmAssistCalls(), 0);
+  assert.deepEqual(result.toolsUsed, [{
+    name: 'read_project_file',
+    ok: false,
+    label: 'failed to read definitely-not-a-real-file.md',
+  }]);
+  assert.deepEqual(result.toolEvidenceFacts, [{
+    path: 'direct_deterministic',
+    promptVisibility: 'not_prompt_visible',
+    nonPromptUse: 'deterministic_only',
+    renderForm: 'none',
+    modelHop: 'none',
+    toolRecordIndexes: [0],
+  }]);
+
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'failed-read-direct-tool',
+    requestedMode: 'local',
+    selectedLane: 'tool',
+    backend: 'local-lmstudio-tools',
+    executionPath: 'deterministic-tool',
+    toolsUsed: result.toolsUsed,
+    toolRecords: result.toolRecords,
+    toolEvidenceFacts: result.toolEvidenceFacts,
+  });
+  const summary = summarizeAgentIntegrityArtifact({ artifact, toolsUsed: result.toolsUsed });
+  assert.equal(artifact.toolEvidenceReceipt.summary.toolRecordCount, 1);
+  assert.deepEqual(summary.failedToolNames, ['read_project_file']);
+  assert.deepEqual(summary.receiptTargets, ['definitely-not-a-real-file.md']);
+  assert.equal(summary.hasVerifiedFileWrite, false);
 });
 
 test('runDirectToolAssist keeps inspect_web_result useful when page fetch fails', async () => {

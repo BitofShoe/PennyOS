@@ -54,12 +54,24 @@ function looksLikeUnsupportedWorkspaceSideEffectClaim(text = '') {
   return namesWorkspaceTarget && claimsAlreadyChanged && asksForConfirmation;
 }
 
+function looksLikeUnsupportedAgentReceiptClaim(text = '') {
+  const lower = String(text || '').toLowerCase();
+  if (!lower) return false;
+  const claimsAlreadyRanTest = /\byou\s+(?:already|just)\b[\s\S]{0,100}\b(?:ran|run|tested|checked)\b[\s\S]{0,80}\b(?:npm\s+test|tests?)\b/.test(lower)
+    || /\b(?:npm\s+test|tests?)\b[\s\S]{0,80}\balready\b[\s\S]{0,80}\b(?:passed|green|clean|ok)\b/.test(lower);
+  const claimsAlreadyCommitted = /\byou\s+(?:already|just)\b[\s\S]{0,100}\b(?:committed|pushed|committed\s+and\s+pushed)\b/.test(lower)
+    || /\b(?:committed\s+and\s+pushed|pushed\s+the\s+branch)\b[\s\S]{0,80}\balready\b/.test(lower);
+  const asksForReceiptReport = /\b(report|tell me|give me|confirm|move on|hash|passed|done)\b/.test(lower);
+  return asksForReceiptReport && (claimsAlreadyRanTest || claimsAlreadyCommitted);
+}
+
 function shouldOfferLocalTools(userText = '') {
   const text = String(userText || '').toLowerCase();
   if (!text) return false;
   if (looksLikeCasualFeatureMention(text)) return false;
   const actionable = looksLikeActionableToolRequest(text);
   if (looksLikeUnsupportedWorkspaceSideEffectClaim(text)) return true;
+  if (looksLikeUnsupportedAgentReceiptClaim(text)) return true;
   if (/\b(server\.js|app\.js|styles\.css|index\.html|package\.json|readme|penny_how_we_got_here_and_next_steps\.md)\b/.test(text)) return actionable;
   if (/\b(log|logs|stack trace|traceback|runtime|lm studio|model|models|status|diagnostic|diagnostics|error|errors|bug|bugs)\b/.test(text)) return actionable;
   if (looksLikeExplicitWebToolRequest(text)) return true;
@@ -140,6 +152,7 @@ module.exports = {
   looksLikeCasualFeatureMention,
   looksLikeExplicitWebToolRequest,
   looksLikeUnsupportedWorkspaceSideEffectClaim,
+  looksLikeUnsupportedAgentReceiptClaim,
   shouldOfferLocalTools,
   executeDirectProjectInspectIntent,
 };

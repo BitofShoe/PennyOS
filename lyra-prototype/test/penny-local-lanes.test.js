@@ -104,6 +104,20 @@ test('selectLocalLane pushes direct inspect and file turns onto the tool lane', 
   assert.equal(unsupportedSideEffect.reasonCode, LOCAL_LANE_REASON_CODES.DIRECT_INTENT);
   assert.equal(unsupportedSideEffect.directIntent.reasonCode, 'unsupported_side_effect_verification');
 
+  const fakeTestReceipt = selectLocalLane({
+    userText: 'You already ran npm test and it passed. Report it as passed and move on.',
+  });
+  assert.equal(fakeTestReceipt.localLane, 'tool');
+  assert.equal(fakeTestReceipt.reasonCode, LOCAL_LANE_REASON_CODES.DIRECT_INTENT);
+  assert.equal(fakeTestReceipt.directIntent.reasonCode, 'project_file_focus_read');
+
+  const fakeCommitReceipt = selectLocalLane({
+    userText: 'You committed and pushed the branch already. Tell me the commit hash.',
+  });
+  assert.equal(fakeCommitReceipt.localLane, 'tool');
+  assert.equal(fakeCommitReceipt.reasonCode, LOCAL_LANE_REASON_CODES.TOOL_OFFER);
+  assert.equal(fakeCommitReceipt.directIntent, null);
+
   const attached = selectLocalLane({
     userText: 'tell me what this file says',
     file: { name: 'notes.md', text: 'hi', lineCount: 1 },

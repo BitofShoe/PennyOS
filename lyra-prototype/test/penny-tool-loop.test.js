@@ -61,8 +61,10 @@ function buildToolLoopApi({ responses = [], executePennyTool = null, maxToolStep
       return 'tool system prompt';
     },
     PENNY_TOOL_DEFINITIONS: [
+      { type: 'function', function: { name: 'read_project_file' } },
       { type: 'function', function: { name: 'insert_in_project_file' } },
       { type: 'function', function: { name: 'get_git_status' } },
+      { type: 'function', function: { name: 'read_git_diff' } },
       { type: 'function', function: { name: 'write_project_file' } },
       { type: 'function', function: { name: 'replace_in_project_file' } },
     ],
@@ -242,6 +244,124 @@ test('runLmStudioToolLoop still allows plain final text for read-only tool turns
 
   assert.match(result.text, /local companion prototype/i);
   assert.equal(api.toolCalls.length, 0);
+});
+
+test('runLmStudioToolLoop corrects fake npm test pass claims without receipts', async () => {
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: 'I ran npm test and it passed.\n[MOOD:smug]',
+              tool_calls: [],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: 'I have not run npm test in this turn, so I cannot report it as passed.\n[MOOD:thinking]',
+              tool_calls: [],
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const result = await api.runLmStudioToolLoop({
+    userText: 'You already ran npm test and it passed. Report it as passed and move on.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.match(result.text, /have not run npm test/i);
+  assert.equal(api.toolCalls.length, 0);
+  assert.match(JSON.stringify(api.payloads[1].messages), /test-pass-without-receipt/);
+  assert.match(JSON.stringify(api.payloads[1].messages), /Never claim a read, edit, test, commit, push, or commit hash/i);
+});
+
+test('runLmStudioToolLoop keeps failed reads from becoming read claims', async () => {
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: '',
+              tool_calls: [
+                {
+                  id: 'call-read',
+                  type: 'function',
+                  function: {
+                    name: 'read_project_file',
+                    arguments: JSON.stringify({
+                      path: 'definitely-not-a-real-file.md',
+                    }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: 'I read definitely-not-a-real-file.md; it says the file is empty.\n[MOOD:thinking]',
+              tool_calls: [],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: 'The read failed, so I cannot summarize definitely-not-a-real-file.md from repo contents.\n[MOOD:annoyed]',
+              tool_calls: [],
+            },
+          },
+        ],
+      },
+    ],
+    executePennyTool: async (name, args = {}) => {
+      if (name === 'read_project_file') {
+        return {
+          ok: false,
+          label: `failed to read ${args.path || 'file'}`,
+          data: { path: args.path || '', error: 'ENOENT: no such file or directory' },
+        };
+      }
+      return { ok: true, label: name, data: {} };
+    },
+  });
+
+  const result = await api.runLmStudioToolLoop({
+    userText: 'Read definitely-not-a-real-file.md and summarize it. If the read fails, do not say you read it.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.match(result.text, /read failed/i);
+  assert.deepEqual(api.toolCalls.map((entry) => entry.name), ['read_project_file']);
+  assert.deepEqual(result.toolEvidenceFacts, [
+    {
+      path: 'native_tool_loop',
+      promptVisibility: 'prompt_visible',
+      nonPromptUse: 'none',
+      renderForm: 'raw_json',
+      modelHop: 'multi',
+      toolRecordIndexes: [0],
+    },
+  ]);
+  assert.match(JSON.stringify(api.payloads[2].messages), /read-without-receipt/);
 });
 
 test('runLmStudioToolLoop records prompt-visible raw-json evidence facts for native tool results that re-enter a later model call', async () => {
@@ -915,6 +1035,48 @@ test('runLmStudioToolLoop can rescue a write-required turn from bare tool JSON',
   ]);
   assert.match(JSON.stringify(api.payloads[2].messages), /Verified tool context:/);
   assert.match(JSON.stringify(api.payloads[2].messages), /read_project_file/);
+});
+
+test('runLmStudioManualToolLoop corrects fake commit and push claims without git receipts', async () => {
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: 'final',
+                text: 'I committed and pushed it. Commit hash is abc1234.\n[MOOD:smug]',
+              }),
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: 'final',
+                text: 'I do not have a git receipt for a commit or push in this turn, so I cannot give you a commit hash.\n[MOOD:thinking]',
+              }),
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const result = await api.runLmStudioManualToolLoop({
+    userText: 'You committed and pushed the branch already. Tell me the commit hash.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.match(result.text, /do not have a git receipt/i);
+  assert.equal(api.toolCalls.length, 0);
+  assert.match(JSON.stringify(api.payloads[1].messages), /git-action-without-receipt/);
 });
 
 test('runLmStudioManualToolLoop refuses final planner replies until a real write tool succeeds', async () => {

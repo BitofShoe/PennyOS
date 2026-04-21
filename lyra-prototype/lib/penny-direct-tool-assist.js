@@ -438,7 +438,7 @@ function createDirectToolAssistApi({
     }
     if (
       (intent.name === 'read_project_file' || intent.name === 'read_project_file_around_match')
-      && (shouldUseDirectReadReply(userText) || (intent.name === 'read_project_file_around_match' && intent.args?.query))
+      && (!result.ok || shouldUseDirectReadReply(userText) || (intent.name === 'read_project_file_around_match' && intent.args?.query))
     ) {
       return {
         text: composeDirectReadReply({

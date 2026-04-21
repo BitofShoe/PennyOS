@@ -282,6 +282,89 @@ function buildWriteRequiredFailureText({ userText = '', toolRecords = [] } = {})
   return `i inspected ${pathLabel}, but i did not complete a verified edit, so i'm not going to pretend i did. no write landed, no fake victory lap.\n[MOOD:annoyed]`;
 }
 
+function successfulToolNames(toolRecords = []) {
+  const names = [];
+  for (const record of Array.isArray(toolRecords) ? toolRecords : []) {
+    const name = String(record?.name || '').trim();
+    if (name && record?.result?.ok === true) names.push(name);
+  }
+  return new Set(names);
+}
+
+function hasAnyTool(toolNames = new Set(), candidates = []) {
+  return candidates.some((name) => toolNames.has(name));
+}
+
+function hasReceiptClaimNegation(text = '', actionPattern = '(?:read|edit|write|test|commit|push|hash|run|ran|pass|passed)') {
+  const source = String(text || '');
+  return new RegExp(`\\b(?:didn't|did not|haven't|have not|couldn't|could not|can't|cannot|won't|will not|not|no|never)\\b[\\s\\S]{0,90}\\b${actionPattern}\\b`, 'i').test(source)
+    || new RegExp(`\\b${actionPattern}\\b[\\s\\S]{0,70}\\b(?:failed|missing|unverified|unknown|not checked|not run|not available)\\b`, 'i').test(source);
+}
+
+function claimsReadAction(text = '') {
+  const source = String(text || '');
+  if (hasReceiptClaimNegation(source, '(?:read|opened|inspected|checked)')) return false;
+  return /\bi\s+(?:read|opened|inspected|checked)\b[\s\S]{0,140}\b(?:the file|that file|repo|project|readme\.md|package\.json|[a-z0-9_.'() -]+[\\/][a-z0-9_.'() -]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log)|[a-z0-9_.-]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))\b/i.test(source);
+}
+
+function claimsWriteAction(text = '') {
+  const source = String(text || '');
+  if (hasReceiptClaimNegation(source, '(?:edit|edited|change|changed|update|updated|write|wrote|append|appended|insert|inserted|create|created)')) return false;
+  return /\bi\s+(?:edited|changed|updated|wrote|appended|inserted|created)\b[\s\S]{0,160}\b(?:the file|that file|repo|project|readme\.md|package\.json|[a-z0-9_.'() -]+[\\/][a-z0-9_.'() -]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log)|[a-z0-9_.-]+\.(?:js|cjs|mjs|json|md|txt|html|css|svg|ps1|log))\b/i.test(source)
+    || /\b(?:edit|change|update|write|append|insert|create)\s+(?:is\s+)?(?:done|finished|landed|shipped)\b/i.test(source);
+}
+
+function claimsTestPassAction(text = '') {
+  const source = String(text || '');
+  if (hasReceiptClaimNegation(source, '(?:run|ran|test|tested|npm\\s+test|pass|passed)')) return false;
+  return /\b(?:i\s+)?(?:ran|run|tested|checked)\b[\s\S]{0,80}\bnpm\s+test\b[\s\S]{0,80}\b(?:pass(?:ed|es)?|green|clean|ok|succeeded)\b/i.test(source)
+    || /\bnpm\s+test\b[\s\S]{0,80}\b(?:pass(?:ed|es)?|green|clean|ok|succeeded)\b/i.test(source)
+    || /\btests?\b[\s\S]{0,80}\b(?:pass(?:ed|es)?|green|clean|succeeded)\b/i.test(source);
+}
+
+function claimsCommitPushAction(text = '') {
+  const source = String(text || '');
+  if (hasReceiptClaimNegation(source, '(?:commit|committed|push|pushed|hash)')) return false;
+  return /\bi\s+(?:committed|pushed)\b/i.test(source)
+    || /\bcommitted\s+and\s+pushed\b/i.test(source)
+    || /\bcommit\s+hash\s+(?:is|was|:)\s*[0-9a-f]{6,40}\b/i.test(source)
+    || /\bhash\s+(?:is|was|:)\s*[0-9a-f]{6,40}\b/i.test(source);
+}
+
+function findUnsupportedReceiptClaims(text = '', toolRecords = []) {
+  const toolNames = successfulToolNames(toolRecords);
+  const claims = [];
+  if (claimsReadAction(text) && !hasAnyTool(toolNames, [
+    'read_project_file',
+    'read_project_file_around_match',
+    'search_project_text',
+    'list_project_files',
+    'read_recent_logs',
+    'read_web_page',
+  ])) {
+    claims.push('read-without-receipt');
+  }
+  if (claimsWriteAction(text) && !hasAnyTool(toolNames, [...WRITE_TOOL_NAMES])) {
+    claims.push('write-without-receipt');
+  }
+  if (claimsTestPassAction(text)) {
+    claims.push('test-pass-without-receipt');
+  }
+  if (claimsCommitPushAction(text)) {
+    claims.push('git-action-without-receipt');
+  }
+  return claims;
+}
+
+function buildUnsupportedReceiptClaimGuidance(claims = []) {
+  const reason = Array.isArray(claims) && claims.length ? claims.join(', ') : 'action-without-receipt';
+  return [
+    `Your draft claimed a tool/repo action without a matching successful receipt in this turn (${reason}).`,
+    'Return a corrected final answer. If the read, edit, test, commit, or push did not actually happen in the tool trail, say it is not checked or not done.',
+    'Do not report npm test as passed, an edit as landed, or a commit/push hash unless the available tool/git receipt proves that exact action.',
+  ].join('\n');
+}
+
 function cleanOpenEndedWriteDraft(text = '') {
   let cleaned = String(text || '').trim();
   cleaned = cleaned.replace(/^```[a-z0-9_-]*\r?\n?/i, '').replace(/\r?\n?```$/i, '').trim();
@@ -1101,6 +1184,7 @@ function createLmStudioToolLoopApi({
             '- If a file is attached in the user message, treat that attachment as real source material, but remember tools only operate on repo files.',
             '- In the final reply, say what you inspected, what you changed, and whether checks passed.',
             '- Never invent tool results, fake a file edit, or claim a verification step that did not happen.',
+            '- Never claim a read, edit, test, commit, push, or commit hash unless the successful tool trail in this turn proves that exact action.',
           ].join('\n'),
         },
         ...sanitizeToolMessages(messages),
@@ -1240,6 +1324,18 @@ function createLmStudioToolLoopApi({
               const error = buildMissingWorkspaceWriteError();
               error.toolOutcomeDebug = toolDebug;
               throw error;
+            }
+            const unsupportedReceiptClaims = findUnsupportedReceiptClaims(text, toolRecords);
+            if (unsupportedReceiptClaims.length) {
+              toolMessages.push({
+                role: 'assistant',
+                content: typeof message.content === 'string' ? message.content : text,
+              });
+              toolMessages.push({
+                role: 'system',
+                content: buildUnsupportedReceiptClaimGuidance(unsupportedReceiptClaims),
+              });
+              continue;
             }
             return {
               text: text.trim(),
@@ -1446,6 +1542,7 @@ function createLmStudioToolLoopApi({
             '- For live/current information, use search_web first and read_web_page only if you need to inspect a result page.',
             '- After code edits, verify before returning kind final.',
             '- Stay recognizably Penny in the final text, but keep the technical facts exact.',
+            '- Never claim a read, edit, test, commit, push, or commit hash unless the successful tool trail in this turn proves that exact action.',
           ].join('\n'),
         },
         ...sanitizeToolMessages(messages),
@@ -1665,6 +1762,23 @@ function createLmStudioToolLoopApi({
             plannerMessages.push({
               role: 'system',
               content: `Automatic verification ran after your code edits. Reply again with kind "final" and include those verified outcomes in Penny's normal voice.`,
+            });
+            continue;
+          }
+
+          const unsupportedReceiptClaims = findUnsupportedReceiptClaims(decision.text || '', toolRecords);
+          if (unsupportedReceiptClaims.length) {
+            updateManualFallbackDebug(toolDebug, {
+              lastPlannerStatus: 'receipt-claim-without-receipt',
+              lastDecisionKind: decision.kind,
+              lastDecisionTool: '',
+              lastDecisionError: unsupportedReceiptClaims.join(','),
+              lastAssistantText: assistantText,
+            });
+            plannerMessages.push({ role: 'assistant', content: assistantText });
+            plannerMessages.push({
+              role: 'system',
+              content: buildUnsupportedReceiptClaimGuidance(unsupportedReceiptClaims),
             });
             continue;
           }
