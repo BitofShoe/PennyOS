@@ -310,6 +310,7 @@ Current modules worth knowing:
 - [lib/penny-context-pressure-qa.js](./lib/penny-context-pressure-qa.js)
 - [lib/penny-candidate-survival-qa.js](./lib/penny-candidate-survival-qa.js)
 - [lib/penny-semantic-ids.js](./lib/penny-semantic-ids.js)
+- [lib/penny-semantic-predicates.js](./lib/penny-semantic-predicates.js)
 - [lib/penny-gemma-runtime-watch.js](./lib/penny-gemma-runtime-watch.js)
 - [lib/penny-route-handlers.js](./lib/penny-route-handlers.js)
 - [lib/penny-server-http.js](./lib/penny-server-http.js)
@@ -473,7 +474,7 @@ Session reflection and memory suggestions have moved from docs-only boundary int
 
 Dynamic memory linking has helper/fixture/QA/compare code in `lib/penny-memory-links.js`, `lib/penny-memory-link-policy.js`, archive trace/QA helpers, and the memory-link compare runner. A memory link is still a retrieval/navigation hint, not proof that either side is true: links cannot promote advisory/archive/semantic/static candidates into canonical explicit memory, cannot turn candidate-only support into verified support, cannot expand PromptTruth or `toolEvidenceReceipt`, cannot change runtime voice, and cannot justify a graph DB or universal memory index. Conservative correction-link scoring can become active only behind `PENNY_MEMORY_LINK_SCORING=correction-v1`; project-thread, research-pattern, and open-loop links stay advisory/shadow until separately measured.
 
-Semantic identity and provenance contracts have started with the smallest helper-owned slice: `lib/penny-semantic-ids.js` plus `test/penny-semantic-ids.test.js`. The helper can mint stable local IDs for source, claim, entity, predicate, link, domain, rendered-context, and vector-source objects. Slice 1 does not adopt those IDs into existing PromptTruth, archive, static-cache, memory-link, or route surfaces yet; future slices should dual-write or explicitly migrate consumers instead of replacing serialized IDs in place.
+Semantic identity and provenance contracts have started with helper-owned slices: `lib/penny-semantic-ids.js` plus `test/penny-semantic-ids.test.js` mint stable local IDs for source, claim, entity, predicate, link, domain, rendered-context, and vector-source objects; `lib/penny-semantic-predicates.js` plus `test/penny-semantic-predicates.test.js` define the small typed predicate registry. These slices do not adopt IDs or predicates into existing PromptTruth, archive, static-cache, memory-link, or route surfaces yet; future slices should dual-write or explicitly migrate consumers instead of replacing serialized IDs in place.
 
 Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, `lib/penny-qa-trace.js`, and their tests cover social pressure, companion-feedback bias, remote/source pressure, and agent-integrity receipt canaries. Gemma runtime watch lives in `lib/penny-gemma-runtime-watch.js` plus status/preflight/runtime-fit artifacts. Tool output-cost descriptors live in `lib/penny-tool-registry.js` and optional sibling runtime artifact cost summaries. None of those status surfaces change runtime voice, expand `promptTruth`, switch default embeddings, enable default thinking, raise default context, or import external dependencies.
 
