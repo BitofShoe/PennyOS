@@ -264,6 +264,24 @@ test('extractTurnStateSignals captures explicit no-proactive constraint without 
   assert.ok(state.riskFlags.includes('user-proactive-opt-out'));
 });
 
+test('extractTurnStateSignals can use static reflex metadata as optional aliveness hints', () => {
+  const state = extractTurnStateSignals({
+    userText: 'That candidate looks relevant; keep going from there.',
+    staticMemoryReflex: {
+      topCandidate: {
+        candidateId: 'archive:episode:static-memory-reflex',
+        activeProjectThread: 'live static memory reflex',
+        openLoopId: 'static-memory-reflex',
+      },
+    },
+  });
+
+  assert.equal(state.activeProjectThread, 'live static memory reflex');
+  assert.deepEqual(state.openLoopsTouched, ['static-memory-reflex']);
+  assert.equal(state.persist, false);
+  assert.equal(state.measurementMode, 'ephemeral');
+});
+
 test('extractTurnStateSignals injects static embedding candidate authority constraints', () => {
   const state = extractTurnStateSignals({
     userText: 'Can static embeddings help the live static memory reflex without changing PromptTruth?',

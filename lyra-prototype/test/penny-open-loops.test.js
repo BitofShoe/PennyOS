@@ -231,6 +231,51 @@ test('static memory candidate relation can select a relevant open loop without m
   assert.match(result.selected[0].promptSnippet, /Authority: advisory\./);
 });
 
+test('turn-state open-loop touches can select a relevant loop without text overreach', () => {
+  const result = selectRelevantOpenLoops({
+    now: NOW,
+    userText: 'That candidate seems relevant; keep going from there.',
+    turnState: {
+      schema: 'penny-turn-state.v1',
+      measurementMode: 'ephemeral',
+      persist: false,
+      activeProjectThread: 'live static memory reflex',
+      openLoopsTouched: ['static-memory-reflex'],
+    },
+    loops: [
+      {
+        id: 'static-memory-reflex',
+        title: 'Static memory reflex follow-through',
+        status: 'open',
+        priority: 'medium',
+        lastTouchedAt: '2026-04-22T09:00:00.000Z',
+        nextLikelyStep: 'Use the static candidate as advisory discovery only.',
+        sourceRefs: [
+          { type: 'doc', path: 'docs/penny-tier1-aliveness-plans/01-live-static-memory-reflex-plan.md' },
+        ],
+      },
+      {
+        id: 'bounded-initiative-policy',
+        title: 'Bounded initiative policy',
+        status: 'open',
+        priority: 'high',
+        lastTouchedAt: '2026-04-22T09:00:00.000Z',
+        nextLikelyStep: 'Run the initiative fixture.',
+      },
+    ],
+  });
+
+  assert.deepEqual(result.selected.map((loop) => loop.id), ['static-memory-reflex']);
+  assert.equal(result.selected[0].surfaceReason, 'turn-state-open-loop+recent-open-loop');
+  assert.equal(result.selected[0].selected, true);
+  assert.equal(result.selected[0].central, true);
+  assert.equal(result.selected[0].authority, 'advisory');
+  assert.equal(result.selected[0].nextLikelyStep, 'Use the static candidate as advisory discovery only.');
+  assert.deepEqual(result.heldBack.map((loop) => ({ id: loop.id, reason: loop.reason })), [
+    { id: 'bounded-initiative-policy', reason: 'adjacent-not-central' },
+  ]);
+});
+
 test('dismissed and expired loops never surface even when mentioned', () => {
   const result = selectRelevantOpenLoops({
     now: NOW,

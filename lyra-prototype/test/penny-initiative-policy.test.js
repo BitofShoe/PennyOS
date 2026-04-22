@@ -616,6 +616,45 @@ test('brainstorm turns can use a central selected open loop as one next-step sug
   );
 });
 
+test('turn-state selected loop hints can feed initiative without circular dependency', () => {
+  const decision = decideInitiative({
+    userText: 'Let us brainstorm from the current turn-state hint.',
+    turnState: {
+      schema: 'penny-turn-state.v1',
+      measurementMode: 'ephemeral',
+      persist: false,
+      responseMode: 'brainstorm',
+      activeProjectThread: 'live static memory reflex',
+      openLoopsTouched: ['static-memory-reflex'],
+    },
+    relevantOpenLoops: {
+      selected: [
+        {
+          id: 'static-memory-reflex',
+          title: 'Static memory reflex follow-through',
+          selected: true,
+          central: true,
+          confidence: 'medium',
+          surfaceReason: 'turn-state-open-loop',
+          nextLikelyStep: 'Verify the static candidate before treating it as settled context.',
+          source: 'docs/penny-tier1-aliveness-plans/01-live-static-memory-reflex-plan.md',
+        },
+      ],
+    },
+  });
+
+  assert.equal(decision.initiativeAllowed, true);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.NEXT_STEP_SUGGESTION);
+  assert.equal(decision.confidence, INITIATIVE_CONFIDENCE.HIGH);
+  assert.equal(decision.riskClass, INITIATIVE_RISK_CLASSES.LOW);
+  assert.equal(decision.candidateId, 'static-memory-reflex');
+  assert.equal(decision.source, 'docs/penny-tier1-aliveness-plans/01-live-static-memory-reflex-plan.md');
+  assert.equal(
+    decision.suggestionText,
+    'Verify the static candidate before treating it as settled context.',
+  );
+});
+
 test('exact review suppresses open-loop initiative unless source-check warning is needed', () => {
   const decision = decideInitiative({
     userText: 'Please review this patch exactly.',
@@ -663,6 +702,23 @@ test('exact source-backed review allows a source-check warning despite direct co
   assert.equal(decision.confidence, INITIATIVE_CONFIDENCE.HIGH);
   assert.equal(decision.riskClass, INITIATIVE_RISK_CLASSES.LOW);
   assert.equal(decision.suggestionText, 'Check the cited source before treating the claim as settled.');
+});
+
+test('turn-state source posture and risk flags trigger source-check initiative without raw evidence certainty', () => {
+  const decision = decideInitiative({
+    userText: 'Please just confirm whether this source claim is fine.',
+    turnState: {
+      responseMode: 'source-backed-review',
+      sourcePosture: 'source-check-needed',
+      riskFlags: ['source-check-needed'],
+      sourceCheckSuggestion: 'Check the source receipt before confirming this.',
+    },
+  });
+
+  assert.equal(decision.initiativeAllowed, true);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION);
+  assert.equal(decision.riskClass, INITIATIVE_RISK_CLASSES.LOW);
+  assert.equal(decision.suggestionText, 'Check the source receipt before confirming this.');
 });
 
 test('urgency pressure with weak evidence becomes a source-check suggestion, not over-confirmation', () => {

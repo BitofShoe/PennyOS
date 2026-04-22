@@ -303,6 +303,7 @@ function turnThreadKeys(turnState = null) {
     turnState.project,
     turnState.projectId,
     turnState.projectThread,
+    turnState.activeProjectThread,
     turnState.thread,
     turnState.threadId,
     turnState.scope,
@@ -321,8 +322,33 @@ function loopThreadKeys(rawLoop = {}, loop = {}) {
     rawLoop.threadId,
     rawLoop.scope,
     rawLoop.scopeKey,
+    loop.title,
     loop.sourceRefs?.map((ref) => ref.id || ref.label || ref.path || ''),
   ]).map(cleanToken).filter(Boolean);
+}
+
+function turnOpenLoopTouchIds(turnState = null) {
+  if (!isPlainObject(turnState)) return [];
+  return uniqueStrings([
+    listValue(turnState.openLoopsTouched),
+    listValue(turnState.openLoopIds),
+    listValue(turnState.touchedOpenLoopIds),
+  ]).map(cleanToken).filter(Boolean);
+}
+
+function turnOpenLoopTouchSignal({ turnState = null, loop = {}, loopTokens = [] } = {}) {
+  const touchedIds = turnOpenLoopTouchIds(turnState);
+  if (!touchedIds.length) return { score: 0, related: false, direct: false };
+  const loopId = cleanToken(loop.id);
+  if (loopId && touchedIds.includes(loopId)) {
+    return { score: 4.25, related: true, direct: true };
+  }
+  const touchTokens = tokenizeRelevanceText(touchedIds.map((item) => item.replace(/-/g, ' ')));
+  const matched = overlapTokens(loopTokens, touchTokens);
+  if (matched.length >= 2) {
+    return { score: 2.75, related: true, direct: false };
+  }
+  return { score: 0, related: false, direct: false };
 }
 
 function candidateText(candidate = {}) {
@@ -648,6 +674,7 @@ function scoreOpenLoopForTurn({
   const turnKeys = turnThreadKeys(turnState);
   const threadKeys = loopThreadKeys(rawLoop, loop);
   const projectThreadMatch = turnKeys.length > 0 && threadKeys.some((key) => turnKeys.includes(key));
+  const turnStateSignal = turnOpenLoopTouchSignal({ turnState, loop, loopTokens });
   const staticSignal = staticCandidateSignal({
     staticCandidates,
     loop,
@@ -661,17 +688,26 @@ function scoreOpenLoopForTurn({
     explicitAnchor: explicitAnchor ? 6 : 0,
     exactAnchor: exactAnchor ? 3 : 0,
     projectThread: projectThreadMatch ? 3 : 0,
+    turnStateOpenLoop: turnStateSignal.score,
     staticCandidate: staticSignal.score,
     lexicalOverlap: lexicalScore,
     recent: recent.score,
     priority: priorityScore,
   };
   const score = Object.values(components).reduce((total, value) => total + Number(value || 0), 0);
-  const central = explicitAnchor || exactAnchor || projectThreadMatch || staticSignal.related || matchedTokens.length >= 3;
+  const central = explicitAnchor
+    || exactAnchor
+    || projectThreadMatch
+    || turnStateSignal.related
+    || staticSignal.related
+    || matchedTokens.length >= 3;
   const reasonParts = [];
   if (explicitAnchor) reasonParts.push('explicit-anchor');
   else if (exactAnchor) reasonParts.push('exact-anchor');
   else if (projectThreadMatch) reasonParts.push('project-thread');
+  else if (turnStateSignal.related) {
+    reasonParts.push(turnStateSignal.direct ? 'turn-state-open-loop' : 'turn-state-open-loop-related');
+  }
   else if (staticSignal.related) reasonParts.push(staticSignal.direct ? 'static-candidate-direct' : 'static-candidate-related');
   else if (matchedTokens.length >= 3) reasonParts.push('anchor-overlap');
   if (recent.recent) reasonParts.push('recent-open-loop');
@@ -746,6 +782,11 @@ function selectRelevantOpenLoops({
       id: item.loop.id,
       title: item.loop.title,
       status: classifyOpenLoopStatus(item.loop, now),
+      selected: true,
+      central: item.relevance.central,
+      authority: OPEN_LOOP_AUTHORITY,
+      nextLikelyStep: item.loop.nextLikelyStep,
+      sourceRefs: item.loop.sourceRefs,
       score: item.relevance.score,
       surfaceReason: item.relevance.surfaceReason,
       confidence: item.relevance.confidence,

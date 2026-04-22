@@ -569,9 +569,33 @@ function turnStateEnergyLabel(turnState = {}) {
   return cleanToken(energy || turnState.energyLabel || '');
 }
 
+function objectFlagTokens(raw = {}) {
+  if (!isPlainObject(raw)) return [];
+  return [
+    listValue(raw.flags),
+    listValue(raw.riskFlags),
+    listValue(raw.risks),
+    listValue(raw.trustFlags),
+    listValue(raw.sourceFlags),
+    raw.sourcePosture,
+    raw.sourceMode,
+    raw.evidencePosture,
+    raw.responseMode,
+  ].flat(Infinity).map(cleanToken).filter(Boolean);
+}
+
+function compactFlagToken(value = '') {
+  return cleanToken(value).replace(/-/g, '');
+}
+
 function objectHasAnyFlag(raw = {}, names = []) {
   if (!isPlainObject(raw)) return false;
   if (hasAnyFlag(raw, names)) return true;
+  const nameTokens = new Set(names.map(cleanToken).filter(Boolean));
+  const compactNameTokens = new Set(names.map(compactFlagToken).filter(Boolean));
+  if (objectFlagTokens(raw).some((token) => (
+    nameTokens.has(token) || compactNameTokens.has(compactFlagToken(token))
+  ))) return true;
   return [
     raw.sourceState,
     raw.sourceFlags,
@@ -1360,9 +1384,9 @@ function findInitiativeCandidate({
     const candidate = normalizeCandidate({
       ...loop,
       initiativeType: loop.initiativeType || INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
-      confidence: loop.confidence
-        || loop.relevanceConfidence
-        || (turnSignals.brainstormMode && centralLoop ? INITIATIVE_CONFIDENCE.HIGH : ''),
+      confidence: turnSignals.brainstormMode && centralLoop
+        ? INITIATIVE_CONFIDENCE.HIGH
+        : (loop.confidence || loop.relevanceConfidence || ''),
       reason: loop.reason
         || surfaceReason
         || (turnSignals.brainstormMode && centralLoop

@@ -456,6 +456,85 @@ function normalizeSourcePosture(value = '') {
   return SOURCE_CHECK_POSTURES.has(token) ? token : token;
 }
 
+function listValue(value = []) {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null || value === '') return [];
+  return [value];
+}
+
+function staticMemoryReflexFromInput(rawInput = {}, context = {}) {
+  return rawInput.staticMemoryReflex
+    || rawInput.staticReflex
+    || rawInput.staticMemory
+    || rawInput.staticCandidates
+    || rawInput.staticEmbeddingShadow
+    || context.staticMemoryReflex
+    || context.staticReflex
+    || context.staticMemory
+    || context.staticCandidates
+    || context.staticEmbeddingShadow
+    || null;
+}
+
+function rawStaticMemoryCandidateList(value = null) {
+  if (Array.isArray(value)) return value;
+  if (!isPlainObject(value)) return [];
+  const candidates = [];
+  if (isPlainObject(value.topCandidate)) candidates.push(value.topCandidate);
+  if (isPlainObject(value.topStaticCandidate)) candidates.push(value.topStaticCandidate);
+  if (Array.isArray(value.topCandidates)) candidates.push(...value.topCandidates);
+  if (Array.isArray(value.candidates)) candidates.push(...value.candidates);
+  if (Array.isArray(value.selected)) candidates.push(...value.selected);
+  if (Array.isArray(value.candidateTrace)) candidates.push(...value.candidateTrace);
+  if (Array.isArray(value.staticEmbeddingShadow?.topCandidates)) {
+    candidates.push(...value.staticEmbeddingShadow.topCandidates);
+  }
+  return candidates.filter(isPlainObject);
+}
+
+function candidateProjectThread(value = {}) {
+  if (!isPlainObject(value)) return '';
+  return cleanString(
+    value.activeProjectThread
+      || value.projectThread
+      || value.thread
+      || value.scopeLabel
+      || value.scope
+      || value.projectLabel
+      || '',
+    180,
+  );
+}
+
+function inferStaticProjectThread(staticMemoryReflex = null) {
+  const direct = candidateProjectThread(staticMemoryReflex);
+  if (direct) return direct;
+  for (const candidate of rawStaticMemoryCandidateList(staticMemoryReflex)) {
+    const thread = candidateProjectThread(candidate);
+    if (thread) return thread;
+  }
+  return '';
+}
+
+function inferStaticOpenLoopsTouched(staticMemoryReflex = null) {
+  const loops = [];
+  const addFrom = (value = {}) => {
+    if (!isPlainObject(value)) return;
+    loops.push(
+      value.openLoopId,
+      value.loopId,
+      value.linkedOpenLoopId,
+      value.relatedOpenLoopId,
+      ...listValue(value.openLoopIds),
+      ...listValue(value.loopIds),
+      ...listValue(value.linkedOpenLoopIds),
+    );
+  };
+  addFrom(staticMemoryReflex);
+  for (const candidate of rawStaticMemoryCandidateList(staticMemoryReflex)) addFrom(candidate);
+  return normalizeOpenLoopsTouched(loops);
+}
+
 function normalizeWarnings(rawWarnings = [], hiddenFields = [], raw = {}) {
   const warnings = uniqueStrings(rawWarnings, 20, 220);
   if (hiddenFields.length > 0) {
@@ -727,6 +806,12 @@ function extractTurnStateSignals(input = {}) {
   const rawInput = isPlainObject(input) ? input : { userText: input };
   const context = isPlainObject(rawInput.context) ? rawInput.context : {};
   const text = userTextFromSignalInput(rawInput);
+  const staticMemoryReflex = staticMemoryReflexFromInput(rawInput, context);
+  const staticProjectThread = inferStaticProjectThread(staticMemoryReflex);
+  const staticOpenLoopsTouched = inferStaticOpenLoopsTouched(staticMemoryReflex);
+  const contextWithStatic = staticProjectThread && !cleanString(context.activeProjectThread || context.projectThread || context.thread || '', 180)
+    ? { ...context, activeProjectThread: staticProjectThread }
+    : context;
   const explicitInstructions = inferExplicitInstructions(text);
   const desiredDepth = inferDesiredDepth(text);
   const sourceCheckNeeded = inferSourceCheckNeeded(text);
@@ -737,7 +822,7 @@ function extractTurnStateSignals(input = {}) {
     desiredDepth,
     responseMode,
     energy: inferEnergy(text),
-    activeProjectThread: inferActiveProjectThread(text, context),
+    activeProjectThread: inferActiveProjectThread(text, contextWithStatic),
     explicitInstructions,
     activeConstraints: [
       ...arrayFromContext(rawInput, 'activeConstraints', 'constraints'),
@@ -755,6 +840,7 @@ function extractTurnStateSignals(input = {}) {
     openLoopsTouched: [
       ...arrayFromContext(rawInput, 'openLoopsTouched', 'openLoops', 'openLoopIds'),
       ...arrayFromContext(context, 'openLoopsTouched', 'openLoops', 'openLoopIds'),
+      ...staticOpenLoopsTouched,
     ],
     suggestedResponseShape: inferSuggestedResponseShape(responseMode, desiredDepth, riskFlags),
   };
