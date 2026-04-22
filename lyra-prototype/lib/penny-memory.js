@@ -366,6 +366,9 @@ function buildPromptMemoryContext(
   const initiativePromptBridge = memories?.initiativePromptBridge && typeof memories.initiativePromptBridge === 'object'
     ? memories.initiativePromptBridge
     : null;
+  const turnStatePromptBridge = memories?.turnStatePromptBridge && typeof memories.turnStatePromptBridge === 'object'
+    ? memories.turnStatePromptBridge
+    : null;
   const researchLedgerContextAvailable = !!(researchLedgerContext && typeof researchLedgerContext === 'object');
   const researchLedgerPromptEnabled = memories?.researchLedgerPromptEnabled !== false;
   const retrievalHints = [];
@@ -450,8 +453,14 @@ function buildPromptMemoryContext(
     && initiativePromptBridge?.promptBridge?.promptText
     ? [normalizeText(initiativePromptBridge.promptBridge.promptText)]
     : [];
+  const turnStateLines = turnStatePromptBridge?.enabled === true
+    && Number(turnStatePromptBridge?.promptBridge?.renderedCount || 0) > 0
+    && turnStatePromptBridge?.promptBridge?.promptText
+    ? [normalizeText(turnStatePromptBridge.promptBridge.promptText)]
+    : [];
 
   const stableFactsSection = formatPromptSection('Wake state - stable facts', stableFacts);
+  const turnStateSection = formatPromptSection('Wake state - current turn state (ephemeral)', turnStateLines);
   const sessionContextSection = formatPromptSection('Wake state - active session context', sessionContext);
   const contradictionSection = formatPromptSection('Wake state - contradictions/open questions', contradictionAndLoopLines);
   const investigationsSection = formatPromptSection('Wake state - ongoing investigations (advisory)', ongoingInvestigations);
@@ -459,6 +468,7 @@ function buildPromptMemoryContext(
   const initiativeSection = formatPromptSection('Wake state - optional initiative (advisory)', initiativeLines);
 
   if (stableFactsSection) sections.push(stableFactsSection);
+  if (turnStateSection) sections.push(turnStateSection);
   if (!suppressArchiveForDirectAuthority && sessionContextSection) sections.push(sessionContextSection);
   if (contradictionSection) sections.push(contradictionSection);
   if (!suppressArchiveForDirectAuthority && investigationsSection) sections.push(investigationsSection);

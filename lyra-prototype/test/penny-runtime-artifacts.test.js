@@ -178,6 +178,46 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
         renderedCount: 1,
       },
     },
+    turnStatePromptBridge: {
+      schema: 'penny-turn-state-prompt-bridge.v1',
+      enabled: true,
+      measurementMode: 'live-prompt',
+      turnStateMeasurementMode: 'ephemeral',
+      persist: false,
+      livePromptBridge: true,
+      liveChatTouched: true,
+      renderedCount: 1,
+      maxTokens: 120,
+      promptTruthExpanded: false,
+      promptTruthChannelAdded: false,
+      toolEvidenceReceiptChanged: false,
+      memoryWrites: false,
+      autonomousActions: false,
+      sensitiveInferenceExcluded: true,
+      renderedFields: ['measurementMode', 'persist', 'activeConstraints'],
+      omittedFields: ['userIntent', 'energy', 'riskFlags'],
+      promptBridge: {
+        renderedCount: 1,
+        promptText: 'Turn state, ephemeral (persist=false): aim for a detailed source backed review response. Keep PromptTruth unchanged.',
+        wordCount: 13,
+        maxTokens: 120,
+      },
+      turnStateSummary: {
+        schema: 'penny-turn-state.v1',
+        measurementMode: 'ephemeral',
+        persist: false,
+        desiredDepth: 'detailed',
+        responseMode: 'source-backed-review',
+        activeProjectThread: 'bounded aliveness',
+        explicitInstructionCount: 1,
+        activeConstraintCount: 2,
+        riskFlagCount: 1,
+        sourceCheckNeeded: true,
+        openLoopsTouchedCount: 0,
+        warningCount: 0,
+        rejectedFieldCount: 0,
+      },
+    },
     latencyBudget: {
       latencyClass: 'memory-heavy-recall',
       policyMode: 'recall-heavy',
@@ -227,6 +267,16 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.modelAdvisory.initiativePromptBridge.promptTruthExpanded, false);
   assert.equal(artifact.modelAdvisory.initiativePromptBridge.promptTruthChannelAdded, false);
   assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'initiativePromptBridge'), false);
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.schema, 'penny-turn-state-prompt-bridge.v1');
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.livePromptBridge, true);
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.persist, false);
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.renderedCount, 1);
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.turnStateSummary.userIntent, undefined);
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.turnStateSummary.desiredDepth, 'detailed');
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.promptTruthExpanded, false);
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.promptTruthChannelAdded, false);
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.toolEvidenceReceiptChanged, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'turnStatePromptBridge'), false);
   assert.equal(artifact.promptTruth.schema, 'penny-prompttruth.v1');
   assert.equal(artifact.modelAdvisory.promptTruth.schema, 'penny-prompttruth.v1');
   assert.equal(artifact.promptTruth.channels.sessionArchive.renderedCount, 1);

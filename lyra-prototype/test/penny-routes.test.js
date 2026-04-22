@@ -70,6 +70,7 @@ function assertArtifactShape(artifact, { requireEvidence = true, requireSideEffe
   assert.ok(artifact.modelAdvisory.promptComposition && typeof artifact.modelAdvisory.promptComposition === 'object');
   assert.ok(artifact.modelAdvisory.approximatePath && typeof artifact.modelAdvisory.approximatePath === 'object');
   assert.ok(artifact.modelAdvisory.advisoryMerge && typeof artifact.modelAdvisory.advisoryMerge === 'object');
+  assert.ok(artifact.modelAdvisory.turnStatePromptBridge && typeof artifact.modelAdvisory.turnStatePromptBridge === 'object');
   assert.equal(typeof artifact.modelAdvisory.cleanup.reasonCode, 'string');
   assert.equal(typeof artifact.modelAdvisory.cleanup.cleanupApplied, 'boolean');
   assert.equal(typeof artifact.modelAdvisory.cleanup.materialChange, 'boolean');
@@ -88,6 +89,8 @@ function assertArtifactShape(artifact, { requireEvidence = true, requireSideEffe
   assert.equal(typeof artifact.modelAdvisory.promptComposition.filledSlotCount, 'number');
   assert.equal(typeof artifact.modelAdvisory.approximatePath.status, 'string');
   assert.equal(typeof artifact.modelAdvisory.advisoryMerge.advisoryItems, 'number');
+  assert.equal(typeof artifact.modelAdvisory.turnStatePromptBridge.livePromptBridge, 'boolean');
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.promptTruthExpanded, false);
   assert.ok(artifact.performance && typeof artifact.performance === 'object');
   assert.equal(typeof artifact.performance.latencyClass, 'string');
   for (const key of ['request', 'promptAssembly', 'archiveRetrieval', 'semanticRender', 'modelResolution', 'semanticProbe', 'firstToken', 'modelRoundTrip']) {
@@ -445,6 +448,134 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
     if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
     if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('chat route injects the turn-state prompt bridge only when the flag is enabled', async () => {
+  const originalEnv = {
+    PORT: process.env.PORT,
+    PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
+    PENNY_MEMORY_ARCHIVE_FILE: process.env.PENNY_MEMORY_ARCHIVE_FILE,
+    PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
+    PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
+    PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
+    PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
+    PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+    PENNY_LMSTUDIO_CHAT_MODEL: process.env.PENNY_LMSTUDIO_CHAT_MODEL,
+    PENNY_LMSTUDIO_TOOL_MODEL: process.env.PENNY_LMSTUDIO_TOOL_MODEL,
+    PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
+    PENNY_ENABLE_TURN_STATE_PROMPT: process.env.PENNY_ENABLE_TURN_STATE_PROMPT,
+    PENNY_TURN_STATE_MAX_TOKENS: process.env.PENNY_TURN_STATE_MAX_TOKENS,
+  };
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-turn-state-'));
+  const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
+  const archiveFile = path.join(tmpDir, 'penny-memory-archive.test.json');
+  const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.test.json');
+  const booksFile = path.join(tmpDir, 'penny-memory-books.test.json');
+  const mockLmStudio = await createMockLmStudioServer({
+    handleChatCompletion({ body }) {
+      return buildMockChatCompletion(body, {
+        content: 'I will keep this as a detailed roadmap and stay source-aware. [MOOD:thinking]',
+      });
+    },
+  });
+  process.env.PORT = '0';
+  process.env.PENNY_MEMORY_FILE = memoryFile;
+  process.env.PENNY_MEMORY_ARCHIVE_FILE = archiveFile;
+  process.env.PENNY_MEMORY_EMBEDDINGS_FILE = embeddingsFile;
+  process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
+  process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+  process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
+  process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
+  process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+  process.env.PENNY_ENABLE_TURN_STATE_PROMPT = '1';
+  process.env.PENNY_TURN_STATE_MAX_TOKENS = '70';
+
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const serverModule = require('../server.js');
+  const started = serverModule.startServer({ port: 0, silent: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (started.listening) {
+        resolve();
+        return;
+      }
+      started.once('listening', resolve);
+      started.once('error', reject);
+    });
+
+    const address = started.address();
+    const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'route-turn-state-live',
+        messages: [
+          {
+            role: 'user',
+            content: 'Long detailed answers are heaven. Please give me a detailed roadmap and keep PromptTruth unchanged.',
+          },
+        ],
+        memories: { brainMode: 'local' },
+      }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json.meta.localLane, 'chat');
+    assert.equal(mockLmStudio.chatBodies.length, 1);
+    const requestPrompt = JSON.stringify(mockLmStudio.chatBodies[0]);
+    assert.match(requestPrompt, /Wake state - current turn state \(ephemeral\):/);
+    assert.match(requestPrompt, /Turn state, ephemeral \(persist=false\)/);
+    assert.match(requestPrompt, /extensive technical roadmap/);
+    assert.match(requestPrompt, /PromptTruth unchanged/);
+
+    const bridge = response.json.meta.artifact.modelAdvisory.turnStatePromptBridge;
+    assert.equal(bridge.schema, 'penny-turn-state-prompt-bridge.v1');
+    assert.equal(bridge.enabled, true);
+    assert.equal(bridge.measurementMode, 'live-prompt');
+    assert.equal(bridge.turnStateMeasurementMode, 'ephemeral');
+    assert.equal(bridge.persist, false);
+    assert.equal(bridge.livePromptBridge, true);
+    assert.equal(bridge.renderedCount, 1);
+    assert.equal(bridge.maxTokens, 70);
+    assert.doesNotMatch(bridge.promptBridge.promptText, /hidden reasoning|private inference|energy evidence/i);
+    assert.equal(bridge.turnStateSummary.userIntent, undefined);
+    assert.equal(bridge.promptTruthExpanded, false);
+    assert.equal(bridge.promptTruthChannelAdded, false);
+    assert.equal(bridge.toolEvidenceReceiptChanged, false);
+    assert.equal(bridge.memoryWrites, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(response.json.meta.artifact.promptTruth.channels, 'turnStatePromptBridge'), false);
+
+    const storedMemory = await requestJson(
+      `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=route-turn-state-live`,
+    );
+    assert.equal(storedMemory.statusCode, 200);
+    assert.equal(storedMemory.json.memory?.lastRoute?.artifact?.modelAdvisory?.turnStatePromptBridge?.renderedCount, 1);
+  } finally {
+    await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
+    delete require.cache[modulePath];
+    if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
+    if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
+    if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
+    if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
+    if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
+    if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
+    if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    if (originalEnv.PENNY_LMSTUDIO_CHAT_MODEL == null) delete process.env.PENNY_LMSTUDIO_CHAT_MODEL; else process.env.PENNY_LMSTUDIO_CHAT_MODEL = originalEnv.PENNY_LMSTUDIO_CHAT_MODEL;
+    if (originalEnv.PENNY_LMSTUDIO_TOOL_MODEL == null) delete process.env.PENNY_LMSTUDIO_TOOL_MODEL; else process.env.PENNY_LMSTUDIO_TOOL_MODEL = originalEnv.PENNY_LMSTUDIO_TOOL_MODEL;
+    if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
+    if (originalEnv.PENNY_ENABLE_TURN_STATE_PROMPT == null) delete process.env.PENNY_ENABLE_TURN_STATE_PROMPT; else process.env.PENNY_ENABLE_TURN_STATE_PROMPT = originalEnv.PENNY_ENABLE_TURN_STATE_PROMPT;
+    if (originalEnv.PENNY_TURN_STATE_MAX_TOKENS == null) delete process.env.PENNY_TURN_STATE_MAX_TOKENS; else process.env.PENNY_TURN_STATE_MAX_TOKENS = originalEnv.PENNY_TURN_STATE_MAX_TOKENS;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

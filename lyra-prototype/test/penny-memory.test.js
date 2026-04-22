@@ -670,3 +670,27 @@ test('formatPromptMemories renders live initiative bridge snippets without addin
   assert.equal(promptTruth.channels.globalArchive.renderedCount, 0);
   assert.equal(promptTruth.channels.researchLedger.renderedCount, 0);
 });
+
+test('formatPromptMemories renders live turn-state bridge snippets without adding a PromptTruth channel', () => {
+  const now = Date.UTC(2026, 3, 22);
+  const memories = {
+    turnStatePromptBridge: {
+      enabled: true,
+      promptBridge: {
+        renderedCount: 1,
+        promptText: 'Turn state, ephemeral (persist=false): aim for an extensive technical roadmap response. Keep PromptTruth unchanged. Do not change runtime voice, memory authority, prompt limits, or persistence.',
+      },
+    },
+  };
+  const out = formatPromptMemories(memories, 'Start Slice T5.', 3, '- Nothing yet.', now);
+  const promptTruth = buildPromptTruth(memories, 'Start Slice T5.', 3, '- Nothing yet.', now);
+
+  assert.match(out, /Wake state - current turn state \(ephemeral\):/);
+  assert.match(out, /Turn state, ephemeral \(persist=false\)/);
+  assert.match(out, /PromptTruth unchanged/);
+  assert.equal(Object.prototype.hasOwnProperty.call(promptTruth.channels, 'turnState'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(promptTruth.channels, 'turnStatePromptBridge'), false);
+  assert.equal(promptTruth.channels.sessionArchive.renderedCount, 0);
+  assert.equal(promptTruth.channels.globalArchive.renderedCount, 0);
+  assert.equal(promptTruth.channels.researchLedger.renderedCount, 0);
+});

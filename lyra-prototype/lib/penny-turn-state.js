@@ -802,6 +802,9 @@ function summarizeTurnStateForPrompt(stateLike = {}, renderedProjectThread = '')
 
 function renderTurnStatePromptSnippet(stateLike = {}, {
   maxWords = DEFAULT_TURN_STATE_PROMPT_MAX_WORDS,
+  measurementMode = 'fixture-only',
+  livePromptBridge = false,
+  liveChatTouched = false,
 } = {}) {
   const state = normalizeTurnState(stateLike);
   const renderedFields = ['measurementMode', 'persist'];
@@ -838,11 +841,11 @@ function renderTurnStatePromptSnippet(stateLike = {}, {
   return {
     schema: TURN_STATE_PROMPT_BRIDGE_SCHEMA,
     turnStateSchema: state.schema,
-    measurementMode: 'fixture-only',
+    measurementMode: cleanString(measurementMode, 80) || 'fixture-only',
     turnStateMeasurementMode: state.measurementMode,
     persist: state.persist,
-    livePromptBridge: false,
-    liveChatTouched: false,
+    livePromptBridge: livePromptBridge === true,
+    liveChatTouched: liveChatTouched === true,
     promptTruthExpanded: false,
     promptTruthChannelAdded: false,
     toolEvidenceReceiptChanged: false,
@@ -863,12 +866,105 @@ function renderTurnStatePromptSnippet(stateLike = {}, {
     ],
     sensitiveInferenceExcluded: !containsSensitivePromptInference(promptText),
     guardrails: [
-      'Fixture-only prompt scaffold; no live chat injection.',
+      livePromptBridge === true
+        ? 'Live prompt scaffold is enabled by flag only; no default behavior change.'
+        : 'Fixture-only prompt scaffold; no live chat injection.',
       'Turn state remains ephemeral and persist=false.',
       'PromptTruth is not expanded and no new prompt-truth channel is added.',
       'No memory writes, autonomous actions, hidden reasoning, or sensitive private inference.',
     ],
     turnStateSummary: summarizeTurnStateForPrompt(state, activeProjectThread),
+  };
+}
+
+function buildDisabledTurnStatePromptBridge(disabledReason = 'env-disabled', maxTokens = DEFAULT_TURN_STATE_PROMPT_MAX_WORDS) {
+  const safeMaxTokens = clampInteger(maxTokens, DEFAULT_TURN_STATE_PROMPT_MAX_WORDS, 20, 180);
+  return {
+    schema: TURN_STATE_PROMPT_BRIDGE_SCHEMA,
+    enabled: false,
+    disabledReason: cleanString(disabledReason || 'env-disabled', 160),
+    measurementMode: 'disabled',
+    turnStateMeasurementMode: MEASUREMENT_MODE,
+    persist: false,
+    livePromptBridge: false,
+    liveChatTouched: false,
+    renderedCount: 0,
+    maxTokens: safeMaxTokens,
+    promptTruthExpanded: false,
+    promptTruthChannelAdded: false,
+    toolEvidenceReceiptChanged: false,
+    memoryWrites: false,
+    autonomousActions: false,
+    sensitiveInferenceExcluded: true,
+    renderedFields: [],
+    omittedFields: [
+      'userIntent',
+      'energy',
+      'energy.evidence',
+      'explicitInstructions',
+      'riskFlags',
+      'rejectedFields',
+      'warnings',
+    ],
+    promptBridge: {
+      renderedCount: 0,
+      promptText: '',
+      wordCount: 0,
+      maxTokens: safeMaxTokens,
+    },
+    turnStateSummary: null,
+  };
+}
+
+function buildLiveTurnStatePromptBridge({
+  enabled = false,
+  disabledReason = '',
+  userText = '',
+  context = {},
+  turnState = null,
+  maxTokens = 120,
+} = {}) {
+  const safeMaxTokens = clampInteger(maxTokens, 120, 20, 180);
+  if (enabled !== true) {
+    return buildDisabledTurnStatePromptBridge(disabledReason || 'env-disabled', safeMaxTokens);
+  }
+
+  const state = turnState
+    ? normalizeTurnState(turnState)
+    : extractTurnStateSignals({ userText, context });
+  const snippet = renderTurnStatePromptSnippet(state, {
+    maxWords: safeMaxTokens,
+    measurementMode: 'live-prompt',
+    livePromptBridge: true,
+    liveChatTouched: true,
+  });
+  const renderedCount = snippet.promptText ? 1 : 0;
+  return {
+    schema: TURN_STATE_PROMPT_BRIDGE_SCHEMA,
+    enabled: true,
+    disabledReason: '',
+    measurementMode: snippet.measurementMode,
+    turnStateMeasurementMode: snippet.turnStateMeasurementMode,
+    persist: false,
+    livePromptBridge: true,
+    liveChatTouched: renderedCount > 0,
+    renderedCount,
+    maxTokens: safeMaxTokens,
+    promptTruthExpanded: false,
+    promptTruthChannelAdded: false,
+    toolEvidenceReceiptChanged: false,
+    memoryWrites: false,
+    autonomousActions: false,
+    sensitiveInferenceExcluded: snippet.sensitiveInferenceExcluded === true,
+    renderedFields: snippet.renderedFields,
+    omittedFields: snippet.omittedFields,
+    promptBridge: {
+      renderedCount,
+      promptText: snippet.promptText,
+      wordCount: snippet.wordCount,
+      maxTokens: safeMaxTokens,
+    },
+    turnStateSummary: snippet.turnStateSummary,
   };
 }
 
@@ -878,6 +974,7 @@ module.exports = {
   RESPONSE_MODES,
   TURN_STATE_PROMPT_BRIDGE_SCHEMA,
   TURN_STATE_SCHEMA,
+  buildLiveTurnStatePromptBridge,
   buildTurnState,
   extractTurnStateSignals,
   normalizeTurnState,

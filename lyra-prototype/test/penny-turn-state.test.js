@@ -10,6 +10,7 @@ const {
   RESPONSE_MODES,
   TURN_STATE_PROMPT_BRIDGE_SCHEMA,
   TURN_STATE_SCHEMA,
+  buildLiveTurnStatePromptBridge,
   buildTurnState,
   extractTurnStateSignals,
   normalizeTurnState,
@@ -360,6 +361,54 @@ test('renderTurnStatePromptSnippet keeps explicit source-check posture without a
   assert.match(snippet.promptText, /Do not change runtime voice, memory authority, prompt limits, or persistence/);
   assert.equal(snippet.promptTruthChannelAdded, false);
   assert.equal(snippet.toolEvidenceReceiptChanged, false);
+});
+
+test('live turn-state prompt bridge stays disabled by default shape', () => {
+  const bridge = buildLiveTurnStatePromptBridge({
+    enabled: false,
+    userText: 'Long detailed answers are heaven. Start Slice T5.',
+  });
+
+  assert.equal(bridge.schema, TURN_STATE_PROMPT_BRIDGE_SCHEMA);
+  assert.equal(bridge.enabled, false);
+  assert.equal(bridge.disabledReason, 'env-disabled');
+  assert.equal(bridge.livePromptBridge, false);
+  assert.equal(bridge.liveChatTouched, false);
+  assert.equal(bridge.renderedCount, 0);
+  assert.equal(bridge.promptBridge.renderedCount, 0);
+  assert.equal(bridge.promptBridge.promptText, '');
+  assert.equal(bridge.turnStateSummary, null);
+  assert.equal(bridge.promptTruthExpanded, false);
+  assert.equal(bridge.memoryWrites, false);
+});
+
+test('live turn-state prompt bridge renders compact ephemeral scaffold when enabled', () => {
+  const bridge = buildLiveTurnStatePromptBridge({
+    enabled: true,
+    userText: 'Long detailed answers are heaven. Start Slice T5 live prompt bridge behind a flag; keep PromptTruth unchanged and run tests.',
+    maxTokens: 70,
+  });
+
+  assert.equal(bridge.schema, TURN_STATE_PROMPT_BRIDGE_SCHEMA);
+  assert.equal(bridge.enabled, true);
+  assert.equal(bridge.measurementMode, 'live-prompt');
+  assert.equal(bridge.turnStateMeasurementMode, 'ephemeral');
+  assert.equal(bridge.persist, false);
+  assert.equal(bridge.livePromptBridge, true);
+  assert.equal(bridge.liveChatTouched, true);
+  assert.equal(bridge.renderedCount, 1);
+  assert.ok(bridge.promptBridge.wordCount <= 70);
+  assert.match(bridge.promptBridge.promptText, /Turn state, ephemeral \(persist=false\)/);
+  assert.match(bridge.promptBridge.promptText, /extensive technical roadmap/);
+  assert.match(bridge.promptBridge.promptText, /PromptTruth unchanged/);
+  assert.equal(bridge.turnStateSummary.persist, false);
+  assert.equal(bridge.turnStateSummary.desiredDepth, DESIRED_DEPTHS.EXTENSIVE);
+  assert.equal(bridge.promptTruthExpanded, false);
+  assert.equal(bridge.promptTruthChannelAdded, false);
+  assert.equal(bridge.toolEvidenceReceiptChanged, false);
+  assert.equal(bridge.memoryWrites, false);
+  assert.equal(bridge.autonomousActions, false);
+  assert.doesNotMatch(JSON.stringify(bridge), /hidden reasoning|private inference|secret notes/i);
 });
 
 test('turn-state fixture artifact exposes renderable snippets without live behavior', () => {

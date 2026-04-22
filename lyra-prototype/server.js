@@ -41,6 +41,9 @@ const {
   extractRecentInitiativesFromMessages,
 } = require('./lib/penny-initiative-policy');
 const {
+  buildLiveTurnStatePromptBridge,
+} = require('./lib/penny-turn-state');
+const {
   buildPromptStack,
 } = require('./lib/penny-prompt-stack');
 const {
@@ -201,6 +204,8 @@ const PENNY_OPEN_LOOP_MAX_TOKENS = boundedEnvInteger(process.env.PENNY_OPEN_LOOP
 const PENNY_ENABLE_BOUNDED_INITIATIVE = isEnabledEnv(process.env.PENNY_ENABLE_BOUNDED_INITIATIVE);
 const PENNY_INITIATIVE_MAX_PER_TURN = boundedEnvInteger(process.env.PENNY_INITIATIVE_MAX_PER_TURN, 1, 0, 1);
 const PENNY_INITIATIVE_COOLDOWN_TURNS = boundedEnvInteger(process.env.PENNY_INITIATIVE_COOLDOWN_TURNS, 3, 0, 20);
+const PENNY_ENABLE_TURN_STATE_PROMPT = isEnabledEnv(process.env.PENNY_ENABLE_TURN_STATE_PROMPT);
+const PENNY_TURN_STATE_MAX_TOKENS = boundedEnvInteger(process.env.PENNY_TURN_STATE_MAX_TOKENS, 120, 20, 180);
 const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 /** Full request budget for /chat/completions and /responses (prompt eval + generation). Large quants (e.g. 30B+) and multi-step local tool turns can legitimately take a long time; LM Studio logs "Client disconnected" if this fires first. Override with PENNY_LMSTUDIO_TIMEOUT_MS (ms). */
@@ -594,6 +599,12 @@ async function buildRuntimeMemoryContext({
     cooldownTurns: PENNY_INITIATIVE_COOLDOWN_TURNS,
     now: new Date(),
   });
+  const turnStatePromptBridge = buildLiveTurnStatePromptBridge({
+    enabled: PENNY_ENABLE_TURN_STATE_PROMPT,
+    disabledReason: PENNY_ENABLE_TURN_STATE_PROMPT ? '' : 'env-disabled',
+    userText,
+    maxTokens: PENNY_TURN_STATE_MAX_TOKENS,
+  });
   const epistemics = buildEpistemicCaution({
     enabled: PENNY_ENABLE_EPISTEMIC_CAUTION,
     userText,
@@ -613,6 +624,7 @@ async function buildRuntimeMemoryContext({
     ...memories,
     memoryBookContext: memoryBooks,
     initiativePromptBridge,
+    turnStatePromptBridge,
     openLoopPromptBridge,
   }, promptArchiveContext, {
     epistemicCaution: epistemics,
@@ -649,6 +661,7 @@ async function buildRuntimeMemoryContext({
     promptComposition,
     openLoopPromptBridge,
     initiativePromptBridge,
+    turnStatePromptBridge,
     latencyBudget: budget,
   };
 }

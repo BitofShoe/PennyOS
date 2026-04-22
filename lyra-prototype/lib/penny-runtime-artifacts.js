@@ -1054,6 +1054,78 @@ function normalizeInitiativePromptBridge(value = {}, defaults = {}) {
   };
 }
 
+function normalizeTurnStatePromptBridge(value = {}, defaults = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const rawPromptBridge = raw.promptBridge && typeof raw.promptBridge === 'object' ? raw.promptBridge : {};
+  const fallbackPromptBridge = fallback.promptBridge && typeof fallback.promptBridge === 'object'
+    ? fallback.promptBridge
+    : {};
+  const renderedCount = Math.max(0, Math.min(1, Number(
+    raw.renderedCount
+      ?? rawPromptBridge.renderedCount
+      ?? fallback.renderedCount
+      ?? fallbackPromptBridge.renderedCount
+      ?? 0,
+  )));
+  const maxTokens = Math.max(0, Math.min(180, Number(
+    raw.maxTokens
+      ?? rawPromptBridge.maxTokens
+      ?? fallback.maxTokens
+      ?? fallbackPromptBridge.maxTokens
+      ?? 120,
+  )));
+  const rawSummary = raw.turnStateSummary && typeof raw.turnStateSummary === 'object'
+    ? raw.turnStateSummary
+    : (fallback.turnStateSummary && typeof fallback.turnStateSummary === 'object'
+      ? fallback.turnStateSummary
+      : null);
+  const turnStateSummary = rawSummary
+    ? {
+        schema: trimText(rawSummary.schema || 'penny-turn-state.v1', 120),
+        measurementMode: trimText(rawSummary.measurementMode || 'ephemeral', 60),
+        persist: false,
+        desiredDepth: trimText(rawSummary.desiredDepth || 'unknown', 60),
+        responseMode: trimText(rawSummary.responseMode || 'unknown', 80),
+        activeProjectThread: trimText(rawSummary.activeProjectThread || '', 160),
+        explicitInstructionCount: Math.max(0, Number(rawSummary.explicitInstructionCount || 0)),
+        activeConstraintCount: Math.max(0, Number(rawSummary.activeConstraintCount || 0)),
+        riskFlagCount: Math.max(0, Number(rawSummary.riskFlagCount || 0)),
+        sourceCheckNeeded: rawSummary.sourceCheckNeeded === true,
+        openLoopsTouchedCount: Math.max(0, Number(rawSummary.openLoopsTouchedCount || 0)),
+        warningCount: Math.max(0, Number(rawSummary.warningCount || 0)),
+        rejectedFieldCount: Math.max(0, Number(rawSummary.rejectedFieldCount || 0)),
+      }
+    : null;
+  return {
+    schema: trimText(raw.schema || fallback.schema || 'penny-turn-state-prompt-bridge.v1', 120),
+    enabled: raw.enabled === true || fallback.enabled === true,
+    disabledReason: trimText(raw.disabledReason || fallback.disabledReason || '', 160),
+    measurementMode: trimText(raw.measurementMode || fallback.measurementMode || 'disabled', 80),
+    turnStateMeasurementMode: trimText(raw.turnStateMeasurementMode || fallback.turnStateMeasurementMode || 'ephemeral', 80),
+    persist: false,
+    livePromptBridge: raw.livePromptBridge === true || fallback.livePromptBridge === true,
+    liveChatTouched: raw.liveChatTouched === true || fallback.liveChatTouched === true,
+    renderedCount,
+    maxTokens,
+    promptTruthExpanded: false,
+    promptTruthChannelAdded: false,
+    toolEvidenceReceiptChanged: false,
+    memoryWrites: false,
+    autonomousActions: false,
+    sensitiveInferenceExcluded: raw.sensitiveInferenceExcluded !== false && fallback.sensitiveInferenceExcluded !== false,
+    renderedFields: uniqueStrings(Array.isArray(raw.renderedFields) ? raw.renderedFields : (fallback.renderedFields || []), 12, 80),
+    omittedFields: uniqueStrings(Array.isArray(raw.omittedFields) ? raw.omittedFields : (fallback.omittedFields || []), 16, 80),
+    promptBridge: {
+      renderedCount,
+      promptText: trimText(rawPromptBridge.promptText || fallbackPromptBridge.promptText || '', 700),
+      wordCount: Math.max(0, Number(rawPromptBridge.wordCount ?? fallbackPromptBridge.wordCount ?? 0)),
+      maxTokens,
+    },
+    turnStateSummary,
+  };
+}
+
 function normalizeApproximatePath(value = {}, defaults = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
@@ -2048,6 +2120,7 @@ function buildRuntimeArtifact({
   promptComposition = null,
   promptTruth = null,
   initiativePromptBridge = null,
+  turnStatePromptBridge = null,
   latencyBudget = null,
   researchLedgerRendered = false,
   researchLedgerPromptInjected = false,
@@ -2070,6 +2143,7 @@ function buildRuntimeArtifact({
   const normalizedEpistemics = normalizeEpistemicCaution(epistemics);
   const normalizedSynthesis = normalizeArchiveSynthesis(synthesis);
   const normalizedPromptTruth = normalizePromptTruth(promptTruth);
+  const normalizedTurnStatePromptBridge = normalizeTurnStatePromptBridge(turnStatePromptBridge);
   const toolEvidenceReceipt = buildToolEvidenceReceipt({
     toolEvidenceFacts,
     toolRecords,
@@ -2281,6 +2355,7 @@ function buildRuntimeArtifact({
       promptComposition: normalizePromptComposition(promptComposition),
       promptTruth: normalizedPromptTruth,
       initiativePromptBridge: normalizeInitiativePromptBridge(initiativePromptBridge),
+      turnStatePromptBridge: normalizedTurnStatePromptBridge,
       reasoningPolicy,
       approximatePath,
       advisoryMerge,
@@ -2341,6 +2416,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   const synthesis = normalizeArchiveSynthesis(raw.synthesis || fallback.synthesis);
   const reasoningPolicy = normalizeReasoningPolicy(advisoryRaw.reasoningPolicy, fallback.modelAdvisory?.reasoningPolicy);
   const initiativePromptBridge = normalizeInitiativePromptBridge(advisoryRaw.initiativePromptBridge, fallback.modelAdvisory?.initiativePromptBridge);
+  const turnStatePromptBridge = normalizeTurnStatePromptBridge(advisoryRaw.turnStatePromptBridge, fallback.modelAdvisory?.turnStatePromptBridge);
   return {
     version,
     kind,
@@ -2418,6 +2494,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       promptComposition: normalizePromptComposition(advisoryRaw.promptComposition, fallback.modelAdvisory?.promptComposition),
       promptTruth,
       initiativePromptBridge,
+      turnStatePromptBridge,
       reasoningPolicy,
       approximatePath: normalizeApproximatePath(advisoryRaw.approximatePath, fallback.modelAdvisory?.approximatePath),
       advisoryMerge: normalizeAdvisoryMergeSummary(advisoryRaw.advisoryMerge, fallback.modelAdvisory?.advisoryMerge),
@@ -2494,6 +2571,7 @@ function normalizeLastRouteInfo(value) {
       promptComposition: value.promptComposition || null,
       promptTruth,
       initiativePromptBridge: value.initiativePromptBridge || null,
+      turnStatePromptBridge: value.turnStatePromptBridge || null,
       latencyBudget: value.latencyBudget || null,
       researchLedgerRendered,
       researchLedgerPromptInjected: researchLedgerRendered,
@@ -2568,6 +2646,7 @@ function buildLastRouteInfo({
   promptComposition = null,
   promptTruth = null,
   initiativePromptBridge = null,
+  turnStatePromptBridge = null,
   latencyBudget = null,
   researchLedgerRendered = false,
   researchLedgerPromptInjected = false,
@@ -2610,6 +2689,7 @@ function buildLastRouteInfo({
     promptComposition,
     promptTruth,
     initiativePromptBridge,
+    turnStatePromptBridge,
     latencyBudget,
     researchLedgerRendered,
     researchLedgerPromptInjected,
@@ -2653,6 +2733,7 @@ function buildLastRouteInfo({
       promptComposition,
       promptTruth,
       initiativePromptBridge,
+      turnStatePromptBridge,
       latencyBudget,
       researchLedgerRendered,
       researchLedgerPromptInjected,
