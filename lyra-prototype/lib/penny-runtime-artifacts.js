@@ -93,6 +93,17 @@ function normalizeNonNegativeNumber(value, fallback = 0) {
   return Math.round(parsed);
 }
 
+function normalizeNonNegativeFiniteNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return Math.max(0, Number(fallback) || 0);
+  return parsed;
+}
+
+function normalizeNullableNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function latestIso(values = []) {
   let latest = '';
   let latestMs = -1;
@@ -583,6 +594,74 @@ function normalizeArtifactEntry(raw = {}) {
   return {
     type,
     value,
+  };
+}
+
+function normalizeStaticEmbeddingCandidate(raw = {}) {
+  if (!raw || typeof raw !== 'object') return null;
+  const staticEmbedding = raw.staticEmbedding && typeof raw.staticEmbedding === 'object'
+    ? raw.staticEmbedding
+    : {};
+  const policy = raw.policy && typeof raw.policy === 'object' ? raw.policy : {};
+  const id = String(raw.id || raw.sourceItemId || '').trim();
+  const textPreview = trimText(raw.textPreview || raw.text || raw.excerpt || '', 220);
+  if (!id && !textPreview) return null;
+  return {
+    id,
+    textPreview,
+    sourceType: String(raw.sourceType || '').trim() || 'archive',
+    sourceAuthority: String(raw.sourceAuthority || '').trim() || 'advisory',
+    supportState: String(raw.supportState || '').trim() || 'candidate',
+    candidateChannels: uniqueStrings([
+      ...(Array.isArray(raw.candidateChannels) ? raw.candidateChannels : []),
+      'static-embedding',
+    ], 6),
+    staticEmbedding: {
+      provider: String(staticEmbedding.provider || raw.provider || '').trim(),
+      modelId: String(staticEmbedding.modelId || raw.modelId || '').trim(),
+      dimensions: normalizeNullableNumber(staticEmbedding.dimensions ?? raw.dimensions),
+      similarity: normalizeNullableNumber(staticEmbedding.similarity ?? raw.similarity),
+      rank: normalizeNullableNumber(staticEmbedding.rank ?? raw.rank),
+      queryMs: normalizeNonNegativeFiniteNumber(staticEmbedding.queryMs ?? raw.queryMs, 0),
+    },
+    policy: {
+      selected: false,
+      rendered: false,
+      heldBackReason: trimText(policy.heldBackReason || 'live-shadow-trace-only', 120),
+      reasons: uniqueStrings(
+        Array.isArray(policy.reasons) && policy.reasons.length
+          ? policy.reasons
+          : ['static-embedding-shadow', 'trace-only'],
+        8,
+      ),
+    },
+    selected: false,
+    rendered: false,
+    wouldHaveSelected: false,
+  };
+}
+
+function normalizeStaticEmbeddingShadow(raw = null) {
+  if (!raw || typeof raw !== 'object') return null;
+  const candidates = (Array.isArray(raw.topCandidates) ? raw.topCandidates : [])
+    .map(normalizeStaticEmbeddingCandidate)
+    .filter(Boolean)
+    .slice(0, 12);
+  const candidateCount = normalizeNonNegativeNumber(raw.candidateCount, candidates.length);
+  const hasSignal = candidates.length > 0
+    || candidateCount > 0
+    || raw.skipped === true
+    || !!String(raw.mode || raw.provider || '').trim();
+  if (!hasSignal) return null;
+  return {
+    mode: String(raw.mode || '').trim() || 'live-shadow',
+    provider: String(raw.provider || '').trim(),
+    queryMs: normalizeNonNegativeFiniteNumber(raw.queryMs, 0),
+    candidateCount,
+    topCandidates: candidates,
+    wouldHaveSelected: false,
+    ...(raw.skipped === true ? { skipped: true, skippedReason: trimText(raw.skippedReason || raw.reason || '', 140) || 'not-ready' } : {}),
+    ...(raw.ready === true || raw.ready === false ? { ready: raw.ready === true } : {}),
   };
 }
 
@@ -1926,6 +2005,7 @@ function buildRuntimeArtifact({
   const normalizedCleanupTransform = normalizeCleanupTransformInfo(
     cleanupTransform || cleanup?.cleanupTransform || deriveCleanupTransformInfoFromCleanup(cleanup),
   );
+  const staticEmbeddingShadow = normalizeStaticEmbeddingShadow(retrieval?.staticEmbeddingShadow);
   const normalizedRepair = normalizeRepairInfo(repair);
   const normalizedEpistemics = normalizeEpistemicCaution(epistemics);
   const normalizedSynthesis = normalizeArchiveSynthesis(synthesis);
@@ -2122,6 +2202,7 @@ function buildRuntimeArtifact({
     artifacts,
     toolEvidenceReceipt,
     toolCostSummary,
+    ...(staticEmbeddingShadow ? { staticEmbeddingShadow } : {}),
     toolOutcome: normalizedToolOutcome,
     retrievalTrace,
     trace,
@@ -2194,6 +2275,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   const toolOutcome = normalizeToolOutcome(raw.toolOutcome, fallback.toolOutcome);
   const toolEvidenceReceipt = normalizeToolEvidenceReceipt(raw.toolEvidenceReceipt, fallback.toolEvidenceReceipt);
   const toolCostSummary = normalizeToolCostSummary(raw.toolCostSummary, fallback.toolCostSummary);
+  const staticEmbeddingShadow = normalizeStaticEmbeddingShadow(raw.staticEmbeddingShadow || fallback.staticEmbeddingShadow);
   const epistemics = normalizeEpistemicCaution(raw.epistemics || fallback.epistemics);
   const synthesis = normalizeArchiveSynthesis(raw.synthesis || fallback.synthesis);
   const reasoningPolicy = normalizeReasoningPolicy(advisoryRaw.reasoningPolicy, fallback.modelAdvisory?.reasoningPolicy);
@@ -2243,6 +2325,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       .slice(0, 10),
     toolEvidenceReceipt,
     toolCostSummary,
+    ...(staticEmbeddingShadow ? { staticEmbeddingShadow } : {}),
     toolOutcome,
     retrievalTrace: (Array.isArray(raw.retrievalTrace) ? raw.retrievalTrace : fallback.retrievalTrace || [])
       .map(normalizeRetrievalTraceEntry)

@@ -235,7 +235,6 @@ function createPennyRouteHandlers(deps = {}) {
     getLmStudioConnectionStatus,
     getSemanticMemoryStatus,
     getStaticEmbeddingStatus = null,
-    queryStaticMemoryIndex = null,
     setRuntimePreferredChatModel,
     getRuntimePreferredChatModel,
     sessionState,
@@ -1089,12 +1088,6 @@ function createPennyRouteHandlers(deps = {}) {
         sendJson(res, 400, { error: 'Missing user message content.' });
         return true;
       }
-      if (typeof queryStaticMemoryIndex === 'function') {
-        try {
-          await queryStaticMemoryIndex(userText);
-        } catch {}
-      }
-
       const imageAttachment = sanitizeImageDataUrl(payload.image || null);
       const image = imageAttachment?.dataUrl || null;
       const fileAttachment = sanitizeFileAttachment(payload.file || null);

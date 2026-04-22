@@ -944,6 +944,89 @@ function createMemoryArchiveApi({
     });
   }
 
+  function normalizeStaticEmbeddingCandidateTraceItem(raw = {}, {
+    fallbackQueryMs = 0,
+  } = {}) {
+    const item = raw && typeof raw === 'object' ? raw : {};
+    const staticEmbedding = item.staticEmbedding && typeof item.staticEmbedding === 'object'
+      ? item.staticEmbedding
+      : {};
+    const channels = normalizeEvidenceIds([
+      ...(Array.isArray(item.candidateChannels) ? item.candidateChannels : []),
+      'static-embedding',
+    ]);
+    const rawSimilarity = Number(staticEmbedding.similarity ?? item.similarity);
+    const rawRank = Number(staticEmbedding.rank ?? item.rank);
+    const rawQueryMs = Number(staticEmbedding.queryMs ?? item.queryMs ?? fallbackQueryMs);
+    const rawDimensions = Number(staticEmbedding.dimensions ?? staticEmbedding.truncateDim ?? item.dimensions);
+    const normalizedStatic = compactCandidateTraceObject({
+      provider: trimText(staticEmbedding.provider || item.provider || '', 80),
+      modelId: trimText(staticEmbedding.modelId || item.modelId || '', 140),
+      dimensions: Number.isFinite(rawDimensions) ? rawDimensions : null,
+      similarity: Number.isFinite(rawSimilarity) ? rawSimilarity : null,
+      rank: Number.isFinite(rawRank) ? rawRank : null,
+      queryMs: Number.isFinite(rawQueryMs) ? Math.max(0, rawQueryMs) : 0,
+    });
+    const sourceId = String(item.id || item.sourceItemId || '').trim();
+    if (!sourceId && !item.textPreview) return null;
+    return compactCandidateTraceObject({
+      id: sourceId,
+      group: 'static-embedding',
+      scope: String(item.scope || '').trim() || 'static-shadow',
+      sourceType: String(item.sourceType || '').trim() || 'archive',
+      sourceAuthority: String(item.sourceAuthority || '').trim() || 'advisory',
+      supportState: String(item.supportState || '').trim() || 'candidate',
+      textPreview: trimText(item.textPreview || item.text || item.excerpt || '', 220),
+      candidateChannels: channels,
+      staticEmbedding: normalizedStatic,
+      policy: {
+        selected: false,
+        rendered: false,
+        heldBackReason: 'live-shadow-trace-only',
+        reasons: ['static-embedding-shadow', 'trace-only'],
+      },
+      selected: false,
+      selectedRank: null,
+      rendered: false,
+      raw: true,
+      ranked: true,
+      rank: Number.isFinite(rawRank) ? rawRank : null,
+      eligibility: {
+        eligible: false,
+        filtered: true,
+        filterReason: 'live-shadow-trace-only',
+      },
+      wouldHaveSelected: false,
+    });
+  }
+
+  function normalizeStaticEmbeddingShadowResult(raw = null) {
+    if (!raw || typeof raw !== 'object') return null;
+    const status = raw.status && typeof raw.status === 'object' ? raw.status : {};
+    const reason = trimText(raw.reason || raw.skippedReason || status.reason || status.error || '', 140);
+    if (raw.skipped === true && (reason === 'disabled' || status.enabled === false)) return null;
+    const candidates = Array.isArray(raw.candidates) ? raw.candidates : [];
+    const queryMs = Number(raw.queryMs ?? status.lastQueryMs);
+    const topCandidates = candidates
+      .map((item) => normalizeStaticEmbeddingCandidateTraceItem(item, { fallbackQueryMs: queryMs }))
+      .filter(Boolean)
+      .slice(0, 12);
+    const mode = String(status.mode || raw.mode || '').trim() || 'live-shadow';
+    const provider = String(status.provider || status.providerId || raw.provider || '').trim()
+      || topCandidates.find((item) => item.staticEmbedding?.provider)?.staticEmbedding.provider
+      || '';
+    return compactCandidateTraceObject({
+      mode,
+      provider,
+      queryMs: Number.isFinite(queryMs) ? Math.max(0, queryMs) : 0,
+      candidateCount: candidates.length,
+      topCandidates,
+      wouldHaveSelected: false,
+      ...(raw.skipped === true ? { skipped: true, skippedReason: reason || 'not-ready' } : {}),
+      ...(status.ready === true || status.ready === false ? { ready: status.ready === true } : {}),
+    });
+  }
+
   function normalizeRetrievalItem(raw = {}) {
     const text = trimText(raw.text || raw.excerpt || '', 220);
     if (!text) return null;
@@ -2171,6 +2254,7 @@ function createMemoryArchiveApi({
     includeRerankShadow = false,
     rerankShadowProvider = configuredRerankShadowProvider,
     rerankShadowInputTopK = null,
+    queryStaticMemoryIndex = null,
   } = {}) {
     if (lane !== 'chat') {
       const semanticMemory = await getSemanticMemoryStatus();
@@ -2199,6 +2283,25 @@ function createMemoryArchiveApi({
     const traceLimit = normalizeCandidateTraceLimit(candidateTraceLimit);
     const traceCandidates = [];
     const rerankShadowRuns = [];
+    let staticEmbeddingShadow = null;
+
+    if (typeof queryStaticMemoryIndex === 'function') {
+      try {
+        staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult(
+          await queryStaticMemoryIndex(userText),
+        );
+      } catch (error) {
+        staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult({
+          skipped: true,
+          reason: String(error?.message || error || 'static-memory-index-query-failed').trim(),
+          candidates: [],
+          queryMs: 0,
+          status: {
+            mode: 'live-shadow',
+          },
+        });
+      }
+    }
 
     if (semanticAttempted) {
       try {
@@ -2461,7 +2564,10 @@ function createMemoryArchiveApi({
     const renderedCandidateKeys = new Set(
       [...combinedSessionItems, ...globalItems].map(archiveCandidateTraceKey).filter(Boolean),
     );
-    const candidateTrace = shouldIncludeCandidateTrace
+    const staticTraceCandidates = Array.isArray(staticEmbeddingShadow?.topCandidates)
+      ? staticEmbeddingShadow.topCandidates
+      : [];
+    const archiveTraceCandidates = shouldIncludeCandidateTrace
       ? traceCandidates
         .slice(0, traceLimit)
         .map((entry) => buildArchiveCandidateTraceItem(entry.item, {
@@ -2473,6 +2579,10 @@ function createMemoryArchiveApi({
           ranked: entry.ranked,
           eligibility: entry.eligibility,
         }))
+      : [];
+    const candidateTrace = shouldIncludeCandidateTrace || staticTraceCandidates.length
+      ? [...archiveTraceCandidates, ...staticTraceCandidates]
+        .slice(0, Math.max(traceLimit, staticTraceCandidates.length))
       : null;
     const retrieval = {
       usedAt: new Date(now).toISOString(),
@@ -2490,8 +2600,12 @@ function createMemoryArchiveApi({
       global: globalItems.map(normalizeRetrievalItem).filter(Boolean),
       compression,
       ...(shouldIncludeRerankShadow ? { rerankShadow: summarizeArchiveRerankShadowRuns(rerankShadowRuns) } : {}),
+      ...(staticEmbeddingShadow ? { staticEmbeddingShadow } : {}),
       ...(shouldIncludeCandidateTrace ? { candidateTrace } : {}),
     };
+    if (!shouldIncludeCandidateTrace && staticTraceCandidates.length) {
+      retrieval.candidateTrace = candidateTrace;
+    }
 
     return {
       archiveContext: {

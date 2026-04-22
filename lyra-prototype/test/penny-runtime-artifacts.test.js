@@ -239,6 +239,64 @@ test('normalizeRuntimeArtifact preserves prompt truth schema during normalizatio
   assert.equal(artifact.researchLedgerPromptInjected, artifact.researchLedgerRendered);
 });
 
+test('buildRuntimeArtifact preserves static embedding live-shadow as sibling trace metadata', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'demo',
+    requestedMode: 'local',
+    selectedLane: 'chat',
+    backend: 'local-lmstudio',
+    retrieval: {
+      reasonCode: 'keyword_fallback',
+      session: [],
+      global: [],
+      compression: { used: false, chapters: [] },
+      staticEmbeddingShadow: {
+        mode: 'live-shadow',
+        provider: 'model2vec-potion-8m',
+        queryMs: 1.2,
+        candidateCount: 1,
+        wouldHaveSelected: false,
+        topCandidates: [
+          {
+            id: 'archive:episode:static-copper-rabbit',
+            textPreview: 'Copper rabbit replaced the brass fox.',
+            sourceType: 'archive-episode',
+            sourceAuthority: 'advisory',
+            supportState: 'candidate',
+            candidateChannels: ['static-embedding'],
+            staticEmbedding: {
+              provider: 'model2vec-potion-8m',
+              modelId: 'minishlab/potion-base-8M',
+              dimensions: 256,
+              similarity: 0.742,
+              rank: 1,
+              queryMs: 1.2,
+            },
+            policy: {
+              selected: false,
+              rendered: false,
+              heldBackReason: 'live-shadow-trace-only',
+              reasons: ['static-embedding-shadow', 'trace-only'],
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(artifact.staticEmbeddingShadow.mode, 'live-shadow');
+  assert.equal(artifact.staticEmbeddingShadow.provider, 'model2vec-potion-8m');
+  assert.equal(artifact.staticEmbeddingShadow.queryMs, 1.2);
+  assert.equal(artifact.staticEmbeddingShadow.candidateCount, 1);
+  assert.equal(artifact.staticEmbeddingShadow.wouldHaveSelected, false);
+  assert.equal(artifact.staticEmbeddingShadow.topCandidates[0].selected, false);
+  assert.equal(artifact.staticEmbeddingShadow.topCandidates[0].rendered, false);
+  assert.equal(artifact.staticEmbeddingShadow.topCandidates[0].policy.heldBackReason, 'live-shadow-trace-only');
+  assert.equal(artifact.promptTruth.schema, 'penny-prompttruth.v1');
+  assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'staticEmbeddingShadow'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(artifact, 'toolEvidenceReceipt'), true);
+});
+
 test('normalizeRuntimeArtifact prefers canonical rendered booleans over conflicting compatibility aliases', () => {
   const artifact = normalizeRuntimeArtifact({
     promptTruth: {

@@ -603,6 +603,123 @@ test('buildArchiveContext includes bounded candidate trace only when explicitly 
   }
 });
 
+test('buildArchiveContext records static live-shadow trace without changing selected archive context', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 's1',
+          type: 'episode',
+          text: 'Midnight rain on the arcade window.',
+          excerpt: 'Midnight rain on the arcade window.',
+          userText: 'Midnight rain on the arcade window.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+        {
+          id: 's2',
+          type: 'episode',
+          text: 'Coffee helped during the late storm.',
+          excerpt: 'Coffee helped during the late storm.',
+          userText: 'Coffee helped during the late storm.',
+          createdAt: '2026-04-13T12:01:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const request = {
+      sessionId: 'demo',
+      userText: 'What do you remember about the copper rabbit?',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+    };
+    const baseline = await api.buildArchiveContext(request);
+    const queryCalls = [];
+    const traced = await api.buildArchiveContext({
+      ...request,
+      queryStaticMemoryIndex: async (text) => {
+        queryCalls.push(text);
+        return {
+          skipped: false,
+          queryMs: 1.2,
+          status: {
+            enabled: true,
+            mode: 'live-shadow',
+            provider: 'model2vec-potion-8m',
+            ready: true,
+          },
+          candidates: [
+            {
+              id: 'archive:episode:static-copper-rabbit',
+              textPreview: 'Copper rabbit replaced the brass fox.',
+              sourceType: 'archive-episode',
+              sourceAuthority: 'advisory',
+              supportState: 'candidate',
+              candidateChannels: ['static-embedding'],
+              staticEmbedding: {
+                provider: 'model2vec-potion-8m',
+                modelId: 'minishlab/potion-base-8M',
+                dimensions: 256,
+                similarity: 0.742,
+                rank: 1,
+                queryMs: 1.2,
+              },
+            },
+          ],
+        };
+      },
+    });
+
+    assert.deepEqual(queryCalls, [request.userText]);
+    assert.deepEqual(
+      traced.archiveContext.session.map((item) => ({ id: item.id, text: item.text })),
+      baseline.archiveContext.session.map((item) => ({ id: item.id, text: item.text })),
+    );
+    assert.deepEqual(
+      traced.archiveContext.global.map((item) => ({ id: item.id, text: item.text })),
+      baseline.archiveContext.global.map((item) => ({ id: item.id, text: item.text })),
+    );
+    assert.equal(traced.retrieval.staticEmbeddingShadow.mode, 'live-shadow');
+    assert.equal(traced.retrieval.staticEmbeddingShadow.provider, 'model2vec-potion-8m');
+    assert.equal(traced.retrieval.staticEmbeddingShadow.queryMs, 1.2);
+    assert.equal(traced.retrieval.staticEmbeddingShadow.candidateCount, 1);
+    assert.equal(traced.retrieval.staticEmbeddingShadow.wouldHaveSelected, false);
+    const topCandidate = traced.retrieval.staticEmbeddingShadow.topCandidates[0];
+    assert.equal(topCandidate.id, 'archive:episode:static-copper-rabbit');
+    assert.equal(topCandidate.selected, false);
+    assert.equal(topCandidate.rendered, false);
+    assert.equal(topCandidate.policy.selected, false);
+    assert.equal(topCandidate.policy.rendered, false);
+    assert.equal(topCandidate.policy.heldBackReason, 'live-shadow-trace-only');
+    assert.equal(topCandidate.staticEmbedding.similarity, 0.742);
+    const staticTrace = traced.retrieval.candidateTrace.find((item) => item.id === 'archive:episode:static-copper-rabbit');
+    assert.ok(staticTrace);
+    assert.equal(staticTrace.group, 'static-embedding');
+    assert.equal(staticTrace.selected, false);
+    assert.equal(staticTrace.rendered, false);
+    assert.equal(staticTrace.wouldHaveSelected, false);
+    assert.equal(staticTrace.eligibility.filtered, true);
+    assert.equal(staticTrace.eligibility.filterReason, 'live-shadow-trace-only');
+    assert.equal(traced.retrieval.session.some((item) => item.id === 'archive:episode:static-copper-rabbit'), false);
+    assert.equal(traced.retrieval.global.some((item) => item.id === 'archive:episode:static-copper-rabbit'), false);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('buildArchiveContext computes hybrid shadow rank without changing active selection or rendered context', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi({ ...files, embedReady: false });

@@ -261,7 +261,7 @@ test('status route exposes static embedding runtime status when provided', async
   });
 });
 
-test('chat route queries static memory sidecar without changing the reply path', async () => {
+test('chat route leaves static memory sidecar queries to archive context owner', async () => {
   const queryCalls = [];
   const harness = createToolReceiptRouteHarness({
     sessionId: 'static-query-session',
@@ -293,7 +293,7 @@ test('chat route queries static memory sidecar without changing the reply path',
 
   assert.equal(handled, true);
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(queryCalls, ['What do you remember about the copper rabbit?']);
+  assert.deepEqual(queryCalls, []);
   assert.equal(response.json.text, 'I remember the copper rabbit thread.\n[MOOD:calm]');
 });
 

@@ -354,6 +354,14 @@ Acceptance:
 - Selected/rendered counts are unchanged.
 - Candidate trace records what static found and why it was trace-only.
 
+Slice S5 implementation note:
+
+- Moved the live-shadow query into `buildArchiveContext()` through an injected static-index query function, so static lookup is owned by archive retrieval instead of route prep.
+- `buildArchiveContext()` now records `retrieval.staticEmbeddingShadow` with mode, provider, query latency, candidate count, top static candidates, and `wouldHaveSelected: false`.
+- Static live-shadow candidates can appear in `retrieval.candidateTrace`, but they are marked trace-only with `selected: false`, `rendered: false`, `supportState: candidate`, and `heldBackReason: live-shadow-trace-only`.
+- Runtime artifacts preserve `staticEmbeddingShadow` as a sibling trace field, not as PromptTruth and not as `toolEvidenceReceipt`.
+- Prompt context, selected archive items, rendered archive items, prompt limits, runtime voice, and static mode defaults were not changed.
+
 ### Slice S6 - Live-advisory candidate merge
 
 Merge static candidates into archive candidate selection under policy gates.

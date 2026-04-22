@@ -450,6 +450,11 @@ async function buildRuntimeMemoryContext({
     globalPromptLimit: budget.archiveGlobalLimit,
     allowSemanticQuery: budget.allowSemanticQuery,
     allowArchiveCompression: budget.allowArchiveCompression,
+    queryStaticMemoryIndex: staticMemoryIndexApi?.isEnabled?.()
+      ? (text) => staticMemoryIndexApi.query(text, {
+          maxCandidates: PENNY_STATIC_EMBED_MAX_CANDIDATES,
+        })
+      : null,
   });
   const retrieval = archive.retrieval && typeof archive.retrieval === 'object'
     ? {
@@ -3073,9 +3078,6 @@ const routeHandlers = createPennyRouteHandlers({
   getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
   getSemanticMemoryStatus: getSemanticMemoryStatusApi,
   getStaticEmbeddingStatus: () => staticMemoryIndexApi.getStatus(),
-  queryStaticMemoryIndex: (userText) => staticMemoryIndexApi.query(userText, {
-    maxCandidates: PENNY_STATIC_EMBED_MAX_CANDIDATES,
-  }),
   setRuntimePreferredChatModel: setRuntimePreferredChatModelApi,
   getRuntimePreferredChatModel: getRuntimePreferredChatModelApi,
   sessionState,
