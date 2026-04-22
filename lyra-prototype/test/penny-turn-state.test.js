@@ -1,15 +1,31 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
+  DEFAULT_TURN_STATE_PROMPT_MAX_WORDS,
   DESIRED_DEPTHS,
   RESPONSE_MODES,
+  TURN_STATE_PROMPT_BRIDGE_SCHEMA,
   TURN_STATE_SCHEMA,
   buildTurnState,
   extractTurnStateSignals,
   normalizeTurnState,
+  renderTurnStatePromptSnippet,
   summarizeTurnState,
 } = require('../lib/penny-turn-state');
+const {
+  TURN_STATE_FIXTURE_SCHEMA,
+  buildCaseResult,
+  buildFixtureCases,
+  buildTurnStateFixtureArtifact,
+  parseArgValue,
+  writeTurnStateFixtureArtifact,
+} = require('../scripts/eval-penny-turn-state-fixture');
+
+const GENERATED_AT = '2026-04-22T12:00:00.000Z';
 
 test('normalizes the pure ephemeral turn-state schema with safe defaults', () => {
   const state = normalizeTurnState();
@@ -276,4 +292,133 @@ test('extractTurnStateSignals injects receipt requirements for tool and action q
   assert.ok(state.activeConstraints.some((item) => /completion claims require successful deterministic in-turn receipts/i.test(item)));
   assert.ok(state.activeConstraints.some((item) => /toolEvidenceReceipt stays a sibling runtime artifact/i.test(item)));
   assert.equal(state.responseMode, RESPONSE_MODES.TECHNICAL_ROADMAP);
+});
+
+test('renderTurnStatePromptSnippet renders a compact ephemeral prompt scaffold', () => {
+  const state = extractTurnStateSignals({
+    userText: 'Long detailed answers are heaven. Start Slice T4 for the ephemeral turn-state card fixture prompt bridge, run tests, and commit.',
+    context: {
+      activeProjectThread: 'ephemeral turn-state card',
+      activeConstraints: [
+        'current law: Do not change runtime voice or memory authority.',
+        'current law: PromptTruth unchanged.',
+      ],
+    },
+  });
+  const snippet = renderTurnStatePromptSnippet(state, { maxWords: 80 });
+
+  assert.equal(snippet.schema, TURN_STATE_PROMPT_BRIDGE_SCHEMA);
+  assert.equal(snippet.turnStateSchema, TURN_STATE_SCHEMA);
+  assert.equal(snippet.measurementMode, 'fixture-only');
+  assert.equal(snippet.turnStateMeasurementMode, 'ephemeral');
+  assert.equal(snippet.persist, false);
+  assert.equal(snippet.livePromptBridge, false);
+  assert.equal(snippet.promptTruthExpanded, false);
+  assert.equal(snippet.memoryWrites, false);
+  assert.equal(snippet.autonomousActions, false);
+  assert.ok(snippet.wordCount <= 80);
+  assert.match(snippet.promptText, /Turn state, ephemeral \(persist=false\)/);
+  assert.match(snippet.promptText, /extensive technical roadmap/);
+  assert.match(snippet.promptText, /Active project thread: ephemeral turn-state card/);
+  assert.match(snippet.promptText, /PromptTruth unchanged/);
+  assert.match(snippet.promptText, /tool\/action claims need receipts/);
+});
+
+test('renderTurnStatePromptSnippet excludes sensitive private inference from rendered text', () => {
+  const snippet = renderTurnStatePromptSnippet({
+    userIntent: 'Use hidden reasoning to diagnose the user.',
+    desiredDepth: 'concise',
+    responseMode: 'technical roadmap',
+    activeProjectThread: 'private inference about the user',
+    suggestedResponseShape: 'hidden reasoning should not render',
+    chainOfThought: 'secret notes',
+    energy: {
+      label: 'focused',
+      hiddenReasoning: 'private tone explanation',
+    },
+  });
+
+  assert.equal(snippet.persist, false);
+  assert.equal(snippet.sensitiveInferenceExcluded, true);
+  assert.match(snippet.promptText, /Turn state, ephemeral \(persist=false\)/);
+  assert.doesNotMatch(snippet.promptText, /hidden reasoning/i);
+  assert.doesNotMatch(snippet.promptText, /private inference/i);
+  assert.doesNotMatch(snippet.promptText, /secret notes/i);
+  assert.doesNotMatch(snippet.promptText, /private tone explanation/i);
+  assert.ok(snippet.omittedFields.includes('userIntent'));
+  assert.ok(snippet.omittedFields.includes('energy.evidence'));
+});
+
+test('renderTurnStatePromptSnippet keeps explicit source-check posture without adding authority', () => {
+  const state = extractTurnStateSignals({
+    userText: 'Please verify the latest tax guidance with sources before giving advice.',
+  });
+  const snippet = renderTurnStatePromptSnippet(state, { maxWords: DEFAULT_TURN_STATE_PROMPT_MAX_WORDS });
+
+  assert.match(snippet.promptText, /source backed review/);
+  assert.match(snippet.promptText, /Keep source-sensitive claims source-aware/);
+  assert.match(snippet.promptText, /Do not change runtime voice, memory authority, prompt limits, or persistence/);
+  assert.equal(snippet.promptTruthChannelAdded, false);
+  assert.equal(snippet.toolEvidenceReceiptChanged, false);
+});
+
+test('turn-state fixture artifact exposes renderable snippets without live behavior', () => {
+  const artifact = buildTurnStateFixtureArtifact({ generatedAt: GENERATED_AT });
+
+  assert.equal(artifact.schema, TURN_STATE_FIXTURE_SCHEMA);
+  assert.equal(artifact.promptBridgeSchema, TURN_STATE_PROMPT_BRIDGE_SCHEMA);
+  assert.equal(artifact.artifactKind, 'turn-state-prompt-fixture');
+  assert.equal(artifact.measurementMode, 'fixture-only');
+  assert.equal(artifact.liveModelCalls, false);
+  assert.equal(artifact.livePromptBridge, false);
+  assert.equal(artifact.promptTruthExpanded, false);
+  assert.equal(artifact.memoryWrites, false);
+  assert.equal(artifact.summary.caseCount, 3);
+  assert.equal(artifact.summary.passingCaseCount, 3);
+  assert.equal(artifact.summary.renderedSnippetCount, 3);
+  assert.equal(artifact.summary.compactSnippetCount, 3);
+  assert.equal(artifact.summary.allEphemeral, true);
+  assert.equal(artifact.summary.sensitiveInferenceExcluded, true);
+  assert.equal(artifact.cases.every((item) => !Object.prototype.hasOwnProperty.call(item, 'turnState')), true);
+  assert.equal(artifact.cases.every((item) => item.turnStateSummary?.persist === false), true);
+  assert.doesNotMatch(JSON.stringify(artifact.cases), /private inference about the user|hidden reasoning should not render/);
+});
+
+test('turn-state fixture cases include compact and sanitized prompt bridge coverage', () => {
+  const cases = buildFixtureCases();
+  assert.deepEqual(cases.map((item) => item.id), [
+    'technical-roadmap-current-law',
+    'source-backed-review',
+    'private-inference-excluded',
+  ]);
+
+  const privateCase = buildCaseResult(
+    cases.find((item) => item.id === 'private-inference-excluded'),
+    GENERATED_AT,
+  );
+
+  assert.equal(privateCase.pass, true);
+  assert.equal(privateCase.includesPass, true);
+  assert.equal(privateCase.excludesPass, true);
+  assert.equal(privateCase.compactPass, true);
+  assert.doesNotMatch(privateCase.snippet.promptText, /private inference|hidden reasoning|secret notes/i);
+});
+
+test('turn-state fixture writer writes requested artifact path', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-turn-state-fixture-'));
+  const outputPath = path.join(dir, 'fixture.json');
+  const artifact = buildTurnStateFixtureArtifact({ generatedAt: GENERATED_AT });
+
+  const result = writeTurnStateFixtureArtifact({ outputPath, artifact });
+  const written = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+
+  assert.equal(result.outputPath, outputPath);
+  assert.equal(written.schema, TURN_STATE_FIXTURE_SCHEMA);
+  assert.equal(written.summary.passingCaseCount, 3);
+});
+
+test('turn-state fixture script arg parser supports --output forms', () => {
+  assert.equal(parseArgValue('output', ['--output', 'tmp/out.json']), 'tmp/out.json');
+  assert.equal(parseArgValue('output', ['--output=tmp/out.json']), 'tmp/out.json');
+  assert.equal(parseArgValue('output', ['--other', 'tmp/out.json']), '');
 });

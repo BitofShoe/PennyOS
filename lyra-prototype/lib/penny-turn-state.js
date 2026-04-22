@@ -1,6 +1,8 @@
 const TURN_STATE_SCHEMA = 'penny-turn-state.v1';
+const TURN_STATE_PROMPT_BRIDGE_SCHEMA = 'penny-turn-state-prompt-bridge.v1';
 
 const MEASUREMENT_MODE = 'ephemeral';
+const DEFAULT_TURN_STATE_PROMPT_MAX_WORDS = 90;
 
 const DESIRED_DEPTHS = Object.freeze({
   UNKNOWN: 'unknown',
@@ -154,6 +156,18 @@ const AUTHORITY_TOPIC_PATTERNS = Object.freeze({
   ],
 });
 
+const SENSITIVE_PROMPT_PATTERNS = [
+  /\bchain[- ]?of[- ]?thought\b/i,
+  /\bhidden (?:reasoning|thoughts?)\b/i,
+  /\bprivate inference\b/i,
+  /\bpsychological profile\b/i,
+  /\binternal monologue\b/i,
+  /\bscratchpad\b/i,
+  /\bactivation(?:s)?\b/i,
+  /\blatent state\b/i,
+  /\bmental state diagnosis\b/i,
+];
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -196,6 +210,33 @@ function uniqueStrings(values = [], limit = 20, stringLimit = 220) {
     if (out.length >= limit) break;
   }
   return out;
+}
+
+function countWords(text = '') {
+  return cleanString(text, 4000).split(/\s+/).filter(Boolean).length;
+}
+
+function clampInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function truncateWords(text = '', maxWords = DEFAULT_TURN_STATE_PROMPT_MAX_WORDS) {
+  const limit = clampInteger(maxWords, DEFAULT_TURN_STATE_PROMPT_MAX_WORDS, 20, 180);
+  const words = cleanString(text, 4000).split(/\s+/).filter(Boolean);
+  if (words.length <= limit) return words.join(' ');
+  return `${words.slice(0, limit).join(' ')}...`;
+}
+
+function containsSensitivePromptInference(text = '') {
+  return SENSITIVE_PROMPT_PATTERNS.some((pattern) => pattern.test(String(text || '')));
+}
+
+function safePromptValue(value = '', limit = 160) {
+  const cleaned = cleanString(value, limit);
+  if (!cleaned || containsSensitivePromptInference(cleaned)) return '';
+  return cleaned;
 }
 
 function collectHiddenCotFields(value, path = '', out = []) {
@@ -707,12 +748,139 @@ function summarizeTurnState(stateLike = {}) {
   };
 }
 
+function humanizePromptToken(value = '') {
+  return cleanToken(value).replace(/-/g, ' ');
+}
+
+function depthModePhrase(state = {}) {
+  const desiredDepth = normalizeDesiredDepth(state.desiredDepth);
+  const responseMode = normalizeResponseMode(state.responseMode);
+  const parts = [];
+  if (desiredDepth && desiredDepth !== DESIRED_DEPTHS.UNKNOWN) parts.push(humanizePromptToken(desiredDepth));
+  if (responseMode && responseMode !== RESPONSE_MODES.UNKNOWN) parts.push(humanizePromptToken(responseMode));
+  if (!parts.length) return 'use current-turn signals only';
+  const phrase = parts.join(' ');
+  const article = /^[aeiou]/i.test(phrase) ? 'an' : 'a';
+  return `aim for ${article} ${phrase} response`;
+}
+
+function constraintPromptCues(constraints = []) {
+  const joined = normalizeConstraints(constraints).join(' ');
+  const cues = [];
+  if (/explicit memory is canonical/i.test(joined)) cues.push('explicit memory stays canonical');
+  if (/advisory context|signals are advisory|open loops are advisory|candidate discovery only/i.test(joined)) {
+    cues.push('advisory signals stay advisory');
+  }
+  if (/PromptTruth/i.test(joined)) cues.push('PromptTruth unchanged');
+  if (/toolEvidenceReceipt/i.test(joined)) cues.push('toolEvidenceReceipt sibling');
+  if (/completion claims require|successful deterministic in-turn receipts/i.test(joined)) {
+    cues.push('tool/action claims need receipts');
+  }
+  if (/runtime voice/i.test(joined)) cues.push('runtime voice unchanged');
+  if (!cues.length && joined) cues.push('current-turn constraints in force');
+  return uniqueStrings(cues, 6, 80);
+}
+
+function summarizeTurnStateForPrompt(stateLike = {}, renderedProjectThread = '') {
+  const summary = summarizeTurnState(stateLike);
+  return {
+    schema: summary.schema,
+    measurementMode: summary.measurementMode,
+    persist: summary.persist,
+    desiredDepth: summary.desiredDepth,
+    responseMode: summary.responseMode,
+    activeProjectThread: safePromptValue(renderedProjectThread || '', 120),
+    explicitInstructionCount: summary.explicitInstructionCount,
+    activeConstraintCount: summary.activeConstraintCount,
+    riskFlagCount: summary.riskFlagCount,
+    sourceCheckNeeded: summary.sourceCheckNeeded,
+    openLoopsTouchedCount: summary.openLoopsTouchedCount,
+    warningCount: summary.warningCount,
+    rejectedFieldCount: summary.rejectedFieldCount,
+  };
+}
+
+function renderTurnStatePromptSnippet(stateLike = {}, {
+  maxWords = DEFAULT_TURN_STATE_PROMPT_MAX_WORDS,
+} = {}) {
+  const state = normalizeTurnState(stateLike);
+  const renderedFields = ['measurementMode', 'persist'];
+  const parts = [
+    `Turn state, ephemeral (persist=${state.persist}): ${depthModePhrase(state)}.`,
+  ];
+
+  const activeProjectThread = safePromptValue(state.activeProjectThread, 120);
+  if (activeProjectThread) {
+    parts.push(`Active project thread: ${activeProjectThread}.`);
+    renderedFields.push('activeProjectThread');
+  }
+
+  const responseShape = safePromptValue(state.suggestedResponseShape, 140);
+  if (responseShape) {
+    parts.push(`Shape: ${responseShape}.`);
+    renderedFields.push('suggestedResponseShape');
+  }
+
+  if (state.sourceCheckNeeded || state.sourcePosture === 'source-check-needed' || state.responseMode === RESPONSE_MODES.SOURCE_BACKED_REVIEW) {
+    parts.push('Keep source-sensitive claims source-aware and uncertain until verified.');
+    renderedFields.push('sourcePosture');
+  }
+
+  const constraintCues = constraintPromptCues(state.activeConstraints);
+  if (constraintCues.length) {
+    parts.push(`Keep ${constraintCues.join(', ')}.`);
+    renderedFields.push('activeConstraints');
+  }
+
+  parts.push('Do not change runtime voice, memory authority, prompt limits, or persistence.');
+
+  const promptText = truncateWords(parts.join(' '), maxWords);
+  return {
+    schema: TURN_STATE_PROMPT_BRIDGE_SCHEMA,
+    turnStateSchema: state.schema,
+    measurementMode: 'fixture-only',
+    turnStateMeasurementMode: state.measurementMode,
+    persist: state.persist,
+    livePromptBridge: false,
+    liveChatTouched: false,
+    promptTruthExpanded: false,
+    promptTruthChannelAdded: false,
+    toolEvidenceReceiptChanged: false,
+    memoryWrites: false,
+    autonomousActions: false,
+    promptText,
+    wordCount: countWords(promptText),
+    maxWords: clampInteger(maxWords, DEFAULT_TURN_STATE_PROMPT_MAX_WORDS, 20, 180),
+    renderedFields: uniqueStrings(renderedFields, 12, 80),
+    omittedFields: [
+      'userIntent',
+      'energy',
+      'energy.evidence',
+      'explicitInstructions',
+      'riskFlags',
+      'rejectedFields',
+      'warnings',
+    ],
+    sensitiveInferenceExcluded: !containsSensitivePromptInference(promptText),
+    guardrails: [
+      'Fixture-only prompt scaffold; no live chat injection.',
+      'Turn state remains ephemeral and persist=false.',
+      'PromptTruth is not expanded and no new prompt-truth channel is added.',
+      'No memory writes, autonomous actions, hidden reasoning, or sensitive private inference.',
+    ],
+    turnStateSummary: summarizeTurnStateForPrompt(state, activeProjectThread),
+  };
+}
+
 module.exports = {
+  DEFAULT_TURN_STATE_PROMPT_MAX_WORDS,
   DESIRED_DEPTHS,
   RESPONSE_MODES,
+  TURN_STATE_PROMPT_BRIDGE_SCHEMA,
   TURN_STATE_SCHEMA,
   buildTurnState,
   extractTurnStateSignals,
   normalizeTurnState,
+  renderTurnStatePromptSnippet,
   summarizeTurnState,
 };
