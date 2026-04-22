@@ -22,6 +22,7 @@ Use them when the task clearly matches the workflow instead of re-discovering th
 - Before implementation work, make a task-fit pass: name blockers, complexity, confidence, touched owners, verification cost, and cleanup risk.
 - Treat runtime code, tests, live command output, and generated artifacts as stronger implementation evidence than planning prose.
 - For external source batches, verify source health first and keep `already landed`, `strengthen now`, `maybe later`, and `do not add` separate.
+- For Codex-environment and source-tool work, use [docs/penny-codex-env-source-tools-note-2026-04-22.md](../../docs/penny-codex-env-source-tools-note-2026-04-22.md): keep Context7-style lookups sanitized, label checks as `cloud/static`, `local/static`, `local/live`, or `not run`, and require receipts before claiming actions completed.
 - When a task crosses backend, frontend, tests, or docs, start from [docs/plans/TEMPLATE.md](../../docs/plans/TEMPLATE.md) and capture landed, verified, deferred, and cleanup results there.
 - Do not run heavy local evals in parallel.
 - Respect the current local model split:

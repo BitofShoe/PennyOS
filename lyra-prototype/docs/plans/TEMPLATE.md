@@ -22,6 +22,7 @@ Use this template for cross-cutting Penny work that needs a written plan before 
 - Touched owners:
 - Verification cost:
 - Cleanup risk:
+- Execution environment: local-only / cloud-safe / mixed / unknown
 
 ## Decisions already locked
 
@@ -40,6 +41,7 @@ Use this template for cross-cutting Penny work that needs a written plan before 
 - QA inspection tasks and assigned subagents:
 - Doc mapping tasks and assigned subagents:
 - Single primary editor per file boundary:
+- Subagent closeout criteria: source URLs, local line refs, command receipts, artifacts, or advisory-only label
 
 ## Working rules
 
@@ -47,6 +49,21 @@ Use this template for cross-cutting Penny work that needs a written plan before 
 - Keep one primary editing agent per file boundary.
 - Consolidate findings before writing.
 - If the task crosses backend, frontend, tests, and docs, treat that as a delegation trigger.
+
+## Task environment and receipts
+
+- Environment-sensitive claims should be labeled `cloud/static`, `local/static`, `local/live`, or `not run`.
+- Cloud-safe work:
+- Local-only work:
+- Source/tool lookups used, if any:
+- Sanitized query or data-withheld note, if source tools such as Context7 were used:
+- Receipt checklist:
+  - Files read:
+  - Files edited:
+  - Commands/tests run:
+  - Artifact paths:
+  - Git actions:
+  - Checks not run and why:
 
 ## Evidence to gather
 

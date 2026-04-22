@@ -57,7 +57,7 @@ Optional overlay context:
 - This repo now ships a local skill pack in `./.codex/skills/`.
 - Start with `./.codex/skills/README.md` when a task smells like LM Studio ops, memory inspection, or Penny QA/release work.
 - Use those skills to avoid rediscovering the same Penny-specific workflows from scratch.
-- Keep the first wave narrow: LM Studio ops, memory inspector, and QA/release only.
+- Keep the first wave narrow: LM Studio ops, memory inspector, QA/release, and link-review/source-batch work only.
 - Before cross-cutting implementation, use the skill task-fit checks and [docs/plans/TEMPLATE.md](./docs/plans/TEMPLATE.md) to capture blockers, owners, authority receipts, verification cost, cleanup risk, and landed/deferred results.
 
 ## Guardrails
@@ -72,6 +72,14 @@ Optional overlay context:
 - For phone/LAN access failures, do not rediscover WSL/PowerShell behavior from scratch. Use [docs/penny-lan-phone-reset-runbook-2026-04-21.md](./docs/penny-lan-phone-reset-runbook-2026-04-21.md): verify Windows port `4317`, clear orphaned listeners, restart with `PENNY_SKIP_LMSTUDIO_PREP=1` when preserving the loaded model state, and give the phone the Windows Wi-Fi IPv4 URL, not `localhost` or the WSL adapter.
 - After QA runs, clear all disposable QA-generated explicit memory, archive memory, and embedding files so the next pass does not inherit test pollution.
 
+## Task Environment and Receipts
+
+- Treat Codex cloud, local desktop, WSL, Windows PowerShell, and live LM Studio as different execution environments. Label environment-sensitive checks as `cloud/static`, `local/static`, `local/live`, or `not run`.
+- Cloud-safe work: docs audits, static code review, source-batch synthesis, fixture-only tests, and unit tests that do not depend on the user's live LM Studio state, LAN, VRAM, ignored overlays, or private runtime files.
+- Local-only work: live Penny behavior, LM Studio readiness or model loading, phone/LAN reset, VRAM-sensitive QA, user-memory cleanup, ignored `.lyra-local-env.ps1` behavior, and anything that needs the actual Windows/WSL machine state.
+- Before claiming a task is complete, keep receipts for the claims you make: files read, files edited, tests or commands actually run, artifact paths created, and git actions that actually succeeded.
+- If a check was not run, say `not run` and why. Do not upgrade a plan, a subagent summary, or an external source into a completed action claim.
+
 ## Delegation-First Workflow
 
 - Use subagents aggressively for independent read-only exploration, QA inspection, and doc mapping.
@@ -83,6 +91,7 @@ Optional overlay context:
 - If the task needs a fresh review, disagreement check, or different operating mode, spawn without a full-context fork or override the model/reasoning settings on purpose. If the child hangs, errors, or returns uselessly thin work, stop and diagnose that as a delegation failure before continuing the main slice.
 - When the user explicitly asks for subagents, agent-only research, or delegated review, the parent agent should coordinate and synthesize instead of duplicating the same deep work in the parent thread unless the user asked for parallel verification.
 - If repo instructions and session/tool policy appear to conflict about subagent use, surface the conflict plainly instead of inventing an invisible rule or silently skipping the required delegation.
+- Before relying on a subagent result, confirm the spawn succeeded, the intended fork/context mode was used, and the result includes source URLs, local line refs, command receipts, artifacts, or an explicit note that the finding is advisory only.
 - Keep one primary editing agent per file boundary.
 - Consolidate what the subagents find before writing anything.
 - If a task crosses backend, frontend, tests, and docs, treat that as the cue to delegate the independent reads and QA slices before a single editor applies the final patch.
@@ -99,3 +108,14 @@ Optional overlay context:
   - `public/js/penny-expression-runtime.mjs`
   - `public/js/penny-transcript-ui.mjs`
   - `public/js/penny-memory-panel.mjs`
+
+## Review Guidelines
+
+When asked for code review, PR review, or a Codex review pass, prioritize bugs, regressions, missing tests, and unsupported behavior claims. Also flag Penny-specific risks:
+
+- Docs that blur historical evidence, implementation plans, generated artifacts, public explanation, and current law.
+- Runtime claims that are not supported by code, tests, runtime artifacts, or live command output.
+- PromptTruth, `toolEvidenceReceipt`, memory authority, runtime voice, or default-context changes hidden inside unrelated work.
+- Growth in `server.js` or `public/js/penny-app.js` when an extracted owner already exists.
+- QA that touches live LM Studio, user memory, LAN state, or generated artifacts without isolation and cleanup.
+- Platformization or generic-agent drift that weakens Penny's local, single-user, companion-first shape.

@@ -21,9 +21,11 @@ Use this skill for Penny external-source review passes. The goal is a grounded r
 1. Inventory every supplied source and deduplicate obvious repeats.
 2. Check source health before deep synthesis. If the user asked to be notified about broken links, stop and report blockers before continuing.
 3. Read current repo truth before recommendations: `docs/README.md`, `README.md`, `CODEBASE.md`, `ARCHITECTURE.md`, and any owner docs for the touched seam.
-4. Classify each useful lesson into the required output buckets below.
-5. Translate external ideas into Penny seams, verification cost, and bounded next slices.
-6. Keep the final artifact explicit about scope, limits, and authority. External sources are evidence, not current repo law.
+4. If you use source lookup tools such as Context7, keep queries short and sanitized. Do not send secrets, private source snippets, Penny memory contents, runtime artifacts with personal data, or user personal context.
+5. Classify each useful lesson into the required output buckets below.
+6. Translate external ideas into Penny seams, verification cost, and bounded next slices.
+7. Keep the final artifact explicit about scope, limits, and authority. External sources are evidence, not current repo law.
+8. When the review leads to implementation, record task receipts: files read, files edited, tests or commands actually run, artifacts created, git actions that succeeded, and checks that were not run.
 
 ## Required Output Buckets
 
@@ -65,6 +67,18 @@ Every link-batch review must include these buckets, even if a bucket says `none`
 - Do not copy code from no-license, unclear-license, or restrictive-license repos.
 - Do not treat external source enthusiasm as approval to widen PromptTruth, `toolEvidenceReceipt`, runtime voice, memory authority, or LM Studio defaults.
 - Do not recommend larger context or broader retrieval before proving a Penny-specific failure.
+- Do not treat source lookup output, subagent consensus, or Codex tool recommendations as completed action receipts.
+
+## Codex Environment Notes
+
+Use [docs/penny-codex-env-source-tools-note-2026-04-22.md](../../../docs/penny-codex-env-source-tools-note-2026-04-22.md) when a link batch involves Context7, Codex skills, operator tools, or Codex-environment setup.
+
+For environment-sensitive work:
+
+- Label checks as `cloud/static`, `local/static`, `local/live`, or `not run`.
+- Keep live Penny, LM Studio readiness, LAN/phone reset, VRAM-sensitive QA, and memory cleanup local-only.
+- Treat docs audits, static review, source-batch synthesis, fixture-only tests, and non-LM-Studio unit tests as cloud-safe when no private local state is needed.
+- Before relying on subagent output, check for source URLs, local line refs, command receipts, artifacts, or an explicit advisory-only label.
 
 ## Recommended Artifact Shape
 

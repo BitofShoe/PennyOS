@@ -182,7 +182,7 @@ This is a historical evidence and workflow-guidance note. It can guide future ag
 
 ## Suggested Next Slice
 
-If this note proves useful, the next small slice is personal-environment setup only:
+If this note proves useful for Context7 itself, the next small slice is personal-environment setup only:
 
 1. Decide whether Context7 should be installed for this user's Codex environment.
 2. If yes, configure it outside the repo using official Codex/Context7 instructions.
@@ -190,3 +190,5 @@ If this note proves useful, the next small slice is personal-environment setup o
 4. Record any machine-local setup detail in an ignored/local note, not committed repo law.
 
 Non-goals remain unchanged: no hosted app actions, no external memory ingestion, no runtime behavior changes, and no broad multi-agent platform layer.
+
+Separate Codex-process follow-through can live in repo guidance without installing anything: task receipts, cloud/local boundaries, review guidelines, and subagent closeout checks belong in `AGENTS.md`, `docs/plans/TEMPLATE.md`, and the repo skill pack.
