@@ -6,6 +6,7 @@ const {
   RESPONSE_MODES,
   TURN_STATE_SCHEMA,
   buildTurnState,
+  extractTurnStateSignals,
   normalizeTurnState,
   summarizeTurnState,
 } = require('../lib/penny-turn-state');
@@ -24,7 +25,10 @@ test('normalizes the pure ephemeral turn-state schema with safe defaults', () =>
     confidence: 'unknown',
     evidence: [],
   });
+  assert.deepEqual(state.explicitInstructions, []);
   assert.deepEqual(state.activeConstraints, []);
+  assert.deepEqual(state.riskFlags, []);
+  assert.equal(state.sourceCheckNeeded, false);
   assert.deepEqual(state.openLoopsTouched, []);
   assert.deepEqual(state.rejectedFields, []);
 });
@@ -170,9 +174,73 @@ test('summarizeTurnState returns compact non-authority metadata', () => {
     energyLabel: 'focused',
     energyConfidence: 'medium',
     activeProjectThread: '',
+    explicitInstructionCount: 0,
     activeConstraintCount: 2,
+    riskFlagCount: 0,
+    sourceCheckNeeded: false,
     openLoopsTouchedCount: 0,
     warningCount: 1,
     rejectedFieldCount: 0,
   });
+});
+
+test('extractTurnStateSignals treats explicit long-detail preference as extensive depth', () => {
+  const state = extractTurnStateSignals({
+    userText: 'Long detailed answers are heaven. Please go deep on the implementation path.',
+  });
+
+  assert.equal(state.desiredDepth, DESIRED_DEPTHS.EXTENSIVE);
+  assert.equal(state.responseMode, RESPONSE_MODES.TECHNICAL_ROADMAP);
+  assert.equal(state.energy.label, 'excited');
+  assert.equal(state.energy.confidence, 'low');
+  assert.deepEqual(state.energy.evidence, ['enthusiastic wording']);
+  assert.equal(state.persist, false);
+});
+
+test('extractTurnStateSignals maps quick patch requests to concise technical mode', () => {
+  const state = extractTurnStateSignals({
+    userText: 'Please make a quick patch in lib/foo.js and keep it small.',
+  });
+
+  assert.equal(state.desiredDepth, DESIRED_DEPTHS.CONCISE);
+  assert.equal(state.responseMode, RESPONSE_MODES.TECHNICAL_ROADMAP);
+  assert.equal(state.suggestedResponseShape, 'concise code patch with focused verification');
+  assert.ok(state.riskFlags.includes('quick-patch-scope'));
+});
+
+test('extractTurnStateSignals marks high-stakes source requests for source-check mode', () => {
+  const state = extractTurnStateSignals({
+    userText: 'Please verify the latest tax guidance with sources before giving advice.',
+  });
+
+  assert.equal(state.responseMode, RESPONSE_MODES.SOURCE_BACKED_REVIEW);
+  assert.equal(state.sourceCheckNeeded, true);
+  assert.equal(state.sourcePosture, 'source-check-needed');
+  assert.ok(state.riskFlags.includes('source-check-needed'));
+  assert.ok(state.riskFlags.includes('high-stakes-domain'));
+});
+
+test('extractTurnStateSignals keeps ambiguous tone unknown', () => {
+  const state = extractTurnStateSignals({
+    userText: 'Can you look at this sometime?',
+  });
+
+  assert.equal(state.desiredDepth, DESIRED_DEPTHS.UNKNOWN);
+  assert.equal(state.responseMode, RESPONSE_MODES.UNKNOWN);
+  assert.deepEqual(state.energy, {
+    label: 'unknown',
+    confidence: 'unknown',
+    evidence: [],
+  });
+});
+
+test('extractTurnStateSignals captures explicit no-proactive constraint without storing state', () => {
+  const state = extractTurnStateSignals({
+    userText: "Don't be proactive here; just answer the question.",
+  });
+
+  assert.equal(state.persist, false);
+  assert.ok(state.explicitInstructions.some((item) => /don't be proactive/i.test(item)));
+  assert.ok(state.activeConstraints.some((item) => /don't be proactive/i.test(item)));
+  assert.ok(state.riskFlags.includes('user-proactive-opt-out'));
 });
