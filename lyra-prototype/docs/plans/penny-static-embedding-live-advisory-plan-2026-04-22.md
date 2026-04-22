@@ -333,6 +333,16 @@ Runtime status target:
 }
 ```
 
+Slice S4 implementation note:
+
+- Added `lib/penny-static-memory-index.js` as the background live index manager for static source collection, cache hydration, missing-vector queues, async indexing, ready/skipped query behavior, and runtime status.
+- The live manager only enables for explicit live modes such as `PENNY_STATIC_EMBED_MODE=live-shadow`; the committed default remains `off`.
+- Startup loads the configured static provider, hydrates vectors from the isolated static cache, collects archive/session/research-ledger sources, enqueues missing items, and drains the queue asynchronously.
+- Chat turns call the sidecar query when present, but S4 does not merge static candidates into archive selection or render prompt context.
+- Post-turn archive consolidation and research-ledger updates schedule a static-index refresh so new episodes/topics can be cached in the background.
+- `/api/penny/status` now exposes a sibling `staticEmbedding` status object with enabled/mode/provider/indexed/pending/query/ready fields.
+- No live-advisory merge, PromptTruth change, `toolEvidenceReceipt` change, runtime voice change, prompt-limit change, or default embedding-provider change landed in S4.
+
 ### Slice S5 - Live-shadow integration
 
 Integrate static index query into `buildArchiveContext()` as trace-only.

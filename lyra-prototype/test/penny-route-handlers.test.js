@@ -5,7 +5,13 @@ const { EventEmitter } = require('node:events');
 const { bindClientDisconnectAbort, createPennyRouteHandlers } = require('../lib/penny-route-handlers');
 const { buildLastRouteInfo } = require('../lib/penny-runtime-artifacts');
 
-function createToolReceiptRouteHarness({ sessionId = 'tool-receipt-session', userText = 'Inspect README.md', runResult = {} } = {}) {
+function createToolReceiptRouteHarness({
+  sessionId = 'tool-receipt-session',
+  userText = 'Inspect README.md',
+  runResult = {},
+  staticEmbeddingStatus = null,
+  queryStaticMemoryIndex = null,
+} = {}) {
   const memoryStore = new Map();
   let response = null;
   const handlers = createPennyRouteHandlers({
@@ -149,6 +155,10 @@ function createToolReceiptRouteHarness({ sessionId = 'tool-receipt-session', use
     getSemanticMemoryStatus() {
       return {};
     },
+    getStaticEmbeddingStatus() {
+      return staticEmbeddingStatus;
+    },
+    queryStaticMemoryIndex,
     setRuntimePreferredChatModel() {},
     getRuntimePreferredChatModel() {
       return '';
@@ -216,6 +226,75 @@ test('bindClientDisconnectAbort cleanup removes listeners', () => {
 
   assert.equal(binding.isClosed(), false);
   assert.equal(controller.signal.aborted, false);
+});
+
+test('status route exposes static embedding runtime status when provided', async () => {
+  const harness = createToolReceiptRouteHarness({
+    staticEmbeddingStatus: {
+      enabled: true,
+      mode: 'live-shadow',
+      provider: 'model2vec-potion-8m',
+      indexedItems: 421,
+      pendingItems: 3,
+      lastQueryMs: 1.8,
+      ready: true,
+    },
+  });
+
+  const handled = await harness.handlers.handleApiRoute({
+    req: { method: 'GET' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/status'),
+  });
+  const response = harness.getResponse();
+
+  assert.equal(handled, true);
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json.staticEmbedding, {
+    enabled: true,
+    mode: 'live-shadow',
+    provider: 'model2vec-potion-8m',
+    indexedItems: 421,
+    pendingItems: 3,
+    lastQueryMs: 1.8,
+    ready: true,
+  });
+});
+
+test('chat route queries static memory sidecar without changing the reply path', async () => {
+  const queryCalls = [];
+  const harness = createToolReceiptRouteHarness({
+    sessionId: 'static-query-session',
+    userText: 'What do you remember about the copper rabbit?',
+    queryStaticMemoryIndex: async (text) => {
+      queryCalls.push(text);
+      return { skipped: false, candidates: [] };
+    },
+    runResult: {
+      text: 'I remember the copper rabbit thread.\n[MOOD:calm]',
+      toolsUsed: [],
+      toolRecords: [],
+      toolEvidenceFacts: [],
+      localLane: 'tool',
+      requestedModel: 'google/gemma-4-e4b',
+      resolvedModel: 'google/gemma-4-e4b',
+      executionPath: 'llm-tool-loop',
+      laneFallback: false,
+      modelUsed: true,
+    },
+  });
+
+  const handled = await harness.handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/chat'),
+  });
+  const response = harness.getResponse();
+
+  assert.equal(handled, true);
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(queryCalls, ['What do you remember about the copper rabbit?']);
+  assert.equal(response.json.text, 'I remember the copper rabbit thread.\n[MOOD:calm]');
 });
 
 test('chat route keeps write-required tool misses out of the ledger and artifact success path', async () => {

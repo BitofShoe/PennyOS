@@ -83,6 +83,9 @@ const {
   createPennyRouteHandlers,
 } = require('./lib/penny-route-handlers');
 const {
+  createStaticMemoryIndexApi,
+} = require('./lib/penny-static-memory-index');
+const {
   appendToolEvidenceFact,
   normalizeRepairInfo,
   normalizeLastRouteInfo,
@@ -162,6 +165,14 @@ const PENNY_LMSTUDIO_EMBED_MODEL = normalizeEmbedModelId(process.env.PENNY_LMSTU
 const PENNY_ARCHIVE_SCORING_PROFILE = process.env.PENNY_ARCHIVE_SCORING_PROFILE || 'baseline';
 const PENNY_ENABLE_BACKGROUND_CHAT_VECTORS = !['0', 'false', 'off', 'no'].includes(String(process.env.PENNY_ENABLE_BACKGROUND_CHAT_VECTORS || '').trim().toLowerCase());
 const PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT = Math.max(0, Number(process.env.PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT || 2));
+const PENNY_STATIC_EMBED_MODE = process.env.PENNY_STATIC_EMBED_MODE || 'off';
+const PENNY_STATIC_EMBED_PROVIDER = process.env.PENNY_STATIC_EMBED_PROVIDER || 'model2vec-potion-8m';
+const PENNY_STATIC_EMBED_INDEX_SCOPE = process.env.PENNY_STATIC_EMBED_INDEX_SCOPE || 'session,archive,research-ledger';
+const PENNY_STATIC_EMBED_MAX_CANDIDATES = Number(process.env.PENNY_STATIC_EMBED_MAX_CANDIDATES || 12);
+const PENNY_STATIC_EMBED_BATCH_SIZE = Number(process.env.PENNY_STATIC_EMBED_BATCH_SIZE || 16);
+const PENNY_STATIC_EMBED_CACHE_FILE = process.env.PENNY_STATIC_EMBED_CACHE_FILE
+  ? path.resolve(__dirname, process.env.PENNY_STATIC_EMBED_CACHE_FILE)
+  : '';
 const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 /** Full request budget for /chat/completions and /responses (prompt eval + generation). Large quants (e.g. 30B+) and multi-step local tool turns can legitimately take a long time; LM Studio logs "Client disconnected" if this fires first. Override with PENNY_LMSTUDIO_TIMEOUT_MS (ms). */
@@ -501,6 +512,12 @@ async function buildRuntimeMemoryContext({
   };
 }
 let archiveConsolidationQueue = Promise.resolve();
+function scheduleStaticMemoryIndexRefresh() {
+  if (!staticMemoryIndexApi || typeof staticMemoryIndexApi.isEnabled !== 'function' || !staticMemoryIndexApi.isEnabled()) return;
+  staticMemoryIndexApi.refreshFromStores({ schedule: true }).catch((error) => {
+    console.warn(`[penny static memory] refresh failed: ${error?.message || error}`);
+  });
+}
 function scheduleArchiveConsolidation({
   sessionId = 'default',
   userText = '',
@@ -521,6 +538,7 @@ function scheduleArchiveConsolidation({
       provenance,
       reviewCandidates,
     });
+    scheduleStaticMemoryIndexRefresh();
   };
   queueMicrotask(() => {
     archiveConsolidationQueue = archiveConsolidationQueue
@@ -566,6 +584,7 @@ function scheduleResearchLedgerUpdate({
       toolRecords,
       provenance,
     });
+    if (result?.updated === true) scheduleStaticMemoryIndexRefresh();
     return {
       status: result?.updated === true ? 'applied' : 'skipped',
       reason: String(result?.reason || '').trim() || (result?.updated === true ? 'updated' : 'non-qualifying-turn'),
@@ -668,9 +687,28 @@ const researchLedgerApi = createResearchLedgerApi({
 const {
   getPromptContext: getResearchLedgerContextApi,
   getResearchLedgerInspector: getResearchLedgerInspectorApi,
+  readLedgerStore: readResearchLedgerStoreApi,
   updateResearchLedgerFromTurn: updateResearchLedgerFromTurnApi,
   purgeResearchLedger: purgeResearchLedgerApi,
 } = researchLedgerApi;
+const staticMemoryIndexApi = createStaticMemoryIndexApi({
+  fs,
+  path,
+  DATA_DIR,
+  CACHE_FILE: PENNY_STATIC_EMBED_CACHE_FILE,
+  mode: PENNY_STATIC_EMBED_MODE,
+  provider: PENNY_STATIC_EMBED_PROVIDER,
+  readArchiveStore: memoryArchiveApi.readArchiveStore,
+  readLedgerStore: readResearchLedgerStoreApi,
+  indexScope: PENNY_STATIC_EMBED_INDEX_SCOPE,
+  maxCandidates: PENNY_STATIC_EMBED_MAX_CANDIDATES,
+  batchSize: PENNY_STATIC_EMBED_BATCH_SIZE,
+});
+if (staticMemoryIndexApi.isEnabled()) {
+  staticMemoryIndexApi.start().catch((error) => {
+    console.warn(`[penny static memory] startup index failed: ${error?.message || error}`);
+  });
+}
 const memoryBooksApi = createMemoryBooksApi({
   fs,
   path,
@@ -3034,6 +3072,10 @@ const routeHandlers = createPennyRouteHandlers({
   describeLocalBrainFailure,
   getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
   getSemanticMemoryStatus: getSemanticMemoryStatusApi,
+  getStaticEmbeddingStatus: () => staticMemoryIndexApi.getStatus(),
+  queryStaticMemoryIndex: (userText) => staticMemoryIndexApi.query(userText, {
+    maxCandidates: PENNY_STATIC_EMBED_MAX_CANDIDATES,
+  }),
   setRuntimePreferredChatModel: setRuntimePreferredChatModelApi,
   getRuntimePreferredChatModel: getRuntimePreferredChatModelApi,
   sessionState,

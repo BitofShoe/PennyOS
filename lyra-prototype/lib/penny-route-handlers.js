@@ -234,6 +234,8 @@ function createPennyRouteHandlers(deps = {}) {
     describeLocalBrainFailure,
     getLmStudioConnectionStatus,
     getSemanticMemoryStatus,
+    getStaticEmbeddingStatus = null,
+    queryStaticMemoryIndex = null,
     setRuntimePreferredChatModel,
     getRuntimePreferredChatModel,
     sessionState,
@@ -1087,6 +1089,11 @@ function createPennyRouteHandlers(deps = {}) {
         sendJson(res, 400, { error: 'Missing user message content.' });
         return true;
       }
+      if (typeof queryStaticMemoryIndex === 'function') {
+        try {
+          await queryStaticMemoryIndex(userText);
+        } catch {}
+      }
 
       const imageAttachment = sanitizeImageDataUrl(payload.image || null);
       const image = imageAttachment?.dataUrl || null;
@@ -1764,6 +1771,9 @@ function createPennyRouteHandlers(deps = {}) {
     const force = url.searchParams.get('refresh') === '1';
     const lmStudio = await getLmStudioConnectionStatus({ force });
     const semanticMemory = await getSemanticMemoryStatus({ force, lmStatus: lmStudio });
+    const staticEmbedding = typeof getStaticEmbeddingStatus === 'function'
+      ? getStaticEmbeddingStatus()
+      : null;
     const readiness = buildRuntimeReadiness({ lmStudio, semanticMemory });
     const performance = buildRuntimeStatusPerformance({ lmStudio, semanticMemory });
     sendJson(res, 200, {
@@ -1786,6 +1796,7 @@ function createPennyRouteHandlers(deps = {}) {
       maxOutputTokens: LMSTUDIO_MAX_OUTPUT_TOKENS,
       semanticMemory,
       lmStudio,
+      staticEmbedding,
       readiness,
       performance,
     });
