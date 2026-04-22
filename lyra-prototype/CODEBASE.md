@@ -201,6 +201,8 @@ Three-arm static embedding live sidecar compare harness for static-off, live-sha
 Fixture-only open-loop prompt bridge artifact for selected vs held-back advisory loops.
 - [scripts/eval-penny-open-loop-compare.js](./scripts/eval-penny-open-loop-compare.js)
 Disposable mock-route compare harness for open-loop-off vs open-loop-on, with continuity, annoyance, overclaim, adjacent-topic bleed, and prompt-token metrics.
+- [scripts/eval-penny-aliveness-compare.js](./scripts/eval-penny-aliveness-compare.js)
+Bounded aliveness compare harness. Fixture mode adapts A2 scenarios without server/model calls; live-isolated mode runs paired baseline vs feature-on route prompts through disposable Penny servers and a mock LM Studio backend, recording runtime metrics, trust-pressure gates, manual-review fields, adoption thresholds, and disposable cleanup status.
 - [scripts/eval-penny-initiative-fixture.js](./scripts/eval-penny-initiative-fixture.js)
 Fixture-only bounded initiative artifact for allowed vs held-back suggestions, pressure/annoyance cases, source-aware prompt scaffolds, and max-one rendering.
 - [scripts/eval-penny-runtime-fit.js](./scripts/eval-penny-runtime-fit.js)
@@ -430,6 +432,8 @@ Start here:
 - `lib/penny-candidate-survival-qa.js`
 - `scripts/eval-penny-static-embedding-live-compare.js`
 - `lib/penny-gemma-runtime-watch.js`
+- `scripts/eval-penny-aliveness-compare.js`
+- `lib/penny-aliveness-qa.js`
 - `scripts/qa-penny-voice-redo.js`
 - `lib/penny-qa-trace.js`
 - `lib/penny-qa-validity.js`
@@ -442,9 +446,11 @@ Static embedding live sidecar work is opt-in. Normal repo work should leave `PEN
 
 Open-loop continuity work is also opt-in at the live prompt bridge. The state/store/extraction/lifecycle helpers are real code, but normal runtime prompt injection requires `PENNY_ENABLE_OPEN_LOOP_PROMPT=1` and stays capped by `PENNY_OPEN_LOOP_MAX_RENDERED=1` plus `PENNY_OPEN_LOOP_MAX_TOKENS`. `npm run eval:open-loop-compare` is the current compare harness; passing it means eligible for local opt-in, not permission to raise prompt limits, expand PromptTruth, or let Penny surface unrelated follow-ups.
 
-Bounded initiative work is opt-in at the live prompt bridge. The pure policy, fixture scaffold, user controls, review-gated memory suggestion checks, and pressure canaries are real code, but normal runtime prompt injection requires `PENNY_ENABLE_BOUNDED_INITIATIVE=1` and stays capped by `PENNY_INITIATIVE_MAX_PER_TURN=1` plus cooldown suppression. It records `modelAdvisory.initiativePromptBridge` as sibling advisory metadata; it is not PromptTruth, not `toolEvidenceReceipt`, not an automatic memory write, and not autonomous task execution. Default enablement should wait for the bounded aliveness compare harness, not just the fixture canaries.
+Bounded initiative work is opt-in at the live prompt bridge. The pure policy, fixture scaffold, user controls, review-gated memory suggestion checks, and pressure canaries are real code, but normal runtime prompt injection requires `PENNY_ENABLE_BOUNDED_INITIATIVE=1` and stays capped by `PENNY_INITIATIVE_MAX_PER_TURN=1` plus cooldown suppression. It records `modelAdvisory.initiativePromptBridge` as sibling advisory metadata; it is not PromptTruth, not `toolEvidenceReceipt`, not an automatic memory write, and not autonomous task execution. Default enablement should follow the bounded aliveness adoption checklist, not just the fixture canaries.
 
-Ephemeral turn-state work is opt-in at the live prompt bridge. The schema, signal extractor, fixture renderer, live bridge, retention guardrails, helper-level aliveness inputs, and T8 QA cases are real code, but normal runtime prompt injection requires `PENNY_ENABLE_TURN_STATE_PROMPT=1` and stays capped by `PENNY_TURN_STATE_MAX_TOKENS`. It records `modelAdvisory.turnStatePromptBridge` as sibling advisory metadata; it is not memory, not chain-of-thought, not PromptTruth, not `toolEvidenceReceipt`, and not truth authority. Default enablement should wait for the bounded aliveness compare harness, not just fixture coverage.
+Ephemeral turn-state work is opt-in at the live prompt bridge. The schema, signal extractor, fixture renderer, live bridge, retention guardrails, helper-level aliveness inputs, and T8 QA cases are real code, but normal runtime prompt injection requires `PENNY_ENABLE_TURN_STATE_PROMPT=1` and stays capped by `PENNY_TURN_STATE_MAX_TOKENS`. It records `modelAdvisory.turnStatePromptBridge` as sibling advisory metadata; it is not memory, not chain-of-thought, not PromptTruth, not `toolEvidenceReceipt`, and not truth authority. Default enablement should follow the bounded aliveness adoption checklist, not just fixture coverage.
+
+Bounded aliveness compare work is the current adoption evidence layer for the combined static-live, turn-state, open-loop, and bounded-initiative stack. `npm run eval:aliveness:fixture` is fixture-only and can recommend only live-shadow review. `node scripts/eval-penny-aliveness-compare.js --live-isolated` spawns disposable Penny servers and a mock LM Studio backend, then writes `penny-aliveness-compare.v1` artifacts with human-observable wins, continuity wins, trust-pressure blockers, prompt/latency deltas, rendered advisory counts, manual-review fields, `decisionThresholds`, and `adoptionChecklist`. Live-isolated state is disposable: memory, archive, embeddings, static embedding cache, research ledger, open-loop state, initiative-session state, and memory books are isolated per side and cleanup failure invalidates the run. Passing live-isolated evidence can make local live-advisory review eligible; it is not default enablement.
 
 Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, `lib/penny-qa-trace.js`, and their tests cover social pressure, companion-feedback bias, remote/source pressure, and agent-integrity receipt canaries. Gemma runtime watch lives in `lib/penny-gemma-runtime-watch.js` plus status/preflight/runtime-fit artifacts. Tool output-cost descriptors live in `lib/penny-tool-registry.js` and optional sibling runtime artifact cost summaries. None of those status surfaces change runtime voice, expand `promptTruth`, switch default embeddings, enable default thinking, raise default context, or import external dependencies.
 

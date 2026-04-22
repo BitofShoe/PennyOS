@@ -196,6 +196,7 @@ Current archive-policy behavior:
 - the live open-loop prompt bridge is opt-in via `PENNY_ENABLE_OPEN_LOOP_PROMPT=1`, capped by `PENNY_OPEN_LOOP_MAX_RENDERED` and `PENNY_OPEN_LOOP_MAX_TOKENS`, and measured by `npm run eval:open-loop-compare`; passing compare makes it eligible for local opt-in, not default runtime law
 - bounded initiative policy is owned by `lib/penny-initiative-policy.js`; its live bridge is opt-in via `PENNY_ENABLE_BOUNDED_INITIATIVE=1`, capped by `PENNY_INITIATIVE_MAX_PER_TURN=1`, cooldown-aware through `PENNY_INITIATIVE_COOLDOWN_TURNS`, and limited to suggest-only scaffolds with no action-taking, memory writes, or unchecked source claims
 - ephemeral turn-state is owned by `lib/penny-turn-state.js`; its live bridge is opt-in via `PENNY_ENABLE_TURN_STATE_PROMPT=1`, capped by `PENNY_TURN_STATE_MAX_TOKENS`, and limited to current-turn response-shaping cues. It is not memory, not chain-of-thought, not truth authority, not PromptTruth, not tool evidence, and runtime artifacts retain only a redacted summary/retention policy instead of the full card.
+- bounded aliveness adoption evidence is owned by `lib/penny-aliveness-qa.js` and `scripts/eval-penny-aliveness-compare.js`; fixture mode is scenario-only, while live-isolated mode uses disposable Penny servers plus a mock LM Studio backend to compare baseline vs feature-on without touching real user memory or real loaded models
 - background chat vectorization now defaults on, but it still runs only after `archiveCompletedTurn`, never in prompt assembly, and can be disabled with `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=0`. It is off the reply-latency path, but it still shares process, embedding-backend, and cache/store capacity.
 - inspector payloads expose background-vectorization telemetry, including the session `lastArchivedAt` timestamp, and the in-app panel now surfaces a compact background-vectorization summary so the behavior stays inspectable in practice
 
@@ -371,6 +372,8 @@ This does not make Penny “judge herself” in production. It makes the existin
 
 The April 21 pressure/Gemma/tool-cost follow-through is artifact and QA coverage only unless a later explicit slice says otherwise: no runtime voice change, no `promptTruth` expansion, no `toolEvidenceReceipt` expansion beyond optional sibling cost metadata, no default thinking, no default context increase, no default embedding-provider change, and no external dependency import. The bounded initiative and ephemeral turn-state bridges follow the same posture: fixture and opt-in scaffolding first, default enablement only after bounded aliveness compare evidence shows a real benefit without annoyance, overclaim, pressure, privacy leakage, latency, or prompt-bloat regressions.
 
+The bounded aliveness compare harness interprets "more alive" as a measured outcome, not a vibe. Positive outcomes are human-observable wins and continuity wins. Blocking outcomes include overclaim, stale-correction failure, source-boundary failure, candidate-only truth laundering, unsupported action/source claims, recurring annoyance, prompt bloat, latency regression, invalid environment, or failed disposable cleanup. A fixture artifact can support live-shadow review; a live-isolated mock-route artifact can support live-advisory review; default enablement remains a separate adoption stage that needs repeated real compare passes, completed manual review, user controls, and current docs.
+
 ### 9. Mood / vessel presentation
 
 The visible Penny vessel is driven by reply mood tags such as:
@@ -482,6 +485,8 @@ Epistemic compare harness; current favored primary pair is `off` vs `synthesis-o
 Ledger compare harness for bounded research-ledger prompt strategies.
 - `scripts/eval-penny-static-embedding-live-compare.js`
 Static embedding sidecar compare harness that runs static-off, live-shadow, and live-advisory modes against disposable per-case servers and a mock LM Studio backend. It is the normal receipt path before treating local `PENNY_STATIC_EMBED_MODE=live-advisory` experiments as useful.
+- `scripts/eval-penny-aliveness-compare.js`
+Bounded aliveness compare harness. `--fixture` / `npm run eval:aliveness:fixture` writes scenario-only artifacts with null/not-run runtime metrics; `--live-isolated` runs baseline vs bounded-aliveness-on through disposable memory, archive, embeddings, static-cache, ledger, open-loop, initiative-session, and memory-book files, then records prompt/context deltas, trust-pressure gates, manual-review fields, and A9 adoption-checklist status.
 - `scripts/eval-penny-runtime-fit.js`
 Runtime-fit harness for context-length and semantic-fallback tradeoff measurement, with a fixture-only context-pressure mode for short/medium/long rendered-context artifacts whose answer drift remains `not-run` until live eval.
 - `scripts/qa-penny-memory.js`
