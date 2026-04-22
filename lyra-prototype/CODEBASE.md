@@ -292,6 +292,7 @@ Current modules worth knowing:
 - [lib/penny-open-loop-store.js](./lib/penny-open-loop-store.js)
 - [lib/penny-open-loop-extraction.js](./lib/penny-open-loop-extraction.js)
 - [lib/penny-initiative-policy.js](./lib/penny-initiative-policy.js)
+- [lib/penny-turn-state.js](./lib/penny-turn-state.js)
 - [lib/penny-tool-intents.js](./lib/penny-tool-intents.js)
 - [lib/penny-local-lanes.js](./lib/penny-local-lanes.js)
 - [lib/penny-lmstudio-status.js](./lib/penny-lmstudio-status.js)
@@ -361,6 +362,7 @@ Likely modules you will touch:
 - research continuity topic tracking in `lib/penny-research-ledger.js`
 - advisory open-loop continuity in `lib/penny-open-loops.js`, `lib/penny-open-loop-store.js`, and `lib/penny-open-loop-extraction.js`; the live bridge is off by default, bounded to one relevant advisory snippet when opted in, and must not become explicit memory or autonomous task execution
 - bounded initiative policy in `lib/penny-initiative-policy.js`; the live bridge is off by default via `PENNY_ENABLE_BOUNDED_INITIATIVE`, capped at one optional suggestion, cooldown-aware, user-dismissible, and must not write memory, take side effects, or claim unchecked source support
+- ephemeral turn-state response shaping in `lib/penny-turn-state.js`; the live prompt bridge is off by default via `PENNY_ENABLE_TURN_STATE_PROMPT`, capped by `PENNY_TURN_STATE_MAX_TOKENS`, and must stay current-turn-only, sanitized, non-persistent, non-CoT, and non-authoritative
 - prompt composition and transport shaping in `server.js`
 - prompt-builder regressions in `test/penny-prompt-builders.test.js`
 - lane selection in `lib/penny-local-lanes.js`
@@ -392,6 +394,7 @@ Likely modules you will touch:
 - prompt-truth receipt generation in `lib/penny-memory.js` and `lib/penny-prompt-stack.js`
 - tool-evidence receipt build/normalize in `lib/penny-runtime-artifacts.js`, with source facts emitted by `lib/penny-direct-tool-assist.js`, `lib/penny-tool-loop.js`, and the semantic-render seam in `server.js`
 - bounded reasoning-policy receipt generation in `lib/penny-runtime-artifacts.js`
+- turn-state prompt bridge receipt normalization in `lib/penny-runtime-artifacts.js`; it stores only a redacted summary and retention policy, not the full turn-state card or raw private inference
 - research-ledger identity/settled-state rules in `lib/penny-research-ledger.js`
 - route assembly in `lib/penny-route-handlers.js`
 - combined inspector construction in `server.js` / `lib/penny-runtime-artifacts.js`
@@ -440,6 +443,8 @@ Static embedding live sidecar work is opt-in. Normal repo work should leave `PEN
 Open-loop continuity work is also opt-in at the live prompt bridge. The state/store/extraction/lifecycle helpers are real code, but normal runtime prompt injection requires `PENNY_ENABLE_OPEN_LOOP_PROMPT=1` and stays capped by `PENNY_OPEN_LOOP_MAX_RENDERED=1` plus `PENNY_OPEN_LOOP_MAX_TOKENS`. `npm run eval:open-loop-compare` is the current compare harness; passing it means eligible for local opt-in, not permission to raise prompt limits, expand PromptTruth, or let Penny surface unrelated follow-ups.
 
 Bounded initiative work is opt-in at the live prompt bridge. The pure policy, fixture scaffold, user controls, review-gated memory suggestion checks, and pressure canaries are real code, but normal runtime prompt injection requires `PENNY_ENABLE_BOUNDED_INITIATIVE=1` and stays capped by `PENNY_INITIATIVE_MAX_PER_TURN=1` plus cooldown suppression. It records `modelAdvisory.initiativePromptBridge` as sibling advisory metadata; it is not PromptTruth, not `toolEvidenceReceipt`, not an automatic memory write, and not autonomous task execution. Default enablement should wait for the bounded aliveness compare harness, not just the fixture canaries.
+
+Ephemeral turn-state work is opt-in at the live prompt bridge. The schema, signal extractor, fixture renderer, live bridge, retention guardrails, helper-level aliveness inputs, and T8 QA cases are real code, but normal runtime prompt injection requires `PENNY_ENABLE_TURN_STATE_PROMPT=1` and stays capped by `PENNY_TURN_STATE_MAX_TOKENS`. It records `modelAdvisory.turnStatePromptBridge` as sibling advisory metadata; it is not memory, not chain-of-thought, not PromptTruth, not `toolEvidenceReceipt`, and not truth authority. Default enablement should wait for the bounded aliveness compare harness, not just fixture coverage.
 
 Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, `lib/penny-qa-trace.js`, and their tests cover social pressure, companion-feedback bias, remote/source pressure, and agent-integrity receipt canaries. Gemma runtime watch lives in `lib/penny-gemma-runtime-watch.js` plus status/preflight/runtime-fit artifacts. Tool output-cost descriptors live in `lib/penny-tool-registry.js` and optional sibling runtime artifact cost summaries. None of those status surfaces change runtime voice, expand `promptTruth`, switch default embeddings, enable default thinking, raise default context, or import external dependencies.
 
