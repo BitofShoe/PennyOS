@@ -1,3 +1,7 @@
+const {
+  scoreMemoryLinkShadowForCandidate,
+} = require('./penny-memory-link-policy');
+
 const ARCHIVE_SCORING_PROFILES = Object.freeze({
   BASELINE: 'baseline',
   HYBRID_V1: 'hybrid-v1',
@@ -450,6 +454,9 @@ function createMemoryArchivePolicyApi({
     vector = null,
     activeContradictions = [],
     openLoops = [],
+    memoryLinks = null,
+    activeRank = null,
+    shadowRank = null,
   } = {}) {
     const profile = normalizeArchiveScoringProfile(scoringProfile);
     const baseline = scoreArchiveCandidate(candidate, queryTokens, now, queryVector, vector);
@@ -465,6 +472,12 @@ function createMemoryArchivePolicyApi({
     const hybridV1Score = Number.isFinite(Number(hybridV1?.score)) ? Number(hybridV1.score) : 0;
     const active = profile === ARCHIVE_SCORING_PROFILES.HYBRID_V1 ? hybridV1 : baseline;
     const activeScore = Number.isFinite(Number(active?.score)) ? Number(active.score) : 0;
+    const linkShadowScore = scoreMemoryLinkShadowForCandidate(candidate, {
+      memoryLinks: memoryLinks || candidate.memoryLinks || [],
+      activeScore,
+      activeRank,
+      shadowRank,
+    });
 
     return {
       scoringProfile: profile,
@@ -481,6 +494,7 @@ function createMemoryArchivePolicyApi({
       hybridV1Components: hybridV1?.components && typeof hybridV1.components === 'object' ? hybridV1.components : {},
       hybridV1Reasons: Array.isArray(hybridV1?.reasons) ? hybridV1.reasons : [],
       hybridV1,
+      linkShadowScore,
     };
   }
 

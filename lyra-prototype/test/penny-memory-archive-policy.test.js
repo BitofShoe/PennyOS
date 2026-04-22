@@ -5,6 +5,12 @@ const {
   createMemoryArchivePolicyApi,
   normalizeArchiveScoringProfile,
 } = require('../lib/penny-memory-archive-policy');
+const {
+  MEMORY_LINK_RELATIONS,
+} = require('../lib/penny-memory-links');
+const {
+  buildCorrectionLinks,
+} = require('../lib/penny-memory-link-policy');
 
 function tokenizeMemoryText(text = '') {
   return String(text || '')
@@ -352,6 +358,133 @@ test('scoreArchiveCandidateHybridShadow boosts current contradiction repairs and
   assert.ok(current.score > stale.score);
   assert.equal(current.reasons.includes('contradiction-repair:favorite tea:+2.40'), true);
   assert.equal(stale.reasons.includes('stale-contradiction:favorite tea:-3.20'), true);
+});
+
+test('scoreArchiveCandidateWithProfile reports inactive link shadow scores without changing active score', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const now = Date.parse('2026-04-22T17:30:00.000Z');
+  const queryTokens = new Set(['coding', 'mascot']);
+  const correctionLinks = buildCorrectionLinks({
+    generatedAt: '2026-04-22T17:30:00.000Z',
+    subject: 'coding mascot',
+    staleItem: { id: 'archive:brass-fox', text: 'Coding mascot is a brass fox.' },
+    currentItem: { id: 'memory:copper-rabbit', text: 'Coding mascot is a copper rabbit now.' },
+    staleObject: 'brass fox',
+    currentObject: 'copper rabbit',
+    supportState: 'explicit',
+    sourceReceipts: [{ type: 'turn', id: 'turn-correction' }],
+  }, { now: '2026-04-22T17:30:00.000Z' });
+  const currentCandidate = {
+    id: 'memory:copper-rabbit',
+    text: 'Coding mascot is a copper rabbit now.',
+    sourceType: 'episode',
+    scope: 'session',
+    sourceAuthority: 'advisory',
+  };
+  const staleCandidate = {
+    id: 'archive:brass-fox',
+    text: 'Coding mascot is a brass fox.',
+    sourceType: 'episode',
+    scope: 'session',
+    sourceAuthority: 'advisory',
+  };
+
+  const currentNoLinks = policy.scoreArchiveCandidateWithProfile(currentCandidate, {
+    scoringProfile: 'baseline',
+    queryText: 'coding mascot',
+    queryTokens,
+    now,
+  });
+  const currentWithLinks = policy.scoreArchiveCandidateWithProfile(currentCandidate, {
+    scoringProfile: 'baseline',
+    queryText: 'coding mascot',
+    queryTokens,
+    now,
+    memoryLinks: correctionLinks.links,
+  });
+  const staleWithLinks = policy.scoreArchiveCandidateWithProfile(staleCandidate, {
+    scoringProfile: 'baseline',
+    queryText: 'coding mascot',
+    queryTokens,
+    now,
+    memoryLinks: correctionLinks.links,
+  });
+
+  assert.equal(currentWithLinks.activeScore, currentNoLinks.activeScore);
+  assert.deepEqual(currentWithLinks.activeScoreComponents, currentNoLinks.activeScoreComponents);
+  assert.deepEqual(currentWithLinks.activeScoreReasons, currentNoLinks.activeScoreReasons);
+  assert.equal(currentWithLinks.linkShadowScore.active, false);
+  assert.equal(currentWithLinks.linkShadowScore.behaviorChanged, false);
+  assert.equal(currentWithLinks.linkShadowScore.components.currentCorrectionBoost, 3);
+  assert.equal(currentWithLinks.linkShadowScore.score, 3);
+  assert.equal(
+    currentWithLinks.linkShadowScore.shadowAdjustedScore,
+    currentWithLinks.activeScore + 3,
+  );
+  assert.equal(staleWithLinks.linkShadowScore.components.stalePriorPenalty, -3.4);
+  assert.equal(staleWithLinks.linkShadowScore.active, false);
+});
+
+test('link shadow broad boosts stay advisory and weaker than correction shadows', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const now = Date.parse('2026-04-22T17:35:00.000Z');
+  const queryTokens = new Set(['static', 'memory']);
+  const projectLinks = [
+    {
+      id: 'same-project-thread',
+      sourceId: 'plan:static-memory',
+      targetId: 'memory:frame-budget',
+      relation: MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD,
+      confidence: 'medium',
+      support: { state: 'research' },
+      directionality: 'bidirectional',
+    },
+  ];
+  const correctionLinks = buildCorrectionLinks({
+    generatedAt: '2026-04-22T17:35:00.000Z',
+    subject: 'memory mascot',
+    staleItem: { id: 'archive:old-mascot', object: 'old mascot' },
+    currentItem: { id: 'memory:new-mascot', object: 'new mascot' },
+    supportState: 'explicit',
+  }, { now: '2026-04-22T17:35:00.000Z' });
+
+  const project = policy.scoreArchiveCandidateWithProfile({
+    id: 'plan:static-memory',
+    text: 'Static memory sidecar plan.',
+    sourceType: 'summary',
+    scope: 'global',
+  }, {
+    queryText: 'static memory',
+    queryTokens,
+    now,
+    memoryLinks: projectLinks,
+  });
+  const current = policy.scoreArchiveCandidateWithProfile({
+    id: 'memory:new-mascot',
+    text: 'Memory mascot is new mascot now.',
+    sourceType: 'episode',
+    scope: 'session',
+  }, {
+    queryText: 'static memory',
+    queryTokens,
+    now,
+    memoryLinks: correctionLinks.links,
+  });
+
+  assert.equal(project.linkShadowScore.components.sameProjectThreadBoost, 0.45);
+  assert.equal(project.linkShadowScore.active, false);
+  assert.ok(
+    current.linkShadowScore.components.currentCorrectionBoost
+      > project.linkShadowScore.components.sameProjectThreadBoost,
+  );
+  assert.equal(project.activeScore, project.baselineScore);
+  assert.equal(current.activeScore, current.baselineScore);
 });
 
 test('selectOpenLoopsForCandidateMergeBudget skips low-priority loops only under tight budget', () => {

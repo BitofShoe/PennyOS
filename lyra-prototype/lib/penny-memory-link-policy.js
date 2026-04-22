@@ -7,10 +7,13 @@ const {
   MEMORY_LINK_MEASUREMENT_MODES,
   MEMORY_LINK_RELATIONS,
   MEMORY_LINK_SUPPORT_STATES,
+  findLinksForItem,
+  normalizeMemoryLink,
   normalizeMemoryLinkSet,
 } = require('./penny-memory-links');
 
 const PENNY_CORRECTION_LINK_BUILDER_SCHEMA = 'penny-correction-link-builder.v1';
+const PENNY_MEMORY_LINK_SHADOW_SCORE_SCHEMA = 'penny-memory-link-shadow-score.v1';
 
 const STRONG_CORRECTION_SUPPORT_STATES = new Set([
   MEMORY_LINK_SUPPORT_STATES.EXPLICIT,
@@ -22,6 +25,22 @@ const CORRECTION_LINK_LIMITS = Object.freeze([
   'Candidate-only, static, and semantic correction links cannot become verified support.',
   'Correction-link authority effects do not change ranking until an explicit scoring gate is enabled.',
 ]);
+
+const LINK_SHADOW_SCORE_LIMITS = Object.freeze([
+  ...DEFAULT_MEMORY_LINK_LIMITS,
+  'Link shadow scoring is inactive and cannot change current ranking.',
+  'Only explicit correction support can produce current/stale authority shadows.',
+  'Project-thread, open-loop, and research-pattern links remain advisory shadow metadata.',
+  'Weak semantic/static relations cannot override source authority or become verified support.',
+]);
+
+const EMPTY_LINK_SHADOW_COMPONENTS = Object.freeze({
+  currentCorrectionBoost: 0,
+  stalePriorPenalty: 0,
+  sameProjectThreadBoost: 0,
+  openLoopRelevanceBoost: 0,
+  weakRelationPenalty: 0,
+});
 
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -69,6 +88,18 @@ function normalizeIso(value = '', fallback = '') {
 
 function normalizeNowIso(now = new Date()) {
   return normalizeIso(now, new Date().toISOString());
+}
+
+function roundShadowScore(value = 0) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return 0;
+  return Math.round(number * 1000) / 1000;
+}
+
+function formatScoreComponent(value = 0) {
+  const number = Number(value || 0);
+  const prefix = number >= 0 ? '+' : '';
+  return `${prefix}${number.toFixed(2)}`;
 }
 
 function normalizeSupportStateForPolicy(value = '') {
@@ -142,6 +173,256 @@ function firstClean(...values) {
     if (text) return text;
   }
   return '';
+}
+
+function normalizeCandidateLinkIds(candidate = {}) {
+  const source = isPlainObject(candidate) ? candidate : { id: candidate };
+  const ids = [];
+  const pushId = (value) => {
+    const id = cleanString(value, 220);
+    if (id && !ids.includes(id)) ids.push(id);
+  };
+  pushId(source.id);
+  pushId(source.memoryId);
+  pushId(source.itemId);
+  pushId(source.sourceId);
+  pushId(source.sourceItemId);
+  pushId(source.candidateId);
+  pushId(source.archiveId);
+  pushId(source.refId);
+  pushId(source.key);
+  return ids;
+}
+
+function rawMemoryLinkList(input = null) {
+  if (!input) return [];
+  if (Array.isArray(input)) return input;
+  if (!isPlainObject(input)) return [];
+  if (Array.isArray(input.links)) return input.links;
+  if (Array.isArray(input.memoryLinks)) return input.memoryLinks;
+  if (Array.isArray(input.items)) return input.items;
+  const traceLinks = [
+    ...(Array.isArray(input.incoming) ? input.incoming : []),
+    ...(Array.isArray(input.outgoing) ? input.outgoing : []),
+  ];
+  if (traceLinks.length) return traceLinks;
+  if (input.memoryLinks && input.memoryLinks !== input) return rawMemoryLinkList(input.memoryLinks);
+  return [];
+}
+
+function normalizeCandidateLinkSet(input = null) {
+  const links = [];
+  const seen = new Set();
+  for (const rawLink of rawMemoryLinkList(input)) {
+    const link = normalizeMemoryLink(rawLink);
+    if (!link) continue;
+    const key = [link.id, link.sourceId, link.targetId, link.relation].filter(Boolean).join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    links.push(link);
+  }
+  return links;
+}
+
+function normalizeActiveScore(candidate = {}, activeScore = null) {
+  const value = activeScore ?? candidate.activeScore ?? candidate.score ?? candidate.baselineScore ?? null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function normalizeRank(value = null) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return null;
+  return Math.floor(number);
+}
+
+function candidateHasStrongSourceAuthority(candidate = {}) {
+  const authority = cleanToken(candidate.sourceAuthority || candidate.authority || '');
+  return ['canonical', 'verified', 'explicit', 'explicit-memory'].includes(authority);
+}
+
+function linkHasExplicitSupport(link = {}) {
+  return link.support?.state === MEMORY_LINK_SUPPORT_STATES.EXPLICIT;
+}
+
+function linkTouchesCandidate(link = {}, candidateIds = new Set()) {
+  return candidateIds.has(link.sourceId) || candidateIds.has(link.targetId);
+}
+
+function scoreMemoryLinkShadowForCandidate(candidate = {}, options = {}) {
+  const candidateIds = new Set(normalizeCandidateLinkIds(candidate));
+  const activeScore = normalizeActiveScore(candidate, options.activeScore);
+  const activeRank = normalizeRank(options.activeRank ?? candidate.activeRank ?? candidate.rank);
+  const suppliedLinks = options.memoryLinks ?? candidate.memoryLinks ?? [];
+  const allLinks = normalizeCandidateLinkSet(suppliedLinks);
+  const matchedLinkMap = new Map();
+  for (const candidateId of candidateIds) {
+    for (const link of findLinksForItem(allLinks, candidateId, { includeBidirectional: true })) {
+      const key = [link.id, link.sourceId, link.targetId, link.relation].filter(Boolean).join('|');
+      if (key && !matchedLinkMap.has(key)) matchedLinkMap.set(key, link);
+    }
+  }
+  const links = matchedLinkMap.size
+    ? [...matchedLinkMap.values()]
+    : allLinks.filter((link) => linkTouchesCandidate(link, candidateIds));
+  const components = { ...EMPTY_LINK_SHADOW_COMPONENTS };
+  const reasons = [];
+  let currentCorrectionBoost = 0;
+  let stalePriorPenalty = 0;
+  let sameProjectThreadCount = 0;
+  let openLoopCount = 0;
+  let weakRelationCount = 0;
+  let candidateOnlyAuthorityAttemptCount = 0;
+
+  for (const link of links) {
+    const isSource = candidateIds.has(link.sourceId);
+    const isTarget = candidateIds.has(link.targetId);
+    const explicitSupport = linkHasExplicitSupport(link);
+    const authorityEffect = link.authorityEffect;
+
+    if (link.relation === MEMORY_LINK_RELATIONS.CURRENT_CORRECTION_FOR) {
+      if (isSource && authorityEffect === MEMORY_LINK_AUTHORITY_EFFECTS.CURRENT_TRUTH_BOOST && explicitSupport) {
+        currentCorrectionBoost = Math.max(currentCorrectionBoost, 3.0);
+      } else if (isSource && authorityEffect === MEMORY_LINK_AUTHORITY_EFFECTS.CURRENT_TRUTH_BOOST && !explicitSupport) {
+        candidateOnlyAuthorityAttemptCount += 1;
+      }
+      if (isTarget && explicitSupport && authorityEffect === MEMORY_LINK_AUTHORITY_EFFECTS.CURRENT_TRUTH_BOOST) {
+        stalePriorPenalty = Math.min(stalePriorPenalty, -2.4);
+      }
+      continue;
+    }
+
+    if (link.relation === MEMORY_LINK_RELATIONS.STALE_PRIOR_OF) {
+      if (isSource && explicitSupport) {
+        if (authorityEffect === MEMORY_LINK_AUTHORITY_EFFECTS.DO_NOT_RENDER_AS_CURRENT) {
+          stalePriorPenalty = Math.min(stalePriorPenalty, -4.6);
+        } else if (authorityEffect === MEMORY_LINK_AUTHORITY_EFFECTS.STALE_CURRENT_PENALTY) {
+          stalePriorPenalty = Math.min(stalePriorPenalty, -3.4);
+        }
+      } else if (isSource && authorityEffect !== MEMORY_LINK_AUTHORITY_EFFECTS.NONE && !explicitSupport) {
+        candidateOnlyAuthorityAttemptCount += 1;
+      }
+      if (isTarget && explicitSupport && authorityEffect !== MEMORY_LINK_AUTHORITY_EFFECTS.NONE) {
+        currentCorrectionBoost = Math.max(currentCorrectionBoost, 2.4);
+      }
+      continue;
+    }
+
+    if (link.relation === MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD) {
+      sameProjectThreadCount += 1;
+      continue;
+    }
+
+    if (link.relation === MEMORY_LINK_RELATIONS.OPEN_LOOP_ABOUT) {
+      openLoopCount += 1;
+      continue;
+    }
+
+    if (link.relation === MEMORY_LINK_RELATIONS.RELATED_BUT_WEAK) {
+      weakRelationCount += 1;
+      continue;
+    }
+
+    if (link.relation === MEMORY_LINK_RELATIONS.RESEARCH_PATTERN_FOR) {
+      reasons.push('research-pattern:shadow-advisory-no-score');
+    }
+  }
+
+  components.currentCorrectionBoost = roundShadowScore(currentCorrectionBoost);
+  components.stalePriorPenalty = roundShadowScore(stalePriorPenalty);
+  components.sameProjectThreadBoost = roundShadowScore(Math.min(0.9, sameProjectThreadCount * 0.45));
+  components.openLoopRelevanceBoost = roundShadowScore(Math.min(0.7, openLoopCount * 0.35));
+  components.weakRelationPenalty = candidateHasStrongSourceAuthority(candidate)
+    ? 0
+    : roundShadowScore(Math.max(-1.0, weakRelationCount * -0.5));
+
+  if (components.currentCorrectionBoost) {
+    reasons.push(`current-correction-link:${formatScoreComponent(components.currentCorrectionBoost)}`);
+  }
+  if (components.stalePriorPenalty) {
+    reasons.push(`stale-prior-link:${formatScoreComponent(components.stalePriorPenalty)}`);
+  }
+  if (components.sameProjectThreadBoost) {
+    reasons.push(`same-project-thread:${sameProjectThreadCount}:${formatScoreComponent(components.sameProjectThreadBoost)}`);
+  }
+  if (components.openLoopRelevanceBoost) {
+    reasons.push(`open-loop-about:${openLoopCount}:${formatScoreComponent(components.openLoopRelevanceBoost)}`);
+  }
+  if (weakRelationCount && components.weakRelationPenalty) {
+    reasons.push(`related-but-weak:${weakRelationCount}:${formatScoreComponent(components.weakRelationPenalty)}`);
+  } else if (weakRelationCount) {
+    reasons.push('related-but-weak:ignored-source-authority');
+  }
+  if (candidateOnlyAuthorityAttemptCount) {
+    reasons.push(`candidate-only-authority-held-back:${candidateOnlyAuthorityAttemptCount}`);
+  }
+
+  const score = roundShadowScore(Object.values(components).reduce((total, value) => total + Number(value || 0), 0));
+  const shadowAdjustedScore = roundShadowScore(activeScore + score);
+  const shadowRank = normalizeRank(options.shadowRank ?? candidate.shadowRank ?? candidate.linkShadowRank);
+  const rankDelta = activeRank != null && shadowRank != null ? activeRank - shadowRank : null;
+
+  return {
+    schema: PENNY_MEMORY_LINK_SHADOW_SCORE_SCHEMA,
+    active: false,
+    behaviorChanged: false,
+    advisoryOnly: true,
+    truthProof: false,
+    canonicalMemoryWrite: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    score,
+    activeScore,
+    shadowAdjustedScore,
+    components,
+    reasons: reasons.slice(0, 12),
+    linkCount: links.length,
+    candidateOnlyVerifiedSupport: false,
+    activeRank,
+    shadowRank,
+    rankDelta,
+    wouldChangeRank: rankDelta == null ? false : rankDelta !== 0,
+    limits: LINK_SHADOW_SCORE_LIMITS,
+  };
+}
+
+function scoreMemoryLinkShadowForCandidates(candidates = [], options = {}) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  const scored = list.map((candidate, index) => {
+    const activeRank = normalizeRank(candidate?.rank ?? candidate?.activeRank) || index + 1;
+    return {
+      candidate,
+      activeRank,
+      shadow: scoreMemoryLinkShadowForCandidate(candidate, {
+        ...options,
+        activeRank,
+        memoryLinks: options.memoryLinks ?? candidate?.memoryLinks,
+      }),
+    };
+  });
+  const ranked = scored
+    .slice()
+    .sort((left, right) => (
+      right.shadow.shadowAdjustedScore - left.shadow.shadowAdjustedScore
+        || left.activeRank - right.activeRank
+    ));
+  const shadowRanks = new Map();
+  ranked.forEach((item, index) => {
+    shadowRanks.set(item, index + 1);
+  });
+  return scored.map((item) => {
+    const shadowRank = shadowRanks.get(item) || null;
+    return {
+      candidate: item.candidate,
+      activeRank: item.activeRank,
+      linkShadowScore: scoreMemoryLinkShadowForCandidate(item.candidate, {
+        ...options,
+        activeRank: item.activeRank,
+        shadowRank,
+        memoryLinks: options.memoryLinks ?? item.candidate?.memoryLinks,
+      }),
+    };
+  });
 }
 
 function normalizeCorrectionItem(item = {}, role = 'item', hints = {}) {
@@ -433,7 +714,11 @@ function buildCorrectionLinks(input = {}, options = {}) {
 
 module.exports = {
   PENNY_CORRECTION_LINK_BUILDER_SCHEMA,
+  PENNY_MEMORY_LINK_SHADOW_SCORE_SCHEMA,
   CORRECTION_LINK_LIMITS,
+  LINK_SHADOW_SCORE_LIMITS,
   STRONG_CORRECTION_SUPPORT_STATES,
   buildCorrectionLinks,
+  scoreMemoryLinkShadowForCandidate,
+  scoreMemoryLinkShadowForCandidates,
 };

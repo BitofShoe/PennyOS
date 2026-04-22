@@ -8,7 +8,10 @@ const {
 } = require('../lib/penny-memory-links');
 const {
   PENNY_CORRECTION_LINK_BUILDER_SCHEMA,
+  PENNY_MEMORY_LINK_SHADOW_SCORE_SCHEMA,
   buildCorrectionLinks,
+  scoreMemoryLinkShadowForCandidate,
+  scoreMemoryLinkShadowForCandidates,
 } = require('../lib/penny-memory-link-policy');
 
 const NOW = '2026-04-22T17:00:00.000Z';
@@ -149,4 +152,152 @@ test('buildCorrectionLinks holds back incomplete correction inputs instead of in
   assert.equal(artifact.correctionTrace.strongSupport, false);
   assert.equal(artifact.scoringActive, false);
   assert.equal(artifact.behaviorChanged, false);
+});
+
+test('scoreMemoryLinkShadowForCandidate boosts explicit current corrections without activating scoring', () => {
+  const linkSet = buildCorrectionLinks({
+    generatedAt: NOW,
+    subject: 'coding mascot',
+    staleItem: { id: 'archive:brass-fox', text: 'The mascot was a brass fox.' },
+    currentItem: { id: 'memory:copper-rabbit', text: 'The mascot is a copper rabbit now.' },
+    staleObject: 'brass fox',
+    currentObject: 'copper rabbit',
+    supportState: 'explicit',
+    sourceReceipts: [{ type: 'turn', id: 'turn-correction' }],
+  }, { now: NOW });
+
+  const shadow = scoreMemoryLinkShadowForCandidate({
+    id: 'memory:copper-rabbit',
+    activeScore: 4.25,
+    sourceAuthority: 'advisory',
+  }, {
+    memoryLinks: linkSet.links,
+  });
+
+  assert.equal(shadow.schema, PENNY_MEMORY_LINK_SHADOW_SCORE_SCHEMA);
+  assert.equal(shadow.active, false);
+  assert.equal(shadow.behaviorChanged, false);
+  assert.equal(shadow.advisoryOnly, true);
+  assert.equal(shadow.truthProof, false);
+  assert.equal(shadow.promptTruthExpanded, false);
+  assert.equal(shadow.toolEvidenceReceiptChanged, false);
+  assert.equal(shadow.candidateOnlyVerifiedSupport, false);
+  assert.equal(shadow.components.currentCorrectionBoost, 3);
+  assert.equal(shadow.components.stalePriorPenalty, 0);
+  assert.equal(shadow.score, 3);
+  assert.equal(shadow.shadowAdjustedScore, 7.25);
+  assert.equal(shadow.reasons.includes('current-correction-link:+3.00'), true);
+  assert.equal(shadow.wouldChangeRank, false);
+});
+
+test('scoreMemoryLinkShadowForCandidate penalizes explicit stale priors without changing active rank', () => {
+  const linkSet = buildCorrectionLinks({
+    generatedAt: NOW,
+    subject: 'cashier watch',
+    staleItem: { id: 'archive:silver-watch', object: 'silver watch' },
+    currentItem: { id: 'memory:gold-watch', object: 'gold watch' },
+    supportState: 'explicit',
+    staleAuthorityEffect: 'do-not-render-as-current',
+    sourceReceipts: [{ type: 'artifact', id: 'watch-correction' }],
+  }, { now: NOW });
+
+  const shadow = scoreMemoryLinkShadowForCandidate({
+    id: 'archive:silver-watch',
+    activeScore: 8.1,
+  }, {
+    memoryLinks: linkSet.links,
+    activeRank: 1,
+    shadowRank: 3,
+  });
+
+  assert.equal(shadow.active, false);
+  assert.equal(shadow.components.currentCorrectionBoost, 0);
+  assert.equal(shadow.components.stalePriorPenalty, -4.6);
+  assert.equal(shadow.score, -4.6);
+  assert.equal(shadow.shadowAdjustedScore, 3.5);
+  assert.equal(shadow.rankDelta, -2);
+  assert.equal(shadow.wouldChangeRank, true);
+  assert.equal(shadow.reasons.includes('stale-prior-link:-4.60'), true);
+});
+
+test('link shadow scoring keeps broad advisory links weaker than correction links', () => {
+  const correction = buildCorrectionLinks({
+    generatedAt: NOW,
+    subject: 'coding mascot',
+    staleItem: { id: 'archive:brass-fox', object: 'brass fox' },
+    currentItem: { id: 'memory:copper-rabbit', object: 'copper rabbit' },
+    supportState: 'explicit',
+  }, { now: NOW });
+  const broadLinks = [
+    ...correction.links,
+    {
+      id: 'project-thread-link',
+      sourceId: 'plan:static-live',
+      targetId: 'memory:frame-budget',
+      relation: MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD,
+      confidence: 'medium',
+      support: { state: 'research' },
+      directionality: 'bidirectional',
+    },
+    {
+      id: 'open-loop-link',
+      sourceId: 'open-loop:correction-check',
+      targetId: 'memory:frame-budget',
+      relation: MEMORY_LINK_RELATIONS.OPEN_LOOP_ABOUT,
+      confidence: 'medium',
+      support: { state: 'unknown' },
+    },
+  ];
+
+  const ranked = scoreMemoryLinkShadowForCandidates([
+    {
+      id: 'plan:static-live',
+      activeScore: 6.2,
+    },
+    {
+      id: 'memory:copper-rabbit',
+      activeScore: 4.9,
+    },
+    {
+      id: 'memory:frame-budget',
+      activeScore: 4.8,
+    },
+  ], { memoryLinks: broadLinks });
+  const byId = new Map(ranked.map((item) => [item.candidate.id, item.linkShadowScore]));
+
+  assert.equal(byId.get('plan:static-live').components.sameProjectThreadBoost, 0.45);
+  assert.equal(byId.get('memory:frame-budget').components.openLoopRelevanceBoost, 0.35);
+  assert.ok(
+    byId.get('memory:copper-rabbit').components.currentCorrectionBoost
+      > byId.get('plan:static-live').components.sameProjectThreadBoost,
+  );
+  assert.ok(byId.get('memory:copper-rabbit').shadowRank < byId.get('plan:static-live').shadowRank);
+  assert.equal(byId.get('plan:static-live').active, false);
+});
+
+test('candidate-only weak links cannot become verified support or override source authority', () => {
+  const shadow = scoreMemoryLinkShadowForCandidate({
+    id: 'memory:verified-rain',
+    activeScore: 9,
+    sourceAuthority: 'verified',
+  }, {
+    memoryLinks: [
+      {
+        id: 'weak-rain-link',
+        sourceId: 'semantic:rain-candidate',
+        targetId: 'memory:verified-rain',
+        relation: MEMORY_LINK_RELATIONS.RELATED_BUT_WEAK,
+        confidence: 'low',
+        support: { state: 'semantic-candidate' },
+        authorityEffect: MEMORY_LINK_AUTHORITY_EFFECTS.CURRENT_TRUTH_BOOST,
+      },
+    ],
+  });
+
+  assert.equal(shadow.components.weakRelationPenalty, 0);
+  assert.equal(shadow.score, 0);
+  assert.equal(shadow.shadowAdjustedScore, 9);
+  assert.equal(shadow.candidateOnlyVerifiedSupport, false);
+  assert.equal(shadow.truthProof, false);
+  assert.equal(shadow.reasons.includes('related-but-weak:ignored-source-authority'), true);
 });
