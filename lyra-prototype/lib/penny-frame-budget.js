@@ -8,6 +8,18 @@ const FRAME_BUDGET_SIDECAR_SCHEMA = 'penny-frame-budget-sidecar.v1';
 
 const FRAME_BUDGET_CANDIDATE_MERGE_SCHEMA = 'penny-frame-budget-candidate-merge.v1';
 
+const PENNY_FRAME_BUDGET_COMPARE_SCHEMA = 'penny-frame-budget-compare.v1';
+
+const FRAME_BUDGET_COMPARE_MODES = Object.freeze({
+  BASELINE: 'baseline',
+  STATIC_LIVE_SHADOW: 'static-live-shadow',
+  STATIC_LIVE_ADVISORY: 'static-live-advisory',
+  STATIC_OPEN_LOOPS: 'static+open-loops',
+  BOUNDED_ALIVENESS: 'bounded-aliveness',
+});
+
+const REQUIRED_FRAME_BUDGET_COMPARE_MODES = Object.freeze(Object.values(FRAME_BUDGET_COMPARE_MODES));
+
 const FRAME_BUDGET_EVENT_STATUSES = Object.freeze({
   MET: 'met',
   MISSED: 'missed',
@@ -132,6 +144,16 @@ function cleanString(value = '', limit = 240) {
 function cleanToken(value = '', fallback = '') {
   const token = cleanString(value, 120).toLowerCase().replace(/[_\s]+/g, '-');
   return token || fallback;
+}
+
+function normalizeFrameBudgetCompareMode(value = '') {
+  const token = cleanToken(value || FRAME_BUDGET_COMPARE_MODES.BASELINE, FRAME_BUDGET_COMPARE_MODES.BASELINE);
+  if (REQUIRED_FRAME_BUDGET_COMPARE_MODES.includes(token)) return token;
+  if (token === 'static-open-loops' || token === 'static-live-open-loops') {
+    return FRAME_BUDGET_COMPARE_MODES.STATIC_OPEN_LOOPS;
+  }
+  if (token === 'bounded-aliveness-on') return FRAME_BUDGET_COMPARE_MODES.BOUNDED_ALIVENESS;
+  return FRAME_BUDGET_COMPARE_MODES.BASELINE;
 }
 
 function finiteNonNegativeNumberOrNull(value) {
@@ -859,15 +881,19 @@ function summarizeFrameBudget(receipts = []) {
 
 module.exports = {
   PENNY_FRAME_BUDGET_SCHEMA,
+  PENNY_FRAME_BUDGET_COMPARE_SCHEMA,
   FRAME_BUDGET_SIDECAR_SCHEMA,
   FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA,
   FRAME_BUDGET_CANDIDATE_MERGE_SCHEMA,
   FRAME_BUDGET_EVENT_STATUSES,
+  FRAME_BUDGET_COMPARE_MODES,
   FRAME_BUDGET_SIDECAR_STATUSES,
   FRAME_BUDGET_SIDECAR_SPEND_CLASSES,
   FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS,
+  REQUIRED_FRAME_BUDGET_COMPARE_MODES,
   createFrameBudgetReceipt,
   normalizeFrameBudgetReceipt,
+  normalizeFrameBudgetCompareMode,
   buildFrameBudgetSidecarReceipt,
   normalizeFrameBudgetSidecarReceipt,
   frameBudgetSidecarToBudgetEvent,
