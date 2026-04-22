@@ -377,6 +377,7 @@ async function main() {
   const memoryFile = path.join(tmpDir, 'penny-memory.browser-smoke.json');
   const archiveFile = path.join(tmpDir, 'penny-memory-archive.browser-smoke.json');
   const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.browser-smoke.json');
+  const openLoopFile = path.join(tmpDir, 'penny-open-loops.browser-smoke.json');
   const mockLmStudio = await createMockLmStudioServer();
   const server = createServerProcess({
     ...process.env,
@@ -384,6 +385,7 @@ async function main() {
     PENNY_MEMORY_FILE: memoryFile,
     PENNY_MEMORY_ARCHIVE_FILE: archiveFile,
     PENNY_MEMORY_EMBEDDINGS_FILE: embeddingsFile,
+    PENNY_OPEN_LOOP_FILE: openLoopFile,
     PENNY_OPENCLAW_ENABLED: '0',
     PENNY_LOCAL_LLM_TRANSPORT: 'chat',
     PENNY_LMSTUDIO_BASE: mockLmStudio.baseUrl,

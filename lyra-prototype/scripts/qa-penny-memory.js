@@ -602,6 +602,7 @@ function buildSuitePaths(slug) {
     archiveFile: path.join(ROOT_DIR, 'data', `penny-memory-archive.${slug}.${STAMP}.json`),
     embeddingsFile: path.join(ROOT_DIR, 'data', `penny-memory-embeddings.${slug}.${STAMP}.json`),
     ledgerFile: path.join(ROOT_DIR, 'data', `penny-memory-ledger.${slug}.${STAMP}.json`),
+    openLoopFile: path.join(ROOT_DIR, 'data', `penny-open-loops.${slug}.${STAMP}.json`),
     stdoutPath: path.join(OUTPUT_DIR, `memory-qa-${slug}-${STAMP}.server.out.log`),
     stderrPath: path.join(OUTPUT_DIR, `memory-qa-${slug}-${STAMP}.server.err.log`),
   };
@@ -626,6 +627,7 @@ function buildCandidateSurvivalArchiveUnitPaths({
     shadowEmbeddingsFile: path.join(disposableRoot, 'penny-memory-embeddings.static-shadow.json'),
     booksFile: path.join(disposableRoot, 'penny-memory-books.json'),
     ledgerFile: path.join(disposableRoot, 'penny-memory-ledger.json'),
+    openLoopFile: path.join(disposableRoot, 'penny-open-loops.json'),
   };
 }
 
@@ -637,6 +639,7 @@ function cleanupCandidateSurvivalArchiveUnitFiles(paths = {}, fsImpl = fs) {
     ['shadowEmbeddingsFile', paths.shadowEmbeddingsFile],
     ['booksFile', paths.booksFile],
     ['ledgerFile', paths.ledgerFile],
+    ['openLoopFile', paths.openLoopFile],
   ].map(([label, filePath]) => {
     const existedBeforeCleanup = Boolean(filePath && fsImpl.existsSync(filePath));
     if (existedBeforeCleanup) {
@@ -875,6 +878,7 @@ async function runCandidateSurvivalArchiveUnitQa({
     ...(activeShadowProvider ? { shadowEmbeddingsFile: paths.shadowEmbeddingsFile } : {}),
     booksFile: paths.booksFile,
     ledgerFile: paths.ledgerFile,
+    openLoopFile: paths.openLoopFile,
     disposableRoot: paths.disposableRoot,
   };
   const artifact = buildCandidateSurvivalArchiveUnitArtifact({
@@ -1056,6 +1060,7 @@ function createServerProcess({ suiteSlug, suitePaths, embedModel }) {
   removeFileIfExists(suitePaths.memoryFile);
   removeFileIfExists(suitePaths.archiveFile);
   removeFileIfExists(suitePaths.embeddingsFile);
+  removeFileIfExists(suitePaths.openLoopFile);
   const outStream = fs.createWriteStream(suitePaths.stdoutPath, { flags: 'w' });
   const errStream = fs.createWriteStream(suitePaths.stderrPath, { flags: 'w' });
   const child = spawn(process.execPath, ['server.js'], {
@@ -1081,6 +1086,7 @@ function buildQaServerEnv({ suiteSlug, suitePaths, embedModel }) {
     PENNY_MEMORY_ARCHIVE_FILE: suitePaths.archiveFile,
     PENNY_MEMORY_EMBEDDINGS_FILE: suitePaths.embeddingsFile,
     PENNY_MEMORY_LEDGER_FILE: suitePaths.ledgerFile,
+    PENNY_OPEN_LOOP_FILE: suitePaths.openLoopFile,
     PENNY_OPENCLAW_ENABLED: '0',
     // Keep judged memory QA stateless so long suites do not inherit hidden LM Studio thread state.
     PENNY_LOCAL_LLM_TRANSPORT: 'chat',
@@ -1723,6 +1729,7 @@ async function runSmokeSuite({ embedModel }) {
       archiveFile: suitePaths.archiveFile,
       embeddingsFile: suitePaths.embeddingsFile,
       ledgerFile: suitePaths.ledgerFile,
+      openLoopFile: suitePaths.openLoopFile,
       stdout: suitePaths.stdoutPath,
       stderr: suitePaths.stderrPath,
     },
@@ -1763,7 +1770,7 @@ async function runSmokeSuite({ embedModel }) {
   } finally {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
-      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile]) {
+      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile, suitePaths.openLoopFile]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           suite.cleanedFiles.push(filePath);
@@ -2035,6 +2042,7 @@ async function runMemoryQaSegment(segmentId) {
       archiveFile: suitePaths.archiveFile,
       embeddingsFile: suitePaths.embeddingsFile,
       ledgerFile: suitePaths.ledgerFile,
+      openLoopFile: suitePaths.openLoopFile,
       stdout: suitePaths.stdoutPath,
       stderr: suitePaths.stderrPath,
     },
@@ -2074,7 +2082,7 @@ async function runMemoryQaSegment(segmentId) {
   } finally {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
-      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile]) {
+      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile, suitePaths.openLoopFile]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           suite.cleanedFiles.push(filePath);
@@ -2114,6 +2122,7 @@ async function runMemoryQaJudgedSuite({
       archiveFile: suitePaths.archiveFile,
       embeddingsFile: suitePaths.embeddingsFile,
       ledgerFile: suitePaths.ledgerFile,
+      openLoopFile: suitePaths.openLoopFile,
       stdout: suitePaths.stdoutPath,
       stderr: suitePaths.stderrPath,
     },
@@ -2153,7 +2162,7 @@ async function runMemoryQaJudgedSuite({
   } finally {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
-      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile]) {
+      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile, suitePaths.openLoopFile]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           suite.cleanedFiles.push(filePath);

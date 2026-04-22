@@ -8,6 +8,7 @@ sillytavern-character-memory/
 .lyra-server.pid
 .lyra-server.meta.json
 data/penny-memory*.json
+data/penny-open-loops*.json
 !data/penny-memory.seed.json
 !data/penny-memory-books.seed.json
 .playwright-cli/

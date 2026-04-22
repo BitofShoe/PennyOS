@@ -411,6 +411,7 @@ function spawnServer({ root, modeConfig }) {
       PENNY_MEMORY_FILE: memoryFile,
       PENNY_MEMORY_ARCHIVE_FILE: archiveFile,
       PENNY_MEMORY_EMBEDDINGS_FILE: embeddingsFile,
+      PENNY_OPEN_LOOP_FILE: path.join(root, `open-loops.${modeConfig.key}.json`),
       PENNY_OPENCLAW_ENABLED: '0',
       PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
       PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,

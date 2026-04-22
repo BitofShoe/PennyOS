@@ -35,6 +35,7 @@ const MEMORY_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_FILE || `
 const ARCHIVE_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_ARCHIVE_FILE || `data/penny-memory-archive.voice-redo-qa-${STAMP}.json`);
 const EMBEDDINGS_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_EMBEDDINGS_FILE || `data/penny-memory-embeddings.voice-redo-qa-${STAMP}.json`);
 const LEDGER_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_LEDGER_FILE || `data/penny-memory-ledger.voice-redo-qa-${STAMP}.json`);
+const OPEN_LOOP_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_OPEN_LOOP_FILE || `data/penny-open-loops.voice-redo-qa-${STAMP}.json`);
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.json`);
 const SERVER_STDOUT_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.server.out.log`);
 const SERVER_STDERR_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.server.err.log`);
@@ -1878,6 +1879,7 @@ function createServerProcess() {
   removeFileIfExists(MEMORY_FILE);
   removeFileIfExists(ARCHIVE_FILE);
   removeFileIfExists(EMBEDDINGS_FILE);
+  removeFileIfExists(OPEN_LOOP_FILE);
   const outStream = fs.createWriteStream(SERVER_STDOUT_PATH, { flags: 'w' });
   const errStream = fs.createWriteStream(SERVER_STDERR_PATH, { flags: 'w' });
   const child = spawn(process.execPath, ['server.js'], {
@@ -1889,6 +1891,7 @@ function createServerProcess() {
       PENNY_MEMORY_ARCHIVE_FILE: ARCHIVE_FILE,
       PENNY_MEMORY_EMBEDDINGS_FILE: EMBEDDINGS_FILE,
       PENNY_MEMORY_LEDGER_FILE: LEDGER_FILE,
+      PENNY_OPEN_LOOP_FILE: OPEN_LOOP_FILE,
       PENNY_ENABLE_RESEARCH_LEDGER_PROMPT: process.env.PENNY_QA_ENABLE_RESEARCH_LEDGER_PROMPT || '0',
       PENNY_OPENCLAW_ENABLED: '0',
       PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
@@ -2116,6 +2119,7 @@ async function main() {
     archiveFile: SPAWN_SERVER ? ARCHIVE_FILE : null,
     embeddingsFile: SPAWN_SERVER ? EMBEDDINGS_FILE : null,
     ledgerFile: SPAWN_SERVER ? LEDGER_FILE : null,
+    openLoopFile: SPAWN_SERVER ? OPEN_LOOP_FILE : null,
     preparation: {
       ok: preparation.ok,
       requestedChatModel: preparation.requestedChatModel,
@@ -2232,7 +2236,7 @@ async function main() {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
       payload.cleanedFiles = [];
-      for (const filePath of [MEMORY_FILE, ARCHIVE_FILE, EMBEDDINGS_FILE, LEDGER_FILE]) {
+      for (const filePath of [MEMORY_FILE, ARCHIVE_FILE, EMBEDDINGS_FILE, LEDGER_FILE, OPEN_LOOP_FILE]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           payload.cleanedFiles.push(filePath);

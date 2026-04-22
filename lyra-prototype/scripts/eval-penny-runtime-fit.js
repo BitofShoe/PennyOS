@@ -360,6 +360,7 @@ function buildScenarioPaths(slug) {
     embeddingsFile: path.join(ROOT_DIR, 'data', `penny-memory-embeddings.runtime-fit-${slug}.${STAMP}.json`),
     booksFile: path.join(ROOT_DIR, 'data', `penny-memory-books.runtime-fit-${slug}.${STAMP}.json`),
     ledgerFile: path.join(ROOT_DIR, 'data', `penny-memory-ledger.runtime-fit-${slug}.${STAMP}.json`),
+    openLoopFile: path.join(ROOT_DIR, 'data', `penny-open-loops.runtime-fit-${slug}.${STAMP}.json`),
     stdoutPath: path.join(OUTPUT_DIR, `runtime-fit-${slug}-${STAMP}.server.out.log`),
     stderrPath: path.join(OUTPUT_DIR, `runtime-fit-${slug}-${STAMP}.server.err.log`),
   };
@@ -372,6 +373,7 @@ function scenarioDisposableFiles(paths = {}) {
     paths.embeddingsFile,
     paths.booksFile,
     paths.ledgerFile,
+    paths.openLoopFile,
   ].filter(Boolean);
 }
 
@@ -384,6 +386,7 @@ function buildScenarioEnv(scenario, paths, baseEnv = process.env) {
     PENNY_MEMORY_EMBEDDINGS_FILE: paths.embeddingsFile,
     PENNY_MEMORY_BOOKS_FILE: paths.booksFile,
     PENNY_MEMORY_LEDGER_FILE: paths.ledgerFile,
+    PENNY_OPEN_LOOP_FILE: paths.openLoopFile,
     PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
     PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
     PENNY_LMSTUDIO_EMBED_MODEL: scenario.embedModel,

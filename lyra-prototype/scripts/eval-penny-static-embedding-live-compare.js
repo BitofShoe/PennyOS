@@ -371,6 +371,7 @@ function spawnPennyServer({ root, port, modeConfig, lmStudio }) {
       PENNY_MEMORY_EMBEDDINGS_FILE: path.join(root, 'penny-memory-embeddings.test.json'),
       PENNY_MEMORY_LEDGER_FILE: path.join(root, 'penny-memory-ledger.test.json'),
       PENNY_MEMORY_BOOKS_FILE: path.join(root, 'penny-memory-books.test.json'),
+      PENNY_OPEN_LOOP_FILE: path.join(root, 'penny-open-loops.test.json'),
       PENNY_STATIC_EMBED_CACHE_FILE: path.join(root, 'penny-memory-embeddings.static.test.json'),
       PENNY_ENABLE_BACKGROUND_CHAT_VECTORS: '0',
       PENNY_ENABLE_RESEARCH_LEDGER_PROMPT: '0',

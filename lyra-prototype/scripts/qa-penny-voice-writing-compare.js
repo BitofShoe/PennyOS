@@ -233,6 +233,7 @@ function spawnServer({
   const archiveFile = path.join(tmpRoot, `archive.${profile.id}.json`);
   const embeddingsFile = path.join(tmpRoot, `embeddings.${profile.id}.json`);
   const ledgerFile = path.join(tmpRoot, `ledger.${profile.id}.json`);
+  const openLoopFile = path.join(tmpRoot, `open-loops.${profile.id}.json`);
   const child = spawn(process.execPath, ['server.js'], {
     cwd: ROOT_DIR,
     env: {
@@ -249,6 +250,7 @@ function spawnServer({
       PENNY_MEMORY_ARCHIVE_FILE: archiveFile,
       PENNY_MEMORY_EMBEDDINGS_FILE: embeddingsFile,
       PENNY_MEMORY_LEDGER_FILE: ledgerFile,
+      PENNY_OPEN_LOOP_FILE: openLoopFile,
       MEMORY_FILE: memoryFile,
       MEMORY_ARCHIVE_FILE: archiveFile,
       MEMORY_EMBEDDINGS_FILE: embeddingsFile,
@@ -269,6 +271,7 @@ function spawnServer({
     archiveFile,
     embeddingsFile,
     ledgerFile,
+    openLoopFile,
   };
 }
 

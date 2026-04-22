@@ -10,6 +10,7 @@ const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
 const PORT = Number(process.env.PENNY_PROBE_PORT || 4346);
 const BASE_URL = process.env.PENNY_PROBE_BASE_URL || `http://127.0.0.1:${PORT}`;
 const MEMORY_FILE = path.resolve(ROOT_DIR, process.env.PENNY_PROBE_MEMORY_FILE || 'data/penny-memory.probes.json');
+const OPEN_LOOP_FILE = path.resolve(ROOT_DIR, process.env.PENNY_PROBE_OPEN_LOOP_FILE || 'data/penny-open-loops.probes.json');
 const CONTEXT_LENGTH = Number(process.env.PENNY_PROBE_CONTEXT_LENGTH || 6144);
 const TIMEOUT_MS = Number(process.env.PENNY_PROBE_TIMEOUT_MS || 180000);
 const LOAD_TIMEOUT_MS = Number(process.env.PENNY_PROBE_LOAD_TIMEOUT_MS || 1200000);
@@ -395,6 +396,9 @@ function createServerProcess() {
   try {
     fs.unlinkSync(MEMORY_FILE);
   } catch {}
+  try {
+    fs.unlinkSync(OPEN_LOOP_FILE);
+  } catch {}
   const outStream = fs.createWriteStream(SERVER_STDOUT_PATH, { flags: 'w' });
   const errStream = fs.createWriteStream(SERVER_STDERR_PATH, { flags: 'w' });
   const child = spawn(process.execPath, ['server.js'], {
@@ -403,6 +407,7 @@ function createServerProcess() {
       ...process.env,
       PORT: String(PORT),
       PENNY_MEMORY_FILE: MEMORY_FILE,
+      PENNY_OPEN_LOOP_FILE: OPEN_LOOP_FILE,
       PENNY_OPENCLAW_ENABLED: '0',
       PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
       PENNY_LMSTUDIO_TOOL_MODEL: MODELS[0]?.key || 'google/gemma-4-e4b',
@@ -587,6 +592,7 @@ async function main() {
     startedAt: new Date().toISOString(),
     baseUrl: BASE_URL,
     memoryFile: MEMORY_FILE,
+    openLoopFile: OPEN_LOOP_FILE,
     contextLength: CONTEXT_LENGTH,
     maxOutputTokens: Number(MAX_OUTPUT_TOKENS),
     preparation: {

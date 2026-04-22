@@ -142,6 +142,7 @@ test('buildQaServerEnv forces stateless chat transport for memory QA servers', (
       archiveFile: 'data/penny-memory-archive.test.json',
       embeddingsFile: 'data/penny-memory-embeddings.test.json',
       ledgerFile: 'data/penny-memory-ledger.test.json',
+      openLoopFile: 'data/penny-open-loops.test.json',
     },
     embedModel: 'text-embedding-nomic-embed-text-v1.5',
   });
@@ -152,6 +153,7 @@ test('buildQaServerEnv forces stateless chat transport for memory QA servers', (
   assert.equal(env.PENNY_MEMORY_ARCHIVE_FILE, 'data/penny-memory-archive.test.json');
   assert.equal(env.PENNY_MEMORY_EMBEDDINGS_FILE, 'data/penny-memory-embeddings.test.json');
   assert.equal(env.PENNY_MEMORY_LEDGER_FILE, 'data/penny-memory-ledger.test.json');
+  assert.equal(env.PENNY_OPEN_LOOP_FILE, 'data/penny-open-loops.test.json');
 });
 
 test('candidate-survival archive-unit mode writes an artifact and cleans disposable stores', async () => {
@@ -165,6 +167,8 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     });
     assert.equal(paths.ledgerFile.startsWith(tmpDir), true);
     assert.match(paths.ledgerFile, /penny-memory-ledger\.json$/);
+    assert.equal(paths.openLoopFile.startsWith(tmpDir), true);
+    assert.match(paths.openLoopFile, /penny-open-loops\.json$/);
 
     const result = await runCandidateSurvivalArchiveUnitQa({
       outputDir: tmpDir,
@@ -190,6 +194,7 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(artifact.apiChatCalls, false);
     assert.equal(artifact.includeCandidateTrace, true);
     assert.equal(artifact.files.ledgerFile.startsWith(tmpDir), true);
+    assert.equal(artifact.files.openLoopFile.startsWith(tmpDir), true);
     assert.equal(artifact.files.shadowEmbeddingsFile.startsWith(tmpDir), true);
     assert.equal(artifact.failureModeDefinitions.length, 9);
     assert.equal(artifact.summary.byFailureMode['not-applicable'], 1);

@@ -161,8 +161,10 @@ test('runtime-fit disposable environment isolates the memory ledger file', () =>
   assert.equal(env.PENNY_MEMORY_EMBEDDINGS_FILE, paths.embeddingsFile);
   assert.equal(env.PENNY_MEMORY_BOOKS_FILE, paths.booksFile);
   assert.equal(env.PENNY_MEMORY_LEDGER_FILE, paths.ledgerFile);
+  assert.equal(env.PENNY_OPEN_LOOP_FILE, paths.openLoopFile);
   assert.equal(env.PENNY_LOCAL_LLM_TRANSPORT, 'responses');
   assert.equal(disposableFiles.includes(paths.ledgerFile), true);
+  assert.equal(disposableFiles.includes(paths.openLoopFile), true);
 });
 
 test('Gemma runtime watch runner artifact is status/preflight only', () => {
