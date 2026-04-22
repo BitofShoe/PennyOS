@@ -28,6 +28,7 @@
     "qa:memory:links": "node scripts/qa-penny-memory-links.js --fixture",
     "qa:semantic:source-audit": "node scripts/qa-penny-semantic-source-audit.js --fixture",
     "qa:session-reflection": "node scripts/qa-penny-session-reflection.js --fixture",
+    "export:semantic-claims": "node scripts/export-penny-semantic-claims.js",
     "qa:memory:semantic": "node scripts/qa-penny-memory.js --segment semantic-archive",
     "qa:memory:chapter": "node scripts/qa-penny-memory.js --segment chapter-fallback",
     "qa:memory:contradictions": "node scripts/qa-penny-memory.js --segment contradiction-premise",
