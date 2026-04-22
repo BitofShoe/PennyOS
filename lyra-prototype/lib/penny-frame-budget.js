@@ -2,6 +2,8 @@ const PENNY_FRAME_BUDGET_SCHEMA = 'penny-frame-budget.v1';
 
 const FRAME_BUDGET_SUMMARY_SCHEMA = 'penny-frame-budget-summary.v1';
 
+const FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA = 'penny-frame-budget-sidecar-schedule.v1';
+
 const FRAME_BUDGET_EVENT_STATUSES = Object.freeze({
   MET: 'met',
   MISSED: 'missed',
@@ -15,10 +17,40 @@ const FRAME_BUDGET_HEALTH = Object.freeze({
   MISSED: 'missed',
 });
 
+const FRAME_BUDGET_SIDECAR_STATUSES = Object.freeze({
+  SCHEDULED: 'scheduled',
+  DEGRADED: 'degraded',
+  SKIPPED: 'skipped',
+  MISSED: 'missed',
+});
+
+const FRAME_BUDGET_SIDECAR_SPEND_CLASSES = Object.freeze({
+  RELEVANCE: 'relevance',
+  SOURCE_AUTHORITY: 'source-authority',
+  CANDIDATE_SELECTION: 'candidate-selection',
+  RENDERED_CONTEXT: 'rendered-context',
+  BACKGROUND: 'background',
+});
+
+const SIDECAR_SPEND_CLASS_RANK = Object.freeze({
+  [FRAME_BUDGET_SIDECAR_SPEND_CLASSES.RELEVANCE]: 0,
+  [FRAME_BUDGET_SIDECAR_SPEND_CLASSES.SOURCE_AUTHORITY]: 1,
+  [FRAME_BUDGET_SIDECAR_SPEND_CLASSES.CANDIDATE_SELECTION]: 2,
+  [FRAME_BUDGET_SIDECAR_SPEND_CLASSES.RENDERED_CONTEXT]: 3,
+  [FRAME_BUDGET_SIDECAR_SPEND_CLASSES.BACKGROUND]: 4,
+});
+
 const FRAME_BUDGET_LIMITS = Object.freeze([
   'Frame budget receipts measure runtime shape; they do not prove answer quality by themselves.',
   'Faster runtime should improve pre-prompt selection before increasing rendered context.',
   'This artifact is not PromptTruth and does not expand memory authority.',
+]);
+
+const FRAME_BUDGET_SIDECAR_LIMITS = Object.freeze([
+  'Sidecar schedules are fixture/runtime-shape receipts; they do not prove answer quality.',
+  'Deadline pressure spends first on relevance, source authority, and candidate selection.',
+  'Optional rendered-context sidecars should be skipped before raising prompt or memory limits.',
+  'This schedule does not expand PromptTruth or merge toolEvidenceReceipt into PromptTruth.',
 ]);
 
 const FRAME_BUDGET_TARGET_KEYS = Object.freeze([
@@ -149,6 +181,178 @@ function normalizeBudgetEvent(event = {}) {
     actualMs: finiteNonNegativeNumberOrNull(raw.actualMs),
     fallback: cleanString(raw.fallback || ''),
     reason: cleanString(raw.reason || ''),
+  };
+}
+
+function normalizeSidecarSpendClass(value = '') {
+  const token = cleanToken(value, '');
+  if (Object.values(FRAME_BUDGET_SIDECAR_SPEND_CLASSES).includes(token)) return token;
+  if (/^(source|authority|source-check|source-checking|verification|verify)$/.test(token)) {
+    return FRAME_BUDGET_SIDECAR_SPEND_CLASSES.SOURCE_AUTHORITY;
+  }
+  if (/^(candidate|candidate-selection|selection|memory-selection|static-memory)$/.test(token)) {
+    return FRAME_BUDGET_SIDECAR_SPEND_CLASSES.CANDIDATE_SELECTION;
+  }
+  if (/^(render|rendered|rendered-context|prompt-context|more-context|memory-render)$/.test(token)) {
+    return FRAME_BUDGET_SIDECAR_SPEND_CLASSES.RENDERED_CONTEXT;
+  }
+  if (/^(background|post-turn|prewarm|async)$/.test(token)) {
+    return FRAME_BUDGET_SIDECAR_SPEND_CLASSES.BACKGROUND;
+  }
+  return FRAME_BUDGET_SIDECAR_SPEND_CLASSES.RELEVANCE;
+}
+
+function defaultSidecarPriority(spendClass) {
+  const rank = SIDECAR_SPEND_CLASS_RANK[spendClass];
+  if (!Number.isFinite(rank)) return 0;
+  return Math.max(0, 100 - (rank * 20));
+}
+
+function normalizeSidecarTask(task = {}, index = 0) {
+  const raw = isPlainObject(task) ? task : {};
+  const spendClass = normalizeSidecarSpendClass(raw.spendClass || raw.category || raw.kind || '');
+  const estimatedMs = finiteNonNegativeNumberOrNull(raw.estimatedMs ?? raw.actualMs ?? raw.budgetMs) ?? 0;
+  const budgetMs = finiteNonNegativeNumberOrNull(raw.budgetMs) ?? estimatedMs;
+  const minBudgetMs = finiteNonNegativeNumberOrNull(raw.minBudgetMs) ?? 0;
+  const explicitPriority = finiteNumberOrNull(raw.priority);
+  const required = raw.required === true;
+  const optional = raw.optional === true || (!required && raw.optional !== false);
+  return {
+    id: cleanToken(raw.id || raw.name || `sidecar-${index + 1}`, `sidecar-${index + 1}`),
+    label: cleanString(raw.label || raw.name || raw.id || `Sidecar ${index + 1}`, 160),
+    spendClass,
+    priority: explicitPriority === null ? defaultSidecarPriority(spendClass) : explicitPriority,
+    required,
+    optional,
+    enabled: raw.enabled !== false,
+    canDegrade: raw.canDegrade === true || required,
+    budgetMs,
+    estimatedMs,
+    minBudgetMs,
+    promptImpact: cleanToken(raw.promptImpact || 'none', 'none'),
+    sourceAuthority: cleanToken(raw.sourceAuthority || raw.authority || 'advisory', 'advisory'),
+    fallback: cleanString(raw.fallback || '', 180),
+    reason: cleanString(raw.reason || '', 180),
+    originalOrder: index,
+  };
+}
+
+function sidecarRank(task = {}) {
+  const rank = SIDECAR_SPEND_CLASS_RANK[task.spendClass];
+  return Number.isFinite(rank) ? rank : 99;
+}
+
+function compareSidecarTasks(left, right) {
+  const leftRank = sidecarRank(left);
+  const rightRank = sidecarRank(right);
+  if (leftRank !== rightRank) return leftRank - rightRank;
+  if (left.required !== right.required) return left.required ? -1 : 1;
+  if (left.priority !== right.priority) return right.priority - left.priority;
+  return left.originalOrder - right.originalOrder;
+}
+
+function statusToBudgetEventStatus(status) {
+  if (status === FRAME_BUDGET_SIDECAR_STATUSES.SCHEDULED) return FRAME_BUDGET_EVENT_STATUSES.MET;
+  if (status === FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED) return FRAME_BUDGET_EVENT_STATUSES.DEGRADED;
+  if (status === FRAME_BUDGET_SIDECAR_STATUSES.MISSED) return FRAME_BUDGET_EVENT_STATUSES.MISSED;
+  return FRAME_BUDGET_EVENT_STATUSES.SKIPPED;
+}
+
+function sidecarDecisionToBudgetEvent(decision = {}) {
+  return normalizeBudgetEvent({
+    id: `${decision.id || 'sidecar'}-deadline`,
+    status: statusToBudgetEventStatus(decision.status),
+    budgetMs: decision.budgetMs,
+    actualMs: decision.reservedMs,
+    fallback: decision.fallback,
+    reason: decision.deadlineReason || decision.reason,
+  });
+}
+
+function buildDeadlineAwareSidecarSchedule({
+  generatedAt = new Date().toISOString(),
+  measurementMode = 'fixture-only',
+  deadlineMs = null,
+  elapsedMs = 0,
+  sidecars = [],
+} = {}) {
+  const normalizedDeadline = finiteNonNegativeNumberOrNull(deadlineMs) ?? 0;
+  const normalizedElapsed = finiteNonNegativeNumberOrNull(elapsedMs) ?? 0;
+  let remainingMs = Math.max(0, normalizedDeadline - normalizedElapsed);
+  const normalizedSidecars = (Array.isArray(sidecars) ? sidecars : [])
+    .map(normalizeSidecarTask)
+    .sort(compareSidecarTasks);
+  const decisions = [];
+
+  for (const task of normalizedSidecars) {
+    const remainingBeforeMs = remainingMs;
+    let status = FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED;
+    let reservedMs = 0;
+    let deadlineReason = '';
+    let fallback = task.fallback;
+
+    if (!task.enabled) {
+      deadlineReason = 'sidecar-disabled';
+    } else if (task.estimatedMs <= remainingMs) {
+      status = FRAME_BUDGET_SIDECAR_STATUSES.SCHEDULED;
+      reservedMs = task.estimatedMs;
+      remainingMs = Math.max(0, remainingMs - reservedMs);
+      deadlineReason = 'within-deadline';
+    } else if (task.canDegrade && remainingMs >= task.minBudgetMs && remainingMs > 0) {
+      status = FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED;
+      reservedMs = remainingMs;
+      remainingMs = 0;
+      deadlineReason = 'deadline-degraded';
+      fallback = fallback || 'Use bounded fallback instead of full sidecar output.';
+    } else if (task.required) {
+      status = FRAME_BUDGET_SIDECAR_STATUSES.MISSED;
+      deadlineReason = 'required-sidecar-missed-deadline';
+      fallback = fallback || 'Do not infer sidecar result from missing runtime evidence.';
+    } else {
+      deadlineReason = 'deadline-skipped';
+      fallback = fallback || 'Hold back optional sidecar output for this frame.';
+    }
+
+    decisions.push({
+      ...task,
+      status,
+      reservedMs,
+      remainingBeforeMs,
+      remainingAfterMs: remainingMs,
+      deadlineReason,
+      fallback,
+      promptLimitChanged: false,
+      renderedLimitChanged: false,
+    });
+  }
+
+  const reservedMs = decisions.reduce((sum, decision) => sum + (finiteNonNegativeNumberOrNull(decision.reservedMs) ?? 0), 0);
+  return {
+    schema: FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA,
+    generatedAt: cleanString(generatedAt || '') || null,
+    measurementMode: cleanToken(measurementMode || 'fixture-only', 'fixture-only'),
+    deadlineMs: normalizedDeadline,
+    elapsedMs: normalizedElapsed,
+    remainingBeforeMs: Math.max(0, normalizedDeadline - normalizedElapsed),
+    reservedMs,
+    remainingAfterMs: remainingMs,
+    scheduledCount: decisions.filter((item) => item.status === FRAME_BUDGET_SIDECAR_STATUSES.SCHEDULED).length,
+    degradedCount: decisions.filter((item) => item.status === FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED).length,
+    skippedCount: decisions.filter((item) => item.status === FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED).length,
+    missedCount: decisions.filter((item) => item.status === FRAME_BUDGET_SIDECAR_STATUSES.MISSED).length,
+    priorityOrder: Object.values(FRAME_BUDGET_SIDECAR_SPEND_CLASSES),
+    decisions,
+    budgetEvents: decisions.map(sidecarDecisionToBudgetEvent),
+    guardrails: {
+      liveRuntimeWiring: false,
+      promptTruthExpanded: false,
+      toolEvidenceReceiptChanged: false,
+      defaultPromptLimitsRaised: false,
+      defaultRenderedMemoryLimitsRaised: false,
+      runtimeVoiceChanged: false,
+      answerQualityProof: false,
+    },
+    limits: [...FRAME_BUDGET_SIDECAR_LIMITS],
   };
 }
 
@@ -327,9 +531,13 @@ function summarizeFrameBudget(receipts = []) {
 
 module.exports = {
   PENNY_FRAME_BUDGET_SCHEMA,
+  FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA,
   FRAME_BUDGET_EVENT_STATUSES,
+  FRAME_BUDGET_SIDECAR_STATUSES,
+  FRAME_BUDGET_SIDECAR_SPEND_CLASSES,
   createFrameBudgetReceipt,
   normalizeFrameBudgetReceipt,
+  buildDeadlineAwareSidecarSchedule,
   addFrameTiming,
   addFrameWorkCount,
   addFrameBudgetEvent,

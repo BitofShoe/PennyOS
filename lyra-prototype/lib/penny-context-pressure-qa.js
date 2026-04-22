@@ -813,6 +813,18 @@ function buildContextPressureMarkdownSummary(report = {}) {
     lines.push(`- Total latency delta: ${correlation.latency?.totalLatencyDeltaMs ?? 'n/a'}`);
     lines.push('');
   }
+  const sidecarSchedule = report.sidecarSchedule || null;
+  if (sidecarSchedule) {
+    lines.push('## Sidecar Schedule');
+    lines.push('');
+    lines.push(`- Schema: ${sidecarSchedule.schema || 'penny-frame-budget-sidecar-schedule.v1'}`);
+    lines.push(`- Mode: ${sidecarSchedule.measurementMode || 'fixture-only'}`);
+    lines.push(`- Deadline: ${sidecarSchedule.deadlineMs ?? 'n/a'}ms`);
+    lines.push(`- Scheduled/degraded/skipped/missed: ${sidecarSchedule.scheduledCount ?? 0}/${sidecarSchedule.degradedCount ?? 0}/${sidecarSchedule.skippedCount ?? 0}/${sidecarSchedule.missedCount ?? 0}`);
+    lines.push(`- PromptTruth expanded: ${sidecarSchedule.guardrails?.promptTruthExpanded === true ? 'yes' : 'no'}`);
+    lines.push(`- Default prompt limits raised: ${sidecarSchedule.guardrails?.defaultPromptLimitsRaised === true ? 'yes' : 'no'}`);
+    lines.push('');
+  }
   lines.push('## Source-Sensitive Cases');
   lines.push('');
   for (const item of Array.isArray(report.sourceSensitiveMemory?.cases) ? report.sourceSensitiveMemory.cases : []) {

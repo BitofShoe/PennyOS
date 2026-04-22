@@ -3,10 +3,13 @@ const assert = require('node:assert/strict');
 
 const {
   PENNY_FRAME_BUDGET_SCHEMA,
+  FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA,
   FRAME_BUDGET_EVENT_STATUSES,
+  FRAME_BUDGET_SIDECAR_STATUSES,
   addFrameBudgetEvent,
   addFrameTiming,
   addFrameWorkCount,
+  buildDeadlineAwareSidecarSchedule,
   classifyFrameBudgetHealth,
   createFrameBudgetReceipt,
   normalizeFrameBudgetReceipt,
@@ -113,6 +116,90 @@ test('records budget event statuses with normalized aliases', () => {
   ]);
   assert.equal(receipt.budgetEvents[0].id, 'static-query-deadline');
   assert.equal(receipt.budgetEvents[1].fallback, 'held back optional open-loop bridge');
+});
+
+test('deadline-aware sidecar schedule spends budget on selection before rendered context', () => {
+  const schedule = buildDeadlineAwareSidecarSchedule({
+    generatedAt: '2026-04-22T12:00:00.000Z',
+    measurementMode: 'fixture-only',
+    deadlineMs: 50,
+    sidecars: [
+      { id: 'render-more-memory', spendClass: 'rendered-context', estimatedMs: 40 },
+      { id: 'source-authority-gate', spendClass: 'source-authority', estimatedMs: 20 },
+      { id: 'relevance-scan', spendClass: 'relevance', estimatedMs: 15 },
+      { id: 'candidate-ranker', spendClass: 'candidate-selection', estimatedMs: 15 },
+    ],
+  });
+
+  assert.equal(schedule.schema, FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA);
+  assert.equal(schedule.measurementMode, 'fixture-only');
+  assert.deepEqual(schedule.decisions.map((item) => item.id), [
+    'relevance-scan',
+    'source-authority-gate',
+    'candidate-ranker',
+    'render-more-memory',
+  ]);
+  assert.deepEqual(schedule.decisions.map((item) => item.status), [
+    FRAME_BUDGET_SIDECAR_STATUSES.SCHEDULED,
+    FRAME_BUDGET_SIDECAR_STATUSES.SCHEDULED,
+    FRAME_BUDGET_SIDECAR_STATUSES.SCHEDULED,
+    FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED,
+  ]);
+  assert.equal(schedule.reservedMs, 50);
+  assert.equal(schedule.remainingAfterMs, 0);
+  assert.equal(schedule.scheduledCount, 3);
+  assert.equal(schedule.skippedCount, 1);
+  assert.equal(schedule.decisions[3].promptLimitChanged, false);
+  assert.equal(schedule.guardrails.promptTruthExpanded, false);
+  assert.equal(schedule.guardrails.toolEvidenceReceiptChanged, false);
+  assert.equal(schedule.guardrails.defaultPromptLimitsRaised, false);
+  assert.deepEqual(schedule.budgetEvents.map((event) => event.status), [
+    FRAME_BUDGET_EVENT_STATUSES.MET,
+    FRAME_BUDGET_EVENT_STATUSES.MET,
+    FRAME_BUDGET_EVENT_STATUSES.MET,
+    FRAME_BUDGET_EVENT_STATUSES.SKIPPED,
+  ]);
+});
+
+test('deadline-aware sidecar schedule degrades required work without inferring success', () => {
+  const degraded = buildDeadlineAwareSidecarSchedule({
+    deadlineMs: 25,
+    sidecars: [
+      {
+        id: 'source-check',
+        spendClass: 'source-authority',
+        required: true,
+        estimatedMs: 40,
+        minBudgetMs: 10,
+      },
+      {
+        id: 'extra-render',
+        spendClass: 'rendered-context',
+        estimatedMs: 10,
+      },
+    ],
+  });
+  assert.equal(degraded.decisions[0].status, FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED);
+  assert.equal(degraded.decisions[0].reservedMs, 25);
+  assert.equal(degraded.decisions[0].deadlineReason, 'deadline-degraded');
+  assert.equal(degraded.decisions[1].status, FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED);
+  assert.equal(degraded.budgetEvents[0].status, FRAME_BUDGET_EVENT_STATUSES.DEGRADED);
+
+  const missed = buildDeadlineAwareSidecarSchedule({
+    deadlineMs: 0,
+    sidecars: [
+      {
+        id: 'required-authority-gate',
+        spendClass: 'source-authority',
+        required: true,
+        estimatedMs: 5,
+      },
+    ],
+  });
+  assert.equal(missed.decisions[0].status, FRAME_BUDGET_SIDECAR_STATUSES.MISSED);
+  assert.equal(missed.decisions[0].deadlineReason, 'required-sidecar-missed-deadline');
+  assert.match(missed.decisions[0].fallback, /Do not infer sidecar result/i);
+  assert.equal(missed.budgetEvents[0].status, FRAME_BUDGET_EVENT_STATUSES.MISSED);
 });
 
 test('classifies first-token misses, prompt growth, and static-only rendered cap breaches', () => {

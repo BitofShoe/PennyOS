@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   buildGemmaRuntimeWatchRunnerArtifact,
   buildContextPressureFrameBudget,
+  buildContextPressureSidecarSchedule,
   buildScenarioEnv,
   buildScenarioPaths,
   buildMarkdownSummary,
@@ -125,6 +126,19 @@ test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary'
     contextPressureFixture: {
       schema: 'penny-context-pressure-memory-qa.v1',
       measurementMode: 'fixture-only',
+      sidecarSchedule: {
+        schema: 'penny-frame-budget-sidecar-schedule.v1',
+        measurementMode: 'fixture-only',
+        deadlineMs: 80,
+        scheduledCount: 4,
+        degradedCount: 0,
+        skippedCount: 2,
+        missedCount: 0,
+        guardrails: {
+          promptTruthExpanded: false,
+          defaultPromptLimitsRaised: false,
+        },
+      },
       liveModelCalls: false,
       liveAnswerDriftMeasured: false,
       contextVariants: [{ level: 'short' }, { level: 'medium' }, { level: 'long' }],
@@ -150,6 +164,7 @@ test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary'
 
   assert.match(markdown, /Context-Pressure Fixture/);
   assert.match(markdown, /Mode: fixture-only/);
+  assert.match(markdown, /Sidecar schedule: fixture-only, deadline=80ms, scheduled=4, degraded=0, skipped=2, missed=0/);
   assert.match(markdown, /Live answer drift measured: no/);
   assert.match(markdown, /Variants: short, medium, long/);
   assert.match(markdown, /Candidate-survival correlation: fixture-only, selection=not-run, rendered delta=0, estimated token delta=0, drift=not-run/);
@@ -157,9 +172,41 @@ test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary'
   assert.match(markdown, /Memory-heavy estimated request-message tokens: 42/);
 });
 
+test('buildContextPressureSidecarSchedule keeps rendered-context sidecars optional under deadline pressure', () => {
+  const schedule = buildContextPressureSidecarSchedule({
+    generatedAt: '2026-04-22T12:00:00.000Z',
+  });
+
+  assert.equal(schedule.schema, 'penny-frame-budget-sidecar-schedule.v1');
+  assert.equal(schedule.measurementMode, 'fixture-only');
+  assert.equal(schedule.deadlineMs, 80);
+  assert.equal(schedule.scheduledCount, 4);
+  assert.equal(schedule.degradedCount, 0);
+  assert.equal(schedule.skippedCount, 2);
+  assert.equal(schedule.missedCount, 0);
+  assert.deepEqual(schedule.decisions.map((item) => item.id), [
+    'turn-state-signal-extraction',
+    'source-authority-gate',
+    'static-memory-candidate-query',
+    'open-loop-relevance-scorer',
+    'render-extra-memory-context',
+    'background-vector-prewarm',
+  ]);
+  assert.equal(schedule.decisions.find((item) => item.id === 'render-extra-memory-context').status, 'skipped');
+  assert.equal(schedule.decisions.find((item) => item.id === 'render-extra-memory-context').fallback, 'Keep existing rendered-memory caps instead of spending speed on more context.');
+  assert.equal(schedule.guardrails.promptTruthExpanded, false);
+  assert.equal(schedule.guardrails.defaultPromptLimitsRaised, false);
+  assert.equal(schedule.guardrails.defaultRenderedMemoryLimitsRaised, false);
+  assert.equal(schedule.guardrails.liveRuntimeWiring, false);
+});
+
 test('buildContextPressureFrameBudget keeps fixture-only latency fields null while counting rendered context', () => {
+  const sidecarSchedule = buildContextPressureSidecarSchedule({
+    generatedAt: '2026-04-22T12:00:00.000Z',
+  });
   const frameBudget = buildContextPressureFrameBudget({
     generatedAt: '2026-04-22T12:00:00.000Z',
+    sidecarSchedule,
     contextVariants: [
       { level: 'short', selectedMemoryCount: 1, renderedMemoryCount: 1, estimatedPromptTokens: 20 },
       { level: 'medium', selectedMemoryCount: 3, renderedMemoryCount: 3, estimatedPromptTokens: 70 },
@@ -183,6 +230,8 @@ test('buildContextPressureFrameBudget keeps fixture-only latency fields null whi
   assert.equal(frameBudget.workDone.estimatedPromptTokens, 150);
   assert.equal(frameBudget.quality.candidateSurvival, 'not-run');
   assert.equal(frameBudget.quality.promptTokenDelta, 80);
+  assert.equal(frameBudget.budgetEvents.length, sidecarSchedule.budgetEvents.length);
+  assert.equal(frameBudget.budgetEvents.filter((event) => event.status === 'skipped').length, 2);
 });
 
 test('runtime-fit disposable environment isolates the memory ledger file', () => {

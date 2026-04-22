@@ -19,6 +19,7 @@ const {
   normalizeLmStudioTransportForWatch,
 } = require('../lib/penny-lmstudio-transports');
 const {
+  buildDeadlineAwareSidecarSchedule,
   createFrameBudgetReceipt,
   normalizeFrameBudgetReceipt,
   summarizeFrameBudget,
@@ -381,9 +382,85 @@ function buildAggregateFrameBudgetReceipt({
   });
 }
 
+function buildContextPressureSidecarSchedule(report = {}) {
+  return buildDeadlineAwareSidecarSchedule({
+    generatedAt: report.generatedAt || new Date().toISOString(),
+    measurementMode: 'fixture-only',
+    deadlineMs: 80,
+    elapsedMs: 0,
+    sidecars: [
+      {
+        id: 'turn-state-signal-extraction',
+        label: 'Turn-state signal extraction',
+        spendClass: 'relevance',
+        estimatedMs: 8,
+        budgetMs: 12,
+        promptImpact: 'selection',
+        sourceAuthority: 'current-turn',
+        fallback: 'Skip ephemeral response-shape hints before changing prompt limits.',
+      },
+      {
+        id: 'source-authority-gate',
+        label: 'Source authority gate',
+        spendClass: 'source-authority',
+        estimatedMs: 18,
+        budgetMs: 20,
+        promptImpact: 'candidate-selection',
+        sourceAuthority: 'deterministic',
+        fallback: 'Hold back unsupported advisory candidates instead of treating them as proof.',
+      },
+      {
+        id: 'static-memory-candidate-query',
+        label: 'Static memory candidate query',
+        spendClass: 'candidate-selection',
+        estimatedMs: 32,
+        budgetMs: 40,
+        minBudgetMs: 15,
+        canDegrade: true,
+        promptImpact: 'candidate-pool',
+        sourceAuthority: 'advisory',
+        fallback: 'Use existing archive/keyword candidates; do not render static-only evidence by default.',
+      },
+      {
+        id: 'open-loop-relevance-scorer',
+        label: 'Open-loop relevance scorer',
+        spendClass: 'candidate-selection',
+        estimatedMs: 18,
+        budgetMs: 20,
+        promptImpact: 'candidate-pool',
+        sourceAuthority: 'advisory',
+        fallback: 'Hold back optional open-loop bridge when the frame is already spent.',
+      },
+      {
+        id: 'render-extra-memory-context',
+        label: 'Render extra memory context',
+        spendClass: 'rendered-context',
+        estimatedMs: 40,
+        budgetMs: 40,
+        promptImpact: 'rendered-context',
+        sourceAuthority: 'advisory',
+        fallback: 'Keep existing rendered-memory caps instead of spending speed on more context.',
+      },
+      {
+        id: 'background-vector-prewarm',
+        label: 'Background vector prewarm',
+        spendClass: 'background',
+        estimatedMs: 60,
+        budgetMs: 60,
+        promptImpact: 'none',
+        sourceAuthority: 'advisory',
+        fallback: 'Leave background work off the reply-latency path.',
+      },
+    ],
+  });
+}
+
 function buildContextPressureFrameBudget(report = {}) {
   const variants = Array.isArray(report.contextVariants) ? report.contextVariants : [];
   const comparisons = Array.isArray(report.comparisons) ? report.comparisons : [];
+  const sidecarSchedule = report.sidecarSchedule && typeof report.sidecarSchedule === 'object'
+    ? report.sidecarSchedule
+    : null;
   const maxPromptDelta = comparisons.reduce((max, item) => {
     const value = Number(item?.estimatedPromptTokenDelta || 0);
     return Number.isFinite(value) ? Math.max(max, value) : max;
@@ -405,6 +482,7 @@ function buildContextPressureFrameBudget(report = {}) {
       candidateSurvival: report.candidateSurvivalCorrelation?.candidateSurvival?.selectionVerdict || 'not-run',
       promptTokenDelta: maxPromptDelta,
     },
+    budgetEvents: Array.isArray(sidecarSchedule?.budgetEvents) ? sidecarSchedule.budgetEvents : [],
   });
 }
 
@@ -728,6 +806,10 @@ function buildMarkdownSummary(report) {
     lines.push(`- Schema: ${report.contextPressureFixture.schema}`);
     lines.push(`- Mode: ${report.contextPressureFixture.measurementMode || 'fixture-only'}`);
     lines.push(`- Frame budget: ${report.contextPressureFixture.frameBudget?.measurementMode || 'n/a'}, ${report.contextPressureFixture.frameBudget?.workDone?.candidatesRendered ?? 0} rendered candidate(s)`);
+    if (report.contextPressureFixture.sidecarSchedule) {
+      const schedule = report.contextPressureFixture.sidecarSchedule;
+      lines.push(`- Sidecar schedule: ${schedule.measurementMode || 'fixture-only'}, deadline=${schedule.deadlineMs ?? 'n/a'}ms, scheduled=${schedule.scheduledCount ?? 0}, degraded=${schedule.degradedCount ?? 0}, skipped=${schedule.skippedCount ?? 0}, missed=${schedule.missedCount ?? 0}`);
+    }
     lines.push(`- Live model calls: ${report.contextPressureFixture.liveModelCalls === true ? 'yes' : 'no'}`);
     lines.push(`- Live answer drift measured: ${report.contextPressureFixture.liveAnswerDriftMeasured === true ? 'yes' : 'no'}`);
     lines.push(`- Variants: ${report.contextPressureFixture.contextVariants.map((item) => item.level).join(', ')}`);
@@ -894,6 +976,7 @@ async function main() {
         embedModel: EMBED_MODEL,
       },
     });
+    report.sidecarSchedule = buildContextPressureSidecarSchedule(report);
     report.frameBudget = buildContextPressureFrameBudget(report);
     report.gemmaRuntimeWatch = buildGemmaRuntimeWatchForRuntimeFit({
       generatedAt,
@@ -925,6 +1008,7 @@ async function main() {
       embedModel: EMBED_MODEL,
     },
   });
+  contextPressureFixture.sidecarSchedule = buildContextPressureSidecarSchedule(contextPressureFixture);
   contextPressureFixture.frameBudget = buildContextPressureFrameBudget(contextPressureFixture);
   const report = {
     generatedAt,
@@ -980,6 +1064,7 @@ module.exports = {
   parseRuntimeFitArgs,
   buildRecommendations,
   buildMarkdownSummary,
+  buildContextPressureSidecarSchedule,
   buildContextPressureFrameBudget,
   buildRuntimeFitFrameBudgetFromMetrics,
   buildGemmaRuntimeWatchForRuntimeFit,
