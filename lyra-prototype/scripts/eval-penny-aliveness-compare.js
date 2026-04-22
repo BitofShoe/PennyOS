@@ -18,6 +18,8 @@ const {
   ALIVENESS_SCENARIO_FIXTURE_SCHEMA,
   REQUIRED_ALIVENESS_COMPARE_MODES,
   REQUIRED_ALIVENESS_SCENARIO_IDS,
+  buildAlivenessAdoptionChecklist,
+  buildAlivenessAdoptionThresholds,
   buildAlivenessFeatureToggleMatrix,
   buildAlivenessScenarioCaseResult,
   buildAlivenessScenarioFixtures,
@@ -433,6 +435,21 @@ function buildAlivenessCompareFixtureArtifact({
   const compareCases = fixtureCases.map((fixture) => buildFixtureCompareCase(fixture));
   const compareSummary = summarizeAlivenessCompare(compareCases);
   const fixtureSummary = summarizeAlivenessScenarioFixtures(fixtureCases);
+  const runtimeMetricThresholds = buildAlivenessRuntimeMetricThresholds();
+  const decisionThresholds = buildAlivenessAdoptionThresholds({
+    runtimeMetricThresholds,
+  });
+  const adoptionChecklist = buildAlivenessAdoptionChecklist({
+    summary: {
+      ...omitCases(compareSummary),
+      measurementMode: 'fixture',
+      requiredCasesPresent: fixtureSummary.requiredCasesPresent,
+      runtimeMetricsMeasured: false,
+    },
+    measurementMode: 'fixture',
+    manualReview,
+    runtimeMetricThresholds,
+  });
 
   return {
     schema: ALIVENESS_COMPARE_SCHEMA,
@@ -449,6 +466,8 @@ function buildAlivenessCompareFixtureArtifact({
     livePromptBridge: false,
     liveChatTouched: false,
     manualReview: normalizeAlivenessManualReview(manualReview),
+    decisionThresholds,
+    adoptionChecklist,
     promptTruthExpanded: false,
     promptTruthChannelAdded: false,
     toolEvidenceReceiptChanged: false,
@@ -457,6 +476,12 @@ function buildAlivenessCompareFixtureArtifact({
     cases: compareCases,
     summary: {
       ...omitCases(compareSummary),
+      adoptionRecommendation: adoptionChecklist.recommendation,
+      adoptionStageStatus: {
+        liveShadow: adoptionChecklist.stages.liveShadow.status,
+        liveAdvisory: adoptionChecklist.stages.liveAdvisory.status,
+        defaultEnablement: adoptionChecklist.stages.defaultEnablement.status,
+      },
       requiredCaseCount: REQUIRED_ALIVENESS_SCENARIO_IDS.length,
       requiredCasesPresent: fixtureSummary.requiredCasesPresent,
       missingRequiredCaseIds: fixtureSummary.missingRequiredCaseIds,
@@ -471,7 +496,7 @@ function buildAlivenessCompareFixtureArtifact({
         measurementMode: 'fixture',
         status: 'not-run',
         measuredCaseCount: 0,
-        thresholds: buildAlivenessRuntimeMetricThresholds(),
+        thresholds: runtimeMetricThresholds,
       },
       serverSpawned: false,
       lmStudioCalls: false,
@@ -487,7 +512,7 @@ function buildAlivenessCompareFixtureArtifact({
         measurementMode: 'fixture',
         status: 'not-run',
         measuredCaseCount: 0,
-        thresholds: buildAlivenessRuntimeMetricThresholds(),
+        thresholds: runtimeMetricThresholds,
       },
     },
     limits: [
@@ -496,6 +521,7 @@ function buildAlivenessCompareFixtureArtifact({
       'Live latency and prompt/context metrics stay null/not-run in fixture mode.',
       'PromptTruth and toolEvidenceReceipt stay unchanged.',
       'Fixture wins do not justify default feature enablement.',
+      'A9 adoption thresholds can recommend live-shadow review from fixture evidence, but live-advisory/default gates require stronger receipts.',
     ],
   };
 }
@@ -1766,6 +1792,28 @@ async function runAlivenessLiveIsolatedCompare({
     }
     const finishedAt = new Date().toISOString();
     const summary = buildAlivenessLivePairSummary(compareCases);
+    const runtimeMetricThresholds = buildAlivenessRuntimeMetricThresholds();
+    const decisionThresholds = buildAlivenessAdoptionThresholds({
+      runtimeMetricThresholds,
+    });
+    const adoptionChecklist = buildAlivenessAdoptionChecklist({
+      summary,
+      measurementMode: LIVE_ISOLATED_MODE,
+      manualReview,
+      runtimeMetricThresholds,
+      realComparePassCount: 0,
+      docsUpdated: false,
+      userControlsAvailable: false,
+    });
+    const summaryWithAdoption = {
+      ...summary,
+      adoptionRecommendation: adoptionChecklist.recommendation,
+      adoptionStageStatus: {
+        liveShadow: adoptionChecklist.stages.liveShadow.status,
+        liveAdvisory: adoptionChecklist.stages.liveAdvisory.status,
+        defaultEnablement: adoptionChecklist.stages.defaultEnablement.status,
+      },
+    };
     const artifact = {
       schema: ALIVENESS_COMPARE_SCHEMA,
       fixtureSchema: ALIVENESS_SCENARIO_FIXTURE_SCHEMA,
@@ -1782,6 +1830,8 @@ async function runAlivenessLiveIsolatedCompare({
       realUserModelCalls: false,
       liveUserMemoryTouched: false,
       manualReview: normalizeAlivenessManualReview(manualReview),
+      decisionThresholds,
+      adoptionChecklist,
       serverSpawned: true,
       lmStudioCalls: true,
       promptTruthExpanded: false,
@@ -1797,23 +1847,24 @@ async function runAlivenessLiveIsolatedCompare({
       },
       preparation: lmStudio.preparation || null,
       cases: compareCases,
-      summary,
+      summary: summaryWithAdoption,
       metrics: {
-        ...summary.metrics,
-        measurementStatus: summary.environment.valid ? 'measured' : 'invalid',
-        liveLatencyMeasured: summary.runtimeMetrics?.status === 'measured',
-        livePromptTokensMeasured: summary.runtimeMetrics?.status === 'measured',
-        liveContextMetricsMeasured: summary.runtimeMetrics?.status === 'measured',
-        runtime: summary.runtimeMetrics,
+        ...summaryWithAdoption.metrics,
+        measurementStatus: summaryWithAdoption.environment.valid ? 'measured' : 'invalid',
+        liveLatencyMeasured: summaryWithAdoption.runtimeMetrics?.status === 'measured',
+        livePromptTokensMeasured: summaryWithAdoption.runtimeMetrics?.status === 'measured',
+        liveContextMetricsMeasured: summaryWithAdoption.runtimeMetrics?.status === 'measured',
+        runtime: summaryWithAdoption.runtimeMetrics,
       },
       limits: [
-        'A7 live-isolated mode records latency plus prompt/context deltas and trust-pressure gates from disposable Penny servers and a mock LM Studio backend.',
+        'A9 live-isolated mode records latency plus prompt/context deltas, trust-pressure gates, and adoption threshold status from disposable Penny servers and a mock LM Studio backend.',
         'No real local Penny memory, archive, embedding, ledger, open-loop, initiative, or books state is touched.',
         'Runtime artifacts are captured from the real /api/penny/chat route for each baseline/feature pair.',
         'Large prompt or latency deltas become blocking regressions through explicit harness thresholds.',
         'Pressure, overclaim, source-boundary, correction, and unsupported action/source failures block aliveness wins.',
         'PromptTruth and toolEvidenceReceipt stay unchanged.',
-        'A passing isolated compare is evidence for opt-in review, not default feature enablement.',
+        'A passing isolated compare can be eligible for live-advisory review, not default feature enablement.',
+        'Default enablement remains blocked until repeated real compare passes, docs, user controls, and manual review are complete.',
       ],
     };
     const written = writeAlivenessCompareArtifact({ outputPath, artifact });

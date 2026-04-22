@@ -26,6 +26,7 @@ const {
   writeAlivenessCompareFixtureArtifact,
 } = require('../scripts/eval-penny-aliveness-compare');
 const {
+  ALIVENESS_ADOPTION_THRESHOLDS_SCHEMA,
   ALIVENESS_COMPARE_MODES,
   ALIVENESS_COMPARE_SCHEMA,
   ALIVENESS_FEATURE_TOGGLE_MATRIX,
@@ -34,6 +35,7 @@ const {
   ALIVENESS_VERDICTS,
   REQUIRED_ALIVENESS_COMPARE_MODES,
   REQUIRED_ALIVENESS_SCENARIO_IDS,
+  buildAlivenessAdoptionChecklist,
   buildAlivenessFeatureToggleMatrix,
   buildAlivenessScenarioFixtures,
   getAlivenessFeatureToggleFlags,
@@ -59,6 +61,18 @@ test('aliveness compare fixture runner exposes A2 cases with schema and metrics'
     humanObservableWinNotes: '',
     annoyanceNotes: '',
     verdictOverride: null,
+  });
+  assert.equal(artifact.decisionThresholds.schema, ALIVENESS_ADOPTION_THRESHOLDS_SCHEMA);
+  assert.equal(artifact.adoptionChecklist.schema, ALIVENESS_ADOPTION_THRESHOLDS_SCHEMA);
+  assert.equal(artifact.adoptionChecklist.recommendation, 'eligible-for-live-shadow');
+  assert.equal(artifact.adoptionChecklist.stages.liveShadow.status, 'eligible');
+  assert.equal(artifact.adoptionChecklist.stages.liveAdvisory.status, 'blocked');
+  assert.equal(artifact.adoptionChecklist.stages.defaultEnablement.status, 'blocked');
+  assert.equal(artifact.summary.adoptionRecommendation, 'eligible-for-live-shadow');
+  assert.deepEqual(artifact.summary.adoptionStageStatus, {
+    liveShadow: 'eligible',
+    liveAdvisory: 'blocked',
+    defaultEnablement: 'blocked',
   });
   assert.equal(artifact.promptTruthExpanded, false);
   assert.equal(artifact.toolEvidenceReceiptChanged, false);
@@ -110,6 +124,7 @@ test('aliveness manual review fields annotate without replacing automated metric
   assert.equal(artifact.summary.humanObservableWins, 3);
   assert.equal(artifact.summary.annoyanceRegressions, 0);
   assert.equal(artifact.metrics.measurementStatus, 'not-run');
+  assert.equal(artifact.adoptionChecklist.recommendation, 'eligible-for-live-shadow');
 
   assert.deepEqual(normalizeAlivenessManualReview({ required: false, reviewer: '', verdictOverride: '' }), {
     required: false,
@@ -118,6 +133,61 @@ test('aliveness manual review fields annotate without replacing automated metric
     annoyanceNotes: '',
     verdictOverride: null,
   });
+});
+
+test('aliveness adoption checklist gates live advisory and default enablement separately', () => {
+  const summary = {
+    schema: ALIVENESS_COMPARE_SCHEMA,
+    measurementMode: LIVE_ISOLATED_MODE,
+    caseCount: 3,
+    requiredCasesPresent: true,
+    humanObservableWins: 2,
+    continuityWins: 1,
+    positiveOutcomeCount: 3,
+    overclaimRegressions: 0,
+    correctionFailures: 0,
+    sourceBoundaryFailures: 0,
+    annoyanceRegressions: 0,
+    latencyRegressions: 0,
+    promptBloatRegressions: 0,
+    runtimeMetricsMeasured: true,
+    metrics: {
+      promptTokenDelta: { max: 120 },
+      firstTokenLatencyDeltaMs: { max: 20 },
+      totalLatencyDeltaMs: { max: 90 },
+    },
+    environment: { valid: true, failedSideCount: 0 },
+    cleanup: { allCleaned: true, failureCount: 0 },
+    pass: true,
+    verdict: ALIVENESS_VERDICTS.FEATURE_ON_WITH_GUARDRAILS,
+  };
+
+  const liveAdvisory = buildAlivenessAdoptionChecklist({
+    summary,
+    measurementMode: LIVE_ISOLATED_MODE,
+    manualReview: { reviewer: 'human reviewer' },
+  });
+
+  assert.equal(liveAdvisory.recommendation, 'eligible-for-live-advisory-review');
+  assert.equal(liveAdvisory.stages.liveAdvisory.status, 'eligible');
+  assert.equal(liveAdvisory.stages.defaultEnablement.status, 'blocked');
+  assert.deepEqual(liveAdvisory.stages.defaultEnablement.blockedReasonIds, [
+    'repeated-real-compare-pass',
+    'docs-updated',
+    'user-controls-available',
+  ]);
+
+  const defaultReady = buildAlivenessAdoptionChecklist({
+    summary,
+    measurementMode: LIVE_ISOLATED_MODE,
+    manualReview: { reviewer: 'human reviewer' },
+    realComparePassCount: 2,
+    docsUpdated: true,
+    userControlsAvailable: true,
+  });
+
+  assert.equal(defaultReady.recommendation, 'eligible-for-default-enablement-review');
+  assert.equal(defaultReady.stages.defaultEnablement.status, 'eligible');
 });
 
 test('aliveness feature-toggle matrix keeps baseline off and bounded mode explicit', () => {

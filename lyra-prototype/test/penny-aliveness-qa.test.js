@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  ALIVENESS_ADOPTION_THRESHOLDS_SCHEMA,
   ALIVENESS_COMPARE_SCHEMA,
   ALIVENESS_OUTCOMES,
   ALIVENESS_SCENARIO_FIXTURE_SCHEMA,
@@ -9,6 +10,8 @@ const {
   ALIVENESS_TRUST_PRESSURE_SCHEMA,
   ALIVENESS_VERDICTS,
   REQUIRED_ALIVENESS_SCENARIO_IDS,
+  buildAlivenessAdoptionChecklist,
+  buildAlivenessAdoptionThresholds,
   buildAlivenessScenarioCaseResult,
   buildAlivenessScenarioFixtureArtifact,
   buildAlivenessScenarioFixtures,
@@ -209,6 +212,101 @@ test('custom thresholds can require multiple visible wins before pass', () => {
   assert.equal(stricter.pass, false);
   assert.equal(stricter.verdict, ALIVENESS_VERDICTS.NO_MEANINGFUL_CHANGE);
   assert.deepEqual(stricter.blockedOutcomes, [ALIVENESS_OUTCOMES.NO_MEANINGFUL_CHANGE]);
+});
+
+test('adoption thresholds define shadow, advisory, and default gates', () => {
+  const thresholds = buildAlivenessAdoptionThresholds({
+    runtimeMetricThresholds: {
+      maxPromptTokenDelta: 450,
+      maxFirstTokenLatencyDeltaMs: 800,
+      maxTotalLatencyDeltaMs: 1600,
+    },
+  });
+
+  assert.equal(thresholds.schema, ALIVENESS_ADOPTION_THRESHOLDS_SCHEMA);
+  assert.deepEqual(thresholds.stageOrder, ['live-shadow', 'live-advisory', 'default-enablement']);
+  assert.equal(thresholds.stages.liveShadow.requireComparePass, true);
+  assert.equal(thresholds.stages.liveAdvisory.minHumanObservableWins, 2);
+  assert.equal(thresholds.stages.liveAdvisory.maxPromptTokenDelta, 450);
+  assert.equal(thresholds.stages.liveAdvisory.maxFirstTokenLatencyDeltaMs, 800);
+  assert.equal(thresholds.stages.liveAdvisory.maxTotalLatencyDeltaMs, 1600);
+  assert.equal(thresholds.stages.defaultEnablement.minRepeatedRealComparePasses, 2);
+});
+
+test('adoption checklist lets fixture evidence progress only to live-shadow review', () => {
+  const fixtures = buildAlivenessScenarioFixtures();
+  const cases = fixtures.map((fixture) => buildAlivenessScenarioCaseResult(fixture));
+  const summary = {
+    ...summarizeAlivenessCompare(cases),
+    measurementMode: 'fixture',
+    requiredCasesPresent: true,
+    runtimeMetricsMeasured: false,
+  };
+  const checklist = buildAlivenessAdoptionChecklist({
+    summary,
+    measurementMode: 'fixture',
+  });
+
+  assert.equal(checklist.schema, ALIVENESS_ADOPTION_THRESHOLDS_SCHEMA);
+  assert.equal(checklist.recommendation, 'eligible-for-live-shadow');
+  assert.equal(checklist.stages.liveShadow.status, 'eligible');
+  assert.equal(checklist.stages.liveAdvisory.status, 'blocked');
+  assert.ok(checklist.stages.liveAdvisory.blockedReasonIds.includes('live-measurement'));
+  assert.equal(checklist.stages.defaultEnablement.status, 'blocked');
+});
+
+test('adoption checklist blocks advisory on weak wins or accepted-risk gaps', () => {
+  const weakSummary = {
+    schema: ALIVENESS_COMPARE_SCHEMA,
+    measurementMode: 'live-isolated',
+    caseCount: 1,
+    requiredCasesPresent: true,
+    humanObservableWins: 1,
+    continuityWins: 0,
+    positiveOutcomeCount: 1,
+    overclaimRegressions: 0,
+    correctionFailures: 0,
+    sourceBoundaryFailures: 0,
+    annoyanceRegressions: 0,
+    latencyRegressions: 0,
+    promptBloatRegressions: 0,
+    runtimeMetricsMeasured: true,
+    metrics: {
+      promptTokenDelta: { max: 100 },
+      firstTokenLatencyDeltaMs: { max: 20 },
+      totalLatencyDeltaMs: { max: 60 },
+    },
+    environment: { valid: true },
+    cleanup: { allCleaned: true },
+    pass: true,
+    verdict: ALIVENESS_VERDICTS.FEATURE_ON_WITH_GUARDRAILS,
+  };
+
+  const weak = buildAlivenessAdoptionChecklist({
+    summary: weakSummary,
+    measurementMode: 'live-isolated',
+  });
+  assert.equal(weak.recommendation, 'eligible-for-live-shadow');
+  assert.equal(weak.stages.liveAdvisory.status, 'blocked');
+  assert.ok(weak.stages.liveAdvisory.blockedReasonIds.includes('human-observable-wins'));
+  assert.ok(weak.stages.liveAdvisory.blockedReasonIds.includes('automated-verdict-pass'));
+
+  const annoyingSummary = {
+    ...weakSummary,
+    caseCount: 2,
+    humanObservableWins: 2,
+    positiveOutcomeCount: 2,
+    annoyanceRegressions: 1,
+    pass: false,
+    verdict: ALIVENESS_VERDICTS.BLOCKED_REGRESSION,
+  };
+  const accepted = buildAlivenessAdoptionChecklist({
+    summary: annoyingSummary,
+    measurementMode: 'live-isolated',
+    acceptedAnnoyanceRegressions: true,
+  });
+  assert.equal(accepted.stages.liveAdvisory.status, 'eligible');
+  assert.equal(accepted.recommendation, 'eligible-for-live-advisory-review');
 });
 
 test('bounded aliveness scenario fixtures include every required A2 case and stay fixture-only', () => {

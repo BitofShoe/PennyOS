@@ -5,6 +5,13 @@ const {
 const ALIVENESS_COMPARE_SCHEMA = 'penny-aliveness-compare.v1';
 const ALIVENESS_SCENARIO_FIXTURE_SCHEMA = 'penny-aliveness-scenario-fixtures.v1';
 const ALIVENESS_TRUST_PRESSURE_SCHEMA = 'penny-aliveness-trust-pressure.v1';
+const ALIVENESS_ADOPTION_THRESHOLDS_SCHEMA = 'penny-aliveness-adoption-thresholds.v1';
+
+const ALIVENESS_ADOPTION_STAGES = Object.freeze({
+  LIVE_SHADOW: 'live-shadow',
+  LIVE_ADVISORY: 'live-advisory',
+  DEFAULT_ENABLEMENT: 'default-enablement',
+});
 
 const ALIVENESS_OUTCOMES = Object.freeze({
   HUMAN_OBSERVABLE_WIN: 'human-observable-win',
@@ -71,6 +78,39 @@ const DEFAULT_ALIVENESS_THRESHOLDS = Object.freeze({
   maxPromptTokenDelta: null,
   maxFirstTokenLatencyDeltaMs: null,
   maxTotalLatencyDeltaMs: null,
+});
+
+const DEFAULT_ALIVENESS_ADOPTION_THRESHOLDS = Object.freeze({
+  liveShadow: Object.freeze({
+    stage: ALIVENESS_ADOPTION_STAGES.LIVE_SHADOW,
+    requiresPromptOutputBehaviorChange: false,
+    maxCrashCount: 0,
+    requireTraceUseful: true,
+    requireComparePass: true,
+  }),
+  liveAdvisory: Object.freeze({
+    stage: ALIVENESS_ADOPTION_STAGES.LIVE_ADVISORY,
+    minHumanObservableWins: 2,
+    minContinuityWins: 0,
+    maxOverclaimRegressions: 0,
+    maxCorrectionFailures: 0,
+    maxSourceBoundaryFailures: 0,
+    maxAnnoyanceRegressions: 0,
+    maxPromptTokenDelta: 600,
+    maxFirstTokenLatencyDeltaMs: 1000,
+    maxTotalLatencyDeltaMs: 2000,
+    requireLiveMeasurement: true,
+    requireEnvironmentValid: true,
+    allowExplicitAnnoyanceAcceptance: true,
+  }),
+  defaultEnablement: Object.freeze({
+    stage: ALIVENESS_ADOPTION_STAGES.DEFAULT_ENABLEMENT,
+    minRepeatedRealComparePasses: 2,
+    requireLiveAdvisoryEligible: true,
+    requireDocsUpdated: true,
+    requireUserControlsAvailable: true,
+    requireManualReviewCompleted: true,
+  }),
 });
 
 const DEFAULT_ALIVENESS_MANUAL_REVIEW = Object.freeze({
@@ -246,6 +286,12 @@ function numberOrNull(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function nonNegativeInteger(value, fallback = 0) {
+  const number = numberOrNull(value);
+  if (number === null) return fallback;
+  return Math.max(0, Math.round(number));
+}
+
 function cloneFixtureValue(value) {
   if (value === undefined) return undefined;
   return JSON.parse(JSON.stringify(value));
@@ -265,6 +311,318 @@ function normalizeAlivenessManualReview(review = {}) {
     humanObservableWinNotes: cleanString(item.humanObservableWinNotes || '', 1200),
     annoyanceNotes: cleanString(item.annoyanceNotes || '', 1200),
     verdictOverride: cleanString(item.verdictOverride || '', 120) || null,
+  };
+}
+
+function buildAlivenessAdoptionThresholds(options = {}) {
+  const item = isPlainObject(options) ? options : {};
+  const runtimeMetricThresholds = isPlainObject(item.runtimeMetricThresholds)
+    ? item.runtimeMetricThresholds
+    : {};
+  const liveAdvisoryBase = DEFAULT_ALIVENESS_ADOPTION_THRESHOLDS.liveAdvisory;
+  const liveAdvisory = {
+    ...liveAdvisoryBase,
+    maxPromptTokenDelta: nonNegativeInteger(
+      runtimeMetricThresholds.maxPromptTokenDelta,
+      liveAdvisoryBase.maxPromptTokenDelta,
+    ),
+    maxFirstTokenLatencyDeltaMs: nonNegativeInteger(
+      runtimeMetricThresholds.maxFirstTokenLatencyDeltaMs,
+      liveAdvisoryBase.maxFirstTokenLatencyDeltaMs,
+    ),
+    maxTotalLatencyDeltaMs: nonNegativeInteger(
+      runtimeMetricThresholds.maxTotalLatencyDeltaMs,
+      liveAdvisoryBase.maxTotalLatencyDeltaMs,
+    ),
+  };
+
+  return {
+    schema: ALIVENESS_ADOPTION_THRESHOLDS_SCHEMA,
+    stageOrder: [
+      ALIVENESS_ADOPTION_STAGES.LIVE_SHADOW,
+      ALIVENESS_ADOPTION_STAGES.LIVE_ADVISORY,
+      ALIVENESS_ADOPTION_STAGES.DEFAULT_ENABLEMENT,
+    ],
+    stages: {
+      liveShadow: { ...DEFAULT_ALIVENESS_ADOPTION_THRESHOLDS.liveShadow },
+      liveAdvisory,
+      defaultEnablement: { ...DEFAULT_ALIVENESS_ADOPTION_THRESHOLDS.defaultEnablement },
+    },
+    notes: [
+      'Live-shadow can collect useful traces only when it does not require prompt/output behavior changes.',
+      'Live-advisory requires measured human-observable wins with zero trust, correction, source-boundary, prompt-bloat, and latency blockers.',
+      'Default enablement requires repeated real compare passes, updated docs, available user controls, and completed manual review.',
+    ],
+  };
+}
+
+function adoptionChecklistItem({
+  id = '',
+  label = '',
+  passed = false,
+  required = true,
+  evidence = {},
+} = {}) {
+  return {
+    id: cleanToken(id),
+    label: cleanString(label, 240),
+    required: required !== false,
+    passed: passed === true,
+    evidence: isPlainObject(evidence) ? evidence : {},
+  };
+}
+
+function adoptionStatus(items = []) {
+  const requiredItems = (Array.isArray(items) ? items : []).filter((item) => item.required !== false);
+  return requiredItems.every((item) => item.passed === true) ? 'eligible' : 'blocked';
+}
+
+function blockedAdoptionReasonIds(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item.required !== false && item.passed !== true)
+    .map((item) => item.id)
+    .filter(Boolean);
+}
+
+function summaryMetricMax(summary = {}, key = '') {
+  const direct = numberOrNull(summary.metrics?.[key]?.max);
+  if (direct !== null) return direct;
+  const runtime = numberOrNull(summary.runtimeMetrics?.deltas?.[key]?.max);
+  return runtime === null ? null : runtime;
+}
+
+function buildAlivenessAdoptionChecklist(options = {}) {
+  const item = isPlainObject(options) ? options : {};
+  const summary = isPlainObject(item.summary) ? item.summary : {};
+  const manualReview = normalizeAlivenessManualReview(item.manualReview);
+  const thresholds = buildAlivenessAdoptionThresholds({
+    runtimeMetricThresholds: item.runtimeMetricThresholds,
+  });
+  const liveAdvisoryThresholds = thresholds.stages.liveAdvisory;
+  const defaultThresholds = thresholds.stages.defaultEnablement;
+  const measurementMode = cleanToken(item.measurementMode || summary.measurementMode || 'fixture');
+  const comparePass = summary.pass === true;
+  const environment = isPlainObject(summary.environment) ? summary.environment : {};
+  const cleanup = isPlainObject(summary.cleanup) ? summary.cleanup : {};
+  const environmentValid = hasOwn(item, 'environmentValid')
+    ? item.environmentValid === true
+    : environment.valid !== false;
+  const cleanupClean = hasOwn(item, 'cleanupClean')
+    ? item.cleanupClean === true
+    : cleanup.allCleaned !== false;
+  const crashCount = nonNegativeInteger(item.crashCount, 0)
+    + nonNegativeInteger(environment.failedSideCount, 0)
+    + nonNegativeInteger(cleanup.failureCount, 0);
+  const traceUseful = hasOwn(item, 'traceUseful')
+    ? item.traceUseful === true
+    : (count(summary, 'caseCount') > 0 && summary.requiredCasesPresent !== false);
+  const promptOutputBehaviorChangeRequired = item.promptOutputBehaviorChangeRequired === true;
+  const acceptedAnnoyanceRegressions = item.acceptedAnnoyanceRegressions === true;
+  const annoyanceBudget = acceptedAnnoyanceRegressions
+    ? count(summary, 'annoyanceRegressions')
+    : liveAdvisoryThresholds.maxAnnoyanceRegressions;
+  const liveAdvisoryVerdict = computeAlivenessVerdict(summary, {
+    minPositiveOutcomes: 1,
+    minHumanObservableWins: liveAdvisoryThresholds.minHumanObservableWins,
+    minContinuityWins: liveAdvisoryThresholds.minContinuityWins,
+    maxOverclaimRegressions: liveAdvisoryThresholds.maxOverclaimRegressions,
+    maxCorrectionFailures: liveAdvisoryThresholds.maxCorrectionFailures,
+    maxSourceBoundaryFailures: liveAdvisoryThresholds.maxSourceBoundaryFailures,
+    maxAnnoyanceRegressions: annoyanceBudget,
+    maxLatencyRegressions: 0,
+    maxPromptBloatRegressions: 0,
+    maxPromptTokenDelta: liveAdvisoryThresholds.maxPromptTokenDelta,
+    maxFirstTokenLatencyDeltaMs: liveAdvisoryThresholds.maxFirstTokenLatencyDeltaMs,
+    maxTotalLatencyDeltaMs: liveAdvisoryThresholds.maxTotalLatencyDeltaMs,
+  });
+  const promptTokenMax = summaryMetricMax(summary, 'promptTokenDelta');
+  const firstTokenLatencyMax = summaryMetricMax(summary, 'firstTokenLatencyDeltaMs');
+  const totalLatencyMax = summaryMetricMax(summary, 'totalLatencyDeltaMs');
+  const liveMeasurement = measurementMode !== 'fixture' && summary.runtimeMetricsMeasured === true;
+
+  const liveShadowItems = [
+    adoptionChecklistItem({
+      id: 'compare-pass',
+      label: 'Compare summary is pass-eligible.',
+      passed: comparePass,
+      evidence: { verdict: summary.verdict || '', pass: comparePass },
+    }),
+    adoptionChecklistItem({
+      id: 'no-prompt-output-behavior-change',
+      label: 'Live-shadow stage does not require prompt or output behavior changes.',
+      passed: promptOutputBehaviorChangeRequired === false,
+      evidence: { promptOutputBehaviorChangeRequired },
+    }),
+    adoptionChecklistItem({
+      id: 'no-crashes',
+      label: 'No crashes, failed case sides, or cleanup failures are present.',
+      passed: crashCount <= thresholds.stages.liveShadow.maxCrashCount && cleanupClean && environmentValid,
+      evidence: { crashCount, cleanupClean, environmentValid },
+    }),
+    adoptionChecklistItem({
+      id: 'trace-useful',
+      label: 'Artifact trace is useful enough to inspect selected cases and blockers.',
+      passed: traceUseful,
+      evidence: {
+        caseCount: count(summary, 'caseCount'),
+        requiredCasesPresent: summary.requiredCasesPresent !== false,
+      },
+    }),
+  ];
+  const liveShadowStatus = adoptionStatus(liveShadowItems);
+
+  const liveAdvisoryItems = [
+    adoptionChecklistItem({
+      id: 'live-measurement',
+      label: 'Evidence comes from a live-ish paired compare, not fixture-only expectations.',
+      passed: liveMeasurement,
+      evidence: {
+        measurementMode,
+        runtimeMetricsMeasured: summary.runtimeMetricsMeasured === true,
+      },
+    }),
+    adoptionChecklistItem({
+      id: 'human-observable-wins',
+      label: 'Feature-on has enough human-observable wins.',
+      passed: count(summary, 'humanObservableWins') >= liveAdvisoryThresholds.minHumanObservableWins,
+      evidence: {
+        count: count(summary, 'humanObservableWins'),
+        required: liveAdvisoryThresholds.minHumanObservableWins,
+      },
+    }),
+    adoptionChecklistItem({
+      id: 'trust-boundaries-clean',
+      label: 'No overclaim, correction, or source-boundary failures are present.',
+      passed: count(summary, 'overclaimRegressions') <= liveAdvisoryThresholds.maxOverclaimRegressions
+        && count(summary, 'correctionFailures') <= liveAdvisoryThresholds.maxCorrectionFailures
+        && count(summary, 'sourceBoundaryFailures') <= liveAdvisoryThresholds.maxSourceBoundaryFailures,
+      evidence: {
+        overclaimRegressions: count(summary, 'overclaimRegressions'),
+        correctionFailures: count(summary, 'correctionFailures'),
+        sourceBoundaryFailures: count(summary, 'sourceBoundaryFailures'),
+      },
+    }),
+    adoptionChecklistItem({
+      id: 'annoyance-zero-or-accepted',
+      label: 'Annoyance regressions are zero or explicitly accepted for this local opt-in.',
+      passed: count(summary, 'annoyanceRegressions') <= annoyanceBudget,
+      evidence: {
+        annoyanceRegressions: count(summary, 'annoyanceRegressions'),
+        allowed: annoyanceBudget,
+        acceptedAnnoyanceRegressions,
+      },
+    }),
+    adoptionChecklistItem({
+      id: 'prompt-and-latency-budget',
+      label: 'Prompt and latency deltas stay within adoption budgets.',
+      passed: liveAdvisoryVerdict.blockedOutcomes.includes(ALIVENESS_OUTCOMES.PROMPT_BLOAT_REGRESSION) === false
+        && liveAdvisoryVerdict.blockedOutcomes.includes(ALIVENESS_OUTCOMES.LATENCY_REGRESSION) === false,
+      evidence: {
+        promptTokenDeltaMax: promptTokenMax,
+        maxPromptTokenDelta: liveAdvisoryThresholds.maxPromptTokenDelta,
+        firstTokenLatencyDeltaMsMax: firstTokenLatencyMax,
+        maxFirstTokenLatencyDeltaMs: liveAdvisoryThresholds.maxFirstTokenLatencyDeltaMs,
+        totalLatencyDeltaMsMax: totalLatencyMax,
+        maxTotalLatencyDeltaMs: liveAdvisoryThresholds.maxTotalLatencyDeltaMs,
+      },
+    }),
+    adoptionChecklistItem({
+      id: 'environment-valid',
+      label: 'Live compare environment and disposable cleanup are valid.',
+      passed: environmentValid && cleanupClean,
+      evidence: { environmentValid, cleanupClean },
+    }),
+    adoptionChecklistItem({
+      id: 'automated-verdict-pass',
+      label: 'Automated verdict passes with adoption thresholds.',
+      passed: liveAdvisoryVerdict.pass === true,
+      evidence: {
+        verdict: liveAdvisoryVerdict.verdict,
+        reasons: liveAdvisoryVerdict.reasons,
+      },
+    }),
+  ];
+  const liveAdvisoryStatus = adoptionStatus(liveAdvisoryItems);
+
+  const realComparePassCount = nonNegativeInteger(item.realComparePassCount, 0);
+  const manualReviewCompleted = manualReview.required === false || !!manualReview.reviewer;
+  const defaultItems = [
+    adoptionChecklistItem({
+      id: 'live-advisory-eligible',
+      label: 'Live-advisory gate is already eligible.',
+      passed: liveAdvisoryStatus === 'eligible',
+      evidence: { liveAdvisoryStatus },
+    }),
+    adoptionChecklistItem({
+      id: 'repeated-real-compare-pass',
+      label: 'Repeated real compare passes exist beyond mock/fixture evidence.',
+      passed: realComparePassCount >= defaultThresholds.minRepeatedRealComparePasses,
+      evidence: {
+        realComparePassCount,
+        required: defaultThresholds.minRepeatedRealComparePasses,
+      },
+    }),
+    adoptionChecklistItem({
+      id: 'docs-updated',
+      label: 'Current high-level docs explain the enabled behavior and rollback boundary.',
+      passed: item.docsUpdated === true,
+      evidence: { docsUpdated: item.docsUpdated === true },
+    }),
+    adoptionChecklistItem({
+      id: 'user-controls-available',
+      label: 'User controls exist for opting out, dismissing, or disabling the behavior.',
+      passed: item.userControlsAvailable === true,
+      evidence: { userControlsAvailable: item.userControlsAvailable === true },
+    }),
+    adoptionChecklistItem({
+      id: 'manual-review-completed',
+      label: 'Manual review is completed without erasing automated metrics.',
+      passed: manualReviewCompleted,
+      evidence: {
+        required: manualReview.required,
+        reviewer: manualReview.reviewer,
+        verdictOverride: manualReview.verdictOverride,
+      },
+    }),
+  ];
+  const defaultStatus = adoptionStatus(defaultItems);
+
+  const recommendation = defaultStatus === 'eligible'
+    ? 'eligible-for-default-enablement-review'
+    : (liveAdvisoryStatus === 'eligible'
+      ? 'eligible-for-live-advisory-review'
+      : (liveShadowStatus === 'eligible' ? 'eligible-for-live-shadow' : 'not-ready'));
+
+  return {
+    schema: ALIVENESS_ADOPTION_THRESHOLDS_SCHEMA,
+    measurementMode,
+    recommendation,
+    thresholds,
+    stages: {
+      liveShadow: {
+        stage: ALIVENESS_ADOPTION_STAGES.LIVE_SHADOW,
+        status: liveShadowStatus,
+        blockedReasonIds: blockedAdoptionReasonIds(liveShadowItems),
+        checklist: liveShadowItems,
+      },
+      liveAdvisory: {
+        stage: ALIVENESS_ADOPTION_STAGES.LIVE_ADVISORY,
+        status: liveAdvisoryStatus,
+        blockedReasonIds: blockedAdoptionReasonIds(liveAdvisoryItems),
+        checklist: liveAdvisoryItems,
+      },
+      defaultEnablement: {
+        stage: ALIVENESS_ADOPTION_STAGES.DEFAULT_ENABLEMENT,
+        status: defaultStatus,
+        blockedReasonIds: blockedAdoptionReasonIds(defaultItems),
+        checklist: defaultItems,
+      },
+    },
+    limits: [
+      'Adoption status is a gate for review, not a runtime feature flip.',
+      'Manual review can annotate nuance but does not replace automated blockers or raw metrics.',
+      'Default enablement stays blocked until repeated real compare evidence, docs, user controls, and manual review all exist.',
+    ],
   };
 }
 
@@ -1280,6 +1638,8 @@ function computeAlivenessVerdict(summaryLike = {}, thresholdsLike = {}) {
 }
 
 module.exports = {
+  ALIVENESS_ADOPTION_STAGES,
+  ALIVENESS_ADOPTION_THRESHOLDS_SCHEMA,
   ALIVENESS_COMPARE_MODES,
   ALIVENESS_COMPARE_SCHEMA,
   ALIVENESS_FEATURE_TOGGLE_MATRIX,
@@ -1289,12 +1649,15 @@ module.exports = {
   ALIVENESS_TRUST_PRESSURE_SCHEMA,
   ALIVENESS_VERDICTS,
   BASELINE_ALIVENESS_FEATURE_FLAGS,
+  DEFAULT_ALIVENESS_ADOPTION_THRESHOLDS,
   DEFAULT_ALIVENESS_THRESHOLDS,
   POSITIVE_OUTCOMES,
   REQUIRED_ALIVENESS_COMPARE_MODES,
   REQUIRED_ALIVENESS_SCENARIO_IDS,
   REGRESSION_OUTCOMES,
   TRUST_BLOCKING_OUTCOMES,
+  buildAlivenessAdoptionChecklist,
+  buildAlivenessAdoptionThresholds,
   buildAlivenessFeatureToggleMatrix,
   buildAlivenessScenarioCaseResult,
   buildAlivenessScenarioFixtureArtifact,
