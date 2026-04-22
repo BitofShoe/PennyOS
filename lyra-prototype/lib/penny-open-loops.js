@@ -1,4 +1,5 @@
 const OPEN_LOOP_SCHEMA = 'penny-open-loop-state.v1';
+const OPEN_LOOP_PROMPT_BRIDGE_SCHEMA = 'penny-open-loop-prompt-bridge.v1';
 
 const OPEN_LOOP_STATUSES = Object.freeze({
   OPEN: 'open',
@@ -41,6 +42,7 @@ const PRIORITY_RELEVANCE_SCORES = Object.freeze({
   low: 0,
 });
 const OPEN_LOOP_SELECTION_THRESHOLD = 4;
+const DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS = 110;
 
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -343,6 +345,135 @@ function formatPromptSnippet(loop = {}) {
   return cleanString(`Open loop: ${title}${statusPart}${nextPart}. Authority: ${OPEN_LOOP_AUTHORITY}.`, 480);
 }
 
+function countWords(text = '') {
+  return (String(text || '').trim().match(/\S+/g) || []).length;
+}
+
+function trimWords(text = '', maxWords = DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS) {
+  const limit = clampInteger(maxWords, DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS, 1, 160);
+  const words = String(text || '').replace(/\s+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  if (words.length <= limit) return words.join(' ');
+  return `${words.slice(0, limit).join(' ').replace(/[;:,.!?-]+$/g, '')}...`;
+}
+
+function trimSnippetWithGuardrail(prefix = '', guardrail = '', maxWords = DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS) {
+  const limit = clampInteger(maxWords, DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS, 40, 120);
+  const tail = cleanString(guardrail, 500);
+  const tailWords = countWords(tail);
+  const prefixLimit = Math.max(1, limit - tailWords);
+  return cleanString(`${trimWords(prefix, prefixLimit)} ${tail}`, 1200);
+}
+
+function formatSourceRefSummary(sourceRefs = []) {
+  const refs = normalizeSourceRefs(sourceRefs);
+  const ref = refs[0];
+  if (!ref) return '';
+  const type = cleanString(ref.type || 'source', 40);
+  const value = cleanString(ref.path || ref.url || ref.id || ref.label || ref.note || '', 120);
+  if (!type && !value) return '';
+  return cleanString(`${type}${value ? ` ${value}` : ''}`, 180);
+}
+
+function formatOpenLoopPromptBridgeSnippet({
+  loop = {},
+  selection = {},
+  maxWords = DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS,
+} = {}) {
+  const normalized = normalizeOpenLoop(loop) || normalizeOpenLoop(selection);
+  if (!normalized) return '';
+  const selected = isPlainObject(selection) ? selection : {};
+  const status = cleanString(classifyOpenLoopStatus(normalized), 80).replace(/-/g, ' ');
+  const title = cleanString(normalized.title, 180);
+  const nextStep = cleanString(normalized.nextLikelyStep, 180).replace(/[.?!]+$/g, '');
+  const source = formatSourceRefSummary(normalized.sourceRefs);
+  const relevance = cleanString(selected.surfaceReason || 'selected-open-loop', 160);
+  const prefix = [
+    `Open loop candidate, advisory: ${title}${status ? ` is ${status}` : ''}.`,
+    nextStep ? `Likely next step: ${nextStep}.` : '',
+    `Relevance: ${relevance}.`,
+    source ? `Source: ${source}.` : 'Source: open-loop state.',
+  ].filter(Boolean).join(' ');
+  const guardrail = "Surface only if directly relevant to the user's current turn. Do not treat this as canonical memory or overclaim its status.";
+  return trimSnippetWithGuardrail(prefix, guardrail, maxWords);
+}
+
+function normalizedLoopMap(loops = []) {
+  const byId = new Map();
+  for (const rawLoop of rawLoopList(loops)) {
+    const loop = normalizeOpenLoop(rawLoop);
+    if (loop && !byId.has(loop.id)) byId.set(loop.id, loop);
+  }
+  return byId;
+}
+
+function buildOpenLoopPromptBridgeFixture({
+  loops = [],
+  userText = '',
+  staticCandidates = [],
+  turnState = null,
+  maxLoops = 1,
+  maxSnippetWords = DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS,
+  now = new Date(),
+} = {}) {
+  const renderedCap = clampInteger(maxLoops, 1, 0, 1);
+  const wordCap = clampInteger(maxSnippetWords, DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS, 40, 120);
+  const selection = selectRelevantOpenLoops({
+    loops,
+    userText,
+    staticCandidates,
+    turnState,
+    maxLoops: renderedCap,
+    now,
+  });
+  const loopsById = normalizedLoopMap(loops);
+  const snippets = selection.selected.map((selectedLoop) => {
+    const loop = loopsById.get(selectedLoop.id) || normalizeOpenLoop(selectedLoop);
+    const text = formatOpenLoopPromptBridgeSnippet({
+      loop,
+      selection: selectedLoop,
+      maxWords: wordCap,
+    });
+    if (!text || !loop) return null;
+    return {
+      id: loop.id,
+      title: loop.title,
+      status: classifyOpenLoopStatus(loop, now),
+      authority: OPEN_LOOP_AUTHORITY,
+      confidence: selectedLoop.confidence || loop.confidence,
+      surfaceReason: selectedLoop.surfaceReason || 'selected-open-loop',
+      sourceRefs: loop.sourceRefs,
+      wordCount: countWords(text),
+      text,
+    };
+  }).filter(Boolean);
+  const promptText = snippets.map((snippet) => snippet.text).join('\n');
+
+  return {
+    schema: OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
+    generatedAt: normalizeIso(now) || new Date(normalizeNowMs(now)).toISOString(),
+    measurementMode: 'fixture-only',
+    livePromptBridge: false,
+    liveChatTouched: false,
+    promptTruthExpanded: false,
+    promptTruthChannelAdded: false,
+    maxRenderedLoops: renderedCap,
+    maxSnippetWords: wordCap,
+    selected: snippets,
+    heldBack: selection.heldBack,
+    selection,
+    promptBridge: {
+      renderedCount: snippets.length,
+      promptText,
+      snippets,
+    },
+    limits: [
+      'Open loops are advisory continuity, not canonical memory.',
+      'This fixture bridge does not touch live chat or PromptTruth.',
+      'Surface only if directly relevant; do not overclaim weak evidence.',
+    ],
+  };
+}
+
 function scoreOpenLoopForTurn({
   rawLoop = {},
   loop = {},
@@ -640,7 +771,10 @@ function summarizeOpenLoopState(state, { now = new Date() } = {}) {
 
 module.exports = {
   OPEN_LOOP_SCHEMA,
+  OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
   OPEN_LOOP_STATUSES,
+  buildOpenLoopPromptBridgeFixture,
+  formatOpenLoopPromptBridgeSnippet,
   normalizeOpenLoop,
   normalizeOpenLoopState,
   summarizeOpenLoopState,

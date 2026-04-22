@@ -3,8 +3,11 @@ const assert = require('node:assert/strict');
 
 const {
   OPEN_LOOP_SCHEMA,
+  OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
   OPEN_LOOP_STATUSES,
+  buildOpenLoopPromptBridgeFixture,
   classifyOpenLoopStatus,
+  formatOpenLoopPromptBridgeSnippet,
   normalizeOpenLoop,
   normalizeOpenLoopState,
   selectRelevantOpenLoops,
@@ -282,4 +285,71 @@ test('maxLoops cap keeps extra relevant open loops out of the selected list', ()
   assert.deepEqual(result.heldBack.map((loop) => ({ id: loop.id, reason: loop.reason })), [
     { id: 'candidate-survival', reason: 'max-loop-cap' },
   ]);
+});
+
+test('builds a compact advisory prompt bridge without live runtime effects', () => {
+  const bridge = buildOpenLoopPromptBridgeFixture({
+    now: NOW,
+    userText: 'Start Slice O5 for the open-loop prompt bridge and keep the other deferred plan parked.',
+    loops: [
+      {
+        id: 'open-loop-prompt-bridge',
+        title: 'Open-loop prompt bridge fixture',
+        status: 'in-progress',
+        priority: 'high',
+        lastTouchedAt: '2026-04-22T10:00:00.000Z',
+        nextLikelyStep: 'Build the fixture bridge before live wiring.',
+        sourceRefs: [
+          { type: 'doc', path: 'docs/penny-tier1-aliveness-plans/02-open-loop-tracker-plan.md' },
+        ],
+      },
+      {
+        id: 'deterministic-extraction',
+        title: 'Deterministic extraction fixture plan',
+        status: 'deferred',
+        priority: 'high',
+        lastTouchedAt: '2026-04-22T09:00:00.000Z',
+        nextLikelyStep: 'Wait for a concrete document use case.',
+      },
+    ],
+  });
+
+  assert.equal(bridge.schema, OPEN_LOOP_PROMPT_BRIDGE_SCHEMA);
+  assert.equal(bridge.measurementMode, 'fixture-only');
+  assert.equal(bridge.livePromptBridge, false);
+  assert.equal(bridge.liveChatTouched, false);
+  assert.equal(bridge.promptTruthExpanded, false);
+  assert.equal(bridge.promptTruthChannelAdded, false);
+  assert.deepEqual(bridge.selected.map((item) => item.id), ['open-loop-prompt-bridge']);
+  assert.deepEqual(bridge.heldBack.map((item) => ({ id: item.id, reason: item.reason })), [
+    { id: 'deterministic-extraction', reason: 'adjacent-not-central' },
+  ]);
+  assert.equal(bridge.promptBridge.renderedCount, 1);
+  assert.match(bridge.promptBridge.promptText, /Open loop candidate, advisory:/);
+  assert.match(bridge.promptBridge.promptText, /Relevance: explicit-anchor\+recent-open-loop\./);
+  assert.match(bridge.promptBridge.promptText, /Source: doc docs\/penny-tier1-aliveness-plans\/02-open-loop-tracker-plan\.md\./);
+  assert.match(bridge.promptBridge.promptText, /Do not treat this as canonical memory or overclaim its status\./);
+  assert.ok(bridge.selected[0].wordCount <= 120);
+});
+
+test('prompt bridge formatter keeps the no-overclaim guardrail under the word cap', () => {
+  const snippet = formatOpenLoopPromptBridgeSnippet({
+    maxWords: 80,
+    selection: { surfaceReason: 'static-candidate-direct+recent-open-loop' },
+    loop: {
+      id: 'static-memory-reflex',
+      title: 'Static memory reflex follow-through with deliberately long source context',
+      status: 'open',
+      nextLikelyStep: 'Use the static candidate as advisory discovery only, then run correction guardrail checks before considering live advisory behavior.',
+      sourceRefs: [
+        { type: 'reflection', id: 'reflection-static-memory-reflex', label: 'fixture with extra words' },
+      ],
+    },
+  });
+  const wordCount = (snippet.match(/\S+/g) || []).length;
+
+  assert.ok(wordCount <= 80);
+  assert.match(snippet, /Open loop candidate, advisory:/);
+  assert.match(snippet, /Surface only if directly relevant/);
+  assert.match(snippet, /Do not treat this as canonical memory or overclaim its status\./);
 });
