@@ -5,9 +5,11 @@ const {
   OPEN_LOOP_SCHEMA,
   OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
   OPEN_LOOP_STATUSES,
+  buildLiveOpenLoopPromptBridge,
   buildOpenLoopPromptBridgeFixture,
   classifyOpenLoopStatus,
   formatOpenLoopPromptBridgeSnippet,
+  mergeOpenLoopPromptBridgeIntoArchiveContext,
   normalizeOpenLoop,
   normalizeOpenLoopState,
   selectRelevantOpenLoops,
@@ -352,4 +354,116 @@ test('prompt bridge formatter keeps the no-overclaim guardrail under the word ca
   assert.match(snippet, /Open loop candidate, advisory:/);
   assert.match(snippet, /Surface only if directly relevant/);
   assert.match(snippet, /Do not treat this as canonical memory or overclaim its status\./);
+});
+
+test('live prompt bridge stays off by default and does not render context', () => {
+  const bridge = buildLiveOpenLoopPromptBridge({
+    now: NOW,
+    enabled: false,
+    disabledReason: 'env-disabled',
+    userText: 'Continue Slice O6 for the open-loop prompt bridge.',
+    state: {
+      loops: [
+        {
+          id: 'live-open-loop-bridge',
+          title: 'Live bounded open-loop bridge',
+          status: 'in-progress',
+          lastTouchedAt: '2026-04-22T10:00:00.000Z',
+          nextLikelyStep: 'Wire the fixture bridge into live prompt context behind a flag.',
+        },
+      ],
+    },
+  });
+
+  assert.equal(bridge.measurementMode, 'live-advisory');
+  assert.equal(bridge.enabled, false);
+  assert.equal(bridge.disabledReason, 'env-disabled');
+  assert.equal(bridge.livePromptBridge, false);
+  assert.equal(bridge.liveChatTouched, false);
+  assert.equal(bridge.promptBridge.renderedCount, 0);
+  assert.equal(bridge.promptBridge.promptText, '');
+  assert.deepEqual(bridge.selected, []);
+});
+
+test('live prompt bridge renders at most one relevant advisory loop', () => {
+  const bridge = buildLiveOpenLoopPromptBridge({
+    now: NOW,
+    enabled: true,
+    maxRendered: 1,
+    maxTokens: 70,
+    userText: 'Start Slice O6 for the live bounded open-loop bridge.',
+    state: {
+      loops: [
+        {
+          id: 'live-open-loop-bridge',
+          title: 'Live bounded open-loop bridge',
+          status: 'in-progress',
+          priority: 'high',
+          lastTouchedAt: '2026-04-22T10:00:00.000Z',
+          nextLikelyStep: 'Wire one advisory snippet into prompt context behind a flag.',
+          sourceRefs: [
+            { type: 'doc', path: 'docs/penny-tier1-aliveness-plans/02-open-loop-tracker-plan.md' },
+          ],
+        },
+        {
+          id: 'deterministic-extraction',
+          title: 'Deterministic extraction fixture plan',
+          status: 'deferred',
+          priority: 'high',
+          lastTouchedAt: '2026-04-22T10:00:00.000Z',
+          nextLikelyStep: 'Wait for a concrete document extraction use case.',
+        },
+      ],
+    },
+  });
+
+  assert.equal(bridge.measurementMode, 'live-advisory');
+  assert.equal(bridge.enabled, true);
+  assert.equal(bridge.livePromptBridge, true);
+  assert.equal(bridge.liveChatTouched, true);
+  assert.equal(bridge.promptTruthExpanded, false);
+  assert.equal(bridge.promptTruthChannelAdded, false);
+  assert.deepEqual(bridge.selected.map((item) => item.id), ['live-open-loop-bridge']);
+  assert.deepEqual(bridge.heldBack.map((item) => ({ id: item.id, reason: item.reason })), [
+    { id: 'deterministic-extraction', reason: 'adjacent-not-central' },
+  ]);
+  assert.equal(bridge.promptBridge.renderedCount, 1);
+  assert.match(bridge.promptBridge.promptText, /Open loop candidate, advisory:/);
+  assert.match(bridge.promptBridge.promptText, /Do not treat this as canonical memory or overclaim its status\./);
+  assert.ok(bridge.selected[0].wordCount <= 70);
+});
+
+test('live bridge merge replaces ungated archive open loops while enabled', () => {
+  const bridge = buildLiveOpenLoopPromptBridge({
+    now: NOW,
+    enabled: true,
+    userText: 'Continue the open-loop bridge.',
+    loops: [
+      {
+        id: 'open-loop-bridge',
+        title: 'Open-loop bridge follow-through',
+        status: 'open',
+        priority: 'high',
+        lastTouchedAt: '2026-04-22T10:00:00.000Z',
+        nextLikelyStep: 'Keep only the selected advisory loop in the live wake state.',
+      },
+    ],
+  });
+  const archiveContext = mergeOpenLoopPromptBridgeIntoArchiveContext({
+    archiveContext: {
+      openLoops: [
+        { id: 'old-adjacent-loop', text: 'Adjacent unresolved topic that should not bleed in.', status: 'open' },
+      ],
+    },
+    bridge,
+  });
+
+  assert.equal(archiveContext.openLoops.length, 1);
+  assert.equal(archiveContext.openLoops[0].id, 'open-loop-bridge');
+  assert.equal(archiveContext.openLoops[0].authority, 'advisory');
+  assert.equal(archiveContext.openLoops[0].source, 'penny-open-loop-state');
+  assert.doesNotMatch(archiveContext.openLoops[0].text, /Adjacent unresolved topic/);
+  assert.equal(archiveContext.openLoopPromptBridge.renderedCount, 1);
+  assert.deepEqual(archiveContext.openLoopPromptBridge.selectedIds, ['open-loop-bridge']);
+  assert.equal(archiveContext.openLoopPromptBridge.promptTruthChannelAdded, false);
 });

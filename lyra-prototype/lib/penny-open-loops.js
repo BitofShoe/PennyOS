@@ -406,7 +406,7 @@ function normalizedLoopMap(loops = []) {
   return byId;
 }
 
-function buildOpenLoopPromptBridgeFixture({
+function buildOpenLoopPromptBridge({
   loops = [],
   userText = '',
   staticCandidates = [],
@@ -414,17 +414,31 @@ function buildOpenLoopPromptBridgeFixture({
   maxLoops = 1,
   maxSnippetWords = DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS,
   now = new Date(),
+  measurementMode = 'fixture-only',
+  enabled = true,
+  disabledReason = '',
 } = {}) {
   const renderedCap = clampInteger(maxLoops, 1, 0, 1);
   const wordCap = clampInteger(maxSnippetWords, DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS, 40, 120);
-  const selection = selectRelevantOpenLoops({
-    loops,
-    userText,
-    staticCandidates,
-    turnState,
-    maxLoops: renderedCap,
-    now,
-  });
+  const liveEnabled = enabled === true && renderedCap > 0;
+  const selection = liveEnabled
+    ? selectRelevantOpenLoops({
+        loops,
+        userText,
+        staticCandidates,
+        turnState,
+        maxLoops: renderedCap,
+        now,
+      })
+    : {
+        selected: [],
+        heldBack: renderedCap <= 0 && rawLoopList(loops).length
+          ? rawLoopList(loops)
+            .map((rawLoop) => normalizeOpenLoop(rawLoop))
+            .filter(Boolean)
+            .map((loop) => ({ id: loop.id, reason: 'max-loop-cap' }))
+          : [],
+      };
   const loopsById = normalizedLoopMap(loops);
   const snippets = selection.selected.map((selectedLoop) => {
     const loop = loopsById.get(selectedLoop.id) || normalizeOpenLoop(selectedLoop);
@@ -447,13 +461,17 @@ function buildOpenLoopPromptBridgeFixture({
     };
   }).filter(Boolean);
   const promptText = snippets.map((snippet) => snippet.text).join('\n');
+  const mode = cleanString(measurementMode, 80) || 'fixture-only';
+  const bridgeRendered = liveEnabled && snippets.length > 0;
 
   return {
     schema: OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
     generatedAt: normalizeIso(now) || new Date(normalizeNowMs(now)).toISOString(),
-    measurementMode: 'fixture-only',
-    livePromptBridge: false,
-    liveChatTouched: false,
+    measurementMode: mode,
+    enabled: liveEnabled,
+    disabledReason: liveEnabled ? '' : cleanString(disabledReason || (renderedCap <= 0 ? 'max-rendered-0' : 'disabled'), 160),
+    livePromptBridge: mode === 'live-advisory' && bridgeRendered,
+    liveChatTouched: mode === 'live-advisory' && bridgeRendered,
     promptTruthExpanded: false,
     promptTruthChannelAdded: false,
     maxRenderedLoops: renderedCap,
@@ -471,6 +489,83 @@ function buildOpenLoopPromptBridgeFixture({
       'This fixture bridge does not touch live chat or PromptTruth.',
       'Surface only if directly relevant; do not overclaim weak evidence.',
     ],
+  };
+}
+
+function buildOpenLoopPromptBridgeFixture(options = {}) {
+  return buildOpenLoopPromptBridge({
+    ...options,
+    measurementMode: 'fixture-only',
+    enabled: true,
+  });
+}
+
+function buildLiveOpenLoopPromptBridge({
+  state = null,
+  loops = [],
+  userText = '',
+  staticCandidates = [],
+  turnState = null,
+  maxRendered = 1,
+  maxTokens = DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS,
+  maxSnippetWords = null,
+  now = new Date(),
+  enabled = false,
+  disabledReason = '',
+} = {}) {
+  const rawLoops = rawLoopList(state).length ? rawLoopList(state) : loops;
+  const cap = clampInteger(maxRendered, 1, 0, 1);
+  const wordCap = clampInteger(
+    maxSnippetWords ?? maxTokens,
+    DEFAULT_OPEN_LOOP_BRIDGE_MAX_WORDS,
+    40,
+    120,
+  );
+  return buildOpenLoopPromptBridge({
+    loops: rawLoops,
+    userText,
+    staticCandidates,
+    turnState,
+    maxLoops: cap,
+    maxSnippetWords: wordCap,
+    now,
+    measurementMode: 'live-advisory',
+    enabled: enabled === true,
+    disabledReason,
+  });
+}
+
+function mergeOpenLoopPromptBridgeIntoArchiveContext({
+  archiveContext = null,
+  bridge = null,
+} = {}) {
+  const base = archiveContext && typeof archiveContext === 'object' ? archiveContext : {};
+  const snippets = Array.isArray(bridge?.promptBridge?.snippets)
+    ? bridge.promptBridge.snippets
+    : [];
+  if (bridge?.enabled !== true) return base;
+  const openLoops = snippets.slice(0, 1).map((snippet) => ({
+    id: snippet.id,
+    text: snippet.text,
+    status: snippet.status || 'open',
+    authority: OPEN_LOOP_AUTHORITY,
+    source: 'penny-open-loop-state',
+    surfaceReason: snippet.surfaceReason || 'selected-open-loop',
+    confidence: snippet.confidence || 'medium',
+  }));
+  return {
+    ...base,
+    openLoops,
+    openLoopPromptBridge: {
+      schema: bridge.schema || OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
+      measurementMode: bridge.measurementMode || 'live-advisory',
+      enabled: bridge.enabled === true,
+      renderedCount: openLoops.length,
+      selectedIds: snippets.slice(0, 1).map((snippet) => snippet.id).filter(Boolean),
+      heldBack: Array.isArray(bridge.heldBack) ? bridge.heldBack.slice(0, 8) : [],
+      promptTruthExpanded: false,
+      promptTruthChannelAdded: false,
+    },
   };
 }
 
@@ -773,8 +868,10 @@ module.exports = {
   OPEN_LOOP_SCHEMA,
   OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
   OPEN_LOOP_STATUSES,
+  buildLiveOpenLoopPromptBridge,
   buildOpenLoopPromptBridgeFixture,
   formatOpenLoopPromptBridgeSnippet,
+  mergeOpenLoopPromptBridgeIntoArchiveContext,
   normalizeOpenLoop,
   normalizeOpenLoopState,
   summarizeOpenLoopState,

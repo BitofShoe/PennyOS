@@ -28,6 +28,13 @@ const {
   createResearchLedgerApi,
 } = require('./lib/penny-research-ledger');
 const {
+  createOpenLoopStoreApi,
+} = require('./lib/penny-open-loop-store');
+const {
+  buildLiveOpenLoopPromptBridge,
+  mergeOpenLoopPromptBridgeIntoArchiveContext,
+} = require('./lib/penny-open-loops');
+const {
   buildPromptStack,
 } = require('./lib/penny-prompt-stack');
 const {
@@ -156,6 +163,14 @@ function normalizeEmbedModelId(value = '') {
   if (/^(?:google\/)?embedding[-_]?gemma[-_]?300m$/i.test(text)) return 'google/embedding-gemma-300m';
   return text;
 }
+function isEnabledEnv(value = '') {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
+function boundedEnvInteger(value, fallback, min, max) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
+}
 const LMSTUDIO_NATIVE_BASE = (process.env.PENNY_LMSTUDIO_NATIVE_BASE || deriveLmStudioNativeBase(LMSTUDIO_BASE)).replace(/\/$/, '');
 const PENNY_LMSTUDIO_CHAT_MODEL = process.env.PENNY_LMSTUDIO_CHAT_MODEL
   || process.env.PENNY_LMSTUDIO_MODEL
@@ -174,6 +189,9 @@ const PENNY_STATIC_EMBED_BATCH_SIZE = Number(process.env.PENNY_STATIC_EMBED_BATC
 const PENNY_STATIC_EMBED_CACHE_FILE = process.env.PENNY_STATIC_EMBED_CACHE_FILE
   ? path.resolve(__dirname, process.env.PENNY_STATIC_EMBED_CACHE_FILE)
   : '';
+const PENNY_ENABLE_OPEN_LOOP_PROMPT = isEnabledEnv(process.env.PENNY_ENABLE_OPEN_LOOP_PROMPT);
+const PENNY_OPEN_LOOP_MAX_RENDERED = boundedEnvInteger(process.env.PENNY_OPEN_LOOP_MAX_RENDERED, 1, 0, 1);
+const PENNY_OPEN_LOOP_MAX_TOKENS = boundedEnvInteger(process.env.PENNY_OPEN_LOOP_MAX_TOKENS, 120, 40, 120);
 const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 /** Full request budget for /chat/completions and /responses (prompt eval + generation). Large quants (e.g. 30B+) and multi-step local tool turns can legitimately take a long time; LM Studio logs "Client disconnected" if this fires first. Override with PENNY_LMSTUDIO_TIMEOUT_MS (ms). */
@@ -421,6 +439,16 @@ function buildChatMemoryState(sessionId = 'default', clientMemory = {}, messages
   const diskMemory = getStoredMemory(sessionId).memory;
   return buildChatMemoryStateFromDiskMemory(diskMemory, clientMemory, messages);
 }
+function staticCandidatesForOpenLoopBridge(retrieval = null) {
+  if (!retrieval || typeof retrieval !== 'object') return [];
+  if (Array.isArray(retrieval.candidateTrace) && retrieval.candidateTrace.length) {
+    return retrieval.candidateTrace;
+  }
+  if (Array.isArray(retrieval.staticEmbeddingShadow?.topCandidates)) {
+    return retrieval.staticEmbeddingShadow.topCandidates;
+  }
+  return [];
+}
 async function buildRuntimeMemoryContext({
   sessionId = 'default',
   memories = {},
@@ -464,6 +492,36 @@ async function buildRuntimeMemoryContext({
         books: Array.isArray(memoryBooks.matches) ? memoryBooks.matches : [],
       }
     : null;
+  const suppressOpenLoopForCanon = shouldPrioritizeCanonicalMemoryOverHistory(
+    memories,
+    userText,
+    budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
+  );
+  const shouldReadOpenLoopState = PENNY_ENABLE_OPEN_LOOP_PROMPT
+    && PENNY_OPEN_LOOP_MAX_RENDERED > 0
+    && !suppressOpenLoopForCanon;
+  const openLoopRead = shouldReadOpenLoopState
+    ? openLoopStoreApi.readOpenLoopState({ createIfMissing: false })
+    : null;
+  const openLoopPromptBridge = buildLiveOpenLoopPromptBridge({
+    enabled: PENNY_ENABLE_OPEN_LOOP_PROMPT && !suppressOpenLoopForCanon,
+    disabledReason: !PENNY_ENABLE_OPEN_LOOP_PROMPT
+      ? 'env-disabled'
+      : (suppressOpenLoopForCanon ? 'canon-priority-suppression' : ''),
+    state: openLoopRead?.state || null,
+    userText,
+    staticCandidates: staticCandidatesForOpenLoopBridge(retrieval),
+    maxRendered: PENNY_OPEN_LOOP_MAX_RENDERED,
+    maxTokens: PENNY_OPEN_LOOP_MAX_TOKENS,
+    now: new Date(),
+  });
+  if (openLoopRead?.artifact) {
+    openLoopPromptBridge.storeArtifact = openLoopRead.artifact;
+  }
+  const promptArchiveContext = mergeOpenLoopPromptBridgeIntoArchiveContext({
+    archiveContext: archive.archiveContext,
+    bridge: openLoopPromptBridge,
+  });
   const epistemics = buildEpistemicCaution({
     enabled: PENNY_ENABLE_EPISTEMIC_CAUTION,
     userText,
@@ -482,7 +540,8 @@ async function buildRuntimeMemoryContext({
   const enrichedMemories = enrichMemoriesForPromptApi({
     ...memories,
     memoryBookContext: memoryBooks,
-  }, archive.archiveContext, {
+    openLoopPromptBridge,
+  }, promptArchiveContext, {
     epistemicCaution: epistemics,
     archiveSynthesis: synthesis,
     researchLedger,
@@ -506,7 +565,7 @@ async function buildRuntimeMemoryContext({
   const promptTruth = promptContext.promptTruth || null;
   return {
     memories: enrichedMemories,
-    archiveContext: archive.archiveContext,
+    archiveContext: promptArchiveContext,
     memoryBooks,
     researchLedger,
     promptTruth,
@@ -515,6 +574,7 @@ async function buildRuntimeMemoryContext({
     epistemics,
     synthesis,
     promptComposition,
+    openLoopPromptBridge,
     latencyBudget: budget,
   };
 }
@@ -698,6 +758,12 @@ const {
   updateResearchLedgerFromTurn: updateResearchLedgerFromTurnApi,
   purgeResearchLedger: purgeResearchLedgerApi,
 } = researchLedgerApi;
+const openLoopStoreApi = createOpenLoopStoreApi({
+  fs,
+  path,
+  env: process.env,
+  cwd: __dirname,
+});
 const staticMemoryIndexApi = createStaticMemoryIndexApi({
   fs,
   path,

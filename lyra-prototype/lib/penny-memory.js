@@ -346,7 +346,12 @@ function buildPromptMemoryContext(
   const correctionItems = activeContradictions.length ? activeContradictions : provenance;
   const openLoops = Array.isArray(archiveContext?.openLoops)
     ? archiveContext.openLoops
-      .map((item) => normalizeText(item?.text || ''))
+      .map((item) => {
+        const text = normalizeText(item?.text || '');
+        if (!text) return '';
+        if (item?.source === 'penny-open-loop-state') return text;
+        return `open question: ${text}`;
+      })
       .filter(Boolean)
       .slice(0, 2)
     : [];
@@ -406,7 +411,7 @@ function buildPromptMemoryContext(
   const sessionContext = sessionContextEntries.map((item) => item.text);
   const contradictionAndLoopLines = [
     ...correctionItems.map((item) => `correction: ${item.newText} (replaces: ${item.oldText})`),
-    ...openLoops.map((item) => `open question: ${item}`),
+    ...openLoops,
   ];
   const globalArchiveEntries = globalArchive
     .map((item) => ({

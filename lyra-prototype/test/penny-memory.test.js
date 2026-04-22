@@ -619,3 +619,30 @@ test('formatPromptMemories can keep research-ledger context out of the prompt wh
   assert.doesNotMatch(out, /Wake state - ongoing investigations \(advisory\):/i);
   assert.match(out, /Wake state - retrieval hints \(advisory\):/i);
 });
+
+test('formatPromptMemories renders live open-loop bridge snippets without adding a PromptTruth channel', () => {
+  const now = Date.UTC(2026, 3, 22);
+  const memories = {
+    archiveContext: {
+      openLoops: [
+        {
+          id: 'open-loop-bridge',
+          text: 'Open loop candidate, advisory: Live bridge is in progress. Relevance: explicit-anchor. Source: open-loop state. Surface only if directly relevant. Do not treat this as canonical memory or overclaim its status.',
+          status: 'in-progress',
+          authority: 'advisory',
+          source: 'penny-open-loop-state',
+        },
+      ],
+    },
+  };
+  const out = formatPromptMemories(memories, 'Continue the open-loop bridge.', 3, '- Nothing yet.', now);
+  const promptTruth = buildPromptTruth(memories, 'Continue the open-loop bridge.', 3, '- Nothing yet.', now);
+
+  assert.match(out, /Wake state - contradictions\/open questions:/);
+  assert.match(out, /Open loop candidate, advisory: Live bridge is in progress\./);
+  assert.doesNotMatch(out, /open question: Open loop candidate/i);
+  assert.equal(Object.prototype.hasOwnProperty.call(promptTruth.channels, 'openLoops'), false);
+  assert.equal(promptTruth.channels.sessionArchive.renderedCount, 0);
+  assert.equal(promptTruth.channels.globalArchive.renderedCount, 0);
+  assert.equal(promptTruth.channels.researchLedger.renderedCount, 0);
+});
