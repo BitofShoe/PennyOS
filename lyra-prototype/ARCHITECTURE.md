@@ -107,14 +107,15 @@ Normal chat flow:
 4. Backend chooses `brainMode`
 5. For local mode, backend selects `chat` vs `tool` lane
 6. For chat-like turns, backend retrieves bounded archive context plus bounded research-ledger context
-7. Wording-recall turns are treated as recall-heavy chat turns so Penny answers remembered phrasing before caveating, while direct canon-memory questions still suppress stale history canon-first
-8. The selected lane resolves its preferred model and transport family
-9. If the turn includes an image, the LM Studio payload carries only that current image before the text part; later text-only turns do not replay earlier image blobs
-10. Reply comes back with a visible text response plus a hidden mood tag, and Penny records a runtime artifact / trace summary for the turn
-11. Frontend parses the mood tag and updates Penny's visual state
-12. Canonical explicit memory is written back to `data/penny-memory.json`
-13. Archive consolidation runs after successful turns and writes episodic/derived memory to `data/penny-memory-archive.json`
-14. Research-ledger updates run after qualifying turns and write bounded advisory continuity to `data/penny-memory-ledger.json`
+7. If explicitly enabled, the open-loop prompt bridge may merge one relevant advisory loop into prompt context; canon-first recall suppresses this bridge for direct personal-memory questions
+8. Wording-recall turns are treated as recall-heavy chat turns so Penny answers remembered phrasing before caveating, while direct canon-memory questions still suppress stale history canon-first
+9. The selected lane resolves its preferred model and transport family
+10. If the turn includes an image, the LM Studio payload carries only that current image before the text part; later text-only turns do not replay earlier image blobs
+11. Reply comes back with a visible text response plus a hidden mood tag, and Penny records a runtime artifact / trace summary for the turn
+12. Frontend parses the mood tag and updates Penny's visual state
+13. Canonical explicit memory is written back to `data/penny-memory.json`
+14. Archive consolidation runs after successful turns and writes episodic/derived memory to `data/penny-memory-archive.json`
+15. Research-ledger updates run after qualifying turns and write bounded advisory continuity to `data/penny-memory-ledger.json`
 
 ## Backend subsystems
 
@@ -171,6 +172,9 @@ Hybrid archive overlay:
 - `data/penny-memory-ledger.json`
   - bounded research continuity topics with evidence refs, contradictions, open follow-ups, source session/turn identity, additive question-scoped identity (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`), and truth metadata (`sourceClass`, `summaryClass`, `summaryEvidenceRefs`)
   - advisory only; this does not mutate canonical explicit memory by itself
+- `data/penny-open-loops.json`
+  - advisory unresolved-thread state with source refs, status, priority, expiry, next likely step, and lifecycle history
+  - separate from explicit memory; this does not mutate canonical explicit memory, auto-promote summaries, or authorize autonomous task execution
 
 Current archive-policy behavior:
 
@@ -186,6 +190,8 @@ Current archive-policy behavior:
 - the scoring profile gate does not change the default embedding provider, does not auto-promote archive hits into explicit memory, and does not expand `promptTruth` or `toolEvidenceReceipt`
 - static embedding live sidecar support is explicit-mode only: normal repo default is `off`, `qa-shadow` is for QA comparison, `live-shadow` records trace-only candidates, and local experimental `live-advisory` can merge static candidates into archive selection only under authority/source/correction gates and the static-only rendered cap
 - static embedding sidecar cache files are derived retrieval artifacts, separate from LM Studio embedding vectors, and do not become authored memory or canonical truth
+- open-loop state is owned by `lib/penny-open-loops.js` and `lib/penny-open-loop-store.js`, with fixture suggestions in `lib/penny-open-loop-extraction.js`; loops can be created, updated, deferred, dismissed, expired, or completed, but completion requires an explicit user statement, deterministic artifact, test/source receipt, or manual command basis
+- the live open-loop prompt bridge is opt-in via `PENNY_ENABLE_OPEN_LOOP_PROMPT=1`, capped by `PENNY_OPEN_LOOP_MAX_RENDERED` and `PENNY_OPEN_LOOP_MAX_TOKENS`, and measured by `npm run eval:open-loop-compare`; passing compare makes it eligible for local opt-in, not default runtime law
 - background chat vectorization now defaults on, but it still runs only after `archiveCompletedTurn`, never in prompt assembly, and can be disabled with `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=0`. It is off the reply-latency path, but it still shares process, embedding-backend, and cache/store capacity.
 - inspector payloads expose background-vectorization telemetry, including the session `lastArchivedAt` timestamp, and the in-app panel now surfaces a compact background-vectorization summary so the behavior stays inspectable in practice
 
@@ -197,6 +203,7 @@ Important trust boundary:
 - archive-derived summaries/patterns do not auto-overwrite `memories[]`
 - promotion into stronger explicit memory requires inspector review
 - research ledger context is advisory continuity, not canonical truth
+- open-loop context is advisory continuity, not canonical truth, and user dismissal/completion/expiry should keep loops from resurfacing
 
 ### 3. LM Studio transport layer
 
@@ -336,6 +343,8 @@ The QA/eval harnesses now share small helper layers and script-owned fixture mod
   - explicit-mode static sidecar indexing/query status for live-shadow and live-advisory retrieval traces
 - `lib/penny-gemma-runtime-watch.js`
   - fixture/status schema for Gemma runtime watch items such as vision-budget exposure, thinking-control default-off state, current-turn image policy, prompt-cache/RAM risk, compatible loaded-model fallback, and chat sampling
+- `scripts/eval-penny-open-loop-compare.js`
+  - disposable mock-route compare for open-loop-off vs open-loop-on, measuring continuity wins against adjacent-topic bleed, annoyance, overclaim, and prompt-token delta before local opt-in
 - `scripts/eval-penny-static-embedding-live-compare.js`
   - disposable-server three-arm compare for static-off, static-live-shadow, and static-live-advisory route behavior
 - `scripts/qa-penny-memory.js`

@@ -6,6 +6,7 @@ Local-first Penny companion app with:
 - a single Node backend
 - LM Studio as the main brain
 - hybrid memory with canonical explicit memory, advisory archive recall, and bounded research continuity
+- advisory open-loop continuity for unresolved threads, kept separate from explicit memory
 - runtime voice assets under `penny-voice/runtime/`
 - an optional experimental OpenClaw shadow lane
 
@@ -53,6 +54,8 @@ Read these in order if you need the current truth:
 - Gemma runtime watch now lives as fixture/status artifact coverage and status/preflight output, not as a behavior change. It records watch items such as vision budget exposure, thinking-control state, prompt-cache/RAM risk, loaded-model identity, and chat sampling without enabling default thinking, raising default context, or changing the default embedding provider.
 - The April 21 external-link follow-through did not import external dependencies, change runtime voice, expand `promptTruth`, broaden `toolEvidenceReceipt` beyond optional cost metadata on existing runtime artifact surfaces, enable default thinking, raise default context/rendered-memory limits, or switch embedding providers.
 - Static embedding live sidecar support is opt-in. Normal repo work leaves `PENNY_STATIC_EMBED_MODE` unset or `off`; QA/shadow comparison uses `qa-shadow` or `npm run eval:static-embedding-live-compare`. Local experimental Penny runs may set `PENNY_STATIC_EMBED_MODE=live-advisory`, but static candidates remain advisory, static-only rendered items stay capped, prompt limits stay unchanged, and PromptTruth / `toolEvidenceReceipt` do not expand.
+- Open-loop tracker state is advisory continuity, not explicit memory. `data/penny-open-loops.json` can hold unresolved project/session threads with source refs, status, expiry, and lifecycle history; dismissed, completed, or expired loops stay suppressed, and completion requires an explicit allowed basis instead of model vibes.
+- The live open-loop prompt bridge is bounded and opt-in: `PENNY_ENABLE_OPEN_LOOP_PROMPT=1` may render at most one relevant advisory snippet, capped by `PENNY_OPEN_LOOP_MAX_RENDERED` and `PENNY_OPEN_LOOP_MAX_TOKENS`, while normal defaults leave it off. Slice O8 measured the mock-route bridge as eligible for opt-in, not as permission to raise prompt limits, expand PromptTruth, merge `toolEvidenceReceipt`, or let Penny take initiative the user did not grant.
 - The research continuity ledger is question-scoped instead of file-scoped: one repo anchor can hold multiple bounded topics, and the inspector exposes each topic's anchor/scope identity instead of flattening them together.
 - Question-scoped ledger topics only settle when verified non-`query` evidence supports an evidence-tight summary. Otherwise Penny keeps the topic provisional, leaves the durable conclusion empty, and falls back to the question or open follow-up instead of laundering assistant wording into continuity.
 - Generic authored file-write turns stay out of the research ledger unless the turn was genuinely research-shaped and anchored by verified read evidence. Penny's Playground free-writing can matter to archive/audit continuity without pretending it was research provenance.
@@ -129,6 +132,7 @@ npm run eval:probes
 npm run eval:epistemic-compare
 npm run eval:epistemic-compare:synthesis
 npm run eval:ledger-compare
+npm run eval:open-loop-compare
 npm run eval:static-embedding-live-compare
 npm run eval:runtime-fit
 npm run eval:runtime-fit:context-pressure
@@ -144,6 +148,7 @@ Practical notes:
 
 - `npm run qa:browser:smoke` checks the real streaming browser path against a disposable current-code server and mock LM Studio.
 - `npm run eval:static-embedding-live-compare` compares static-off, static-live-shadow, and static-live-advisory through disposable per-case Penny servers and a mock LM Studio route backend.
+- `npm run eval:open-loop-compare` compares open-loop-off vs open-loop-on through disposable per-case Penny servers and a mock LM Studio route backend. It treats the bridge as eligible only when continuity wins beat annoyance, overclaim, adjacent-topic bleed, and prompt-token regressions.
 - `npm run eval:runtime-fit` measures latency/context/semantic-readiness tradeoffs instead of only correctness. Runtime token counts are request-message estimates unless a future artifact exposes true assembled-prompt/tokenizer counts.
 - `npm run eval:runtime-fit:context-pressure` writes a cheap short/medium/long rendered-context fixture-only artifact with nullable latency fields and a candidate-survival correlation appendix; answer drift remains `not-run` until live eval, and semantic readiness may be fixture-assumed.
 - `npm run eval:runtime-fit:gemma-watch` writes a status/preflight-only Gemma runtime watch artifact. It does not run live chat generation, change LM Studio defaults, enable thinking by default, or raise context/vision budgets.
@@ -171,6 +176,8 @@ Penny's runtime memory is hybrid:
   This supports semantic recall when a local embedding model is available, and can optionally record bounded post-turn background-vectorization telemetry, including eager-vs-background counts.
 - Research continuity ledger in `data/penny-memory-ledger.json`
   This stores bounded advisory topics, evidence refs, open follow-ups, source session/turn identity, additive topic identity metadata (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`), and ledger truth metadata (`sourceClass`, `summaryClass`, `summaryEvidenceRefs`) so Penny can keep multiple distinct questions about the same file or repo area separate without overstating what has actually been verified.
+- Open-loop continuity state in `data/penny-open-loops.json`
+  This stores unresolved project/session threads with status, priority, source refs, expiry, and lifecycle history. It is advisory, dismissible, deferrable, completable, and expire-able; it is not canonical explicit memory, does not auto-promote into `data/penny-memory.json`, and does not authorize Penny to execute tasks autonomously.
 - Prompt-truth receipts in runtime artifacts
   These record what advisory context was selected as candidate, what was actually rendered into the prompt, what was held back canon-first or disabled, and which rendered-only audit ids were prompt-visible for the turn.
 - Tool-evidence receipts in runtime artifacts
@@ -183,6 +190,7 @@ Penny's runtime memory is hybrid:
 For memory QA, use `npm run qa:memory:smoke` for the fast regression slice, `npm run qa:memory` for the full combined release-style run, and `npm run qa:memory:judged` for the grouped `write / retrieve / forget` trust pass. On the current Q6 setup the full combined run is expected to take roughly 80-90 minutes end to end.
 Use `npm run qa:memory:source-sensitive` for the cheap fixture-only source-sensitive cases. It separates subject, relation, object, source, surface wording, retrieval expectations, and answer outcome buckets, and keeps `correct-but-unsupported` diagnostic unless support is rendered or canonical by the case contract.
 Use `npm run qa:memory:candidate-survival` for the model-answer-free archive-unit candidate survival fixture. It compares baseline archive scoring against the gated `hybrid-v1` profile on the same disposable stores, can be correlated with rendered context pressure, and treats candidate survival as retrieval-path evidence rather than answer-quality evidence. Add `-- --shadow-embed-provider=static` or set `PENNY_EMBED_SHADOW_PROVIDER=static` to append a deterministic static embedding comparison for disposable candidate-survival measurement only.
+Use `npm run eval:open-loop-compare` before considering local opt-in for `PENNY_ENABLE_OPEN_LOOP_PROMPT=1`. The bridge should stay bounded to one relevant advisory loop, and any adjacent-topic bleed, overclaim, recurring annoyance, or unacceptable prompt delta should keep it off for normal runs.
 For automated QA, the standard baseline is Q6 chat/memory plus `google/gemma-4-e4b` tooling. Do not treat a Q8-class chat model or a dual-lane stress setup as the default unless that is the specific thing under test.
 The QA/eval artifacts also carry a normalized trust summary (`pass`, `invalid`, `ambiguous`, `fallback`, `degraded`) so outside review can distinguish Penny-behavior failures from environment drift.
 They also carry a compact `runIdentity` canary with the resolved models, loaded-model snapshot, execution-path facts, runtime-artifact version, semantic-readiness state, and fallback/degraded counters so harness drift is easier to spot before blaming Penny.
