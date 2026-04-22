@@ -2,6 +2,7 @@ const INITIATIVE_DECISION_SCHEMA = 'penny-initiative-decision.v1';
 const INITIATIVE_PROMPT_SCAFFOLD_SCHEMA = 'penny-initiative-prompt-scaffold.v1';
 const INITIATIVE_PROMPT_BRIDGE_SCHEMA = 'penny-initiative-prompt-bridge.v1';
 const INITIATIVE_USER_CONTROLS_SCHEMA = 'penny-initiative-user-controls.v1';
+const INITIATIVE_MEMORY_REVIEW_GATE_SCHEMA = 'penny-memory-suggestion-review-gate.v1';
 
 const INITIATIVE_TYPES = Object.freeze({
   NONE: 'none',
@@ -77,6 +78,24 @@ const URGENCY_TOKENS = new Set([
   'deadline',
 ]);
 
+const REVIEW_ELIGIBLE_MEMORY_SUPPORT_CLASSES = new Set([
+  'explicit-user-statement',
+  'explicit-user-preference',
+  'repeated-explicit-user-preference',
+  'promotion-review-candidate',
+  'archive-review-candidate',
+  'archive-pattern-review',
+]);
+
+const BLOCKED_MEMORY_SUPPORT_CLASSES = new Set([
+  'candidate-only',
+  'weak-evidence',
+  'unverified',
+  'inferred',
+  'private-inference',
+  'sensitive-inference',
+]);
+
 const INITIATIVE_GLOBAL_OPT_OUT_PATTERNS = [
   /\b(?:stop|quit|disable|pause|suppress)\b.{0,60}\b(?:suggest|suggesting|suggestions|initiative|proactive|nudge|nudges|next steps?)\b/i,
   /\b(?:do not|don't|dont|no more)\b.{0,60}\b(?:suggest|suggesting|suggestions|initiative|proactive|nudge|nudges|next steps?)\b/i,
@@ -115,6 +134,13 @@ const SENSITIVE_TOPIC_PATTERNS = [
   /\b(?:password|api key|secret key|ssn|social security|bank account|credit card)\b/i,
   /\b(?:medical diagnosis|diagnose me|medication dosage|legal advice|lawsuit|tax fraud)\b/i,
   /\b(?:stalk|blackmail|doxx|doxxing|abuse evidence)\b/i,
+];
+
+const SENSITIVE_MEMORY_PATTERNS = [
+  /\b(?:password|api key|secret key|ssn|social security|bank account|credit card)\b/i,
+  /\b(?:medical diagnosis|diagnose me|medication dosage|medication|therapy|therapist|self[-\s]?harm|suicid(?:e|al))\b/i,
+  /\b(?:legal advice|lawsuit|tax fraud|bankruptcy|debt|financial hardship)\b/i,
+  /\b(?:private inference|personal inference|infer(?:red)? their|infer(?:red)? your)\b/i,
 ];
 
 const HIGH_RISK_DOMAIN_PATTERNS = [
@@ -714,6 +740,224 @@ function looksLikeUnapprovedMemoryWrite(text = '') {
   return UNAPPROVED_MEMORY_WRITE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+function normalizeMemorySupportClass(value = '', supportText = '') {
+  const token = cleanToken(value);
+  const aliases = {
+    explicit: 'explicit-user-statement',
+    'user-explicit': 'explicit-user-statement',
+    'user-stated': 'explicit-user-statement',
+    'user-statement': 'explicit-user-statement',
+    preference: 'explicit-user-preference',
+    'explicit-preference': 'explicit-user-preference',
+    'user-preference': 'explicit-user-preference',
+    'user-stated-preference': 'explicit-user-preference',
+    'repeated-preference': 'repeated-explicit-user-preference',
+    'repeated-explicit': 'repeated-explicit-user-preference',
+    pattern: 'archive-pattern-review',
+    'archive-pattern': 'archive-pattern-review',
+    promotion: 'promotion-review-candidate',
+    'promotion-review': 'promotion-review-candidate',
+    'review-candidate': 'promotion-review-candidate',
+    'archive-review': 'archive-review-candidate',
+    inferred: 'inferred',
+    inference: 'inferred',
+    guess: 'inferred',
+    guessed: 'inferred',
+    'candidate-only': 'candidate-only',
+    candidate: 'candidate-only',
+    weak: 'weak-evidence',
+    weakly: 'weak-evidence',
+    unverified: 'unverified',
+  };
+  const normalized = aliases[token] || token;
+  if (REVIEW_ELIGIBLE_MEMORY_SUPPORT_CLASSES.has(normalized)
+    || BLOCKED_MEMORY_SUPPORT_CLASSES.has(normalized)) {
+    return normalized;
+  }
+
+  const support = cleanString(supportText, 400).toLowerCase();
+  if (!support) return '';
+  if (/\b(?:infer|inferred|guess|guessed|assume|assumed|seems like|probably)\b/.test(support)) {
+    return 'inferred';
+  }
+  if (/\b(?:candidate-only|weak evidence|unverified)\b/.test(support)) {
+    return support.includes('unverified') ? 'unverified' : 'candidate-only';
+  }
+  if (/\b(?:repeated|multiple|several)\b/.test(support)
+    && /\b(?:explicit|user said|user stated|preference|prefers?)\b/.test(support)) {
+    return 'repeated-explicit-user-preference';
+  }
+  if (/\b(?:explicit user|user said|user stated|user told|the user said)\b/.test(support)
+    && /\b(?:preference|prefers?|likes?|wants?)\b/.test(support)) {
+    return 'explicit-user-preference';
+  }
+  if (/\b(?:explicit user|user said|user stated|user told|the user said)\b/.test(support)) {
+    return 'explicit-user-statement';
+  }
+  if (/\b(?:promotion review|review candidate|queued for review|promotion queue)\b/.test(support)) {
+    return 'promotion-review-candidate';
+  }
+  return '';
+}
+
+function inferMemorySupportClass(raw = {}, supportText = '') {
+  if (!isPlainObject(raw)) return normalizeMemorySupportClass('', supportText);
+  if (raw.repeatedExplicitUserPreference === true || raw.repeatedUserPreference === true) {
+    return 'repeated-explicit-user-preference';
+  }
+  if (raw.explicitUserPreference === true || raw.userStatedPreference === true) {
+    return 'explicit-user-preference';
+  }
+  if (raw.explicitUserStatement === true || raw.userStated === true) {
+    return 'explicit-user-statement';
+  }
+  return normalizeMemorySupportClass(
+    raw.supportClass
+      || raw.supportType
+      || raw.supportKind
+      || raw.memorySupportClass
+      || raw.memorySupportType
+      || raw.evidenceClass
+      || raw.evidenceType
+      || raw.sourceType
+      || raw.promotionPacket?.sourceType
+      || '',
+    supportText,
+  );
+}
+
+function inferMemorySensitivity({ raw = {}, suggestionText = '', support = '' } = {}) {
+  if (isPlainObject(raw)) {
+    const explicit = cleanToken(raw.memorySensitivity || raw.sensitivity || raw.sensitivityClass || raw.safetyClass || '');
+    if (['sensitive', 'high', 'private', 'secret', 'medical', 'legal', 'financial', 'safety'].includes(explicit)) {
+      return 'sensitive';
+    }
+    if (raw.sensitiveMemory === true || raw.sensitive === true || raw.privateMemory === true) {
+      return 'sensitive';
+    }
+  }
+  const text = `${suggestionText || ''}\n${support || ''}`;
+  return SENSITIVE_MEMORY_PATTERNS.some((pattern) => pattern.test(text)) ? 'sensitive' : 'low';
+}
+
+function inferMemorySuggestionIsInferred({
+  raw = {},
+  suggestionText = '',
+  support = '',
+  supportClass = '',
+} = {}) {
+  if (isPlainObject(raw)
+    && (raw.inferredMemory === true
+      || raw.inferred === true
+      || raw.privateInference === true
+      || raw.personalInference === true
+      || raw.generatedInference === true)) {
+    return true;
+  }
+  if (['inferred', 'private-inference', 'sensitive-inference'].includes(supportClass)) {
+    return true;
+  }
+  return /\b(?:infer|inferred|guess|guessed|assume|assumed|seems like|probably)\b/i.test(`${support || ''}\n${suggestionText || ''}`);
+}
+
+function buildMemorySuggestionReviewGate(candidate = {}, {
+  decision = 'held-back',
+  reason = '',
+} = {}) {
+  return {
+    schema: INITIATIVE_MEMORY_REVIEW_GATE_SCHEMA,
+    reviewRequired: true,
+    reviewStatus: decision === 'eligible-for-user-review' ? 'pending-user-approval' : 'held-back',
+    decision,
+    reason: cleanToken(reason) || 'review-gated-memory-suggestion',
+    requiresUserApproval: true,
+    autoWrite: false,
+    autoPromote: false,
+    canonicalWriteAllowed: false,
+    promotionQueueWriteAllowed: false,
+    support: cleanString(candidate.support || '', 220),
+    supportClass: cleanString(candidate.supportClass || '', 80),
+    memorySensitivity: cleanString(candidate.memorySensitivity || 'unknown', 80),
+    inferredMemory: candidate.inferredMemory === true,
+    source: cleanString(candidate.source || '', 220),
+    candidateId: cleanString(candidate.id || '', 120),
+  };
+}
+
+function evaluateMemorySuggestionReview(candidate = {}) {
+  if (candidate.initiativeType !== INITIATIVE_TYPES.MEMORY_SUGGESTION) {
+    return { allowed: true };
+  }
+  if (candidate.memorySensitivity === 'sensitive') {
+    const memoryReviewGate = buildMemorySuggestionReviewGate(candidate, {
+      decision: 'held-back',
+      reason: 'sensitive-memory-suggestion',
+    });
+    candidate.memoryReviewGate = memoryReviewGate;
+    return {
+      allowed: false,
+      reason: 'sensitive memory suggestions are blocked',
+      heldBack: buildHeldBack('sensitive-memory-suggestion', {
+        initiativeType: candidate.initiativeType,
+        suggestionText: candidate.suggestionText,
+        riskClass: candidate.riskClass,
+        support: candidate.support,
+        supportClass: candidate.supportClass,
+        memorySensitivity: candidate.memorySensitivity,
+        memoryReviewGate,
+      }),
+    };
+  }
+  if (candidate.inferredMemory === true) {
+    const memoryReviewGate = buildMemorySuggestionReviewGate(candidate, {
+      decision: 'held-back',
+      reason: 'inferred-memory-suggestion',
+    });
+    candidate.memoryReviewGate = memoryReviewGate;
+    return {
+      allowed: false,
+      reason: 'inferred memory suggestions are blocked',
+      heldBack: buildHeldBack('inferred-memory-suggestion', {
+        initiativeType: candidate.initiativeType,
+        suggestionText: candidate.suggestionText,
+        riskClass: candidate.riskClass,
+        support: candidate.support,
+        supportClass: candidate.supportClass,
+        memorySensitivity: candidate.memorySensitivity,
+        memoryReviewGate,
+      }),
+    };
+  }
+  if (!REVIEW_ELIGIBLE_MEMORY_SUPPORT_CLASSES.has(candidate.supportClass)) {
+    const reason = BLOCKED_MEMORY_SUPPORT_CLASSES.has(candidate.supportClass)
+      ? 'weak-memory-support'
+      : 'memory-suggestion-lacks-review-support';
+    const memoryReviewGate = buildMemorySuggestionReviewGate(candidate, {
+      decision: 'held-back',
+      reason,
+    });
+    candidate.memoryReviewGate = memoryReviewGate;
+    return {
+      allowed: false,
+      reason: 'memory suggestion requires explicit review support',
+      heldBack: buildHeldBack(reason, {
+        initiativeType: candidate.initiativeType,
+        suggestionText: candidate.suggestionText,
+        riskClass: candidate.riskClass,
+        support: candidate.support,
+        supportClass: candidate.supportClass,
+        memorySensitivity: candidate.memorySensitivity,
+        memoryReviewGate,
+      }),
+    };
+  }
+  candidate.memoryReviewGate = buildMemorySuggestionReviewGate(candidate, {
+    decision: 'eligible-for-user-review',
+    reason: 'review-gated-memory-suggestion',
+  });
+  return { allowed: true, memoryReviewGate: candidate.memoryReviewGate };
+}
+
 function inferRiskClass({ raw = {}, initiativeType = INITIATIVE_TYPES.NONE, suggestionText = '' } = {}) {
   const explicitRisk = normalizeRiskClass(
     raw.riskClass
@@ -865,11 +1109,27 @@ function evaluateCandidateRisk({
       || candidate.requiresUserApproval === false
       || looksLikeUnapprovedMemoryWrite(candidate.suggestionText))
   ) {
+    const memoryReviewGate = buildMemorySuggestionReviewGate(candidate, {
+      decision: 'held-back',
+      reason: 'memory-write-needs-approval',
+    });
+    candidate.memoryReviewGate = memoryReviewGate;
     return {
       allowed: false,
       reason: 'memory initiative requires explicit approval before saving',
-      heldBack: buildHeldBack('memory-write-needs-approval', heldBackBase),
+      heldBack: buildHeldBack('memory-write-needs-approval', {
+        ...heldBackBase,
+        support: candidate.support || '',
+        supportClass: candidate.supportClass || '',
+        memorySensitivity: candidate.memorySensitivity || '',
+        memoryReviewGate,
+      }),
     };
+  }
+
+  const memoryReviewDecision = evaluateMemorySuggestionReview(candidate);
+  if (!memoryReviewDecision.allowed) {
+    return memoryReviewDecision;
   }
 
   if (
@@ -917,6 +1177,29 @@ function normalizeCandidate(raw = {}) {
     INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
   );
   const riskClass = inferRiskClass({ raw, initiativeType, suggestionText });
+  const support = initiativeType === INITIATIVE_TYPES.MEMORY_SUGGESTION
+    ? cleanString(
+        raw.support
+          || raw.supportBasis
+          || raw.evidenceSupport
+          || raw.memorySupport
+          || raw.reviewSupport
+          || raw.reviewBasis
+          || raw.promotionPacket?.evidenceSnippet
+          || raw.evidenceSnippet
+          || '',
+        220,
+      )
+    : '';
+  const supportClass = initiativeType === INITIATIVE_TYPES.MEMORY_SUGGESTION
+    ? inferMemorySupportClass(raw, support)
+    : '';
+  const memorySensitivity = initiativeType === INITIATIVE_TYPES.MEMORY_SUGGESTION
+    ? inferMemorySensitivity({ raw, suggestionText, support })
+    : '';
+  const inferredMemory = initiativeType === INITIATIVE_TYPES.MEMORY_SUGGESTION
+    ? inferMemorySuggestionIsInferred({ raw, suggestionText, support, supportClass })
+    : false;
 
   return {
     initiativeType,
@@ -924,11 +1207,25 @@ function normalizeCandidate(raw = {}) {
     confidence,
     riskClass,
     reason: cleanString(raw.reason || raw.surfaceReason || 'current project has one high-confidence next step', 220),
-    source: cleanString(raw.source || raw.sourceLabel || raw.path || raw.url || '', 220),
-    id: cleanString(raw.id || raw.openLoopId || '', 120),
+    source: cleanString(
+      raw.source
+        || raw.sourceLabel
+        || raw.path
+        || raw.url
+        || raw.promotionPacket?.originSource
+        || raw.sourceType
+        || '',
+      220,
+    ),
+    id: cleanString(raw.id || raw.openLoopId || raw.queueId || raw.promotionPacket?.id || '', 120),
     requiresUserApproval: raw.requiresUserApproval !== false,
     autoWrite: raw.autoWrite === true || raw.saveMemory === true || raw.memoryWrite === true,
     userRequestedDomain: raw.userRequestedDomain === true || raw.directlyRequestedDomain === true,
+    support,
+    supportClass,
+    memorySensitivity,
+    inferredMemory,
+    reviewStatus: cleanString(raw.reviewStatus || raw.promotionPacket?.reviewStatus || '', 80),
   };
 }
 
@@ -1244,6 +1541,16 @@ function decideInitiative({
     forbiddenActions: FORBIDDEN_ACTIONS.slice(),
     heldBack: [],
     userControls,
+    ...(candidate.initiativeType === INITIATIVE_TYPES.MEMORY_SUGGESTION
+      ? {
+          support: candidate.support || '',
+          supportClass: candidate.supportClass || '',
+          memoryReviewGate: candidate.memoryReviewGate || buildMemorySuggestionReviewGate(candidate, {
+            decision: 'eligible-for-user-review',
+            reason: 'review-gated-memory-suggestion',
+          }),
+        }
+      : {}),
   };
 }
 
@@ -1322,6 +1629,7 @@ function buildInitiativePromptScaffold({
     wordCount: 0,
     initiativeType: INITIATIVE_TYPES.NONE,
     sourceLabel: '',
+    supportLabel: '',
     maxSuggestions: 0,
     livePromptBridge: false,
     liveChatTouched: false,
@@ -1379,9 +1687,18 @@ function buildInitiativePromptScaffold({
       || '',
     maxSourceChars,
   );
-  const sourceClause = sourceLabel
-    ? `grounded in ${sourceLabel}`
-    : 'without claiming extra source verification';
+  const supportLabel = cleanPromptFragment(
+    decision.support
+      || decision.memoryReviewGate?.support
+      || decision.supportLabel
+      || '',
+    maxSourceChars,
+  );
+  const sourceClause = initiativeType === INITIATIVE_TYPES.MEMORY_SUGGESTION && supportLabel
+    ? `supported by ${supportLabel}`
+    : (sourceLabel
+      ? `grounded in ${sourceLabel}`
+      : 'without claiming extra source verification');
   const promptText = `Optional initiative, max one sentence: Suggest as an ignorable ${initiativeScaffoldLabel(initiativeType)}, ${sourceClause}: ${suggestion}; do not take action; do not save memory; make it easy to ignore.`;
 
   return {
@@ -1392,9 +1709,11 @@ function buildInitiativePromptScaffold({
     wordCount: countWords(promptText),
     initiativeType,
     sourceLabel,
+    supportLabel,
     maxSuggestions: 1,
     requiresUserApproval: decision.requiresUserApproval !== false,
     actionPermission: decision.actionPermission || 'suggest-only-requires-explicit-user-approval',
+    ...(decision.memoryReviewGate ? { memoryReviewGate: decision.memoryReviewGate } : {}),
   };
 }
 
@@ -1445,6 +1764,9 @@ function buildLiveInitiativePromptBridge({
         initiativeType: scaffold.initiativeType,
         suggestionText: cleanString(decision.suggestionText || '', 260),
         sourceLabel: scaffold.sourceLabel || '',
+        support: cleanString(decision.support || '', 220),
+        supportClass: cleanString(decision.supportClass || '', 80),
+        memoryReviewGate: decision.memoryReviewGate || null,
         candidateId: cleanString(decision.candidateId || '', 120),
         riskClass: cleanString(decision.riskClass || '', 80),
         confidence: cleanString(decision.confidence || '', 80),
@@ -1489,6 +1811,7 @@ function buildLiveInitiativePromptBridge({
         ? [{
             initiativeType: scaffold.initiativeType,
             sourceLabel: scaffold.sourceLabel || '',
+            supportLabel: scaffold.supportLabel || '',
             wordCount: scaffold.wordCount || 0,
             text: scaffold.promptText,
           }]
@@ -1506,6 +1829,7 @@ module.exports = {
   FORBIDDEN_ACTIONS,
   INITIATIVE_CONFIDENCE,
   INITIATIVE_DECISION_SCHEMA,
+  INITIATIVE_MEMORY_REVIEW_GATE_SCHEMA,
   INITIATIVE_PROMPT_BRIDGE_SCHEMA,
   INITIATIVE_PROMPT_SCAFFOLD_SCHEMA,
   INITIATIVE_RISK_CLASSES,

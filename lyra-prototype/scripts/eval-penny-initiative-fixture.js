@@ -105,6 +105,32 @@ function buildFixtureCases() {
       ],
     },
     {
+      id: 'review-gated-memory-suggestion',
+      description: 'Supported memory suggestions can be asked as review-gated initiative without writing memory.',
+      input: {
+        userText: 'That preference might matter later.',
+        retrievalSignals: [
+          {
+            initiativeType: INITIATIVE_TYPES.MEMORY_SUGGESTION,
+            confidence: 'high',
+            support: 'repeated explicit user preference',
+            suggestionText: 'Want me to remember that you prefer deep slice-by-slice implementation plans?',
+          },
+        ],
+      },
+      expectedAllowed: true,
+      expectedRendered: true,
+      expectedInitiativeType: INITIATIVE_TYPES.MEMORY_SUGGESTION,
+      expectedPromptIncludes: [
+        'memory suggestion',
+        'supported by repeated explicit user preference',
+        'Want me to remember that you prefer deep slice-by-slice implementation plans',
+        'do not take action',
+        'do not save memory',
+        'make it easy to ignore',
+      ],
+    },
+    {
       id: 'memory-auto-write-held-back',
       description: 'Memory suggestions that imply auto-writing stay held back before any prompt scaffold.',
       input: {
@@ -185,6 +211,7 @@ function buildInitiativeFixtureArtifact({
   const sourceAwareRenderedCount = results.filter((item) => (
     item.scaffold.rendered
     && (/grounded in /.test(item.scaffold.promptText)
+      || /supported by /.test(item.scaffold.promptText)
       || /without claiming extra source verification/.test(item.scaffold.promptText))
   )).length;
 

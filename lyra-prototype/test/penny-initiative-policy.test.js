@@ -8,6 +8,7 @@ const {
   FORBIDDEN_ACTIONS,
   INITIATIVE_CONFIDENCE,
   INITIATIVE_DECISION_SCHEMA,
+  INITIATIVE_MEMORY_REVIEW_GATE_SCHEMA,
   INITIATIVE_PROMPT_BRIDGE_SCHEMA,
   INITIATIVE_PROMPT_SCAFFOLD_SCHEMA,
   INITIATIVE_RISK_CLASSES,
@@ -327,6 +328,8 @@ test('medium-risk memory suggestion is approval-gated and never auto-writes', ()
       {
         initiativeType: INITIATIVE_TYPES.MEMORY_SUGGESTION,
         confidence: 'high',
+        support: 'repeated explicit user preference',
+        supportClass: 'repeated-explicit-user-preference',
         suggestionText: 'Want me to remember that you prefer slice-by-slice implementation plans?',
       },
     ],
@@ -338,6 +341,16 @@ test('medium-risk memory suggestion is approval-gated and never auto-writes', ()
   assert.equal(decision.requiresUserApproval, true);
   assert.equal(decision.autoWrite, false);
   assert.equal(decision.actionPermission, 'suggest-only-requires-explicit-user-approval');
+  assert.equal(decision.support, 'repeated explicit user preference');
+  assert.equal(decision.supportClass, 'repeated-explicit-user-preference');
+  assert.equal(decision.memoryReviewGate.schema, INITIATIVE_MEMORY_REVIEW_GATE_SCHEMA);
+  assert.equal(decision.memoryReviewGate.reviewRequired, true);
+  assert.equal(decision.memoryReviewGate.reviewStatus, 'pending-user-approval');
+  assert.equal(decision.memoryReviewGate.autoWrite, false);
+  assert.equal(decision.memoryReviewGate.autoPromote, false);
+  assert.equal(decision.memoryReviewGate.canonicalWriteAllowed, false);
+  assert.equal(decision.memoryReviewGate.promotionQueueWriteAllowed, false);
+  assert.equal(decision.memoryReviewGate.support, 'repeated explicit user preference');
   assert.deepEqual(decision.heldBack, []);
 });
 
@@ -357,14 +370,100 @@ test('memory suggestions that imply saving without approval are held back', () =
   assert.equal(decision.initiativeAllowed, false);
   assert.equal(decision.riskClass, INITIATIVE_RISK_CLASSES.MEDIUM);
   assert.match(decision.reason, /memory initiative requires explicit approval/i);
-  assert.deepEqual(decision.heldBack, [
-    {
-      reason: 'memory-write-needs-approval',
-      initiativeType: INITIATIVE_TYPES.MEMORY_SUGGESTION,
-      suggestionText: "I'll remember that you prefer slice-by-slice implementation plans.",
-      riskClass: INITIATIVE_RISK_CLASSES.MEDIUM,
-    },
-  ]);
+  assert.equal(decision.heldBack[0].reason, 'memory-write-needs-approval');
+  assert.equal(decision.heldBack[0].initiativeType, INITIATIVE_TYPES.MEMORY_SUGGESTION);
+  assert.equal(decision.heldBack[0].memoryReviewGate.schema, INITIATIVE_MEMORY_REVIEW_GATE_SCHEMA);
+  assert.equal(decision.heldBack[0].memoryReviewGate.autoWrite, false);
+  assert.equal(decision.heldBack[0].memoryReviewGate.autoPromote, false);
+  assert.equal(decision.heldBack[0].memoryReviewGate.canonicalWriteAllowed, false);
+});
+
+test('memory suggestions without explicit review support are held back', () => {
+  const decision = decideInitiative({
+    userText: 'That preference might matter later.',
+    retrievalSignals: [
+      {
+        initiativeType: INITIATIVE_TYPES.MEMORY_SUGGESTION,
+        confidence: 'high',
+        suggestionText: 'Want me to remember that you prefer slice-by-slice implementation plans?',
+      },
+    ],
+  });
+
+  assert.equal(decision.initiativeAllowed, false);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.NONE);
+  assert.equal(decision.riskClass, INITIATIVE_RISK_CLASSES.MEDIUM);
+  assert.match(decision.reason, /requires explicit review support/i);
+  assert.equal(decision.heldBack[0].reason, 'memory-suggestion-lacks-review-support');
+  assert.equal(decision.heldBack[0].memoryReviewGate.schema, INITIATIVE_MEMORY_REVIEW_GATE_SCHEMA);
+  assert.equal(decision.heldBack[0].memoryReviewGate.reviewStatus, 'held-back');
+  assert.equal(decision.heldBack[0].memoryReviewGate.autoPromote, false);
+});
+
+test('sensitive and inferred memory suggestions are blocked', () => {
+  const sensitive = decideInitiative({
+    userText: 'Maybe this should be remembered?',
+    retrievalSignals: [
+      {
+        initiativeType: INITIATIVE_TYPES.MEMORY_SUGGESTION,
+        confidence: 'high',
+        support: 'explicit user statement',
+        supportClass: 'explicit-user-statement',
+        sensitivity: 'medical',
+        suggestionText: 'Want me to remember your medication dosage preference?',
+      },
+    ],
+  });
+
+  assert.equal(sensitive.initiativeAllowed, false);
+  assert.match(sensitive.reason, /sensitive memory suggestions are blocked/i);
+  assert.equal(sensitive.heldBack[0].reason, 'sensitive-memory-suggestion');
+  assert.equal(sensitive.heldBack[0].memoryReviewGate.autoWrite, false);
+
+  const inferred = decideInitiative({
+    userText: 'Maybe this should be remembered?',
+    retrievalSignals: [
+      {
+        initiativeType: INITIATIVE_TYPES.MEMORY_SUGGESTION,
+        confidence: 'high',
+        support: 'inferred from tone over one turn',
+        suggestionText: 'Want me to remember that you probably dislike terse implementation plans?',
+      },
+    ],
+  });
+
+  assert.equal(inferred.initiativeAllowed, false);
+  assert.match(inferred.reason, /inferred memory suggestions are blocked/i);
+  assert.equal(inferred.heldBack[0].reason, 'inferred-memory-suggestion');
+  assert.equal(inferred.heldBack[0].memoryReviewGate.autoPromote, false);
+});
+
+test('promotion queue style memory suggestions remain review-gated and suggest-only', () => {
+  const decision = decideInitiative({
+    userText: 'Anything worth saving from that pattern?',
+    retrievalSignals: [
+      {
+        type: INITIATIVE_TYPES.MEMORY_SUGGESTION,
+        confidence: 'high',
+        id: 'promotion_1234',
+        sourceType: 'review-candidate',
+        support: 'promotion review candidate from repeated explicit user preference',
+        promotionPacket: {
+          id: 'packet_1234',
+          reviewStatus: 'pending',
+          evidenceSnippet: 'The user repeatedly asked for deep slice-by-slice implementation plans.',
+        },
+        suggestionText: 'Want me to remember that you prefer deep slice-by-slice implementation plans?',
+      },
+    ],
+  });
+
+  assert.equal(decision.initiativeAllowed, true);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.MEMORY_SUGGESTION);
+  assert.equal(decision.candidateId, 'promotion_1234');
+  assert.equal(decision.memoryReviewGate.reviewStatus, 'pending-user-approval');
+  assert.equal(decision.memoryReviewGate.canonicalWriteAllowed, false);
+  assert.equal(decision.memoryReviewGate.autoPromote, false);
 });
 
 test('high-risk side-effect suggestions are suppressed unless the user requested that domain', () => {
@@ -655,6 +754,33 @@ test('initiative prompt scaffold renders one compact source-aware instruction', 
   assert.ok(scaffold.wordCount <= 55);
 });
 
+test('initiative prompt scaffold renders memory suggestions as support-aware and review-gated', () => {
+  const decision = decideInitiative({
+    userText: 'That preference might matter later.',
+    retrievalSignals: [
+      {
+        initiativeType: INITIATIVE_TYPES.MEMORY_SUGGESTION,
+        confidence: 'high',
+        support: 'repeated explicit user preference',
+        suggestionText: 'Want me to remember that you prefer deep slice-by-slice implementation plans?',
+      },
+    ],
+  });
+
+  const scaffold = buildInitiativePromptScaffold({ decision });
+
+  assert.equal(decision.initiativeAllowed, true);
+  assert.equal(scaffold.rendered, true);
+  assert.equal(scaffold.initiativeType, INITIATIVE_TYPES.MEMORY_SUGGESTION);
+  assert.equal(scaffold.supportLabel, 'repeated explicit user preference');
+  assert.equal(scaffold.memoryReviewGate.schema, INITIATIVE_MEMORY_REVIEW_GATE_SCHEMA);
+  assert.match(scaffold.promptText, /memory suggestion/);
+  assert.match(scaffold.promptText, /supported by repeated explicit user preference/);
+  assert.match(scaffold.promptText, /Want me to remember that you prefer deep slice-by-slice implementation plans/);
+  assert.match(scaffold.promptText, /do not save memory/);
+  assert.ok(scaffold.wordCount <= 55);
+});
+
 test('initiative prompt scaffold holds back denied decisions without live injection', () => {
   const decision = decideInitiative({
     userText: 'Please implement Slice I5 and commit when done.',
@@ -700,18 +826,24 @@ test('bounded initiative fixture exposes allowed vs held-back scaffolds without 
   assert.equal(artifact.toolEvidenceReceiptChanged, false);
   assert.equal(artifact.memoryWrites, false);
   assert.equal(artifact.autonomousActions, false);
-  assert.equal(artifact.summary.caseCount, 4);
-  assert.equal(artifact.summary.passingCaseCount, 4);
-  assert.equal(artifact.summary.renderedSnippetCount, 2);
+  assert.equal(artifact.summary.caseCount, 5);
+  assert.equal(artifact.summary.passingCaseCount, 5);
+  assert.equal(artifact.summary.renderedSnippetCount, 3);
   assert.equal(artifact.summary.heldBackInitiativeCount, 2);
   assert.equal(artifact.summary.allowedVsHeldBackShown, true);
   assert.equal(artifact.summary.guardrailsPresent, true);
-  assert.equal(artifact.summary.sourceAwareRenderedCount, 2);
+  assert.equal(artifact.summary.sourceAwareRenderedCount, 3);
 
   const sourceAware = artifact.cases.find((item) => item.id === 'allowed-next-step-source-aware');
   assert.equal(sourceAware.pass, true);
   assert.equal(sourceAware.scaffold.rendered, true);
   assert.match(sourceAware.scaffold.promptText, /grounded in docs\/penny-tier1-aliveness-plans\/01-live-static-memory-reflex-plan\.md/);
+
+  const memorySuggestion = artifact.cases.find((item) => item.id === 'review-gated-memory-suggestion');
+  assert.equal(memorySuggestion.pass, true);
+  assert.equal(memorySuggestion.scaffold.rendered, true);
+  assert.match(memorySuggestion.scaffold.promptText, /supported by repeated explicit user preference/);
+  assert.equal(memorySuggestion.decision.memoryReviewGate.autoPromote, false);
 
   const heldBack = artifact.cases.find((item) => item.id === 'direct-command-held-back');
   assert.equal(heldBack.pass, true);
@@ -728,6 +860,7 @@ test('bounded initiative fixture helpers keep cases and writer deterministic', (
     'allowed-next-step-source-aware',
     'direct-command-held-back',
     'urgency-source-check-warning',
+    'review-gated-memory-suggestion',
     'memory-auto-write-held-back',
   ]);
 
@@ -747,7 +880,7 @@ test('bounded initiative fixture helpers keep cases and writer deterministic', (
 
   assert.equal(result.outputPath, outputPath);
   assert.equal(written.schema, INITIATIVE_FIXTURE_SCHEMA);
-  assert.equal(written.summary.passingCaseCount, 4);
+  assert.equal(written.summary.passingCaseCount, 5);
   assert.equal(parseArgValue('output', ['--output', 'tmp/out.json']), 'tmp/out.json');
   assert.equal(parseArgValue('output', ['--output=tmp/out.json']), 'tmp/out.json');
   assert.equal(parseArgValue('output', ['--other', 'tmp/out.json']), '');
