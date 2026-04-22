@@ -411,7 +411,14 @@ test('formatPromptMemories keeps direct memory-authority questions canon-first u
       reasonCode: 'keyword_fallback',
       compression: { used: true },
       session: [
-        { text: 'Favorite tea used to be oolong.', sourceLabel: 'archive-session' },
+        {
+          text: 'Favorite tea used to be oolong.',
+          sourceLabel: 'archive-session',
+          sourceAuthority: 'advisory',
+          supportState: 'candidate',
+          candidateChannels: ['static-embedding'],
+          staticOnly: true,
+        },
       ],
       global: [
         { text: 'They keep returning to midnight rain.', sourceLabel: 'archive-global' },
@@ -431,6 +438,7 @@ test('formatPromptMemories keeps direct memory-authority questions canon-first u
 
   assert.match(out, /canon priority:/i);
   assert.match(out, /Favorite tea is lapsang souchong/);
+  assert.doesNotMatch(out, /oolong/i);
   assert.doesNotMatch(out, /Wake state - active session context:/i);
   assert.doesNotMatch(out, /Wake state - ongoing investigations \(advisory\):/i);
   assert.doesNotMatch(out, /Wake state - retrieval hints \(advisory\):/i);

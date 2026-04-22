@@ -49,6 +49,7 @@ test('scoreArchiveCandidate exposes score components and reasons without changin
   assert.equal(scored.score, scored.components.sourceTypeBase
     + scored.components.lexicalOverlap
     + scored.components.semanticSimilarityScore
+    + scored.components.staticSimilarityScore
     + scored.components.recency
     + scored.components.sessionScope
     + scored.components.sensitivityPenalty);
@@ -58,6 +59,7 @@ test('scoreArchiveCandidate exposes score components and reasons without changin
     lexicalOverlap: 4.5,
     semanticSimilarity: 0.6,
     semanticSimilarityScore: 4.8,
+    staticSimilarityScore: 0,
     recency: 1,
     sessionScope: 0.75,
     sensitivityPenalty: -1.5,
@@ -102,6 +104,7 @@ test('scoreArchiveCandidate marks semantic similarity as unavailable when keywor
     lexicalOverlap: 4.5,
     semanticSimilarity: null,
     semanticSimilarityScore: 0,
+    staticSimilarityScore: 0,
     recency: 0,
     sessionScope: 0,
     sensitivityPenalty: 0,
@@ -110,6 +113,29 @@ test('scoreArchiveCandidate marks semantic similarity as unavailable when keywor
     'source:summary',
     'lexical-overlap:midnight,rain',
   ]);
+});
+
+test('scoreArchiveCandidate adds static similarity as a separate advisory component', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+
+  const scored = policy.scoreArchiveCandidate({
+    text: 'Copper rabbit memory.',
+    sourceType: 'episode',
+    scope: 'session',
+    sensitivity: 'normal',
+    createdAt: '',
+    candidateChannels: ['static-embedding'],
+    staticEmbedding: {
+      similarity: 0.8,
+    },
+  }, new Set(['copper', 'rabbit']), Date.parse('2026-04-21T00:00:00.000Z'));
+
+  assert.equal(scored.components.staticSimilarityScore, 4);
+  assert.equal(scored.reasons.includes('static-similarity:0.80'), true);
+  assert.equal(scored.score, 2.5 + (2 * 2.25) + 0.75 + 4);
 });
 
 test('scoreArchiveCandidateHybridShadow reports exact-anchor boost without changing active score', () => {

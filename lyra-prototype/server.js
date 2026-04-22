@@ -169,6 +169,7 @@ const PENNY_STATIC_EMBED_MODE = process.env.PENNY_STATIC_EMBED_MODE || 'off';
 const PENNY_STATIC_EMBED_PROVIDER = process.env.PENNY_STATIC_EMBED_PROVIDER || 'model2vec-potion-8m';
 const PENNY_STATIC_EMBED_INDEX_SCOPE = process.env.PENNY_STATIC_EMBED_INDEX_SCOPE || 'session,archive,research-ledger';
 const PENNY_STATIC_EMBED_MAX_CANDIDATES = Number(process.env.PENNY_STATIC_EMBED_MAX_CANDIDATES || 12);
+const PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED = Math.max(0, Number(process.env.PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED || 1));
 const PENNY_STATIC_EMBED_BATCH_SIZE = Number(process.env.PENNY_STATIC_EMBED_BATCH_SIZE || 16);
 const PENNY_STATIC_EMBED_CACHE_FILE = process.env.PENNY_STATIC_EMBED_CACHE_FILE
   ? path.resolve(__dirname, process.env.PENNY_STATIC_EMBED_CACHE_FILE)
@@ -455,6 +456,7 @@ async function buildRuntimeMemoryContext({
           maxCandidates: PENNY_STATIC_EMBED_MAX_CANDIDATES,
         })
       : null,
+    maxStaticOnlyRendered: PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED,
   });
   const retrieval = archive.retrieval && typeof archive.retrieval === 'object'
     ? {

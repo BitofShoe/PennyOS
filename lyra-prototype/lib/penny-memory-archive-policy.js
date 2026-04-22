@@ -64,6 +64,15 @@ function createMemoryArchivePolicyApi({
     return Math.round(number * 1000) / 1000;
   }
 
+  function normalizeStaticSimilarity(candidate = {}) {
+    const raw = candidate?.staticEmbedding && typeof candidate.staticEmbedding === 'object'
+      ? candidate.staticEmbedding.similarity
+      : candidate.staticSimilarity;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) return null;
+    return Math.max(0, Math.min(1, value));
+  }
+
   const exactAnchorStopwords = new Set([
     'a', 'an', 'and', 'are', 'at', 'be', 'can', 'could', 'did', 'do', 'does',
     'for', 'from', 'how', 'i', 'in', 'is', 'it', 'me', 'my', 'of', 'on',
@@ -285,6 +294,7 @@ function createMemoryArchivePolicyApi({
       lexicalOverlap: overlapTokens.length * 2.25,
       semanticSimilarity: null,
       semanticSimilarityScore: 0,
+      staticSimilarityScore: 0,
       recency: 0,
       sessionScope: 0,
       sensitivityPenalty: 0,
@@ -302,6 +312,12 @@ function createMemoryArchivePolicyApi({
       components.semanticSimilarityScore = Math.max(0, components.semanticSimilarity) * 8;
       score += components.semanticSimilarityScore;
       reasons.push(`semantic-similarity:${formatSimilarity(components.semanticSimilarity)}`);
+    }
+    const staticSimilarity = normalizeStaticSimilarity(candidate);
+    if (staticSimilarity != null) {
+      components.staticSimilarityScore = staticSimilarity * 5;
+      score += components.staticSimilarityScore;
+      reasons.push(`static-similarity:${formatSimilarity(staticSimilarity)}`);
     }
     const createdAtMs = Date.parse(candidate.createdAt || '');
     if (Number.isFinite(createdAtMs)) {

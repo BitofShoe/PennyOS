@@ -698,6 +698,7 @@ function createMemoryArchiveApi({
       'lexicalOverlap',
       'semanticSimilarity',
       'semanticSimilarityScore',
+      'staticSimilarityScore',
       'recency',
       'sessionScope',
       'sensitivityPenalty',
@@ -808,6 +809,25 @@ function createMemoryArchiveApi({
     return Math.max(0, Math.floor(number));
   }
 
+  function normalizeStaticOnlyRenderedCap(value = 1) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 1;
+    return Math.max(0, Math.min(4, Math.floor(number)));
+  }
+
+  function isStaticAdvisoryMode(value = '') {
+    return String(value || '').trim().toLowerCase() === 'live-advisory';
+  }
+
+  function isStaticEmbeddingCandidate(item = {}) {
+    return !!(item?.staticEmbedding && typeof item.staticEmbedding === 'object')
+      || (Array.isArray(item?.candidateChannels) && item.candidateChannels.includes('static-embedding'));
+  }
+
+  function isStaticOnlyArchiveCandidate(item = {}) {
+    return isStaticEmbeddingCandidate(item) && item.staticOnly === true;
+  }
+
   function compactCandidateTraceObject(value = {}) {
     const out = {};
     for (const [key, item] of Object.entries(value)) {
@@ -874,6 +894,7 @@ function createMemoryArchiveApi({
     selectedRank = null,
     rendered = false,
     ranked = false,
+    heldBackReason = '',
     eligibility = { eligible: true, filtered: false, filterReason: '' },
   } = {}) {
     const item = raw && typeof raw === 'object' ? raw : {};
@@ -892,18 +913,32 @@ function createMemoryArchiveApi({
       filtered: eligibility.filtered === true,
       filterReason: trimText(eligibility.filterReason || '', 120),
     };
+    const candidateChannels = normalizeEvidenceIds(
+      Array.isArray(item.candidateChannels) ? item.candidateChannels : [],
+    );
+    const staticEmbedding = normalizeStaticEmbeddingInfo(item);
+    const normalizedHeldBackReason = trimText(heldBackReason || item.heldBackReason || '', 120);
+    const staticCandidate = isStaticEmbeddingCandidate(item);
+    const policyReasons = staticCandidate
+      ? normalizeArchiveScoreReasons([
+          ...(activeScoreReasons.length ? activeScoreReasons : scoreReasons),
+          normalizedHeldBackReason || (selected ? 'live-advisory-selected' : 'live-advisory-ranked'),
+        ])
+      : [];
     return compactCandidateTraceObject({
       id: String(item.id || '').trim(),
       group: String(group || '').trim(),
       scope: String(item.scope || '').trim() || 'global',
       sourceType: String(item.sourceType || '').trim() || 'archive',
       sourceAuthority: inferArchiveCandidateTraceAuthority(item),
-      supportState: inferArchiveCandidateTraceSupportState({
-        eligibility: normalizedEligibility,
-        ranked,
-        selected,
-        rendered,
-      }),
+      supportState: isStaticOnlyArchiveCandidate(item)
+        ? 'candidate'
+        : inferArchiveCandidateTraceSupportState({
+            eligibility: normalizedEligibility,
+            ranked,
+            selected,
+            rendered,
+          }),
       textPreview: trimText(item.text || item.excerpt || item.evidenceSnippet || '', 220),
       sensitivity: item.sensitivity === 'high' ? 'high' : 'normal',
       createdAt: trimIso(item.createdAt, ''),
@@ -933,6 +968,18 @@ function createMemoryArchiveApi({
       ...(scoreReasons.length ? { scoreReasons } : {}),
       ...(shadowScores ? { shadowScores } : {}),
       ...(rerankShadow ? { rerankShadow } : {}),
+      ...(candidateChannels.length ? { candidateChannels } : {}),
+      ...(staticEmbedding ? { staticEmbedding } : {}),
+      ...(isStaticOnlyArchiveCandidate(item) ? { staticOnly: true } : {}),
+      ...(normalizedHeldBackReason ? { heldBackReason: normalizedHeldBackReason } : {}),
+      ...(staticCandidate ? {
+        policy: {
+          selected,
+          rendered,
+          heldBackReason: normalizedHeldBackReason,
+          reasons: policyReasons,
+        },
+      } : {}),
       eligibility: normalizedEligibility,
       sourceEpisodeIds: normalizeEvidenceIds(item.sourceEpisodeIds || item.evidenceIds || []),
       sourceSessionIds: normalizeEvidenceIds(
@@ -944,22 +991,18 @@ function createMemoryArchiveApi({
     });
   }
 
-  function normalizeStaticEmbeddingCandidateTraceItem(raw = {}, {
+  function normalizeStaticEmbeddingInfo(raw = {}, {
     fallbackQueryMs = 0,
   } = {}) {
     const item = raw && typeof raw === 'object' ? raw : {};
     const staticEmbedding = item.staticEmbedding && typeof item.staticEmbedding === 'object'
       ? item.staticEmbedding
       : {};
-    const channels = normalizeEvidenceIds([
-      ...(Array.isArray(item.candidateChannels) ? item.candidateChannels : []),
-      'static-embedding',
-    ]);
     const rawSimilarity = Number(staticEmbedding.similarity ?? item.similarity);
     const rawRank = Number(staticEmbedding.rank ?? item.rank);
     const rawQueryMs = Number(staticEmbedding.queryMs ?? item.queryMs ?? fallbackQueryMs);
     const rawDimensions = Number(staticEmbedding.dimensions ?? staticEmbedding.truncateDim ?? item.dimensions);
-    const normalizedStatic = compactCandidateTraceObject({
+    const out = compactCandidateTraceObject({
       provider: trimText(staticEmbedding.provider || item.provider || '', 80),
       modelId: trimText(staticEmbedding.modelId || item.modelId || '', 140),
       dimensions: Number.isFinite(rawDimensions) ? rawDimensions : null,
@@ -967,6 +1010,28 @@ function createMemoryArchiveApi({
       rank: Number.isFinite(rawRank) ? rawRank : null,
       queryMs: Number.isFinite(rawQueryMs) ? Math.max(0, rawQueryMs) : 0,
     });
+    const hasSignal = !!(item.staticEmbedding && typeof item.staticEmbedding === 'object')
+      || Object.prototype.hasOwnProperty.call(item, 'staticSimilarity')
+      || out.similarity != null
+      || out.rank != null
+      || out.dimensions != null
+      || !!out.provider
+      || !!out.modelId;
+    return hasSignal ? out : null;
+  }
+
+  function normalizeStaticEmbeddingCandidateTraceItem(raw = {}, {
+    fallbackQueryMs = 0,
+    mode = 'live-shadow',
+  } = {}) {
+    const item = raw && typeof raw === 'object' ? raw : {};
+    const channels = normalizeEvidenceIds([
+      ...(Array.isArray(item.candidateChannels) ? item.candidateChannels : []),
+      'static-embedding',
+    ]);
+    const normalizedStatic = normalizeStaticEmbeddingInfo(item, { fallbackQueryMs });
+    const rawRank = Number(normalizedStatic?.rank ?? item.rank);
+    const advisoryMode = isStaticAdvisoryMode(mode);
     const sourceId = String(item.id || item.sourceItemId || '').trim();
     if (!sourceId && !item.textPreview) return null;
     return compactCandidateTraceObject({
@@ -982,8 +1047,10 @@ function createMemoryArchiveApi({
       policy: {
         selected: false,
         rendered: false,
-        heldBackReason: 'live-shadow-trace-only',
-        reasons: ['static-embedding-shadow', 'trace-only'],
+        heldBackReason: advisoryMode ? 'live-advisory-candidate-pool' : 'live-shadow-trace-only',
+        reasons: advisoryMode
+          ? ['static-embedding-advisory', 'candidate-pool']
+          : ['static-embedding-shadow', 'trace-only'],
       },
       selected: false,
       selectedRank: null,
@@ -992,9 +1059,9 @@ function createMemoryArchiveApi({
       ranked: true,
       rank: Number.isFinite(rawRank) ? rawRank : null,
       eligibility: {
-        eligible: false,
-        filtered: true,
-        filterReason: 'live-shadow-trace-only',
+        eligible: advisoryMode,
+        filtered: !advisoryMode,
+        filterReason: advisoryMode ? 'live-advisory-candidate-pool' : 'live-shadow-trace-only',
       },
       wouldHaveSelected: false,
     });
@@ -1007,11 +1074,11 @@ function createMemoryArchiveApi({
     if (raw.skipped === true && (reason === 'disabled' || status.enabled === false)) return null;
     const candidates = Array.isArray(raw.candidates) ? raw.candidates : [];
     const queryMs = Number(raw.queryMs ?? status.lastQueryMs);
+    const mode = String(status.mode || raw.mode || '').trim() || 'live-shadow';
     const topCandidates = candidates
-      .map((item) => normalizeStaticEmbeddingCandidateTraceItem(item, { fallbackQueryMs: queryMs }))
+      .map((item) => normalizeStaticEmbeddingCandidateTraceItem(item, { fallbackQueryMs: queryMs, mode }))
       .filter(Boolean)
       .slice(0, 12);
-    const mode = String(status.mode || raw.mode || '').trim() || 'live-shadow';
     const provider = String(status.provider || status.providerId || raw.provider || '').trim()
       || topCandidates.find((item) => item.staticEmbedding?.provider)?.staticEmbedding.provider
       || '';
@@ -1025,6 +1092,204 @@ function createMemoryArchiveApi({
       ...(raw.skipped === true ? { skipped: true, skippedReason: reason || 'not-ready' } : {}),
       ...(status.ready === true || status.ready === false ? { ready: status.ready === true } : {}),
     });
+  }
+
+  function staticSourceParts(sourceItemId = '') {
+    const parts = String(sourceItemId || '').split(':').map((part) => part.trim()).filter(Boolean);
+    if (parts.length < 3) return { scope: '', sourceType: '', archiveId: String(sourceItemId || '').trim() };
+    if (parts[0] === 'session' && parts.length >= 4) {
+      return {
+        scope: 'session',
+        sourceType: parts[parts.length - 2] || 'episode',
+        archiveId: parts[parts.length - 1] || sourceItemId,
+        sessionId: parts[1] || '',
+      };
+    }
+    if (parts[0] === 'archive' && parts.length >= 3) {
+      return {
+        scope: 'global',
+        sourceType: parts[parts.length - 2] || 'archive',
+        archiveId: parts[parts.length - 1] || sourceItemId,
+        sessionId: '',
+      };
+    }
+    if (parts[0] === 'research-ledger') {
+      return {
+        scope: 'global',
+        sourceType: 'research-ledger-topic',
+        archiveId: parts[parts.length - 1] || sourceItemId,
+        sessionId: '',
+      };
+    }
+    return { scope: '', sourceType: '', archiveId: String(sourceItemId || '').trim(), sessionId: '' };
+  }
+
+  function normalizeStaticAdvisoryCandidate(raw = {}, {
+    sessionId = 'default',
+    fallbackQueryMs = 0,
+  } = {}) {
+    const item = raw && typeof raw === 'object' ? raw : {};
+    const sourceItemId = String(item.sourceItemId || item.id || '').trim();
+    const parts = staticSourceParts(sourceItemId);
+    const text = trimText(item.text || item.sourceText || item.textPreview || item.excerpt || '', 220);
+    if (!sourceItemId || !text) return null;
+    const scope = String(item.scope || '').trim()
+      || (parts.scope === 'session' && (!parts.sessionId || parts.sessionId === sessionId) ? 'session' : 'global');
+    const sourceType = String(item.sourceType || parts.sourceType || 'archive').trim();
+    const archiveId = String(item.archiveId || parts.archiveId || sourceItemId).trim();
+    const sourceEpisodeIds = sourceType.includes('episode') && archiveId
+      ? [archiveId]
+      : [];
+    return compactCandidateTraceObject({
+      id: archiveId || sourceItemId,
+      sourceItemId,
+      text,
+      excerpt: trimText(item.textPreview || text, 220),
+      evidenceSnippet: trimText(item.textPreview || text, 160),
+      sourceType,
+      scope,
+      sourceAuthority: 'advisory',
+      supportState: 'candidate',
+      sourceLabel: scope === 'session' ? 'archive-session' : 'archive-global',
+      sensitivity: item.sensitivity === 'high' ? 'high' : 'normal',
+      createdAt: trimIso(item.createdAt || item.sourceUpdatedAt || item.updatedAt || '', ''),
+      updatedAt: trimIso(item.updatedAt || item.sourceUpdatedAt || '', ''),
+      evidenceCount: Math.max(1, Number(item.evidenceCount || 1)),
+      candidateChannels: normalizeEvidenceIds([
+        ...(Array.isArray(item.candidateChannels) ? item.candidateChannels : []),
+        'static-embedding',
+      ]),
+      staticEmbedding: normalizeStaticEmbeddingInfo(item, { fallbackQueryMs }),
+      staticOnly: true,
+      sourceEpisodeIds,
+      sourceSessionIds: scope === 'session' ? [sessionId].filter(Boolean) : [],
+      sourceTurnIds: normalizeEvidenceIds(item.sourceTurnIds || item.turnIds || []),
+    });
+  }
+
+  function mergeCandidateChannelMetadata(existing = {}, incoming = {}) {
+    return {
+      ...existing,
+      candidateChannels: normalizeEvidenceIds([
+        ...(Array.isArray(existing.candidateChannels) ? existing.candidateChannels : []),
+        ...(Array.isArray(incoming.candidateChannels) ? incoming.candidateChannels : []),
+      ]),
+      ...(incoming.staticEmbedding ? { staticEmbedding: incoming.staticEmbedding } : {}),
+      ...(incoming.sourceItemId ? { sourceItemId: incoming.sourceItemId } : {}),
+      staticOnly: false,
+      sourceAuthority: existing.sourceAuthority || incoming.sourceAuthority || 'advisory',
+      supportState: existing.supportState || incoming.supportState || 'candidate',
+    };
+  }
+
+  function mergeStaticAdvisoryCandidates(candidateGroups = {}, candidates = [], {
+    sessionId = 'default',
+    queryMs = 0,
+  } = {}) {
+    const normalized = (Array.isArray(candidates) ? candidates : [])
+      .map((item) => normalizeStaticAdvisoryCandidate(item, { sessionId, fallbackQueryMs: queryMs }))
+      .filter(Boolean);
+    const summary = {
+      enabled: normalized.length > 0,
+      candidateCount: normalized.length,
+      mergedCandidateCount: 0,
+      staticOnlyCandidateCount: 0,
+    };
+    candidateGroups.static = normalized;
+    for (const candidate of normalized) {
+      const groupKey = candidate.scope === 'session' ? 'session' : 'global';
+      const group = Array.isArray(candidateGroups[groupKey]) ? candidateGroups[groupKey] : [];
+      const candidateId = String(candidate.id || '').trim().toLowerCase();
+      const candidateText = trimText(candidate.text || '', 220).toLowerCase();
+      const existingIndex = group.findIndex((item) => {
+        const itemId = String(item?.id || '').trim().toLowerCase();
+        const itemText = trimText(item?.text || '', 220).toLowerCase();
+        return (candidateId && itemId && candidateId === itemId)
+          || (candidateText && itemText && candidateText === itemText);
+      });
+      if (existingIndex >= 0) {
+        group[existingIndex] = mergeCandidateChannelMetadata(group[existingIndex], candidate);
+        summary.mergedCandidateCount += 1;
+        continue;
+      }
+      group.push(candidate);
+      summary.staticOnlyCandidateCount += 1;
+      candidateGroups[groupKey] = group;
+    }
+    return summary;
+  }
+
+  function candidateTouchesContradictionSource(candidate = {}, activeContradictions = []) {
+    const ids = new Set(normalizeEvidenceIds([
+      candidate.id,
+      candidate.sourceItemId,
+      ...(Array.isArray(candidate.sourceEpisodeIds) ? candidate.sourceEpisodeIds : []),
+      ...(Array.isArray(candidate.evidenceIds) ? candidate.evidenceIds : []),
+    ]));
+    if (!ids.size) return false;
+    return normalizeContradictionList(activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT)
+      .filter(isActiveContradiction)
+      .some((item) => ids.has(String(item.sourceEpisodeId || '').trim()));
+  }
+
+  function queryTouchesActiveContradiction(userText = '', activeContradictions = []) {
+    return normalizeContradictionList(activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT)
+      .filter(isActiveContradiction)
+      .some((item) => textReferencesContradiction(userText, item));
+  }
+
+  function staticAdvisoryEligibility(candidate = {}, scored = {}, {
+    userText = '',
+    activeContradictions = [],
+  } = {}) {
+    if (!isStaticOnlyArchiveCandidate(candidate)) {
+      return { eligible: true, filtered: false, filterReason: '' };
+    }
+    const contradictionRepairScore = Number(
+      scored.hybridV1Components?.contradictionRepairScore
+      ?? scored.activeScoreComponents?.contradictionRepairScore
+      ?? 0,
+    );
+    if (
+      queryTouchesActiveContradiction(userText, activeContradictions)
+      && contradictionRepairScore <= 0
+    ) {
+      return {
+        eligible: false,
+        filtered: true,
+        filterReason: contradictionRepairScore < 0
+          ? 'static-stale-correction-gate'
+          : 'static-correction-source-gate',
+      };
+    }
+    return { eligible: true, filtered: false, filterReason: '' };
+  }
+
+  function selectUniqueCandidatesForPrompt(ranked = [], limit = 2, {
+    staticOnlyCapState = null,
+  } = {}) {
+    const maxSelected = Math.max(0, Math.floor(Number(limit || 0)));
+    if (maxSelected <= 0) return { selected: [], holdbacks: new Map() };
+    const seen = new Set();
+    const selected = [];
+    const holdbacks = new Map();
+    for (const item of Array.isArray(ranked) ? ranked : []) {
+      const key = archiveCandidateTraceKey(item);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (isStaticOnlyArchiveCandidate(item) && staticOnlyCapState) {
+        const max = Math.max(0, Number(staticOnlyCapState.max || 0));
+        const used = Math.max(0, Number(staticOnlyCapState.used || 0));
+        if (used >= max) {
+          holdbacks.set(key, 'static-only-render-cap');
+          continue;
+        }
+        staticOnlyCapState.used = used + 1;
+      }
+      selected.push(item);
+      if (selected.length >= maxSelected) break;
+    }
+    return { selected, holdbacks };
   }
 
   function normalizeRetrievalItem(raw = {}) {
@@ -1045,12 +1310,20 @@ function createMemoryArchiveApi({
     const activeScoreComponents = normalizeArchiveScoreComponents(raw.activeScoreComponents || raw.scoreComponents);
     const activeScoreReasons = normalizeArchiveScoreReasons(raw.activeScoreReasons || raw.scoreReasons);
     const scoringProfile = normalizeArchiveScoringProfile(raw.scoringProfile);
+    const candidateChannels = normalizeEvidenceIds(
+      Array.isArray(raw.candidateChannels) ? raw.candidateChannels : [],
+    );
+    const staticEmbedding = normalizeStaticEmbeddingInfo(raw);
     return {
       id: String(raw.id || '').trim(),
       text,
       sourceType: String(raw.sourceType || '').trim() || 'archive',
       scope,
       sourceLabel,
+      sourceAuthority: String(raw.sourceAuthority || '').trim() || (isStaticOnlyArchiveCandidate(raw) ? 'advisory' : ''),
+      supportState: isStaticOnlyArchiveCandidate(raw)
+        ? 'candidate'
+        : (String(raw.supportState || '').trim() || ''),
       sensitivity: raw.sensitivity === 'high' ? 'high' : 'normal',
       createdAt: trimIso(raw.createdAt, ''),
       score: Number.isFinite(Number(raw.score)) ? Number(raw.score) : 0,
@@ -1067,6 +1340,10 @@ function createMemoryArchiveApi({
         && Number.isFinite(Number(raw.hybridShadowScore)) ? { hybridShadowScore: Number(raw.hybridShadowScore) } : {}),
       ...(scoreComponents ? { scoreComponents } : {}),
       ...(scoreReasons.length ? { scoreReasons } : {}),
+      ...(candidateChannels.length ? { candidateChannels } : {}),
+      ...(staticEmbedding ? { staticEmbedding } : {}),
+      ...(isStaticOnlyArchiveCandidate(raw) ? { staticOnly: true } : {}),
+      ...(raw.sourceItemId ? { sourceItemId: String(raw.sourceItemId || '').trim() } : {}),
       sourceEpisodeIds,
       sourceSessionIds,
       sourceTurnIds,
@@ -2255,6 +2532,7 @@ function createMemoryArchiveApi({
     rerankShadowProvider = configuredRerankShadowProvider,
     rerankShadowInputTopK = null,
     queryStaticMemoryIndex = null,
+    maxStaticOnlyRendered = 1,
   } = {}) {
     if (lane !== 'chat') {
       const semanticMemory = await getSemanticMemoryStatus();
@@ -2276,21 +2554,31 @@ function createMemoryArchiveApi({
     const semanticAttempted = semanticMemory.ready && allowSemanticQuery;
     let semanticDowngrade = false;
     let semanticDowngradeReason = '';
-    const shouldIncludeCandidateTrace = includeCandidateTrace === true;
+    let shouldIncludeCandidateTrace = includeCandidateTrace === true;
     const shouldIncludeRerankShadow = shouldIncludeCandidateTrace && includeRerankShadow === true;
     const activeScoringProfile = normalizeArchiveScoringProfile(scoringProfile);
     const activeRerankShadowProvider = normalizeRerankShadowProvider(rerankShadowProvider);
     const traceLimit = normalizeCandidateTraceLimit(candidateTraceLimit);
+    const staticOnlyRenderedCap = normalizeStaticOnlyRenderedCap(maxStaticOnlyRendered);
     const traceCandidates = [];
     const rerankShadowRuns = [];
     let staticEmbeddingShadow = null;
+    let staticMemoryIndexResult = null;
 
     if (typeof queryStaticMemoryIndex === 'function') {
       try {
-        staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult(
-          await queryStaticMemoryIndex(userText),
-        );
+        staticMemoryIndexResult = await queryStaticMemoryIndex(userText);
+        staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult(staticMemoryIndexResult);
       } catch (error) {
+        staticMemoryIndexResult = {
+          skipped: true,
+          reason: String(error?.message || error || 'static-memory-index-query-failed').trim(),
+          candidates: [],
+          queryMs: 0,
+          status: {
+            mode: 'live-shadow',
+          },
+        };
         staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult({
           skipped: true,
           reason: String(error?.message || error || 'static-memory-index-query-failed').trim(),
@@ -2333,23 +2621,52 @@ function createMemoryArchiveApi({
         ...archive.global.patterns.slice(-16).map(item => archivePolicyApi.buildArchiveCandidate(item, 'global', 'pattern')),
       ],
     };
+    let staticAdvisorySummary = {
+      enabled: false,
+      candidateCount: 0,
+      mergedCandidateCount: 0,
+      staticOnlyCandidateCount: 0,
+    };
+    if (
+      isStaticAdvisoryMode(staticEmbeddingShadow?.mode)
+      && staticMemoryIndexResult?.skipped !== true
+      && Array.isArray(staticMemoryIndexResult?.candidates)
+    ) {
+      staticAdvisorySummary = mergeStaticAdvisoryCandidates(candidateGroups, staticMemoryIndexResult.candidates, {
+        sessionId,
+        queryMs: staticEmbeddingShadow?.queryMs || staticMemoryIndexResult?.queryMs || 0,
+      });
+      if (staticAdvisorySummary.candidateCount > 0) shouldIncludeCandidateTrace = true;
+      staticEmbeddingShadow = compactCandidateTraceObject({
+        ...staticEmbeddingShadow,
+        candidatePoolMerged: true,
+        mergedCandidateCount: staticAdvisorySummary.mergedCandidateCount,
+        staticOnlyCandidateCount: staticAdvisorySummary.staticOnlyCandidateCount,
+        staticOnlyRenderedCap,
+      });
+    }
 
-    async function rankGroupDetailed(items = [], limit = 2, group = 'archive') {
+    async function rankGroupDetailed(items = [], limit = 2, group = 'archive', {
+      staticOnlyCapState = null,
+    } = {}) {
       const ranked = [];
       const filtered = [];
       let workingEmbeddings = embeddings || readEmbeddingsStore();
       for (const item of items) {
+        const scoringItem = isStaticOnlyArchiveCandidate(item) && candidateTouchesContradictionSource(item, activeContradictions)
+          ? { ...item, contradictionLinked: true }
+          : item;
         let vector = null;
         if (queryVector && semanticMemory.ready) {
           try {
-            const embedded = await ensureEmbeddingForText(item.text, workingEmbeddings, semanticMemory);
+            const embedded = await ensureEmbeddingForText(scoringItem.text, workingEmbeddings, semanticMemory);
             workingEmbeddings = embedded.embeddings;
             vector = embedded.vector;
           } catch {
             vector = null;
           }
         }
-        const scored = archivePolicyApi.scoreArchiveCandidateWithProfile(item, {
+        const scored = archivePolicyApi.scoreArchiveCandidateWithProfile(scoringItem, {
           scoringProfile: activeScoringProfile,
           queryText: userText,
           queryTokens,
@@ -2359,6 +2676,10 @@ function createMemoryArchiveApi({
           activeContradictions,
           openLoops: session.openLoops,
         });
+        const staticEligibility = staticAdvisoryEligibility(scoringItem, scored, {
+          userText,
+          activeContradictions,
+        });
         const score = Number.isFinite(Number(scored.activeScore)) ? Number(scored.activeScore) : 0;
         const scoreComponents = scored.activeScoreComponents && typeof scored.activeScoreComponents === 'object'
           ? scored.activeScoreComponents
@@ -2366,7 +2687,7 @@ function createMemoryArchiveApi({
         const scoreReasons = Array.isArray(scored.activeScoreReasons) ? scored.activeScoreReasons : [];
         const matchedTokens = Array.isArray(scored.baselineOverlapTokens) ? scored.baselineOverlapTokens : [];
         const candidate = {
-          ...item,
+          ...scoringItem,
           score,
           confidence: Number.isFinite(Number(scored.activeConfidence))
             ? Number(scored.activeConfidence)
@@ -2403,6 +2724,15 @@ function createMemoryArchiveApi({
           }
           continue;
         }
+        if (staticEligibility.eligible === false) {
+          if (shouldIncludeCandidateTrace) {
+            filtered.push({
+              item: candidate,
+              eligibility: staticEligibility,
+            });
+          }
+          continue;
+        }
         ranked.push(candidate);
       }
       if (workingEmbeddings !== embeddings) {
@@ -2410,7 +2740,8 @@ function createMemoryArchiveApi({
         writeEmbeddingsStore(embeddings);
       }
       ranked.sort((left, right) => right.score - left.score || String(right.createdAt).localeCompare(String(left.createdAt)));
-      const selected = uniqueCandidateList(ranked, limit);
+      const selection = selectUniqueCandidatesForPrompt(ranked, limit, { staticOnlyCapState });
+      const selected = selection.selected;
       if (shouldIncludeRerankShadow) {
         const requestedInputTopK = Number(rerankShadowInputTopK);
         const inputTopK = Number.isFinite(requestedInputTopK) && requestedInputTopK > 0
@@ -2502,7 +2833,8 @@ function createMemoryArchiveApi({
           if (key && !selectedRanks.has(key)) selectedRanks.set(key, index + 1);
         });
         ranked.forEach((item, index) => {
-          const selectedRank = selectedRanks.get(archiveCandidateTraceKey(item)) || null;
+          const key = archiveCandidateTraceKey(item);
+          const selectedRank = selectedRanks.get(key) || null;
           traceCandidates.push({
             item,
             group,
@@ -2510,6 +2842,7 @@ function createMemoryArchiveApi({
             ranked: true,
             selected: selectedRank !== null,
             selectedRank,
+            heldBackReason: selection.holdbacks.get(key) || '',
             eligibility: {
               eligible: true,
               filtered: false,
@@ -2541,8 +2874,15 @@ function createMemoryArchiveApi({
       return result.selected;
     }
 
-    const sessionRanking = await rankGroupDetailed(candidateGroups.session, sessionPromptLimit, 'session');
-    const globalRanking = await rankGroupDetailed(candidateGroups.global, globalPromptLimit, 'global');
+    const staticOnlyCapState = staticAdvisorySummary.enabled
+      ? { max: staticOnlyRenderedCap, used: 0 }
+      : null;
+    const sessionRanking = await rankGroupDetailed(candidateGroups.session, sessionPromptLimit, 'session', {
+      staticOnlyCapState,
+    });
+    const globalRanking = await rankGroupDetailed(candidateGroups.global, globalPromptLimit, 'global', {
+      staticOnlyCapState,
+    });
     const sessionItems = sessionRanking.selected;
     const globalItems = globalRanking.selected;
     const strongestConfidence = Math.max(
@@ -2564,7 +2904,7 @@ function createMemoryArchiveApi({
     const renderedCandidateKeys = new Set(
       [...combinedSessionItems, ...globalItems].map(archiveCandidateTraceKey).filter(Boolean),
     );
-    const staticTraceCandidates = Array.isArray(staticEmbeddingShadow?.topCandidates)
+    const staticTraceCandidates = !staticAdvisorySummary.enabled && Array.isArray(staticEmbeddingShadow?.topCandidates)
       ? staticEmbeddingShadow.topCandidates
       : [];
     const archiveTraceCandidates = shouldIncludeCandidateTrace
@@ -2577,6 +2917,7 @@ function createMemoryArchiveApi({
           selectedRank: entry.selectedRank,
           rendered: renderedCandidateKeys.has(archiveCandidateTraceKey(entry.item)),
           ranked: entry.ranked,
+          heldBackReason: entry.heldBackReason,
           eligibility: entry.eligibility,
         }))
       : [];
@@ -2601,6 +2942,15 @@ function createMemoryArchiveApi({
       compression,
       ...(shouldIncludeRerankShadow ? { rerankShadow: summarizeArchiveRerankShadowRuns(rerankShadowRuns) } : {}),
       ...(staticEmbeddingShadow ? { staticEmbeddingShadow } : {}),
+      ...(staticAdvisorySummary.enabled ? {
+        staticEmbeddingAdvisory: {
+          candidateCount: staticAdvisorySummary.candidateCount,
+          mergedCandidateCount: staticAdvisorySummary.mergedCandidateCount,
+          staticOnlyCandidateCount: staticAdvisorySummary.staticOnlyCandidateCount,
+          staticOnlyRenderedCap,
+          staticOnlyRenderedCount: staticOnlyCapState?.used || 0,
+        },
+      } : {}),
       ...(shouldIncludeCandidateTrace ? { candidateTrace } : {}),
     };
     if (!shouldIncludeCandidateTrace && staticTraceCandidates.length) {

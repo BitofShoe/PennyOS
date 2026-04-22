@@ -374,6 +374,15 @@ Acceptance:
 - Static candidate state remains advisory.
 - Explicit/canonical memory still wins.
 
+Slice S6 implementation note:
+
+- `live-advisory` static index results now enter archive candidate selection inside `buildArchiveContext()`; `live-shadow` remains trace-only.
+- Static hits are normalized into advisory archive candidates with `candidateChannels: ["static-embedding"]`, `sourceAuthority: advisory`, `supportState: candidate`, and a static-only marker unless they merge onto an existing archive candidate.
+- Archive ranking now records a separate `staticSimilarityScore` component while preserving existing `SESSION_PROMPT_LIMIT` and `GLOBAL_PROMPT_LIMIT` behavior.
+- Static-only candidates are subject to `PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED` / `maxStaticOnlyRendered`; the committed default cap is one static-only rendered archive item when live-advisory is explicitly enabled.
+- Static-only stale correction candidates are filtered on active correction topics unless they carry current correction/source signal.
+- Runtime artifacts still keep static metadata as sibling retrieval trace metadata. PromptTruth and `toolEvidenceReceipt` were not expanded.
+
 ### Slice S7 - Correction and authority guardrails
 
 Add canaries for static-retrieved stale memory:

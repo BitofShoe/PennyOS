@@ -660,6 +660,10 @@ function normalizeStaticEmbeddingShadow(raw = null) {
     candidateCount,
     topCandidates: candidates,
     wouldHaveSelected: false,
+    ...(raw.candidatePoolMerged === true ? { candidatePoolMerged: true } : {}),
+    ...(raw.mergedCandidateCount != null ? { mergedCandidateCount: normalizeNonNegativeNumber(raw.mergedCandidateCount, 0) } : {}),
+    ...(raw.staticOnlyCandidateCount != null ? { staticOnlyCandidateCount: normalizeNonNegativeNumber(raw.staticOnlyCandidateCount, 0) } : {}),
+    ...(raw.staticOnlyRenderedCap != null ? { staticOnlyRenderedCap: normalizeNonNegativeNumber(raw.staticOnlyRenderedCap, 0) } : {}),
     ...(raw.skipped === true ? { skipped: true, skippedReason: trimText(raw.skippedReason || raw.reason || '', 140) || 'not-ready' } : {}),
     ...(raw.ready === true || raw.ready === false ? { ready: raw.ready === true } : {}),
   };

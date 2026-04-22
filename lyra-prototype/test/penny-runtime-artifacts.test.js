@@ -297,6 +297,39 @@ test('buildRuntimeArtifact preserves static embedding live-shadow as sibling tra
   assert.equal(Object.prototype.hasOwnProperty.call(artifact, 'toolEvidenceReceipt'), true);
 });
 
+test('buildRuntimeArtifact preserves static live-advisory merge counters as sibling metadata', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'demo',
+    requestedMode: 'local',
+    selectedLane: 'chat',
+    backend: 'local-lmstudio',
+    retrieval: {
+      reasonCode: 'keyword_fallback',
+      session: [],
+      global: [],
+      compression: { used: false, chapters: [] },
+      staticEmbeddingShadow: {
+        mode: 'live-advisory',
+        provider: 'model2vec-potion-8m',
+        queryMs: 0.8,
+        candidateCount: 2,
+        candidatePoolMerged: true,
+        mergedCandidateCount: 1,
+        staticOnlyCandidateCount: 1,
+        staticOnlyRenderedCap: 1,
+        topCandidates: [],
+      },
+    },
+  });
+
+  assert.equal(artifact.staticEmbeddingShadow.mode, 'live-advisory');
+  assert.equal(artifact.staticEmbeddingShadow.candidatePoolMerged, true);
+  assert.equal(artifact.staticEmbeddingShadow.mergedCandidateCount, 1);
+  assert.equal(artifact.staticEmbeddingShadow.staticOnlyCandidateCount, 1);
+  assert.equal(artifact.staticEmbeddingShadow.staticOnlyRenderedCap, 1);
+  assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'staticEmbeddingShadow'), false);
+});
+
 test('normalizeRuntimeArtifact prefers canonical rendered booleans over conflicting compatibility aliases', () => {
   const artifact = normalizeRuntimeArtifact({
     promptTruth: {

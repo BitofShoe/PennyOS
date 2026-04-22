@@ -240,10 +240,12 @@ function collectStaticMemorySourceItems({
 
 function buildIndexedItem(sourceItem = {}, vector = [], providerInfo = {}) {
   const info = normalizeStaticEmbeddingVectorSpace(providerInfo);
+  const text = trimText(sourceItem.sourceText || sourceItem.text || sourceItem.textPreview || '', 220);
   return {
     id: sourceItem.sourceItemId,
     sourceItemId: sourceItem.sourceItemId,
     textPreview: trimText(sourceItem.textPreview || sourceItem.sourceText || '', 240),
+    text,
     sourceType: sourceItem.sourceType || 'memory',
     sourceAuthority: sourceItem.sourceAuthority || 'advisory',
     supportState: sourceItem.supportState || 'candidate',
@@ -539,6 +541,7 @@ function createStaticMemoryIndexApi({
         .map((item, index) => ({
           id: item.sourceItemId,
           textPreview: item.textPreview,
+          text: item.text || item.textPreview,
           sourceType: item.sourceType,
           sourceAuthority: item.sourceAuthority,
           supportState: item.supportState,

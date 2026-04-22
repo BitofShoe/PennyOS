@@ -720,6 +720,232 @@ test('buildArchiveContext records static live-shadow trace without changing sele
   }
 });
 
+test('buildArchiveContext merges live-advisory static candidates under the static-only render cap', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 's1',
+          type: 'episode',
+          text: 'Midnight rain on the arcade window.',
+          excerpt: 'Midnight rain on the arcade window.',
+          userText: 'Midnight rain on the arcade window.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+        {
+          id: 's2',
+          type: 'episode',
+          text: 'Coffee helped during the late storm.',
+          excerpt: 'Coffee helped during the late storm.',
+          userText: 'Coffee helped during the late storm.',
+          createdAt: '2026-04-13T12:01:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const result = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'What do you remember about the copper rabbit?',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 2,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      maxStaticOnlyRendered: 1,
+      queryStaticMemoryIndex: async () => ({
+        skipped: false,
+        queryMs: 1.4,
+        status: {
+          enabled: true,
+          mode: 'live-advisory',
+          provider: 'model2vec-potion-8m',
+          ready: true,
+        },
+        candidates: [
+          {
+            id: 'session:demo:episode:static-copper-rabbit',
+            text: 'Correction: my coding mascot is a copper rabbit now, not a brass fox.',
+            textPreview: 'Copper rabbit replaced the brass fox.',
+            sourceType: 'session-episode',
+            sourceAuthority: 'advisory',
+            supportState: 'candidate',
+            candidateChannels: ['static-embedding'],
+            staticEmbedding: {
+              provider: 'model2vec-potion-8m',
+              modelId: 'minishlab/potion-base-8M',
+              dimensions: 256,
+              similarity: 0.92,
+              rank: 1,
+              queryMs: 1.4,
+            },
+          },
+          {
+            id: 'session:demo:episode:static-moon-mug',
+            text: 'The chipped moon mug was beside the arcade register.',
+            textPreview: 'Moon mug beside the arcade register.',
+            sourceType: 'session-episode',
+            sourceAuthority: 'advisory',
+            supportState: 'candidate',
+            candidateChannels: ['static-embedding'],
+            staticEmbedding: {
+              provider: 'model2vec-potion-8m',
+              modelId: 'minishlab/potion-base-8M',
+              dimensions: 256,
+              similarity: 0.87,
+              rank: 2,
+              queryMs: 1.4,
+            },
+          },
+        ],
+      }),
+    });
+
+    assert.deepEqual(result.archiveContext.session.map((item) => item.id), ['static-copper-rabbit', 's2']);
+    assert.equal(result.archiveContext.session.length, 2);
+    assert.equal(result.archiveContext.global.length, 0);
+    assert.equal(result.retrieval.staticEmbeddingShadow.mode, 'live-advisory');
+    assert.equal(result.retrieval.staticEmbeddingShadow.candidatePoolMerged, true);
+    assert.equal(result.retrieval.staticEmbeddingAdvisory.candidateCount, 2);
+    assert.equal(result.retrieval.staticEmbeddingAdvisory.staticOnlyCandidateCount, 2);
+    assert.equal(result.retrieval.staticEmbeddingAdvisory.staticOnlyRenderedCap, 1);
+    assert.equal(result.retrieval.staticEmbeddingAdvisory.staticOnlyRenderedCount, 1);
+
+    const renderedStatic = result.retrieval.candidateTrace.find((item) => item.id === 'static-copper-rabbit');
+    const cappedStatic = result.retrieval.candidateTrace.find((item) => item.id === 'static-moon-mug');
+    assert.ok(renderedStatic);
+    assert.ok(cappedStatic);
+    assert.equal(renderedStatic.selected, true);
+    assert.equal(renderedStatic.rendered, true);
+    assert.equal(renderedStatic.sourceAuthority, 'advisory');
+    assert.equal(renderedStatic.supportState, 'candidate');
+    assert.equal(renderedStatic.staticOnly, true);
+    assert.deepEqual(renderedStatic.candidateChannels, ['static-embedding']);
+    assert.ok(renderedStatic.activeScoreComponents.staticSimilarityScore > 4.5);
+    assert.equal(renderedStatic.policy.selected, true);
+    assert.equal(cappedStatic.selected, false);
+    assert.equal(cappedStatic.rendered, false);
+    assert.equal(cappedStatic.heldBackReason, 'static-only-render-cap');
+    assert.equal(cappedStatic.policy.heldBackReason, 'static-only-render-cap');
+    assert.equal(
+      result.retrieval.candidateTrace.some((item) => item.group === 'static-embedding'),
+      false,
+    );
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext blocks stale live-advisory static-only candidates on active correction topics', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'tea-current',
+          type: 'episode',
+          text: 'Favorite tea is lapsang souchong now.',
+          excerpt: 'Favorite tea is lapsang souchong now.',
+          userText: 'Favorite tea is lapsang souchong now.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [
+        {
+          id: 'contr-tea',
+          oldText: 'Favorite tea is oolong',
+          newText: 'Favorite tea is lapsang souchong',
+          conflictKey: 'favorite tea',
+          status: 'active',
+          sourceEpisodeId: 'tea-current',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+      ],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const result = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'What is my favorite tea?',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      maxStaticOnlyRendered: 1,
+      queryStaticMemoryIndex: async () => ({
+        skipped: false,
+        queryMs: 0.9,
+        status: {
+          enabled: true,
+          mode: 'live-advisory',
+          provider: 'model2vec-potion-8m',
+          ready: true,
+        },
+        candidates: [
+          {
+            id: 'session:demo:episode:tea-stale-static',
+            text: 'Favorite tea is oolong.',
+            textPreview: 'Favorite tea is oolong.',
+            sourceType: 'session-episode',
+            sourceAuthority: 'advisory',
+            supportState: 'candidate',
+            candidateChannels: ['static-embedding'],
+            staticEmbedding: {
+              provider: 'model2vec-potion-8m',
+              modelId: 'minishlab/potion-base-8M',
+              dimensions: 256,
+              similarity: 0.99,
+              rank: 1,
+              queryMs: 0.9,
+            },
+          },
+        ],
+      }),
+    });
+
+    assert.deepEqual(result.archiveContext.session.map((item) => item.id), ['tea-current']);
+    const current = result.retrieval.candidateTrace.find((item) => item.id === 'tea-current');
+    const staleStatic = result.retrieval.candidateTrace.find((item) => item.id === 'tea-stale-static');
+    assert.ok(current);
+    assert.ok(staleStatic);
+    assert.equal(current.selected, true);
+    assert.equal(current.rendered, true);
+    assert.equal(staleStatic.selected, false);
+    assert.equal(staleStatic.rendered, false);
+    assert.equal(staleStatic.supportState, 'candidate');
+    assert.equal(staleStatic.eligibility.filtered, true);
+    assert.equal(staleStatic.eligibility.filterReason, 'static-stale-correction-gate');
+    assert.equal(result.retrieval.staticEmbeddingAdvisory.staticOnlyRenderedCount, 0);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('buildArchiveContext computes hybrid shadow rank without changing active selection or rendered context', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi({ ...files, embedReady: false });
