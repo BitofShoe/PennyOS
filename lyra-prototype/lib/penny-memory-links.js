@@ -1,4 +1,5 @@
 const PENNY_MEMORY_LINKS_SCHEMA = 'penny-memory-links.v1';
+const PENNY_MEMORY_LINK_TRACE_SCHEMA = 'penny-memory-link-trace.v1';
 
 const MEMORY_LINK_RELATIONS = Object.freeze({
   CORRECTION_OF: 'correction-of',
@@ -522,6 +523,108 @@ function findLinksForItem(links = [], itemId = '', options = {}) {
     .filter((link) => !authorityEffect || link.authorityEffect === authorityEffect);
 }
 
+function normalizeMemoryLinkTraceLimit(value = 6) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 6;
+  return Math.max(0, Math.min(24, Math.floor(parsed)));
+}
+
+function relationSummaryKey(relation = '') {
+  const normalized = normalizeRelation(relation) || cleanToken(relation);
+  return normalized.replace(/-([a-z0-9])/g, (_, char) => char.toUpperCase());
+}
+
+function compactMemoryLinkTraceObject(input = {}) {
+  const output = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (Array.isArray(value)) {
+      if (value.length) output[key] = value;
+      continue;
+    }
+    if (isPlainObject(value)) {
+      if (Object.keys(value).length) output[key] = value;
+      continue;
+    }
+    if (value !== undefined && value !== null && value !== '') output[key] = value;
+  }
+  return output;
+}
+
+function normalizeMemoryLinkTraceLink(linkLike = {}, direction = '') {
+  const link = normalizeMemoryLink(linkLike);
+  if (!link) return null;
+  return compactMemoryLinkTraceObject({
+    id: link.id,
+    sourceId: link.sourceId,
+    targetId: link.targetId,
+    relation: link.relation,
+    direction: cleanToken(direction),
+    confidence: link.confidence,
+    supportState: link.support.state,
+    authorityEffect: link.authorityEffect,
+    reviewState: link.reviewState,
+    advisoryOnly: true,
+    truthProof: false,
+    canonicalMemoryWrite: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+  });
+}
+
+function buildMemoryLinkTraceForItem(links = [], itemId = '', options = {}) {
+  const normalizedItemId = cleanString(itemId, 220);
+  const linkTraceLimit = normalizeMemoryLinkTraceLimit(options.linkTraceLimit ?? options.limit ?? 6);
+  if (!normalizedItemId || linkTraceLimit <= 0) return null;
+
+  const incomingSource = findLinksForItem(links, normalizedItemId, {
+    direction: 'incoming',
+    includeBidirectional: options.includeBidirectional,
+  }).map((link) => normalizeMemoryLinkTraceLink(link, 'incoming')).filter(Boolean);
+  const outgoingSource = findLinksForItem(links, normalizedItemId, {
+    direction: 'outgoing',
+    includeBidirectional: options.includeBidirectional,
+  }).map((link) => normalizeMemoryLinkTraceLink(link, 'outgoing')).filter(Boolean);
+
+  const incoming = [];
+  const outgoing = [];
+  const uniqueLinks = new Map();
+  let remaining = linkTraceLimit;
+  const takeLink = (link, bucket) => {
+    if (!link || remaining <= 0) return;
+    bucket.push(link);
+    remaining -= 1;
+    if (!uniqueLinks.has(link.id)) uniqueLinks.set(link.id, link);
+  };
+
+  for (const link of incomingSource) takeLink(link, incoming);
+  for (const link of outgoingSource) takeLink(link, outgoing);
+  if (!incoming.length && !outgoing.length) return null;
+
+  const relationSummary = {};
+  const authorityEffects = new Set();
+  for (const link of uniqueLinks.values()) {
+    const summaryKey = relationSummaryKey(link.relation);
+    if (summaryKey) relationSummary[summaryKey] = (relationSummary[summaryKey] || 0) + 1;
+    if (link.authorityEffect) authorityEffects.add(link.authorityEffect);
+  }
+
+  return {
+    schema: PENNY_MEMORY_LINK_TRACE_SCHEMA,
+    advisoryOnly: true,
+    truthProof: false,
+    scoringActive: false,
+    behaviorChanged: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    linkTraceLimit,
+    totalLinks: uniqueLinks.size,
+    incoming,
+    outgoing,
+    relationSummary,
+    authorityEffects: [...authorityEffects],
+  };
+}
+
 function invertDirectedLink(link = {}) {
   const normalized = normalizeMemoryLink(link);
   if (!normalized) return null;
@@ -577,6 +680,7 @@ function validateMemoryLink(link = {}, options = {}) {
 
 module.exports = {
   PENNY_MEMORY_LINKS_SCHEMA,
+  PENNY_MEMORY_LINK_TRACE_SCHEMA,
   MEMORY_LINK_RELATIONS,
   MEMORY_LINK_SUPPORT_STATES,
   MEMORY_LINK_AUTHORITY_EFFECTS,
@@ -585,6 +689,7 @@ module.exports = {
   MEMORY_LINK_REVIEW_STATES,
   MEMORY_LINK_MEASUREMENT_MODES,
   DEFAULT_MEMORY_LINK_LIMITS,
+  buildMemoryLinkTraceForItem,
   findLinksForItem,
   invertDirectedLink,
   normalizeMemoryLink,

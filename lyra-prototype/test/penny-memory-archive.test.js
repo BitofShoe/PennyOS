@@ -1831,6 +1831,111 @@ test('buildArchiveContext hybrid shadow demotes stale contradiction-only candida
   }
 });
 
+test('buildArchiveContext attaches correction memory links to candidate trace without scoring changes', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'tea-current',
+          type: 'episode',
+          text: 'Favorite tea is lapsang souchong.',
+          excerpt: 'Favorite tea is lapsang souchong.',
+          userText: 'Favorite tea is lapsang souchong.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+        {
+          id: 'tea-stale',
+          type: 'episode',
+          text: 'Favorite tea is oolong.',
+          excerpt: 'Favorite tea is oolong.',
+          userText: 'Favorite tea is oolong.',
+          createdAt: '2026-04-13T12:02:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [
+        {
+          id: 'contr-tea',
+          oldText: 'Favorite tea is oolong',
+          newText: 'Favorite tea is lapsang souchong',
+          conflictKey: 'favorite tea',
+          status: 'active',
+          createdAt: '2026-04-13T12:02:00.000Z',
+        },
+      ],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const request = {
+      sessionId: 'demo',
+      userText: 'favorite tea',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      includeCandidateTrace: true,
+      candidateTraceLimit: 4,
+    };
+    const defaultResult = await api.buildArchiveContext(request);
+    const linkedResult = await api.buildArchiveContext({
+      ...request,
+      includeCandidateTraceLinks: true,
+      candidateTraceLinkLimit: 6,
+    });
+
+    assert.deepEqual(
+      linkedResult.archiveContext.session.map((item) => item.id),
+      defaultResult.archiveContext.session.map((item) => item.id),
+    );
+    assert.deepEqual(
+      linkedResult.retrieval.candidateTrace.map((item) => ({
+        id: item.id,
+        selected: item.selected,
+        rendered: item.rendered,
+        rank: item.rank,
+      })),
+      defaultResult.retrieval.candidateTrace.map((item) => ({
+        id: item.id,
+        selected: item.selected,
+        rendered: item.rendered,
+        rank: item.rank,
+      })),
+    );
+
+    const unlinkedCurrent = defaultResult.retrieval.candidateTrace.find((item) => item.id === 'tea-current');
+    const current = linkedResult.retrieval.candidateTrace.find((item) => item.id === 'tea-current');
+    const stale = linkedResult.retrieval.candidateTrace.find((item) => item.id === 'tea-stale');
+    assert.ok(unlinkedCurrent);
+    assert.equal(Object.prototype.hasOwnProperty.call(unlinkedCurrent, 'memoryLinks'), false);
+    assert.ok(current);
+    assert.ok(stale);
+    assert.equal(current.memoryLinks.schema, 'penny-memory-link-trace.v1');
+    assert.equal(current.memoryLinks.advisoryOnly, true);
+    assert.equal(current.memoryLinks.truthProof, false);
+    assert.equal(current.memoryLinks.scoringActive, false);
+    assert.equal(current.memoryLinks.behaviorChanged, false);
+    assert.equal(current.memoryLinks.relationSummary.currentCorrectionFor, 1);
+    assert.equal(current.memoryLinks.relationSummary.stalePriorOf, 1);
+    assert.equal(stale.memoryLinks.relationSummary.currentCorrectionFor, 1);
+    assert.equal(stale.memoryLinks.relationSummary.stalePriorOf, 1);
+    assert.deepEqual(current.memoryLinks.authorityEffects, ['none']);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('buildArchiveContext active hybrid-v1 demotes stale contradiction-only candidates', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi({ ...files, embedReady: false, archiveScoringProfile: 'hybrid-v1' });

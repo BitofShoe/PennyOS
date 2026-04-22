@@ -1,5 +1,9 @@
 const CANDIDATE_SURVIVAL_QA_SCHEMA = 'penny-candidate-survival-memory-qa.v1';
 
+const {
+  buildMemoryLinkTraceForItem,
+} = require('./penny-memory-links');
+
 const CANDIDATE_SURVIVAL_OUTCOMES = Object.freeze({
   RENDERED: 'rendered',
   SELECTED_HELD_BACK: 'selected-held-back',
@@ -1052,8 +1056,23 @@ function normalizeCandidatePolicyReasons(source = {}) {
   ], 12);
 }
 
+function normalizeCandidateTraceMemoryLinks(raw = null, candidateId = '') {
+  if (!raw || typeof raw !== 'object') return null;
+  const links = [
+    ...asArray(raw.links),
+    ...asArray(raw.incoming),
+    ...asArray(raw.outgoing),
+  ];
+  const trace = buildMemoryLinkTraceForItem(links, candidateId, {
+    linkTraceLimit: raw.linkTraceLimit,
+  });
+  return trace || null;
+}
+
 function normalizeCandidateTraceItem(itemLike = {}) {
   const source = itemLike && typeof itemLike === 'object' ? itemLike : { text: String(itemLike || '') };
+  const id = trimText(source.id || source.candidateId || source.sourceId || '', 160);
+  const sourceId = trimText(source.sourceId || source.id || source.candidateId || '', 160);
   const stage = normalizeKey(source.stage || source.status || source.outcome || source.state || '');
   const rank = normalizeRank(source.rank ?? source.rankIndex ?? source.position ?? source.scoreRank);
   const shadowScores = normalizeCandidateShadowScores(source.shadowScores);
@@ -1091,9 +1110,11 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     ? false
     : (source.eligible === true || eligibilitySource.eligible === true ? true : null);
 
+  const memoryLinks = normalizeCandidateTraceMemoryLinks(source.memoryLinks, id || sourceId);
+
   return compactObject({
-    id: trimText(source.id || source.candidateId || source.sourceId || '', 160),
-    sourceId: trimText(source.sourceId || source.id || source.candidateId || '', 160),
+    id,
+    sourceId,
     stage,
     raw,
     ranked,
@@ -1116,6 +1137,7 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     policyReasons,
     shadowScores,
     rerankShadow,
+    memoryLinks,
   });
 }
 
@@ -1287,6 +1309,25 @@ function summarizeTraceItem(item = null) {
             ? Math.max(0, Math.round(Number(item.rerankShadow.latencyMs)))
             : null,
           reasons: uniqueStrings(item.rerankShadow.reasons || [], 6),
+        })
+      : null,
+    memoryLinks: item.memoryLinks
+      ? compactObject({
+          schema: item.memoryLinks.schema || '',
+          advisoryOnly: item.memoryLinks.advisoryOnly === true,
+          truthProof: item.memoryLinks.truthProof === true,
+          scoringActive: item.memoryLinks.scoringActive === true,
+          behaviorChanged: item.memoryLinks.behaviorChanged === true,
+          linkTraceLimit: Number.isFinite(Number(item.memoryLinks.linkTraceLimit))
+            ? Number(item.memoryLinks.linkTraceLimit)
+            : null,
+          totalLinks: Number.isFinite(Number(item.memoryLinks.totalLinks))
+            ? Number(item.memoryLinks.totalLinks)
+            : null,
+          incomingCount: asArray(item.memoryLinks.incoming).length,
+          outgoingCount: asArray(item.memoryLinks.outgoing).length,
+          relationSummary: item.memoryLinks.relationSummary || {},
+          authorityEffects: uniqueStrings(item.memoryLinks.authorityEffects || [], 8),
         })
       : null,
   });
@@ -1478,6 +1519,7 @@ function applyPromptTruthToCandidateTrace(traceLike = [], promptTruth = null) {
 
 function summarizeCandidateTrace(traceLike = []) {
   const trace = normalizeTraceArray(traceLike);
+  const linkTraces = trace.filter((item) => item.memoryLinks);
   return {
     rawCandidateCount: trace.filter((item) => item.raw).length,
     eligibleCandidateCount: trace.filter((item) => item.raw && item.eligible !== false).length,
@@ -1487,6 +1529,8 @@ function summarizeCandidateTrace(traceLike = []) {
     filteredSensitiveCount: trace.filter((item) => item.eligible === false && (
       item.sensitivity === 'high' || item.heldBackReason === 'sensitive-low-confidence'
     )).length,
+    linkTraceCandidateCount: linkTraces.length,
+    linkTraceTotalLinks: linkTraces.reduce((sum, item) => sum + Number(item.memoryLinks?.totalLinks || 0), 0),
   };
 }
 

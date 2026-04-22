@@ -32,6 +32,14 @@ const {
   buildCandidateMergeFrameBudgetPlan,
   buildFrameBudgetSidecarReceipt,
 } = require('./penny-frame-budget');
+const {
+  MEMORY_LINK_MEASUREMENT_MODES,
+  buildMemoryLinkTraceForItem,
+  normalizeMemoryLinkSet,
+} = require('./penny-memory-links');
+const {
+  buildCorrectionLinks,
+} = require('./penny-memory-link-policy');
 
 const ARCHIVE_SCHEMA_VERSION = 2;
 const EMBEDDINGS_SCHEMA_VERSION = 1;
@@ -50,6 +58,7 @@ const EMBEDDING_STATUS_CACHE_MS = 15000;
 const EMBEDDING_ERROR_CACHE_MS = 60000;
 const SENSITIVE_RETRIEVAL_THRESHOLD = 5.5;
 const DEFAULT_CANDIDATE_TRACE_LIMIT = 24;
+const DEFAULT_CANDIDATE_LINK_TRACE_LIMIT = 6;
 const COMPRESSION_RETRIEVAL_CONFIDENCE = 0.48;
 const GLOBAL_THEME_MIN_EVIDENCE = 3;
 
@@ -873,6 +882,113 @@ function createMemoryArchiveApi({
     return String(item?.id || item?.text || item?.excerpt || '').trim().toLowerCase();
   }
 
+  function normalizeCandidateLinkTraceLimit(value = DEFAULT_CANDIDATE_LINK_TRACE_LIMIT) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return DEFAULT_CANDIDATE_LINK_TRACE_LIMIT;
+    return Math.max(0, Math.min(24, Math.floor(parsed)));
+  }
+
+  function archiveCandidateLinkId(item = {}) {
+    return String(item?.id || item?.sourceItemId || item?.candidateId || '').trim();
+  }
+
+  function archiveCandidateLinkText(item = {}) {
+    return [
+      item?.id,
+      item?.text,
+      item?.excerpt,
+      item?.evidenceSnippet,
+      item?.textPreview,
+      item?.userText,
+    ].filter(Boolean).join(' ');
+  }
+
+  function findCandidateForCorrectionSide(traceCandidates = [], contradiction = {}, side = 'current') {
+    const candidates = (Array.isArray(traceCandidates) ? traceCandidates : [])
+      .map((entry) => (entry?.item && typeof entry.item === 'object' ? entry.item : entry))
+      .filter((item) => archiveCandidateLinkId(item));
+    return candidates.find((item) => {
+      const text = archiveCandidateLinkText(item);
+      const mentionsCurrent = textMentionsNeedle(text, contradiction.newText);
+      const mentionsStale = textMentionsNeedle(text, contradiction.oldText);
+      if (side === 'current') return mentionsCurrent;
+      return mentionsStale && !mentionsCurrent;
+    }) || null;
+  }
+
+  function normalizeTraceCandidateMemoryLinks(input = null, generatedAt = '') {
+    const linkSet = normalizeMemoryLinkSet(input || { links: [] }, { now: generatedAt });
+    return linkSet.links;
+  }
+
+  function buildCorrectionMemoryLinksForCandidateTrace({
+    traceCandidates = [],
+    activeContradictions = [],
+    generatedAt = '',
+  } = {}) {
+    const links = [];
+    for (const contradiction of normalizeContradictionList(activeContradictions, SESSION_ACTIVE_CONTRADICTION_LIMIT).filter(isActiveContradiction)) {
+      const staleCandidate = findCandidateForCorrectionSide(traceCandidates, contradiction, 'stale');
+      const currentCandidate = findCandidateForCorrectionSide(traceCandidates, contradiction, 'current');
+      if (!staleCandidate || !currentCandidate) continue;
+      const artifact = buildCorrectionLinks({
+        generatedAt,
+        measurementMode: MEMORY_LINK_MEASUREMENT_MODES.LIVE_SHADOW,
+        subject: contradiction.conflictKey,
+        staleObject: contradiction.oldText,
+        currentObject: contradiction.newText,
+        staleItem: {
+          id: archiveCandidateLinkId(staleCandidate),
+          text: archiveCandidateLinkText(staleCandidate),
+          supportState: 'archive',
+        },
+        currentItem: {
+          id: archiveCandidateLinkId(currentCandidate),
+          text: archiveCandidateLinkText(currentCandidate),
+          supportState: 'archive',
+        },
+        supportState: 'archive',
+        sourceReceipts: [
+          {
+            type: 'archive-contradiction',
+            id: contradiction.id,
+            sourceEpisodeId: contradiction.sourceEpisodeId,
+            conflictKey: contradiction.conflictKey,
+          },
+        ],
+      }, { now: generatedAt });
+      links.push(...(Array.isArray(artifact.links) ? artifact.links : []));
+    }
+    return links;
+  }
+
+  function buildCandidateTraceMemoryLinkSet({
+    traceCandidates = [],
+    activeContradictions = [],
+    suppliedLinks = null,
+    generatedAt = '',
+  } = {}) {
+    const supplied = normalizeTraceCandidateMemoryLinks(suppliedLinks, generatedAt);
+    const correctionLinks = buildCorrectionMemoryLinksForCandidateTrace({
+      traceCandidates,
+      activeContradictions,
+      generatedAt,
+    });
+    const seen = new Set();
+    const links = [];
+    for (const link of [...supplied, ...correctionLinks]) {
+      const key = [link.id, link.sourceId, link.targetId, link.relation].filter(Boolean).join('|');
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      links.push(link);
+    }
+    return normalizeMemoryLinkSet({
+      generatedAt,
+      measurementMode: MEMORY_LINK_MEASUREMENT_MODES.LIVE_SHADOW,
+      links,
+    }, { now: generatedAt });
+  }
+
   function inferArchiveCandidateTraceAuthority(item = {}) {
     const explicit = String(item.sourceAuthority || item.authority || '').trim();
     if (explicit) return explicit;
@@ -903,6 +1019,8 @@ function createMemoryArchiveApi({
     ranked = false,
     heldBackReason = '',
     eligibility = { eligible: true, filtered: false, filterReason: '' },
+    memoryLinks = null,
+    linkTraceLimit = DEFAULT_CANDIDATE_LINK_TRACE_LIMIT,
   } = {}) {
     const item = raw && typeof raw === 'object' ? raw : {};
     const scoreComponents = normalizeArchiveScoreComponents(item.scoreComponents);
@@ -929,6 +1047,9 @@ function createMemoryArchiveApi({
       ? trimText(normalizedEligibility.filterReason || '', 120)
       : '';
     const staticCandidate = isStaticEmbeddingCandidate(item);
+    const memoryLinkTrace = memoryLinks
+      ? buildMemoryLinkTraceForItem(memoryLinks, archiveCandidateLinkId(item), { linkTraceLimit })
+      : null;
     const policyReasons = staticCandidate
       ? normalizeArchiveScoreReasons([
           ...(activeScoreReasons.length ? activeScoreReasons : scoreReasons),
@@ -984,6 +1105,7 @@ function createMemoryArchiveApi({
       ...(rerankShadow ? { rerankShadow } : {}),
       ...(candidateChannels.length ? { candidateChannels } : {}),
       ...(staticEmbedding ? { staticEmbedding } : {}),
+      ...(memoryLinkTrace ? { memoryLinks: memoryLinkTrace } : {}),
       ...(isStaticOnlyArchiveCandidate(item) ? { staticOnly: true } : {}),
       ...(normalizedHeldBackReason ? { heldBackReason: normalizedHeldBackReason } : {}),
       ...(staticCandidate ? {
@@ -2623,6 +2745,9 @@ function createMemoryArchiveApi({
     allowArchiveCompression = true,
     includeCandidateTrace = false,
     candidateTraceLimit = DEFAULT_CANDIDATE_TRACE_LIMIT,
+    includeCandidateTraceLinks = false,
+    candidateTraceLinkLimit = DEFAULT_CANDIDATE_LINK_TRACE_LIMIT,
+    candidateTraceMemoryLinks = null,
     scoringProfile = archiveScoringProfile,
     includeRerankShadow = false,
     rerankShadowProvider = configuredRerankShadowProvider,
@@ -2651,11 +2776,13 @@ function createMemoryArchiveApi({
     const semanticAttempted = semanticMemory.ready && allowSemanticQuery;
     let semanticDowngrade = false;
     let semanticDowngradeReason = '';
-    let shouldIncludeCandidateTrace = includeCandidateTrace === true;
+    let shouldIncludeCandidateTrace = includeCandidateTrace === true || includeCandidateTraceLinks === true;
     const shouldIncludeRerankShadow = shouldIncludeCandidateTrace && includeRerankShadow === true;
     const activeScoringProfile = normalizeArchiveScoringProfile(scoringProfile);
     const activeRerankShadowProvider = normalizeRerankShadowProvider(rerankShadowProvider);
     const traceLimit = normalizeCandidateTraceLimit(candidateTraceLimit);
+    const shouldAttachCandidateTraceLinks = shouldIncludeCandidateTrace && includeCandidateTraceLinks === true;
+    const linkTraceLimit = normalizeCandidateLinkTraceLimit(candidateTraceLinkLimit);
     const staticOnlyRenderedCap = normalizeStaticOnlyRenderedCap(maxStaticOnlyRendered);
     const traceCandidates = [];
     const rerankShadowRuns = [];
@@ -3111,6 +3238,14 @@ function createMemoryArchiveApi({
     const staticTraceCandidates = !staticAdvisorySummary.enabled && Array.isArray(staticEmbeddingShadow?.topCandidates)
       ? staticEmbeddingShadow.topCandidates
       : [];
+    const candidateMemoryLinkSet = shouldAttachCandidateTraceLinks
+      ? buildCandidateTraceMemoryLinkSet({
+          traceCandidates,
+          activeContradictions,
+          suppliedLinks: candidateTraceMemoryLinks,
+          generatedAt: new Date(now).toISOString(),
+        })
+      : null;
     const archiveTraceCandidates = shouldIncludeCandidateTrace
       ? traceCandidates
         .slice(0, traceLimit)
@@ -3123,6 +3258,8 @@ function createMemoryArchiveApi({
           ranked: entry.ranked,
           heldBackReason: entry.heldBackReason,
           eligibility: entry.eligibility,
+          memoryLinks: candidateMemoryLinkSet?.links || null,
+          linkTraceLimit,
         }))
       : [];
     const candidateTrace = shouldIncludeCandidateTrace || staticTraceCandidates.length

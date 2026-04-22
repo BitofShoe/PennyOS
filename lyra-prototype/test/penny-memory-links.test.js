@@ -7,6 +7,8 @@ const {
   MEMORY_LINK_DIRECTIONALITY,
   MEMORY_LINK_RELATIONS,
   MEMORY_LINK_SUPPORT_STATES,
+  PENNY_MEMORY_LINK_TRACE_SCHEMA,
+  buildMemoryLinkTraceForItem,
   findLinksForItem,
   invertDirectedLink,
   normalizeMemoryLink,
@@ -204,6 +206,50 @@ test('directed and bidirectional lookup behavior stays explicit', () => {
   assert.equal(inverted.targetId, 'memory:new-mascot');
   assert.equal(inverted.relation, MEMORY_LINK_RELATIONS.STALE_PRIOR_OF);
   assert.equal(inverted.invertedFrom, 'directed');
+});
+
+test('buildMemoryLinkTraceForItem returns bounded advisory-only trace metadata', () => {
+  const links = normalizeMemoryLinkSet({
+    generatedAt: NOW,
+    measurementMode: 'live-shadow',
+    links: [
+      {
+        sourceId: 'memory:copper-rabbit',
+        targetId: 'archive:brass-fox',
+        relation: 'current-correction-for',
+        support: { state: 'explicit' },
+        authorityEffect: 'current-truth-boost',
+      },
+      {
+        sourceId: 'archive:brass-fox',
+        targetId: 'memory:copper-rabbit',
+        relation: 'stale-prior-of',
+        support: { state: 'explicit' },
+        authorityEffect: 'stale-current-penalty',
+      },
+      {
+        sourceId: 'memory:copper-rabbit',
+        targetId: 'project:frame-budget',
+        relation: 'same-project-thread',
+      },
+    ],
+  });
+
+  const bounded = buildMemoryLinkTraceForItem(links, 'memory:copper-rabbit', { linkTraceLimit: 2 });
+  const full = buildMemoryLinkTraceForItem(links, 'memory:copper-rabbit', { linkTraceLimit: 6 });
+
+  assert.equal(bounded.schema, PENNY_MEMORY_LINK_TRACE_SCHEMA);
+  assert.equal(bounded.totalLinks, 2);
+  assert.equal(bounded.advisoryOnly, true);
+  assert.equal(bounded.truthProof, false);
+  assert.equal(bounded.scoringActive, false);
+  assert.equal(bounded.behaviorChanged, false);
+  assert.equal(bounded.incoming.length + bounded.outgoing.length, 2);
+  assert.equal(full.relationSummary.currentCorrectionFor, 1);
+  assert.equal(full.relationSummary.stalePriorOf, 1);
+  assert.equal(full.relationSummary.sameProjectThread, 1);
+  assert.equal(full.authorityEffects.includes(MEMORY_LINK_AUTHORITY_EFFECTS.CURRENT_TRUTH_BOOST), true);
+  assert.equal(full.authorityEffects.includes(MEMORY_LINK_AUTHORITY_EFFECTS.STALE_CURRENT_PENALTY), true);
 });
 
 test('normalizes a memory link set artifact without behavior changes', () => {

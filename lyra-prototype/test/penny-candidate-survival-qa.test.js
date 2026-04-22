@@ -23,6 +23,9 @@ const {
   summarizeCandidateTrace,
   summarizeCandidateSurvivalCases,
 } = require('../lib/penny-candidate-survival-qa');
+const {
+  PENNY_MEMORY_LINK_TRACE_SCHEMA,
+} = require('../lib/penny-memory-links');
 
 const ARCHIVE_CASE = {
   id: 'archive-test-case',
@@ -572,6 +575,73 @@ test('archive-unit classification overlays prompt rendered and held-back state',
   assert.equal(trace[0].policyReasons.includes('explicit-memory-override:block'), true);
   assert.equal(summarizeCandidateTrace(trace).selectedCandidateCount, 1);
   assert.equal(summarizeCandidateTrace(trace).renderedCandidateCount, 0);
+});
+
+test('candidate-survival trace normalization preserves advisory memory link metadata', () => {
+  const result = buildCandidateSurvivalArchiveUnitCaseResult({
+    caseLike: {
+      id: 'archive-coding-mascot-correction',
+      query: 'What is the coding mascot now?',
+      expected: {
+        subject: 'coding mascot',
+        relation: 'current correction',
+        object: 'copper rabbit',
+      },
+      forbidden: [{ object: 'brass fox' }],
+      support: {
+        owner: 'archive-candidate',
+        authority: 'advisory',
+        supportState: 'rendered',
+      },
+    },
+    retrievalResult: {
+      semanticMemory: { ready: false },
+      retrieval: {
+        mode: 'keyword',
+        candidateTrace: [
+          {
+            id: 'memory:copper-rabbit',
+            textPreview: 'The coding mascot is a copper rabbit now.',
+            sourceType: 'episode',
+            raw: true,
+            ranked: true,
+            selected: true,
+            rendered: true,
+            rank: 1,
+            memoryLinks: {
+              linkTraceLimit: 6,
+              incoming: [
+                {
+                  sourceId: 'archive:brass-fox',
+                  targetId: 'memory:copper-rabbit',
+                  relation: 'stale-prior-of',
+                  support: { state: 'archive' },
+                },
+              ],
+              outgoing: [
+                {
+                  sourceId: 'memory:copper-rabbit',
+                  targetId: 'archive:brass-fox',
+                  relation: 'current-correction-for',
+                  support: { state: 'archive' },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.traceSummary.linkTraceCandidateCount, 1);
+  assert.equal(result.traceSummary.linkTraceTotalLinks, 2);
+  assert.equal(result.topCandidates[0].memoryLinks.schema, PENNY_MEMORY_LINK_TRACE_SCHEMA);
+  assert.equal(result.topCandidates[0].memoryLinks.advisoryOnly, true);
+  assert.equal(result.topCandidates[0].memoryLinks.truthProof, false);
+  assert.equal(result.topCandidates[0].memoryLinks.scoringActive, false);
+  assert.equal(result.topCandidates[0].memoryLinks.behaviorChanged, false);
+  assert.equal(result.topCandidates[0].memoryLinks.relationSummary.currentCorrectionFor, 1);
+  assert.equal(result.topCandidates[0].memoryLinks.relationSummary.stalePriorOf, 1);
 });
 
 test('archive-unit case result uses required survival and trace summary shape', () => {
