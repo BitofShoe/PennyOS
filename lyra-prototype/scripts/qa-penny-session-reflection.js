@@ -134,6 +134,35 @@ function buildFixtureCases() {
           title: 'Static embeddings live-advisory review',
           nextLikelyStep: 'Keep static candidates advisory until a later measured slice proves live prompt value.',
           support: 'repo-source',
+          memoryLinkTargets: ['plan:static-embedding-live-advisory'],
+          sourceReceipts: [
+            { type: 'plan', path: 'docs/plans/penny-static-embedding-live-advisory-plan-2026-04-22.md' },
+          ],
+        },
+      ],
+      memoryLinkSuggestions: [
+        {
+          id: 'static-plan-frame-budget-thread',
+          sourceId: 'plan:static-embedding-live-advisory',
+          targetId: 'principle:frame-budget',
+          relation: 'same-project-thread',
+          confidence: 'high',
+          supportState: 'repo-source',
+          sourceReceipts: [
+            { type: 'plan', path: 'docs/plans/penny-static-embedding-live-advisory-plan-2026-04-22.md' },
+            { type: 'plan', path: 'docs/plans/penny-post-tier1-bounded-aliveness-plans/01-frame-budget-runtime-plan.md' },
+          ],
+        },
+        {
+          id: 'static-plan-frame-budget-pattern',
+          sourceId: 'plan:static-embedding-live-advisory',
+          targetId: 'principle:frame-budget',
+          relation: 'research-pattern-for',
+          confidence: 'medium',
+          supportState: 'repo-source',
+          sourceReceipts: [
+            { type: 'doc', path: 'docs/README.md', excerpt: 'Spend the per-turn runtime/context budget first on relevance.' },
+          ],
         },
       ],
       reflectionMemorySuggestions: [],
@@ -152,6 +181,8 @@ function buildFixtureCases() {
         action: MEMORY_SUGGESTION_ACTIONS.OPEN_LOOP_ONLY,
         reflectionMemorySuggestionCount: 0,
         openLoopUpdateCount: 1,
+        memoryLinkSuggestionCount: 3,
+        memoryLinkSuggestionHeldBackCount: 0,
       },
     },
     {
@@ -270,6 +301,7 @@ function buildReflectionForCase(caseSpec = {}, generatedAt = new Date().toISOStr
     summary: caseSpec.summary,
     decisions: caseSpec.decisions || [],
     openLoopUpdates: caseSpec.openLoopUpdates || [],
+    memoryLinkSuggestions: caseSpec.memoryLinkSuggestions || caseSpec.linkSuggestions || [],
     memorySuggestions: reflectionMemorySuggestions || [],
     doNotSave: caseSpec.doNotSave || [],
   });
@@ -290,6 +322,10 @@ function buildCaseResult(caseSpec = {}, generatedAt = new Date().toISOString()) 
     || reflection.memorySuggestions.length === expected.reflectionMemorySuggestionCount;
   const openLoopCountPass = expected.openLoopUpdateCount === undefined
     || reflection.openLoopUpdates.length === expected.openLoopUpdateCount;
+  const memoryLinkCountPass = expected.memoryLinkSuggestionCount === undefined
+    || reflection.memoryLinkSuggestions.links.length === expected.memoryLinkSuggestionCount;
+  const memoryLinkHeldBackPass = expected.memoryLinkSuggestionHeldBackCount === undefined
+    || reflection.memoryLinkSuggestions.heldBack.length === expected.memoryLinkSuggestionHeldBackCount;
   const doNotSaveReasonPass = !expected.reflectionDoNotSaveReason
     || reflection.doNotSave.some((item) => item.reason === expected.reflectionDoNotSaveReason);
   const policyReasonPass = !expected.policyReason
@@ -329,11 +365,17 @@ function buildCaseResult(caseSpec = {}, generatedAt = new Date().toISOString()) 
     && reflection.promptTruthExpanded === false
     && reflection.toolEvidenceReceiptChanged === false
     && reflection.hiddenChainOfThoughtStored === false
-    && reflection.runtimeVoiceChanged === false;
+    && reflection.runtimeVoiceChanged === false
+    && reflection.memoryLinkSuggestions.scoringActive === false
+    && reflection.memoryLinkSuggestions.truthProof === false
+    && reflection.memoryLinkSuggestions.behaviorChanged === false
+    && reflection.memoryLinkSuggestions.links.every((link) => link.reviewState === 'needs-review');
 
   const pass = actionPass
     && reflectionCountPass
     && openLoopCountPass
+    && memoryLinkCountPass
+    && memoryLinkHeldBackPass
     && doNotSaveReasonPass
     && policyReasonPass
     && sensitivityPass
@@ -350,6 +392,8 @@ function buildCaseResult(caseSpec = {}, generatedAt = new Date().toISOString()) 
     actionPass,
     reflectionCountPass,
     openLoopCountPass,
+    memoryLinkCountPass,
+    memoryLinkHeldBackPass,
     doNotSaveReasonPass,
     policyReasonPass,
     sensitivityPass,
@@ -374,6 +418,7 @@ function summarizeFixtureResults(results = []) {
   const policyResults = results.flatMap((item) => item.policy?.results || []);
   const policySummary = summarizeMemorySuggestionPolicy(policyResults);
   const actionCounts = policySummary.actionCounts || {};
+  const reflectionLinkSets = results.map((item) => item.reflection?.memoryLinkSuggestions).filter(Boolean);
   return {
     schema: SESSION_REFLECTION_FIXTURE_SCHEMA,
     caseCount: results.length,
@@ -389,6 +434,11 @@ function summarizeFixtureResults(results = []) {
     needsMoreEvidenceCount: actionCounts[MEMORY_SUGGESTION_ACTIONS.NEEDS_MORE_EVIDENCE] || 0,
     reflectionDoNotSaveCount: results.reduce((sum, item) => sum + item.reflection.doNotSave.length, 0),
     reflectionMemorySuggestionCount: results.reduce((sum, item) => sum + item.reflection.memorySuggestions.length, 0),
+    reflectionMemoryLinkSuggestionCount: reflectionLinkSets.reduce((sum, item) => sum + item.links.length, 0),
+    reflectionMemoryLinkHeldBackCount: reflectionLinkSets.reduce((sum, item) => sum + item.heldBack.length, 0),
+    reflectionMemoryLinkNeedsReviewCount: reflectionLinkSets.reduce((sum, item) => sum + item.summary.needsReview, 0),
+    reflectionMemoryLinkScoringActive: false,
+    reflectionMemoryLinkTruthProof: false,
     allRequireApproval: policySummary.allRequireApproval === true
       && results.every((item) => item.reflectionDefaultsPass === true),
     autoPromotedCount: policySummary.autoPromotedCount,
@@ -404,6 +454,15 @@ function summarizeFixtureResults(results = []) {
     projectDecisionOpenLoopOnly: policyResults.some((item) => (
       item.action === MEMORY_SUGGESTION_ACTIONS.OPEN_LOOP_ONLY
       && item.reason === 'project-or-open-loop-note-not-user-memory'
+    )),
+    reflectionProjectLinksReviewGated: reflectionLinkSets.some((item) => (
+      item.links.some((link) => link.relation === 'same-project-thread')
+      && item.links.some((link) => link.relation === 'research-pattern-for')
+      && item.links.every((link) => link.reviewState === 'needs-review')
+    )),
+    reflectionOpenLoopLinksReviewGated: reflectionLinkSets.some((item) => (
+      item.links.some((link) => link.relation === 'open-loop-about')
+      && item.links.every((link) => link.reviewState === 'needs-review')
     )),
     liveModelCalls: false,
     serverSpawned: false,

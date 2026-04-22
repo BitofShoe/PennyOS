@@ -93,3 +93,20 @@
 - Fresh artifact: `lyra-prototype/output/memory-qa-candidate-survival-archive-unit-2026-04-22T11-22-06-477Z.json`.
 - Fresh artifact summary: 8 archive-unit cases, no live model calls, cleanup clean, link analysis `missing-link: 1`, `weak-link: 1`, `candidateOnlyVerifiedSupportCount: 0`, `behaviorChanged: false`, `scoringActive: false`, and `truthProof: false`.
 - Verification before journal update: changed-owner `node --check` passed; `node --test test/penny-memory-link-policy.test.js` passed (`10 passing`); focused `node --test test/penny-memory-link-policy.test.js test/penny-memory-archive-policy.test.js` passed (`24 passing`); `node --test test/penny-memory-archive.test.js` passed (`44 passing`); slice command `node --test test/penny-memory-archive-policy.test.js test/penny-memory-archive.test.js test/penny-candidate-survival-qa.test.js` passed (`81 passing`); `npm run qa:memory:candidate-survival` passed and wrote the artifact above; and `git diff --check` passed.
+
+## Slice L8 - Reflection-generated link suggestions
+
+- Slice L8 landed as review-gated reflection link suggestions only.
+- Added `penny-session-reflection-link-suggestions.v1` in `lyra-prototype/lib/penny-session-reflection.js`, wrapping normalized `penny-memory-links.v1` link sets for reflection output without adding a store, graph DB, prompt bridge, or active ranking path.
+- Reflection can now carry advisory suggestions for `same-project-thread`, `follow-up-to`, `implements-plan`, `research-pattern-for`, and `open-loop-about`.
+- Every reflection-generated link suggestion is forced to `createdBy: reflection`, `reviewState: needs-review`, `advisoryOnly: true`, `truthProof: false`, `behaviorChanged: false`, and `scoringActive: false`.
+- Open-loop reflection updates can name `memoryLinkTargets`; source-backed updates generate review-gated `open-loop-about` link suggestions with a session-reflection source receipt.
+- Unsupported sensitive or user-fact link attempts are held back with `unsupported-sensitive-or-user-fact-link` rather than becoming link suggestions.
+- Updated `lyra-prototype/scripts/qa-penny-session-reflection.js` so the fixture artifact now includes static-plan-to-frame-budget `same-project-thread` / `research-pattern-for` suggestions and an open-loop-derived `open-loop-about` suggestion.
+- Fresh artifact: `lyra-prototype/output/session-reflection-fixture-2026-04-22T11-29-19-350Z.json`.
+- Fresh artifact summary: 5 passing fixture cases; `reflectionMemoryLinkSuggestionCount: 3`; `reflectionMemoryLinkHeldBackCount: 0`; `reflectionMemoryLinkNeedsReviewCount: 3`; `reflectionMemoryLinkScoringActive: false`; `reflectionMemoryLinkTruthProof: false`; project and open-loop links review-gated.
+- Behavior changed: session reflection artifacts can now expose review-gated advisory link suggestions and source-backed open-loop link targets for later QA/compare work.
+- Behavior not changed: no default runtime prompt rendering, no archive ranking change, no broad project/open-loop/research active scoring, no PromptTruth expansion, no `toolEvidenceReceipt` change, no runtime voice change, no graph DB/universal index, no memory store migration, no canonical memory write, no advisory memory promotion, and no candidate-only/static/semantic verified-support upgrade.
+- Guardrails preserved: active `correction-v1` scoring still ignores reflection project/research/open-loop links; broad L8 suggestions may show shadow components but cannot activate ranking or make either endpoint true.
+- Verification before journal update: changed-owner `node --check` passed for `lib/penny-session-reflection.js`, `scripts/qa-penny-session-reflection.js`, and touched tests; focused L8 command `node --test test/penny-session-reflection.test.js test/penny-memory-links.test.js test/penny-memory-link-policy.test.js` passed (`35 passing`); fixture regression `node --test test/penny-session-reflection-script.test.js` passed (`9 passing`); `npm run qa:session-reflection` passed and wrote the artifact above; and `git diff --check` passed.
+- Post-journal full unit sweep also passed: `npm test` reported `768 passing, 0 failing, 3 todo`.

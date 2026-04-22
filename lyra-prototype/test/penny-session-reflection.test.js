@@ -3,12 +3,14 @@ const assert = require('node:assert/strict');
 
 const {
   PENNY_SESSION_REFLECTION_SCHEMA,
+  PENNY_SESSION_REFLECTION_LINK_SUGGESTIONS_SCHEMA,
   PENNY_SESSION_REFLECTION_PREP_SCHEMA,
   SESSION_REFLECTION_PREP_STATUSES,
   SUPPORT_STATES,
   buildSessionReflectionPrepArtifact,
   normalizeDoNotSaveItem,
   normalizeMemorySuggestion,
+  normalizeSessionReflectionLinkSuggestions,
   normalizeOpenLoopUpdate,
   normalizeReflectionDecision,
   selectRecentReflectionTurns,
@@ -16,6 +18,18 @@ const {
   summarizeSessionReflection,
   validateSessionReflection,
 } = require('../lib/penny-session-reflection');
+const {
+  MEMORY_LINK_AUTHORITY_EFFECTS,
+  MEMORY_LINK_CREATED_BY,
+  MEMORY_LINK_RELATIONS,
+  MEMORY_LINK_REVIEW_STATES,
+  MEMORY_LINK_SUPPORT_STATES,
+} = require('../lib/penny-memory-links');
+const {
+  MEMORY_LINK_SCORING_MODES,
+  scoreMemoryLinkCorrectionActiveForCandidate,
+  scoreMemoryLinkShadowForCandidate,
+} = require('../lib/penny-memory-link-policy');
 
 const NOW = '2026-04-22T12:00:00.000Z';
 
@@ -252,6 +266,7 @@ test('open-loop update normalization keeps reflection proposals advisory and non
     sourceReceipts: [
       { type: 'doc', path: 'docs/plans/penny-post-tier1-bounded-aliveness-plans/02-session-reflection-memory-suggestions-plan.md' },
     ],
+    memoryLinkTargets: ['plan:session-reflection-memory-suggestions'],
   });
 
   assert.equal(update.action, 'create');
@@ -267,6 +282,167 @@ test('open-loop update normalization keeps reflection proposals advisory and non
   assert.equal(update.hiddenChainOfThoughtStored, false);
   assert.equal(update.runtimeVoiceChanged, false);
   assert.equal(update.sourceReceipts[0].type, 'doc');
+  assert.deepEqual(update.memoryLinkTargets, ['plan:session-reflection-memory-suggestions']);
+});
+
+test('reflection link suggestions are review-gated same-project and research-pattern hints', () => {
+  const reflection = normalizeSessionReflection({
+    now: NOW,
+    sessionId: 'session-l8-static-links',
+    memoryLinkSuggestions: [
+      {
+        id: 'static-plan-frame-budget-thread',
+        sourceId: 'plan:static-embedding-live-advisory',
+        targetId: 'principle:frame-budget',
+        relation: 'same-project-thread',
+        confidence: 'high',
+        support: {
+          state: 'research',
+          sourceReceipts: [
+            { type: 'doc', path: 'docs/plans/penny-static-embedding-live-advisory-plan-2026-04-22.md' },
+            { type: 'doc', path: 'docs/plans/penny-post-tier1-bounded-aliveness-plans/01-frame-budget-runtime-plan.md' },
+          ],
+          explanation: 'Both plans spend runtime budget on better candidate selection before rendered context.',
+        },
+      },
+      {
+        id: 'static-pattern-frame-budget',
+        sourceId: 'plan:static-embedding-live-advisory',
+        targetId: 'principle:frame-budget',
+        relation: 'research-pattern-for',
+        authorityEffect: 'current-truth-boost',
+        supportState: 'repo-source',
+        sourceReceipts: [
+          { type: 'doc', path: 'docs/README.md', excerpt: 'Spend the per-turn runtime/context budget first on relevance.' },
+        ],
+      },
+    ],
+  });
+  const linkSet = reflection.memoryLinkSuggestions;
+
+  assert.equal(linkSet.schema, PENNY_SESSION_REFLECTION_LINK_SUGGESTIONS_SCHEMA);
+  assert.equal(linkSet.linkSetSchema, 'penny-memory-links.v1');
+  assert.equal(linkSet.links.length, 2);
+  assert.equal(linkSet.scoringActive, false);
+  assert.equal(linkSet.behaviorChanged, false);
+  assert.equal(linkSet.truthProof, false);
+  assert.equal(linkSet.summary.byRelation[MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD], 1);
+  assert.equal(linkSet.summary.byRelation[MEMORY_LINK_RELATIONS.RESEARCH_PATTERN_FOR], 1);
+  assert.equal(linkSet.summary.allNeedReview, true);
+  assert.equal(linkSet.links[0].createdBy, MEMORY_LINK_CREATED_BY.REFLECTION);
+  assert.equal(linkSet.links[0].reviewState, MEMORY_LINK_REVIEW_STATES.NEEDS_REVIEW);
+  assert.equal(linkSet.links[0].support.state, MEMORY_LINK_SUPPORT_STATES.RESEARCH);
+  assert.equal(linkSet.links[1].authorityEffect, MEMORY_LINK_AUTHORITY_EFFECTS.RETRIEVAL_BOOST_ONLY);
+  assert.equal(reflection.promptTruthExpanded, false);
+  assert.equal(reflection.toolEvidenceReceiptChanged, false);
+  assert.equal(reflection.runtimeVoiceChanged, false);
+});
+
+test('source-backed open-loop reflection updates generate advisory open-loop-about links', () => {
+  const reflection = normalizeSessionReflection({
+    now: NOW,
+    sessionId: 'session-l8-open-loop',
+    openLoopUpdates: [
+      {
+        loopId: 'dynamic-memory-linking-l8',
+        action: 'update',
+        title: 'Dynamic memory linking L8',
+        nextLikelyStep: 'Keep reflection-generated links review-gated until compare evidence exists.',
+        support: 'repo-source',
+        confidence: 'high',
+        memoryLinkTargets: ['plan:dynamic-memory-linking-l8'],
+        sourceReceipts: [
+          { type: 'doc', path: 'docs/plans/penny-post-tier1-bounded-aliveness-plans/03-dynamic-memory-linking-plan.md' },
+        ],
+      },
+    ],
+  });
+  const link = reflection.memoryLinkSuggestions.links[0];
+
+  assert.equal(reflection.openLoopUpdates[0].memoryLinkTargets[0], 'plan:dynamic-memory-linking-l8');
+  assert.equal(reflection.memoryLinkSuggestions.links.length, 1);
+  assert.equal(link.relation, MEMORY_LINK_RELATIONS.OPEN_LOOP_ABOUT);
+  assert.equal(link.sourceId, 'open-loop:dynamic-memory-linking-l8');
+  assert.equal(link.targetId, 'plan:dynamic-memory-linking-l8');
+  assert.equal(link.reviewState, MEMORY_LINK_REVIEW_STATES.NEEDS_REVIEW);
+  assert.equal(link.authorityEffect, MEMORY_LINK_AUTHORITY_EFFECTS.RETRIEVAL_BOOST_ONLY);
+  assert.equal(link.truthProof, false);
+  assert.equal(reflection.memoryLinkSuggestions.scoringActive, false);
+});
+
+test('reflection-generated broad links stay shadow-only and do not activate correction scoring', () => {
+  const linkSuggestions = normalizeSessionReflectionLinkSuggestions({
+    generatedAt: NOW,
+    memoryLinkSuggestions: [
+      {
+        sourceId: 'plan:static-live',
+        targetId: 'principle:frame-budget',
+        relation: 'same-project-thread',
+        supportState: 'research',
+        sourceReceipts: [{ type: 'doc', path: 'docs/README.md' }],
+      },
+      {
+        sourceId: 'plan:static-live',
+        targetId: 'pattern:candidate-selection-first',
+        relation: 'research-pattern-for',
+        supportState: 'research',
+        sourceReceipts: [{ type: 'doc', path: 'docs/penny-sharper-candidate-selection-research-plan-2026-04-21.md' }],
+      },
+    ],
+  }, { generatedAt: NOW });
+  const shadow = scoreMemoryLinkShadowForCandidate({
+    id: 'plan:static-live',
+    activeScore: 4,
+  }, {
+    memoryLinks: linkSuggestions.links,
+  });
+  const active = scoreMemoryLinkCorrectionActiveForCandidate({
+    id: 'plan:static-live',
+    activeScore: 4,
+  }, {
+    memoryLinks: linkSuggestions.links,
+    memoryLinkScoring: MEMORY_LINK_SCORING_MODES.CORRECTION_V1,
+  });
+
+  assert.equal(shadow.active, false);
+  assert.equal(shadow.behaviorChanged, false);
+  assert.equal(shadow.components.sameProjectThreadBoost, 0.45);
+  assert.equal(shadow.reasons.includes('research-pattern:shadow-advisory-no-score'), true);
+  assert.equal(active.active, true);
+  assert.equal(active.score, 0);
+  assert.equal(active.behaviorChanged, false);
+  assert.equal(active.ignoredComponents.sameProjectThreadBoost, 0.45);
+  assert.equal(active.reasons.includes('same-project-thread:shadow-only'), true);
+  assert.equal(active.reasons.includes('research-pattern:shadow-only'), true);
+  assert.equal(active.truthProof, false);
+});
+
+test('unsupported sensitive or user-fact reflection links are held back', () => {
+  const linkSuggestions = normalizeSessionReflectionLinkSuggestions({
+    generatedAt: NOW,
+    memoryLinkSuggestions: [
+      {
+        sourceId: 'memory:user-home-address',
+        targetId: 'project:phone-access',
+        relation: 'same-project-thread',
+        explanation: 'User home address might be useful for LAN setup.',
+      },
+      {
+        sourceId: 'memory:user-preference-short-summaries',
+        targetId: 'project:docs',
+        relation: 'follow-up-to',
+        explanation: 'Unsupported user-preference relation from reflection only.',
+      },
+    ],
+  }, { generatedAt: NOW });
+
+  assert.equal(linkSuggestions.links.length, 0);
+  assert.equal(linkSuggestions.heldBack.length, 2);
+  assert.equal(linkSuggestions.summary.heldBackCount, 2);
+  assert.equal(linkSuggestions.heldBack[0].reason, 'unsupported-sensitive-or-user-fact-link');
+  assert.equal(linkSuggestions.scoringActive, false);
+  assert.equal(linkSuggestions.truthProof, false);
+  assert.equal(linkSuggestions.canonicalMemoryWrites, false);
 });
 
 test('selects bounded visible turn summaries for after-turn reflection prep', () => {

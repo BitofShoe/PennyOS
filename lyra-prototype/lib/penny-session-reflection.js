@@ -1,9 +1,23 @@
 const fs = require('fs');
 const path = require('path');
 
+const {
+  PENNY_MEMORY_LINKS_SCHEMA,
+  DEFAULT_MEMORY_LINK_LIMITS,
+  MEMORY_LINK_AUTHORITY_EFFECTS,
+  MEMORY_LINK_CREATED_BY,
+  MEMORY_LINK_DIRECTIONALITY,
+  MEMORY_LINK_MEASUREMENT_MODES,
+  MEMORY_LINK_RELATIONS,
+  MEMORY_LINK_REVIEW_STATES,
+  MEMORY_LINK_SUPPORT_STATES,
+  normalizeMemoryLinkSet,
+} = require('./penny-memory-links');
+
 const PENNY_SESSION_REFLECTION_SCHEMA = 'penny-session-reflection.v1';
 const PENNY_SESSION_REFLECTION_PREP_SCHEMA = 'penny-session-reflection-prep.v1';
 const PENNY_SESSION_REFLECTION_PROMPT_BRIDGE_SCHEMA = 'penny-session-reflection-prompt-bridge.v1';
+const PENNY_SESSION_REFLECTION_LINK_SUGGESTIONS_SCHEMA = 'penny-session-reflection-link-suggestions.v1';
 const SESSION_REFLECTION_PREP_JOB_KIND = 'session-reflection-prep';
 
 const MEASUREMENT_MODES = new Set(['artifact-only', 'after-turn', 'end-session', 'eval']);
@@ -37,6 +51,13 @@ const SESSION_REFLECTION_PROMPT_BRIDGE_MODES = Object.freeze({
   VERBOSE: 'reflection-summary-on-verbose',
 });
 const SESSION_REFLECTION_PROMPT_BRIDGE_MODE_VALUES = new Set(Object.values(SESSION_REFLECTION_PROMPT_BRIDGE_MODES));
+const REFLECTION_LINK_SUGGESTION_RELATIONS = new Set([
+  MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD,
+  MEMORY_LINK_RELATIONS.FOLLOW_UP_TO,
+  MEMORY_LINK_RELATIONS.IMPLEMENTS_PLAN,
+  MEMORY_LINK_RELATIONS.RESEARCH_PATTERN_FOR,
+  MEMORY_LINK_RELATIONS.OPEN_LOOP_ABOUT,
+]);
 const DEFAULT_SESSION_REFLECTION_PROMPT_BRIDGE_WORDS = 90;
 const SESSION_REFLECTION_RELEVANCE_STOPWORDS = new Set([
   'about',
@@ -111,6 +132,14 @@ const DEFAULT_REFLECTION_PROMPT_BRIDGE_LIMITS = Object.freeze([
   'Memory suggestions remain review-gated and are not saved or auto-promoted.',
   'This bridge does not add a PromptTruth channel or merge toolEvidenceReceipt.',
   'Hidden chain-of-thought and runtime voice are not stored or changed.',
+]);
+
+const DEFAULT_REFLECTION_LINK_SUGGESTION_LIMITS = Object.freeze([
+  ...DEFAULT_MEMORY_LINK_LIMITS,
+  'Reflection-generated link suggestions are review-gated and shadow-only.',
+  'Reflection link suggestions do not activate ranking or prompt rendering.',
+  'Reflection link suggestions do not make either linked item true or canonical.',
+  'Unsupported sensitive or user-fact link attempts are held back.',
 ]);
 
 const HIDDEN_COT_FIELD_KEYS = new Set([
@@ -538,6 +567,16 @@ function normalizeOpenLoopUpdate(input = {}, options = {}) {
     confidence: normalizeConfidence(raw.confidence),
     priority: cleanToken(raw.priority || ''),
     sourceReceipts,
+    memoryLinkTargets: uniqueStrings(
+      raw.memoryLinkTargets
+        || raw.linkTargets
+        || raw.relatedMemoryIds
+        || raw.relatedTargetIds
+        || raw.relatedIds
+        || [],
+      8,
+      220,
+    ),
     requiresReview: true,
     autoApplied: false,
     memoryWrites: false,
@@ -547,6 +586,276 @@ function normalizeOpenLoopUpdate(input = {}, options = {}) {
     toolEvidenceReceiptChanged: false,
     hiddenChainOfThoughtStored: false,
     runtimeVoiceChanged: false,
+  };
+}
+
+function normalizeReflectionLinkRelation(value = '') {
+  const relation = cleanToken(value);
+  const aliases = {
+    project: MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD,
+    thread: MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD,
+    'same-thread': MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD,
+    'same-project': MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD,
+    followup: MEMORY_LINK_RELATIONS.FOLLOW_UP_TO,
+    'followup-to': MEMORY_LINK_RELATIONS.FOLLOW_UP_TO,
+    follow: MEMORY_LINK_RELATIONS.FOLLOW_UP_TO,
+    implementation: MEMORY_LINK_RELATIONS.IMPLEMENTS_PLAN,
+    implements: MEMORY_LINK_RELATIONS.IMPLEMENTS_PLAN,
+    'open-loop': MEMORY_LINK_RELATIONS.OPEN_LOOP_ABOUT,
+    openloop: MEMORY_LINK_RELATIONS.OPEN_LOOP_ABOUT,
+    'research-pattern': MEMORY_LINK_RELATIONS.RESEARCH_PATTERN_FOR,
+    pattern: MEMORY_LINK_RELATIONS.RESEARCH_PATTERN_FOR,
+  };
+  const normalized = aliases[relation] || relation;
+  return REFLECTION_LINK_SUGGESTION_RELATIONS.has(normalized) ? normalized : '';
+}
+
+function normalizeReflectionLinkSupportState(value = '', support = '') {
+  const explicit = cleanToken(value || support);
+  const aliases = {
+    artifact: MEMORY_LINK_SUPPORT_STATES.RESEARCH,
+    docs: MEMORY_LINK_SUPPORT_STATES.RESEARCH,
+    document: MEMORY_LINK_SUPPORT_STATES.RESEARCH,
+    explicit: MEMORY_LINK_SUPPORT_STATES.RENDERED,
+    'explicit-user': MEMORY_LINK_SUPPORT_STATES.RENDERED,
+    'explicit-user-statement': MEMORY_LINK_SUPPORT_STATES.RENDERED,
+    rendered: MEMORY_LINK_SUPPORT_STATES.RENDERED,
+    prompt: MEMORY_LINK_SUPPORT_STATES.RENDERED,
+    research: MEMORY_LINK_SUPPORT_STATES.RESEARCH,
+    'research-ledger': MEMORY_LINK_SUPPORT_STATES.RESEARCH,
+    repo: MEMORY_LINK_SUPPORT_STATES.RESEARCH,
+    'repo-source': MEMORY_LINK_SUPPORT_STATES.RESEARCH,
+    source: MEMORY_LINK_SUPPORT_STATES.RESEARCH,
+    'source-backed': MEMORY_LINK_SUPPORT_STATES.RESEARCH,
+    unknown: MEMORY_LINK_SUPPORT_STATES.UNKNOWN,
+  };
+  if (aliases[explicit]) return aliases[explicit];
+  const decisionSupport = normalizeDecisionSupport(support || value);
+  if (decisionSupport === 'repo-source' || decisionSupport === 'artifact') return MEMORY_LINK_SUPPORT_STATES.RESEARCH;
+  if (decisionSupport === 'explicit-user') return MEMORY_LINK_SUPPORT_STATES.RENDERED;
+  return MEMORY_LINK_SUPPORT_STATES.UNKNOWN;
+}
+
+function normalizeReflectionLinkAuthorityEffect(value = '', relation = '') {
+  const effect = cleanToken(value);
+  if (effect === 'none' || effect === 'no') return MEMORY_LINK_AUTHORITY_EFFECTS.NONE;
+  if (!relation) return MEMORY_LINK_AUTHORITY_EFFECTS.NONE;
+  return MEMORY_LINK_AUTHORITY_EFFECTS.RETRIEVAL_BOOST_ONLY;
+}
+
+function rawReflectionLinkSuggestions(input = {}) {
+  if (Array.isArray(input)) return input;
+  if (!isPlainObject(input)) return [];
+  if (Array.isArray(input.memoryLinkSuggestions)) return input.memoryLinkSuggestions;
+  if (Array.isArray(input.linkSuggestions)) return input.linkSuggestions;
+  if (Array.isArray(input.links)) return input.links;
+  if (Array.isArray(input.memoryLinks)) return input.memoryLinks;
+  return [];
+}
+
+function reflectionLinkSourceReceipts(raw = {}, extraReceipts = []) {
+  return normalizeSourceReceipts([
+    ...listValue(raw.sourceReceipts || raw.sourceRefs || raw.sources || []),
+    ...listValue(raw.support?.sourceReceipts || raw.support?.sourceRefs || raw.support?.receipts || []),
+    ...listValue(extraReceipts || []),
+  ]);
+}
+
+function linkSuggestionHasSupport({ supportState = MEMORY_LINK_SUPPORT_STATES.UNKNOWN, sourceReceipts = [] } = {}) {
+  return supportState !== MEMORY_LINK_SUPPORT_STATES.UNKNOWN || sourceReceipts.length > 0;
+}
+
+function linkSuggestionLooksLikeSensitiveOrUserFact(raw = {}) {
+  const joined = cleanString([
+    raw.sourceId,
+    raw.targetId,
+    raw.source,
+    raw.target,
+    raw.from,
+    raw.to,
+    raw.text,
+    raw.label,
+    raw.reason,
+    raw.explanation,
+    raw.support?.explanation,
+  ].filter(Boolean).join('\n'), 1600);
+  return SENSITIVE_MEMORY_PATTERN.test(joined)
+    || /\b(?:user[- ]preference|stable[- ]user[- ]fact|personal[- ]fact|explicit[- ]memory|legal name|home address)\b/i.test(joined);
+}
+
+function reflectionLinkHeldBack(index = 0, reason = '', raw = {}) {
+  return {
+    index,
+    reason: cleanString(reason, 260) || 'held-back-reflection-link-suggestion',
+    sourceId: cleanString(raw.sourceId || raw.source || raw.from || '', 220),
+    targetId: cleanString(raw.targetId || raw.target || raw.to || '', 220),
+    relation: cleanString(raw.relation || raw.type || raw.kind || '', 120),
+    advisoryOnly: true,
+    truthProof: false,
+    scoringActive: false,
+    behaviorChanged: false,
+  };
+}
+
+function normalizeReflectionMemoryLinkSuggestion(input = {}, options = {}) {
+  const raw = isPlainObject(input) ? input : {};
+  const index = Number(options.index || 0);
+  const relation = normalizeReflectionLinkRelation(raw.relation || raw.type || raw.kind || '');
+  if (!relation) return { link: null, heldBack: reflectionLinkHeldBack(index, 'unsupported-reflection-link-relation', raw) };
+
+  const sourceId = cleanString(raw.sourceId || raw.source || raw.from || '', 220);
+  const targetId = cleanString(raw.targetId || raw.target || raw.to || '', 220);
+  if (!sourceId || !targetId) return { link: null, heldBack: reflectionLinkHeldBack(index, 'missing-link-endpoint', raw) };
+
+  const sourceReceipts = reflectionLinkSourceReceipts(raw, options.sourceReceipts);
+  const supportState = normalizeReflectionLinkSupportState(
+    raw.support?.state
+      || raw.supportState
+      || raw.sourceState
+      || raw.supportAuthority
+      || '',
+    raw.support
+      || raw.support?.explanation
+      || raw.reason
+      || '',
+  );
+  if (
+    !linkSuggestionHasSupport({ supportState, sourceReceipts })
+    && linkSuggestionLooksLikeSensitiveOrUserFact(raw)
+  ) {
+    return { link: null, heldBack: reflectionLinkHeldBack(index, 'unsupported-sensitive-or-user-fact-link', raw) };
+  }
+
+  const rawLink = {
+    id: raw.id,
+    sourceId,
+    targetId,
+    relation,
+    confidence: raw.confidence || 'medium',
+    support: {
+      state: supportState,
+      sourceReceipts,
+      explanation: cleanString(raw.explanation || raw.reason || raw.support?.explanation || '', 500),
+    },
+    authorityEffect: normalizeReflectionLinkAuthorityEffect(raw.authorityEffect || raw.effect || '', relation),
+    directionality: raw.directionality || raw.direction || MEMORY_LINK_DIRECTIONALITY.DIRECTED,
+    createdBy: MEMORY_LINK_CREATED_BY.REFLECTION,
+    reviewState: MEMORY_LINK_REVIEW_STATES.NEEDS_REVIEW,
+    createdAt: raw.createdAt || options.generatedAt,
+    updatedAt: raw.updatedAt || raw.createdAt || options.generatedAt,
+    expiresAt: raw.expiresAt || null,
+  };
+  return { link: rawLink, heldBack: null };
+}
+
+function buildOpenLoopMemoryLinkSuggestions(openLoopUpdates = [], options = {}) {
+  const links = [];
+  openLoopUpdates.forEach((update) => {
+    const targets = uniqueStrings(update.memoryLinkTargets || [], 8, 220);
+    if (!targets.length) return;
+    const sourceReceipts = normalizeSourceReceipts([
+      ...(update.sourceReceipts || []),
+      ...(options.sourceReflectionId ? [{ type: 'session-reflection', id: options.sourceReflectionId }] : []),
+    ]);
+    const supportState = normalizeReflectionLinkSupportState('', update.support);
+    if (!linkSuggestionHasSupport({ supportState, sourceReceipts })) return;
+    targets.forEach((targetId) => {
+      links.push({
+        id: `reflection-open-loop-about-${slugify(`${update.loopId}-${targetId}`, 'target')}`,
+        sourceId: `open-loop:${update.loopId}`,
+        targetId,
+        relation: MEMORY_LINK_RELATIONS.OPEN_LOOP_ABOUT,
+        confidence: update.confidence || 'medium',
+        support: {
+          state: supportState,
+          sourceReceipts,
+          explanation: cleanString(
+            update.nextLikelyStep
+              ? `${update.title || update.loopId}: ${update.nextLikelyStep}`
+              : (update.title || update.loopId),
+            500,
+          ),
+        },
+        authorityEffect: MEMORY_LINK_AUTHORITY_EFFECTS.RETRIEVAL_BOOST_ONLY,
+        directionality: MEMORY_LINK_DIRECTIONALITY.DIRECTED,
+        createdBy: MEMORY_LINK_CREATED_BY.REFLECTION,
+        reviewState: MEMORY_LINK_REVIEW_STATES.NEEDS_REVIEW,
+        createdAt: options.generatedAt,
+        updatedAt: options.generatedAt,
+      });
+    });
+  });
+  return links;
+}
+
+function normalizeSessionReflectionLinkSuggestions(input = {}, options = {}) {
+  const source = isPlainObject(input) && !Array.isArray(input) ? input : {};
+  const generatedAt = normalizeIso(
+    source.generatedAt
+      || options.generatedAt
+      || '',
+    normalizeNowIso(options.now || new Date()),
+  );
+  const measurementMode = source.measurementMode
+    || source.mode
+    || options.measurementMode
+    || MEMORY_LINK_MEASUREMENT_MODES.FIXTURE;
+  const sourceReflectionId = cleanString(options.sourceReflectionId || source.sourceReflectionId || '', 180);
+  const rawLinks = [
+    ...rawReflectionLinkSuggestions(input),
+    ...buildOpenLoopMemoryLinkSuggestions(options.openLoopUpdates || [], {
+      generatedAt,
+      sourceReflectionId,
+    }),
+  ];
+  const linkInputs = [];
+  const heldBack = [];
+  rawLinks.forEach((rawLink, index) => {
+    const normalized = normalizeReflectionMemoryLinkSuggestion(rawLink, {
+      index,
+      generatedAt,
+      sourceReflectionId,
+    });
+    if (normalized.link) {
+      linkInputs.push(normalized.link);
+    } else if (normalized.heldBack) {
+      heldBack.push(normalized.heldBack);
+    }
+  });
+  const linkSet = normalizeMemoryLinkSet({
+    generatedAt,
+    measurementMode,
+    links: linkInputs,
+  }, { now: generatedAt });
+  const allHeldBack = [...heldBack, ...(linkSet.heldBack || [])];
+  return {
+    schema: PENNY_SESSION_REFLECTION_LINK_SUGGESTIONS_SCHEMA,
+    linkSetSchema: PENNY_MEMORY_LINKS_SCHEMA,
+    generatedAt,
+    sourceReflectionId,
+    measurementMode: linkSet.measurementMode,
+    advisoryOnly: true,
+    truthProof: false,
+    behaviorChanged: false,
+    scoringActive: false,
+    memoryWrites: false,
+    explicitMemoryWrites: false,
+    canonicalMemoryWrites: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    hiddenChainOfThoughtStored: false,
+    runtimeVoiceChanged: false,
+    links: linkSet.links,
+    heldBack: allHeldBack,
+    summary: {
+      ...linkSet.summary,
+      heldBackCount: allHeldBack.length,
+      allNeedReview: linkSet.links.every((link) => link.reviewState === MEMORY_LINK_REVIEW_STATES.NEEDS_REVIEW),
+      scoringActive: false,
+      candidateOnlyVerifiedSupport: false,
+      truthProof: false,
+    },
+    limits: uniqueStrings([...DEFAULT_REFLECTION_LINK_SUGGESTION_LIMITS, ...(listValue(source.limits || []))], 20, 260),
   };
 }
 
@@ -673,6 +982,7 @@ function reflectionRelevanceCorpus(reflection = {}) {
       item.nextLikelyStep,
     ]),
     ...(reflection.memorySuggestions || []).flatMap((item) => [item.id, item.text, item.kind]),
+    ...(reflection.memoryLinkSuggestions?.links || []).flatMap((item) => [item.id, item.sourceId, item.targetId, item.relation]),
   ].filter(Boolean).join('\n');
 }
 
@@ -900,11 +1210,30 @@ function normalizeSessionReflection(input = {}, options = {}) {
     const normalized = normalizeDoNotSaveItem(item, { index: doNotSave.length + index });
     if (normalized.text) doNotSave.push(normalized);
   });
+  const sessionId = cleanString(raw.sessionId || raw.threadId || '', 180);
+  const sourceReflectionId = cleanString(
+    raw.id
+      || raw.reflectionId
+      || `${sessionId || 'session'}:${generatedAt}`,
+    180,
+  );
+  const openLoopUpdates = listValue(raw.openLoopUpdates || raw.openLoops || [])
+    .map((item, index) => normalizeOpenLoopUpdate(item, { index }))
+    .filter((item) => item.title || item.nextLikelyStep || item.loopId);
+  const memoryLinkSuggestions = normalizeSessionReflectionLinkSuggestions({
+    generatedAt,
+    measurementMode: MEMORY_LINK_MEASUREMENT_MODES.FIXTURE,
+    memoryLinkSuggestions: raw.memoryLinkSuggestions || raw.linkSuggestions || raw.links || [],
+  }, {
+    generatedAt,
+    sourceReflectionId,
+    openLoopUpdates,
+  });
 
   return {
     schema: PENNY_SESSION_REFLECTION_SCHEMA,
     generatedAt,
-    sessionId: cleanString(raw.sessionId || raw.threadId || '', 180),
+    sessionId,
     measurementMode: normalizeMeasurementMode(raw.measurementMode || raw.mode),
     liveModelCalls: raw.liveModelCalls === true,
     behaviorChanged: raw.behaviorChanged === true,
@@ -919,10 +1248,9 @@ function normalizeSessionReflection(input = {}, options = {}) {
     decisions: listValue(raw.decisions || raw.decision || [])
       .map((item, index) => normalizeReflectionDecision(item, { index }))
       .filter((item) => item.text),
-    openLoopUpdates: listValue(raw.openLoopUpdates || raw.openLoops || [])
-      .map((item, index) => normalizeOpenLoopUpdate(item, { index }))
-      .filter((item) => item.title || item.nextLikelyStep || item.loopId),
+    openLoopUpdates,
     memorySuggestions,
+    memoryLinkSuggestions,
     doNotSave,
     warnings: uniqueStrings(warnings, 50, 300),
     limits: uniqueStrings([...(listValue(raw.limits || [])), ...DEFAULT_LIMITS], 20, 260),
@@ -1218,6 +1546,10 @@ function summarizeSessionReflection(reflection = {}) {
     decisionCount: normalized.decisions.length,
     openLoopUpdateCount: normalized.openLoopUpdates.length,
     memorySuggestionCount: normalized.memorySuggestions.length,
+    memoryLinkSuggestionCount: normalized.memoryLinkSuggestions.links.length,
+    memoryLinkSuggestionHeldBackCount: normalized.memoryLinkSuggestions.heldBack.length,
+    memoryLinkSuggestionNeedsReviewCount: normalized.memoryLinkSuggestions.summary.needsReview,
+    memoryLinkSuggestionRelations: { ...(normalized.memoryLinkSuggestions.summary.byRelation || {}) },
     doNotSaveCount: normalized.doNotSave.length,
     warningCount: normalized.warnings.length,
     unsupportedClaimCount: normalized.summary.unsupportedClaims.length,
@@ -1226,6 +1558,7 @@ function summarizeSessionReflection(reflection = {}) {
     supportStates,
     sensitivityCounts,
     memoryAuthority: 'reviewable-synthesis-only',
+    memoryLinkAuthority: 'review-gated-shadow-only',
     explicitMemoryWrites: false,
     canonicalMemoryWrites: false,
     promptTruthExpanded: false,
@@ -1261,6 +1594,23 @@ function validateSessionReflection(reflection = {}) {
       errors.push(`memory suggestion ${suggestion.id} must not carry an explicit-memory write payload in R1`);
     }
   });
+  if (normalized.memoryLinkSuggestions.scoringActive !== false || normalized.memoryLinkSuggestions.behaviorChanged !== false) {
+    errors.push('reflection link suggestions must be shadow-only');
+  }
+  normalized.memoryLinkSuggestions.links.forEach((link) => {
+    if (!REFLECTION_LINK_SUGGESTION_RELATIONS.has(link.relation)) {
+      errors.push(`memory link suggestion ${link.id} uses unsupported relation`);
+    }
+    if (link.reviewState !== MEMORY_LINK_REVIEW_STATES.NEEDS_REVIEW) {
+      errors.push(`memory link suggestion ${link.id} must require review`);
+    }
+    if (
+      link.authorityEffect !== MEMORY_LINK_AUTHORITY_EFFECTS.NONE
+      && link.authorityEffect !== MEMORY_LINK_AUTHORITY_EFFECTS.RETRIEVAL_BOOST_ONLY
+    ) {
+      errors.push(`memory link suggestion ${link.id} has active authority effect`);
+    }
+  });
   return {
     valid: errors.length === 0,
     errors,
@@ -1273,6 +1623,7 @@ module.exports = {
   PENNY_SESSION_REFLECTION_SCHEMA,
   PENNY_SESSION_REFLECTION_PREP_SCHEMA,
   PENNY_SESSION_REFLECTION_PROMPT_BRIDGE_SCHEMA,
+  PENNY_SESSION_REFLECTION_LINK_SUGGESTIONS_SCHEMA,
   SESSION_REFLECTION_PREP_JOB_KIND,
   SESSION_REFLECTION_PREP_STATUSES,
   SESSION_REFLECTION_PROMPT_BRIDGE_MODES,
@@ -1282,6 +1633,8 @@ module.exports = {
   normalizeSessionReflectionPromptBridgeMode,
   normalizeReflectionDecision,
   normalizeOpenLoopUpdate,
+  normalizeSessionReflectionLinkSuggestions,
+  normalizeReflectionMemoryLinkSuggestion,
   normalizeMemorySuggestion,
   normalizeDoNotSaveItem,
   normalizeReflectionTurnSummary,

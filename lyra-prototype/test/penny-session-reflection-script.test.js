@@ -126,6 +126,19 @@ test('project decisions are open-loop only and not user explicit memory candidat
   assert.equal(project.reflection.decisions[0].memoryAuthority, 'advisory');
   assert.equal(project.reflection.openLoopUpdates.length, 1);
   assert.equal(project.reflection.openLoopUpdates[0].requiresReview, true);
+  assert.equal(project.reflection.memoryLinkSuggestions.links.length, 3);
+  assert.equal(project.reflection.memoryLinkSuggestions.heldBack.length, 0);
+  assert.equal(project.reflection.memoryLinkSuggestions.scoringActive, false);
+  assert.equal(project.reflection.memoryLinkSuggestions.summary.byRelation['same-project-thread'], 1);
+  assert.equal(project.reflection.memoryLinkSuggestions.summary.byRelation['research-pattern-for'], 1);
+  assert.equal(project.reflection.memoryLinkSuggestions.summary.byRelation['open-loop-about'], 1);
+  assert.equal(project.reflection.memoryLinkSuggestions.links.every((link) => link.reviewState === 'needs-review'), true);
+  assert.equal(project.guardrailsPass, true);
+  assert.equal(artifact.summary.reflectionMemoryLinkSuggestionCount, 3);
+  assert.equal(artifact.summary.reflectionMemoryLinkHeldBackCount, 0);
+  assert.equal(artifact.summary.reflectionMemoryLinkScoringActive, false);
+  assert.equal(artifact.summary.reflectionProjectLinksReviewGated, true);
+  assert.equal(artifact.summary.reflectionOpenLoopLinksReviewGated, true);
 });
 
 test('temporary affect and sensitive document fields are held back without auto-save', () => {
