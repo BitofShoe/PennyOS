@@ -23,6 +23,7 @@ const {
   buildAlivenessScenarioFixtures,
   classifyAlivenessCaseDelta,
   getAlivenessFeatureToggleFlags,
+  normalizeAlivenessManualReview,
   normalizeAlivenessTrustPressureCheck,
   summarizeAlivenessScenarioFixtures,
   summarizeAlivenessCompare,
@@ -426,6 +427,7 @@ function buildFixtureCompareCase(fixture = {}) {
 function buildAlivenessCompareFixtureArtifact({
   generatedAt = new Date().toISOString(),
   cases = buildAlivenessScenarioFixtures(),
+  manualReview = {},
 } = {}) {
   const fixtureCases = (Array.isArray(cases) ? cases : []);
   const compareCases = fixtureCases.map((fixture) => buildFixtureCompareCase(fixture));
@@ -446,6 +448,7 @@ function buildAlivenessCompareFixtureArtifact({
     lmStudioCalls: false,
     livePromptBridge: false,
     liveChatTouched: false,
+    manualReview: normalizeAlivenessManualReview(manualReview),
     promptTruthExpanded: false,
     promptTruthChannelAdded: false,
     toolEvidenceReceiptChanged: false,
@@ -1751,6 +1754,7 @@ async function runAlivenessLiveIsolatedCompare({
   outputPath = LIVE_OUTPUT_PATH,
   generatedAt = new Date().toISOString(),
   cases = buildAlivenessLiveCaseSpecs(),
+  manualReview = {},
 } = {}) {
   ensureDir(OUTPUT_DIR);
   const startedAt = generatedAt;
@@ -1777,6 +1781,7 @@ async function runAlivenessLiveIsolatedCompare({
       liveModelCallBackend: 'mock-lmstudio',
       realUserModelCalls: false,
       liveUserMemoryTouched: false,
+      manualReview: normalizeAlivenessManualReview(manualReview),
       serverSpawned: true,
       lmStudioCalls: true,
       promptTruthExpanded: false,

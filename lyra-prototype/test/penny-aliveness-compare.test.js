@@ -37,6 +37,7 @@ const {
   buildAlivenessFeatureToggleMatrix,
   buildAlivenessScenarioFixtures,
   getAlivenessFeatureToggleFlags,
+  normalizeAlivenessManualReview,
 } = require('../lib/penny-aliveness-qa');
 
 const GENERATED_AT = '2026-04-22T12:00:00.000Z';
@@ -52,6 +53,13 @@ test('aliveness compare fixture runner exposes A2 cases with schema and metrics'
   assert.equal(artifact.serverSpawned, false);
   assert.equal(artifact.lmStudioCalls, false);
   assert.equal(artifact.livePromptBridge, false);
+  assert.deepEqual(artifact.manualReview, {
+    required: true,
+    reviewer: null,
+    humanObservableWinNotes: '',
+    annoyanceNotes: '',
+    verdictOverride: null,
+  });
   assert.equal(artifact.promptTruthExpanded, false);
   assert.equal(artifact.toolEvidenceReceiptChanged, false);
   assert.equal(artifact.memoryWrites, false);
@@ -78,6 +86,38 @@ test('aliveness compare fixture runner exposes A2 cases with schema and metrics'
   assert.equal(artifact.metrics.promptTokenDelta.count, 0);
   assert.equal(artifact.metrics.firstTokenLatencyDeltaMs.max, null);
   assert.equal(artifact.metrics.totalLatencyDeltaMs.total, null);
+});
+
+test('aliveness manual review fields annotate without replacing automated metrics', () => {
+  const artifact = buildAlivenessCompareFixtureArtifact({
+    generatedAt: GENERATED_AT,
+    manualReview: {
+      reviewer: 'human reviewer',
+      humanObservableWinNotes: 'Feature-on felt more situated on project continuity.',
+      annoyanceNotes: 'No extra nagging observed in fixture expectations.',
+      verdictOverride: 'needs-human-read',
+    },
+  });
+
+  assert.deepEqual(artifact.manualReview, {
+    required: true,
+    reviewer: 'human reviewer',
+    humanObservableWinNotes: 'Feature-on felt more situated on project continuity.',
+    annoyanceNotes: 'No extra nagging observed in fixture expectations.',
+    verdictOverride: 'needs-human-read',
+  });
+  assert.equal(artifact.summary.verdict, ALIVENESS_VERDICTS.FEATURE_ON_WITH_GUARDRAILS);
+  assert.equal(artifact.summary.humanObservableWins, 3);
+  assert.equal(artifact.summary.annoyanceRegressions, 0);
+  assert.equal(artifact.metrics.measurementStatus, 'not-run');
+
+  assert.deepEqual(normalizeAlivenessManualReview({ required: false, reviewer: '', verdictOverride: '' }), {
+    required: false,
+    reviewer: null,
+    humanObservableWinNotes: '',
+    annoyanceNotes: '',
+    verdictOverride: null,
+  });
 });
 
 test('aliveness feature-toggle matrix keeps baseline off and bounded mode explicit', () => {

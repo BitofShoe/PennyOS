@@ -73,6 +73,14 @@ const DEFAULT_ALIVENESS_THRESHOLDS = Object.freeze({
   maxTotalLatencyDeltaMs: null,
 });
 
+const DEFAULT_ALIVENESS_MANUAL_REVIEW = Object.freeze({
+  required: true,
+  reviewer: null,
+  humanObservableWinNotes: '',
+  annoyanceNotes: '',
+  verdictOverride: null,
+});
+
 const ALIVENESS_SCENARIO_IDS = Object.freeze({
   PROJECT_CONTINUITY_STATIC_IMPLEMENTATION: 'project-continuity-static-implementation-next-step',
   OPEN_LOOP_RELEVANCE: 'open-loop-relevance-central-vs-adjacent',
@@ -247,6 +255,17 @@ function normalizeStringList(values = [], limit = 180) {
   return (Array.isArray(values) ? values : [values])
     .map((item) => cleanString(item, limit))
     .filter(Boolean);
+}
+
+function normalizeAlivenessManualReview(review = {}) {
+  const item = isPlainObject(review) ? review : {};
+  return {
+    required: hasOwn(item, 'required') ? item.required !== false : DEFAULT_ALIVENESS_MANUAL_REVIEW.required,
+    reviewer: cleanString(item.reviewer || '', 120) || null,
+    humanObservableWinNotes: cleanString(item.humanObservableWinNotes || '', 1200),
+    annoyanceNotes: cleanString(item.annoyanceNotes || '', 1200),
+    verdictOverride: cleanString(item.verdictOverride || '', 120) || null,
+  };
 }
 
 function normalizeTrustPressureSource(value = null) {
@@ -1284,6 +1303,7 @@ module.exports = {
   computeAlivenessVerdict,
   getAlivenessFeatureToggleFlags,
   normalizeAlivenessCompareMode,
+  normalizeAlivenessManualReview,
   normalizeAlivenessScenarioFixture,
   normalizeAlivenessTrustPressureCheck,
   normalizeAlivenessTrustPressureChecks,
