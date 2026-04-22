@@ -2,6 +2,7 @@ const {
   SEMANTIC_ID_KINDS,
   buildSemanticClaimId,
   buildSemanticEntityId,
+  buildSemanticLinkId,
   buildSemanticRenderedContextId,
   buildSemanticSourceId,
   buildSemanticVectorSourceId,
@@ -35,6 +36,7 @@ const SOURCE_AUDIT_FAILURE_MODES = Object.freeze({
   RENDERED_ITEM_MISSING_SOURCE_ID: 'rendered-item-missing-source-id',
   TOOL_EVIDENCE_MISSING_SOURCE_ID: 'tool-evidence-missing-source-id',
   DYNAMIC_LINK_MISSING_LINK_ID: 'dynamic-link-missing-link-id',
+  DYNAMIC_LINK_INVALID_LINK_ID: 'dynamic-link-invalid-link-id',
   DYNAMIC_LINK_SOURCE_MISSING: 'dynamic-link-source-missing',
   DYNAMIC_LINK_TARGET_MISSING: 'dynamic-link-target-missing',
   SEMANTIC_CLAIM_MISSING_SOURCE_ID: 'semantic-claim-missing-source-id',
@@ -596,14 +598,35 @@ function auditDynamicMemoryLinks(state, links = [], {
     invalidSemanticLinkIds: 0,
   };
   for (const link of list) {
-    const linkId = firstValue(link, ['id', 'linkId', 'semanticLinkId']);
-    const sourceId = firstValue(link, ['sourceId', 'source.sourceId', 'from']);
-    const targetId = firstValue(link, ['targetId', 'target.sourceId', 'to']);
+    const linkId = firstValue(link, ['linkId', 'semanticLinkId', 'semanticContract.linkId', 'id']);
+    const sourceId = firstValue(link, [
+      'sourceClaimId',
+      'semanticContract.sourceClaimId',
+      'sourceId',
+      'source.sourceId',
+      'source.claimId',
+      'from',
+    ]);
+    const targetId = firstValue(link, [
+      'targetClaimId',
+      'semanticContract.targetClaimId',
+      'targetId',
+      'target.sourceId',
+      'target.claimId',
+      'to',
+    ]);
     const itemId = linkId || `${sourceId}->${targetId}`;
     if (linkId) {
       summary.linksWithIds += 1;
       if (linkId.startsWith('penny:') && !validateSemanticId(linkId, SEMANTIC_ID_KINDS.LINK).valid) {
         summary.invalidSemanticLinkIds += 1;
+        addFailure(state, {
+          surface: SOURCE_AUDIT_SURFACES.DYNAMIC_MEMORY_LINKS,
+          itemId,
+          failureMode: SOURCE_AUDIT_FAILURE_MODES.DYNAMIC_LINK_INVALID_LINK_ID,
+          message: 'Dynamic memory link has an invalid local semantic link id.',
+          sourceId: linkId,
+        });
       }
     } else {
       summary.missingLinkIds += 1;
@@ -780,6 +803,45 @@ function buildCleanSemanticSourceAuditFixtureInput() {
     ...claimLike,
     claimId: buildSemanticClaimId(claimLike),
   };
+  const staleClaimLike = {
+    claimId: '',
+    domainId: SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE,
+    subject: { id: userId, type: 'user', label: 'the user' },
+    predicate: { id: SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT },
+    object: { type: 'text', text: 'brass fox' },
+    source: {
+      sourceId: archiveEpisodeSourceId,
+      sourceType: 'archive-episode',
+      excerpt: 'previous coding mascot = brass fox',
+      observedAt: '2026-04-21T12:00:00.000Z',
+    },
+    authority: {
+      sourceAuthority: 'advisory',
+      supportState: 'rendered-advisory',
+      canonicality: 'advisory',
+    },
+    temporal: {
+      temporalScope: 'historical',
+      observedAt: '2026-04-21T12:00:00.000Z',
+    },
+    status: {
+      stale: true,
+      contradictedBy: [semanticClaim.claimId],
+      supersededBy: [semanticClaim.claimId],
+    },
+  };
+  const staleSemanticClaim = {
+    ...staleClaimLike,
+    claimId: buildSemanticClaimId(staleClaimLike),
+  };
+  const semanticLinkId = buildSemanticLinkId({
+    sourceClaimId: semanticClaim.claimId,
+    predicateId: SEMANTIC_PREDICATE_IDS.CORRECTION_OF,
+    targetClaimId: staleSemanticClaim.claimId,
+    domainId: SEMANTIC_DOMAIN_IDS.EXPLICIT_MEMORY,
+    sourceAuthority: 'canonical',
+    supportState: 'verified',
+  });
   const renderedContextId = buildSemanticRenderedContextId({
     channel: 'session-archive',
     sourceId: archiveEpisodeSourceId,
@@ -796,6 +858,10 @@ function buildCleanSemanticSourceAuditFixtureInput() {
       ledgerSourceId,
       openLoopSourceId,
       toolEvidenceSourceId,
+    ],
+    knownItemIds: [
+      semanticClaim.claimId,
+      staleSemanticClaim.claimId,
     ],
     explicitMemory: [
       { id: explicitSourceId, sourceId: explicitSourceId, key: 'current-coding-mascot' },
@@ -845,8 +911,21 @@ function buildCleanSemanticSourceAuditFixtureInput() {
     dynamicMemoryLinks: [
       {
         id: 'link:current-coding-mascot-correction',
-        sourceId: archiveEpisodeSourceId,
-        targetId: explicitSourceId,
+        linkId: semanticLinkId,
+        sourceId: explicitSourceId,
+        targetId: archiveEpisodeSourceId,
+        sourceClaimId: semanticClaim.claimId,
+        targetClaimId: staleSemanticClaim.claimId,
+        predicateId: SEMANTIC_PREDICATE_IDS.CORRECTION_OF,
+        sourceAuthority: 'canonical',
+        supportState: 'verified',
+        evidence: [
+          {
+            sourceId: explicitSourceId,
+            excerpt: 'current coding mascot = copper rabbit',
+            observedAt: '2026-04-22T12:00:00.000Z',
+          },
+        ],
         relation: 'correction-of',
       },
     ],
@@ -857,7 +936,7 @@ function buildCleanSemanticSourceAuditFixtureInput() {
         semanticClaim,
       },
     ],
-    semanticClaims: [semanticClaim],
+    semanticClaims: [semanticClaim, staleSemanticClaim],
   };
 }
 

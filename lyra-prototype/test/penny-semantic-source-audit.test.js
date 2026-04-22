@@ -62,7 +62,9 @@ test('semantic source audit fixture covers source-bearing surfaces without behav
   assert.equal(artifact.surfaces[SOURCE_AUDIT_SURFACES.ARCHIVE].items, 2);
   assert.equal(artifact.surfaces[SOURCE_AUDIT_SURFACES.STATIC_EMBEDDINGS].providerAwareSourceIds, true);
   assert.equal(artifact.surfaces[SOURCE_AUDIT_SURFACES.PROMPT_TRUTH].renderedItemsMissingSourceIds, 0);
-  assert.equal(artifact.surfaces[SOURCE_AUDIT_SURFACES.SEMANTIC_CLAIMS].validClaims, 1);
+  assert.equal(artifact.surfaces[SOURCE_AUDIT_SURFACES.DYNAMIC_MEMORY_LINKS].linksWithIds, 1);
+  assert.equal(artifact.surfaces[SOURCE_AUDIT_SURFACES.DYNAMIC_MEMORY_LINKS].invalidSemanticLinkIds, 0);
+  assert.equal(artifact.surfaces[SOURCE_AUDIT_SURFACES.SEMANTIC_CLAIMS].validClaims, 2);
   assert.match(artifact.limits.join('\n'), /does not prove answer quality/);
   assert.match(artifact.limits.join('\n'), /not dereference permissions/);
   assert.match(artifact.limits.join('\n'), /does not expand PromptTruth/);
@@ -129,6 +131,38 @@ test('semantic source audit detects source-id, cache, rendered, link, and claim 
   assert.equal(artifact.surfaces.dynamicMemoryLinks.missingTargetEndpoints, 1);
   assert.equal(artifact.surfaces.semanticClaims.missingSourceIds, 1);
   assert.equal(artifact.surfaces.semanticClaims.unstableClaimIds, 1);
+});
+
+test('semantic source audit checks structured dynamic link claim endpoints', () => {
+  const input = clone(buildCleanSemanticSourceAuditFixtureInput());
+  const sourceClaimId = input.semanticClaims[0].claimId;
+  input.dynamicMemoryLinks = [
+    {
+      id: 'link:structured-missing-target',
+      sourceClaimId,
+      targetClaimId: buildSemanticClaimId({
+        subjectId: 'penny:entity:user:fixture',
+        predicateId: 'penny:predicate:current-coding-mascot',
+        objectText: 'missing target',
+        sourceId: input.knownSourceIds[0],
+        domainId: 'penny:domain:explicit-memory',
+        temporalScope: 'current',
+      }),
+      predicateId: 'penny:predicate:correction-of',
+      relation: 'correction-of',
+    },
+  ];
+
+  const artifact = buildSemanticSourceAuditArtifact({
+    generatedAt: GENERATED_AT,
+    input,
+  });
+
+  assert.equal(artifact.surfaces.dynamicMemoryLinks.missingTargetEndpoints, 1);
+  assert.equal(
+    artifact.summary.byFailureMode[SOURCE_AUDIT_FAILURE_MODES.DYNAMIC_LINK_TARGET_MISSING],
+    1,
+  );
 });
 
 test('semantic source audit reports fixture-only and local-audit modes honestly', () => {

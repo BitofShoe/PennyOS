@@ -21,20 +21,27 @@ test('registered predicates validate as local semantic predicate ids', () => {
   const predicates = listSemanticPredicates();
   const ids = predicates.map((predicate) => predicate.id);
 
-  assert.equal(predicates.length, 12);
+  assert.equal(predicates.length, 19);
   assert.equal(new Set(ids).size, predicates.length);
   assert.deepEqual(ids, [
     SEMANTIC_PREDICATE_IDS.FAVORITE_TEA,
     SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT,
     SEMANTIC_PREDICATE_IDS.CORRECTED_TO,
     SEMANTIC_PREDICATE_IDS.CORRECTION_OF,
+    SEMANTIC_PREDICATE_IDS.CURRENT_CORRECTION_FOR,
     SEMANTIC_PREDICATE_IDS.STALE_PRIOR,
     SEMANTIC_PREDICATE_IDS.CONTRADICTS,
     SEMANTIC_PREDICATE_IDS.SOURCE_FOR,
+    SEMANTIC_PREDICATE_IDS.SUMMARY_OF,
     SEMANTIC_PREDICATE_IDS.IMPLEMENTS,
     SEMANTIC_PREDICATE_IDS.FOLLOW_UP_TO,
     SEMANTIC_PREDICATE_IDS.OPEN_LOOP_ABOUT,
     SEMANTIC_PREDICATE_IDS.SAME_PROJECT_THREAD,
+    SEMANTIC_PREDICATE_IDS.SUPPORTS,
+    SEMANTIC_PREDICATE_IDS.EVIDENCE_FOR,
+    SEMANTIC_PREDICATE_IDS.USER_PREFERENCE_EVIDENCE,
+    SEMANTIC_PREDICATE_IDS.RESEARCH_PATTERN_FOR,
+    SEMANTIC_PREDICATE_IDS.RELATED_BUT_WEAK,
     SEMANTIC_PREDICATE_IDS.USER_PREFERS_RESPONSE_STYLE,
   ]);
 
@@ -67,11 +74,13 @@ test('unknown and malformed predicates fail closed', () => {
 
 test('inverse relations are declared for correction predicates', () => {
   const correction = getSemanticPredicate(SEMANTIC_PREDICATE_IDS.CORRECTION_OF);
+  const currentCorrection = getSemanticPredicate(SEMANTIC_PREDICATE_IDS.CURRENT_CORRECTION_FOR);
   const stalePrior = getSemanticPredicate(SEMANTIC_PREDICATE_IDS.STALE_PRIOR);
   const correctedTo = getSemanticPredicate(SEMANTIC_PREDICATE_IDS.CORRECTED_TO);
   const contradicts = getSemanticPredicate(SEMANTIC_PREDICATE_IDS.CONTRADICTS);
 
   assert.equal(correction.inversePredicateId, SEMANTIC_PREDICATE_IDS.STALE_PRIOR);
+  assert.equal(currentCorrection.inversePredicateId, SEMANTIC_PREDICATE_IDS.STALE_PRIOR);
   assert.equal(stalePrior.inversePredicateId, SEMANTIC_PREDICATE_IDS.CORRECTION_OF);
   assert.equal(correctedTo.inversePredicateId, SEMANTIC_PREDICATE_IDS.STALE_PRIOR);
   assert.equal(contradicts.inversePredicateId, SEMANTIC_PREDICATE_IDS.CONTRADICTS);
@@ -81,6 +90,7 @@ test('correction and contradiction predicates require source receipts', () => {
   for (const predicateId of [
     SEMANTIC_PREDICATE_IDS.CORRECTED_TO,
     SEMANTIC_PREDICATE_IDS.CORRECTION_OF,
+    SEMANTIC_PREDICATE_IDS.CURRENT_CORRECTION_FOR,
     SEMANTIC_PREDICATE_IDS.STALE_PRIOR,
     SEMANTIC_PREDICATE_IDS.CONTRADICTS,
   ]) {
@@ -95,8 +105,11 @@ test('correction and contradiction predicates require source receipts', () => {
 
 test('ranking-enabled predicates are explicitly marked', () => {
   assert.equal(predicateCanInfluenceRanking(SEMANTIC_PREDICATE_IDS.CORRECTION_OF), true);
+  assert.equal(predicateCanInfluenceRanking(SEMANTIC_PREDICATE_IDS.CURRENT_CORRECTION_FOR), true);
   assert.equal(predicateCanInfluenceRanking(SEMANTIC_PREDICATE_IDS.STALE_PRIOR), true);
   assert.equal(predicateCanInfluenceRanking(SEMANTIC_PREDICATE_IDS.SOURCE_FOR), true);
+  assert.equal(predicateCanInfluenceRanking(SEMANTIC_PREDICATE_IDS.SUPPORTS), true);
+  assert.equal(predicateCanInfluenceRanking(SEMANTIC_PREDICATE_IDS.RELATED_BUT_WEAK), false);
   assert.equal(predicateCanInfluenceRanking(SEMANTIC_PREDICATE_IDS.OPEN_LOOP_ABOUT), true);
   assert.equal(predicateCanInfluenceRanking(SEMANTIC_PREDICATE_IDS.SAME_PROJECT_THREAD), true);
 
@@ -108,7 +121,9 @@ test('memory-sensitive predicates are explicitly marked', () => {
   assert.equal(predicateIsMemorySensitive(SEMANTIC_PREDICATE_IDS.FAVORITE_TEA), true);
   assert.equal(predicateIsMemorySensitive(SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT), true);
   assert.equal(predicateIsMemorySensitive(SEMANTIC_PREDICATE_IDS.CORRECTION_OF), true);
+  assert.equal(predicateIsMemorySensitive(SEMANTIC_PREDICATE_IDS.CURRENT_CORRECTION_FOR), true);
   assert.equal(predicateIsMemorySensitive(SEMANTIC_PREDICATE_IDS.CONTRADICTS), true);
+  assert.equal(predicateIsMemorySensitive(SEMANTIC_PREDICATE_IDS.USER_PREFERENCE_EVIDENCE), true);
   assert.equal(predicateIsMemorySensitive(SEMANTIC_PREDICATE_IDS.USER_PREFERS_RESPONSE_STYLE), true);
 
   assert.equal(predicateIsMemorySensitive(SEMANTIC_PREDICATE_IDS.SOURCE_FOR), false);

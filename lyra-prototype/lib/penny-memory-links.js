@@ -1,5 +1,24 @@
 const PENNY_MEMORY_LINKS_SCHEMA = 'penny-memory-links.v1';
 const PENNY_MEMORY_LINK_TRACE_SCHEMA = 'penny-memory-link-trace.v1';
+const PENNY_MEMORY_LINK_SEMANTIC_CONTRACT_SCHEMA = 'penny-memory-link-semantic-contract.v1';
+
+const {
+  SEMANTIC_ID_KINDS,
+  buildSemanticLinkId,
+  validateSemanticId,
+} = require('./penny-semantic-ids');
+const {
+  SEMANTIC_CLAIM_CANONICALITY,
+  SEMANTIC_CLAIM_SOURCE_AUTHORITIES,
+  SEMANTIC_CLAIM_SUPPORT_STATES,
+} = require('./penny-semantic-claims');
+const {
+  SEMANTIC_PREDICATE_IDS,
+  getSemanticPredicate,
+  predicateCanInfluenceRanking,
+  predicateRequiresReceipt,
+  validateSemanticPredicateId,
+} = require('./penny-semantic-predicates');
 
 const MEMORY_LINK_RELATIONS = Object.freeze({
   CORRECTION_OF: 'correction-of',
@@ -107,6 +126,28 @@ const INVERSE_RELATIONS = Object.freeze({
   [MEMORY_LINK_RELATIONS.STALE_PRIOR_OF]: MEMORY_LINK_RELATIONS.CURRENT_CORRECTION_FOR,
   [MEMORY_LINK_RELATIONS.CURRENT_CORRECTION_FOR]: MEMORY_LINK_RELATIONS.STALE_PRIOR_OF,
 });
+const MEMORY_LINK_RELATION_PREDICATE_IDS = Object.freeze({
+  [MEMORY_LINK_RELATIONS.CORRECTION_OF]: SEMANTIC_PREDICATE_IDS.CORRECTION_OF,
+  [MEMORY_LINK_RELATIONS.STALE_PRIOR_OF]: SEMANTIC_PREDICATE_IDS.STALE_PRIOR,
+  [MEMORY_LINK_RELATIONS.CURRENT_CORRECTION_FOR]: SEMANTIC_PREDICATE_IDS.CURRENT_CORRECTION_FOR,
+  [MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD]: SEMANTIC_PREDICATE_IDS.SAME_PROJECT_THREAD,
+  [MEMORY_LINK_RELATIONS.FOLLOW_UP_TO]: SEMANTIC_PREDICATE_IDS.FOLLOW_UP_TO,
+  [MEMORY_LINK_RELATIONS.IMPLEMENTS_PLAN]: SEMANTIC_PREDICATE_IDS.IMPLEMENTS,
+  [MEMORY_LINK_RELATIONS.SOURCE_FOR]: SEMANTIC_PREDICATE_IDS.SOURCE_FOR,
+  [MEMORY_LINK_RELATIONS.SUMMARY_OF]: SEMANTIC_PREDICATE_IDS.SUMMARY_OF,
+  [MEMORY_LINK_RELATIONS.CONTRADICTS]: SEMANTIC_PREDICATE_IDS.CONTRADICTS,
+  [MEMORY_LINK_RELATIONS.SUPPORTS]: SEMANTIC_PREDICATE_IDS.SUPPORTS,
+  [MEMORY_LINK_RELATIONS.EVIDENCE_FOR]: SEMANTIC_PREDICATE_IDS.EVIDENCE_FOR,
+  [MEMORY_LINK_RELATIONS.OPEN_LOOP_ABOUT]: SEMANTIC_PREDICATE_IDS.OPEN_LOOP_ABOUT,
+  [MEMORY_LINK_RELATIONS.USER_PREFERENCE_EVIDENCE]: SEMANTIC_PREDICATE_IDS.USER_PREFERENCE_EVIDENCE,
+  [MEMORY_LINK_RELATIONS.RESEARCH_PATTERN_FOR]: SEMANTIC_PREDICATE_IDS.RESEARCH_PATTERN_FOR,
+  [MEMORY_LINK_RELATIONS.RELATED_BUT_WEAK]: SEMANTIC_PREDICATE_IDS.RELATED_BUT_WEAK,
+});
+const RELATION_BY_PREDICATE_ID = Object.freeze(Object.entries(MEMORY_LINK_RELATION_PREDICATE_IDS)
+  .reduce((out, [relation, predicateId]) => {
+    if (!out[predicateId]) out[predicateId] = relation;
+    return out;
+  }, {}));
 
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -187,6 +228,51 @@ function normalizeRelation(value = '') {
   };
   const normalized = aliases[relation] || relation;
   return RELATION_VALUES.has(normalized) ? normalized : '';
+}
+
+function relationToPredicateId(relation = '') {
+  return MEMORY_LINK_RELATION_PREDICATE_IDS[normalizeRelation(relation)] || '';
+}
+
+function predicateIdToRelation(predicateId = '') {
+  const validation = validateSemanticPredicateId(predicateId);
+  if (!validation.valid) return '';
+  return RELATION_BY_PREDICATE_ID[validation.predicateId] || '';
+}
+
+function normalizePredicateForLink(input = {}, relation = '') {
+  const rawPredicate = input.predicateId
+    || input.semanticPredicateId
+    || (isPlainObject(input.predicate) ? input.predicate.id || input.predicate.predicateId : input.predicate)
+    || '';
+  if (rawPredicate) {
+    const validation = validateSemanticPredicateId(rawPredicate);
+    return {
+      predicate: validation.valid ? validation.predicate : null,
+      predicateId: validation.valid ? validation.predicateId : cleanString(rawPredicate, 500),
+      explicit: true,
+      valid: validation.valid,
+      reason: validation.valid ? '' : validation.reason || 'invalid predicate',
+    };
+  }
+  if (isPlainObject(input.predicate)) {
+    return {
+      predicate: null,
+      predicateId: '',
+      explicit: true,
+      valid: false,
+      reason: 'predicate label cannot decide behavior without registered predicate id',
+    };
+  }
+  const predicateId = relationToPredicateId(relation);
+  const predicate = getSemanticPredicate(predicateId);
+  return {
+    predicate,
+    predicateId: predicate?.id || '',
+    explicit: false,
+    valid: !!predicate,
+    reason: predicate ? '' : 'unregistered relation predicate',
+  };
 }
 
 function normalizeSupportState(value = '') {
@@ -339,6 +425,38 @@ function normalizeSourceReceipt(receipt = {}) {
   return Object.keys(out).length ? out : null;
 }
 
+function normalizeLinkEvidence(input = {}, support = {}) {
+  const rawEvidence = [
+    ...listValue(input.evidence),
+    ...listValue(input.sourceEvidence),
+    ...listValue(input.sourceReceipts),
+    ...listValue(input.sourceRefs),
+    ...listValue(input.receipts),
+    ...listValue(support.sourceReceipts),
+  ];
+  const evidence = [];
+  const seen = new Set();
+  for (const item of rawEvidence) {
+    const normalized = normalizeSourceReceipt(item);
+    if (!normalized) continue;
+    const sourceId = cleanString(normalized.sourceid || normalized.sourceId || normalized.id || '', 500);
+    const entry = {
+      ...(sourceId ? { sourceId } : {}),
+      ...(normalized.excerpt ? { excerpt: normalized.excerpt } : {}),
+      ...(normalized.observedat || normalized.observedAt ? { observedAt: normalized.observedat || normalized.observedAt } : {}),
+      ...(normalized.type ? { type: normalized.type } : {}),
+      ...(normalized.text ? { text: normalized.text } : {}),
+    };
+    if (!Object.keys(entry).length) continue;
+    const key = JSON.stringify(entry);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    evidence.push(entry);
+    if (evidence.length >= 12) break;
+  }
+  return evidence;
+}
+
 function normalizeSupport(input = {}) {
   const source = isPlainObject(input) ? input : {};
   const state = normalizeSupportState(
@@ -363,8 +481,162 @@ function normalizeSupport(input = {}) {
 
 function buildLinkId({ id = '', sourceId = '', targetId = '', relation = '' } = {}) {
   const cleanId = cleanString(id, 220);
+  if (validateSemanticId(cleanId, SEMANTIC_ID_KINDS.LINK).valid) return cleanId;
   if (cleanId) return slugify(cleanId, 'link');
   return `link:${slugify(relation, 'relation')}:${slugify(sourceId, 'source')}->${slugify(targetId, 'target')}`;
+}
+
+function cleanSemanticClaimId(value = '') {
+  const id = cleanString(value, 500);
+  return validateSemanticId(id, SEMANTIC_ID_KINDS.CLAIM).valid ? id : '';
+}
+
+function sourceClaimIdFromInput(input = {}, sourceId = '') {
+  return cleanSemanticClaimId(
+    input.sourceClaimId
+      || input.sourceSemanticClaimId
+      || input.sourceClaim?.claimId
+      || input.sourceClaim?.id
+      || (isPlainObject(input.source) ? input.source.claimId || input.source.id : '')
+      || sourceId,
+  );
+}
+
+function targetClaimIdFromInput(input = {}, targetId = '') {
+  return cleanSemanticClaimId(
+    input.targetClaimId
+      || input.targetSemanticClaimId
+      || input.targetClaim?.claimId
+      || input.targetClaim?.id
+      || (isPlainObject(input.target) ? input.target.claimId || input.target.id : '')
+      || targetId,
+  );
+}
+
+function memoryLinkHasSemanticContractInput(input = {}) {
+  return !!(
+    input.sourceClaimId
+    || input.sourceSemanticClaimId
+    || input.targetClaimId
+    || input.targetSemanticClaimId
+    || input.domainId
+    || input.sourceEvidence
+    || isPlainObject(input.predicate)
+    || isPlainObject(input.sourceClaim)
+    || isPlainObject(input.targetClaim)
+  );
+}
+
+function normalizeSemanticLinkSupportState(value = '', memorySupportState = MEMORY_LINK_SUPPORT_STATES.UNKNOWN) {
+  const state = cleanToken(value);
+  const aliases = {
+    verified: SEMANTIC_CLAIM_SUPPORT_STATES.VERIFIED,
+    explicit: SEMANTIC_CLAIM_SUPPORT_STATES.VERIFIED,
+    'explicit-memory': SEMANTIC_CLAIM_SUPPORT_STATES.VERIFIED,
+    rendered: SEMANTIC_CLAIM_SUPPORT_STATES.RENDERED_ADVISORY,
+    archive: SEMANTIC_CLAIM_SUPPORT_STATES.RENDERED_ADVISORY,
+    research: SEMANTIC_CLAIM_SUPPORT_STATES.RENDERED_ADVISORY,
+    advisory: SEMANTIC_CLAIM_SUPPORT_STATES.RENDERED_ADVISORY,
+    'rendered-advisory': SEMANTIC_CLAIM_SUPPORT_STATES.RENDERED_ADVISORY,
+    candidate: SEMANTIC_CLAIM_SUPPORT_STATES.CANDIDATE_ONLY,
+    'candidate-only': SEMANTIC_CLAIM_SUPPORT_STATES.CANDIDATE_ONLY,
+    semantic: SEMANTIC_CLAIM_SUPPORT_STATES.CANDIDATE_ONLY,
+    'semantic-candidate': SEMANTIC_CLAIM_SUPPORT_STATES.CANDIDATE_ONLY,
+    static: SEMANTIC_CLAIM_SUPPORT_STATES.CANDIDATE_ONLY,
+    'static-candidate': SEMANTIC_CLAIM_SUPPORT_STATES.CANDIDATE_ONLY,
+    fixture: SEMANTIC_CLAIM_SUPPORT_STATES.FIXTURE_ONLY,
+    'fixture-only': SEMANTIC_CLAIM_SUPPORT_STATES.FIXTURE_ONLY,
+  };
+  if (aliases[state]) return aliases[state];
+  if (memorySupportState === MEMORY_LINK_SUPPORT_STATES.EXPLICIT) return SEMANTIC_CLAIM_SUPPORT_STATES.VERIFIED;
+  if (memorySupportState === MEMORY_LINK_SUPPORT_STATES.SEMANTIC_CANDIDATE) {
+    return SEMANTIC_CLAIM_SUPPORT_STATES.CANDIDATE_ONLY;
+  }
+  if (memorySupportState === MEMORY_LINK_SUPPORT_STATES.UNKNOWN) return SEMANTIC_CLAIM_SUPPORT_STATES.RENDERED_ADVISORY;
+  return SEMANTIC_CLAIM_SUPPORT_STATES.RENDERED_ADVISORY;
+}
+
+function normalizeSemanticLinkSourceAuthority(value = '', semanticSupportState = '') {
+  const authority = cleanToken(value);
+  const aliases = {
+    canonical: SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANONICAL,
+    verified: SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANONICAL,
+    explicit: SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANONICAL,
+    advisory: SEMANTIC_CLAIM_SOURCE_AUTHORITIES.ADVISORY,
+    rendered: SEMANTIC_CLAIM_SOURCE_AUTHORITIES.ADVISORY,
+    candidate: SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANDIDATE_ONLY,
+    'candidate-only': SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANDIDATE_ONLY,
+    static: SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANDIDATE_ONLY,
+    semantic: SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANDIDATE_ONLY,
+    fixture: SEMANTIC_CLAIM_SOURCE_AUTHORITIES.FIXTURE_ONLY,
+    'fixture-only': SEMANTIC_CLAIM_SOURCE_AUTHORITIES.FIXTURE_ONLY,
+  };
+  if (semanticSupportState === SEMANTIC_CLAIM_SUPPORT_STATES.CANDIDATE_ONLY) {
+    return SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANDIDATE_ONLY;
+  }
+  if (semanticSupportState === SEMANTIC_CLAIM_SUPPORT_STATES.FIXTURE_ONLY) {
+    return SEMANTIC_CLAIM_SOURCE_AUTHORITIES.FIXTURE_ONLY;
+  }
+  return aliases[authority] || SEMANTIC_CLAIM_SOURCE_AUTHORITIES.ADVISORY;
+}
+
+function buildSemanticContractForLink({
+  input = {},
+  sourceId = '',
+  targetId = '',
+  relation = '',
+  predicate = null,
+  support = {},
+  authorityEffect = MEMORY_LINK_AUTHORITY_EFFECTS.NONE,
+  evidence = [],
+} = {}) {
+  const sourceClaimId = sourceClaimIdFromInput(input, sourceId);
+  const targetClaimId = targetClaimIdFromInput(input, targetId);
+  const predicateId = predicate?.id || '';
+  const supportState = normalizeSemanticLinkSupportState(
+    input.supportState || input.authority?.supportState || input.support?.supportState || '',
+    support.state,
+  );
+  const sourceAuthority = normalizeSemanticLinkSourceAuthority(
+    input.sourceAuthority || input.authority?.sourceAuthority || input.authority || '',
+    supportState,
+  );
+  const domainId = cleanString(input.domainId || input.domain?.id || '', 500);
+  const linkId = buildSemanticLinkId({
+    linkId: input.linkId || input.semanticLinkId,
+    sourceClaimId: sourceClaimId || sourceId,
+    targetClaimId: targetClaimId || targetId,
+    predicateId,
+    domainId,
+    sourceAuthority,
+    supportState,
+  });
+  const candidateOnly = supportState === SEMANTIC_CLAIM_SUPPORT_STATES.CANDIDATE_ONLY
+    || sourceAuthority === SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANDIDATE_ONLY;
+  const canInfluenceRanking = predicateCanInfluenceRanking(predicateId) && !candidateOnly;
+
+  return {
+    schema: PENNY_MEMORY_LINK_SEMANTIC_CONTRACT_SCHEMA,
+    linkId,
+    sourceClaimId,
+    predicateId,
+    targetClaimId,
+    domainId,
+    sourceAuthority,
+    supportState,
+    canonicality: SEMANTIC_CLAIM_CANONICALITY.NOT_CANONICAL,
+    evidence,
+    confidence: normalizeConfidence(input.confidence || input.scoreClass || ''),
+    canInfluenceRanking,
+    requiresSourceReceipt: predicateRequiresReceipt(predicateId),
+    relation,
+    authorityEffect,
+    advisoryOnly: true,
+    truthProof: false,
+    canonicalMemoryWrite: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+  };
 }
 
 function rawLinkList(input = {}) {
@@ -378,9 +650,30 @@ function rawLinkList(input = {}) {
 
 function normalizeMemoryLink(input = {}, options = {}) {
   if (!isPlainObject(input)) return null;
-  const sourceId = cleanString(input.sourceId || input.source || input.from || '', 220);
-  const targetId = cleanString(input.targetId || input.target || input.to || '', 220);
-  const relation = normalizeRelation(input.relation || input.type || input.kind || '');
+  const rawPredicate = normalizePredicateForLink(input, normalizeRelation(input.relation || input.type || input.kind || ''));
+  const fallbackRelation = rawPredicate.valid ? predicateIdToRelation(rawPredicate.predicateId) : '';
+  const relation = normalizeRelation(input.relation || input.type || input.kind || fallbackRelation);
+  const predicateState = normalizePredicateForLink(input, relation);
+  if (!predicateState.valid) return null;
+
+  const sourceClaimId = sourceClaimIdFromInput(input);
+  const targetClaimId = targetClaimIdFromInput(input);
+  const sourceId = cleanString(
+    input.sourceId
+      || (isPlainObject(input.source) ? input.source.sourceId || input.source.id : input.source)
+      || input.from
+      || sourceClaimId
+      || '',
+    500,
+  );
+  const targetId = cleanString(
+    input.targetId
+      || (isPlainObject(input.target) ? input.target.sourceId || input.target.id : input.target)
+      || input.to
+      || targetClaimId
+      || '',
+    500,
+  );
   if (!sourceId || !targetId || !relation) return null;
 
   const support = normalizeSupport(input.support || {
@@ -400,12 +693,33 @@ function normalizeMemoryLink(input = {}, options = {}) {
   const createdAt = normalizeIso(input.createdAt || input.created_at || '', timestamp);
   const updatedAt = normalizeIso(input.updatedAt || input.updated_at || input.createdAt || '', createdAt);
   const expiresAt = normalizeIso(input.expiresAt || input.expires_at || '', null);
-
-  return {
-    id: buildLinkId({ id: input.id, sourceId, targetId, relation }),
+  const evidence = normalizeLinkEvidence(input, support);
+  const semanticContract = buildSemanticContractForLink({
+    input,
     sourceId,
     targetId,
     relation,
+    predicate: predicateState.predicate,
+    support,
+    authorityEffect,
+    evidence,
+  });
+
+  return {
+    id: buildLinkId({ id: input.id, sourceId, targetId, relation }),
+    linkId: semanticContract.linkId,
+    sourceId,
+    targetId,
+    relation,
+    predicateId: semanticContract.predicateId,
+    sourceClaimId: semanticContract.sourceClaimId,
+    targetClaimId: semanticContract.targetClaimId,
+    domainId: semanticContract.domainId,
+    sourceAuthority: semanticContract.sourceAuthority,
+    supportState: semanticContract.supportState,
+    evidence,
+    canInfluenceRanking: semanticContract.canInfluenceRanking,
+    semanticContract,
     confidence: normalizeConfidence(input.confidence || input.scoreClass || ''),
     support,
     authorityEffect,
@@ -463,11 +777,34 @@ function normalizeMemoryLinkSet(input = {}, options = {}) {
   const links = [];
   const heldBack = [];
   const rawLinks = rawLinkList(input);
+  const includeSemanticInverses = source.includeSemanticInverses === true
+    || source.includeInverseSemanticCorrections === true
+    || options.includeSemanticInverses === true
+    || options.includeInverseSemanticCorrections === true;
+  const seen = new Set();
+  const addLink = (link) => {
+    if (!link) return false;
+    const key = [link.linkId, link.sourceId, link.targetId, link.relation, link.predicateId]
+      .filter(Boolean)
+      .join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    links.push(link);
+    return true;
+  };
 
   rawLinks.forEach((rawLink, index) => {
     const validation = validateMemoryLink(rawLink, { now: generatedAt });
     if (validation.valid) {
-      links.push(validation.link);
+      addLink(validation.link);
+      if (
+        includeSemanticInverses
+        && validation.link.relation === MEMORY_LINK_RELATIONS.CORRECTION_OF
+        && validation.link.sourceClaimId
+        && validation.link.targetClaimId
+      ) {
+        addLink(invertDirectedLink(validation.link));
+      }
     } else {
       heldBack.push({
         index,
@@ -555,12 +892,19 @@ function normalizeMemoryLinkTraceLink(linkLike = {}, direction = '') {
   if (!link) return null;
   return compactMemoryLinkTraceObject({
     id: link.id,
+    linkId: link.linkId,
     sourceId: link.sourceId,
     targetId: link.targetId,
     relation: link.relation,
+    predicateId: link.predicateId,
+    sourceClaimId: link.sourceClaimId,
+    targetClaimId: link.targetClaimId,
     direction: cleanToken(direction),
     confidence: link.confidence,
     supportState: link.support.state,
+    semanticSupportState: link.supportState,
+    sourceAuthority: link.sourceAuthority,
+    canInfluenceRanking: link.canInfluenceRanking,
     authorityEffect: link.authorityEffect,
     reviewState: link.reviewState,
     advisoryOnly: true,
@@ -630,14 +974,21 @@ function invertDirectedLink(link = {}) {
   if (!normalized) return null;
   if (normalized.directionality === MEMORY_LINK_DIRECTIONALITY.BIDIRECTIONAL) return { ...normalized };
   const relation = INVERSE_RELATIONS[normalized.relation] || normalized.relation;
-  return {
+  const inverted = normalizeMemoryLink({
     ...normalized,
     id: `${normalized.id}:inverse`,
+    linkId: '',
     sourceId: normalized.targetId,
     targetId: normalized.sourceId,
+    sourceClaimId: normalized.targetClaimId,
+    targetClaimId: normalized.sourceClaimId,
     relation,
+    predicateId: relationToPredicateId(relation) || normalized.predicate?.inversePredicateId || normalized.predicateId,
     invertedFrom: normalized.id,
-  };
+  });
+  return inverted
+    ? { ...inverted, id: `${normalized.id}:inverse`, invertedFrom: normalized.id }
+    : null;
 }
 
 function validateMemoryLink(link = {}, options = {}) {
@@ -650,9 +1001,35 @@ function validateMemoryLink(link = {}, options = {}) {
       link: null,
     };
   }
-  if (!cleanString(link.sourceId || link.source || link.from || '', 220)) errors.push('missing sourceId');
-  if (!cleanString(link.targetId || link.target || link.to || '', 220)) errors.push('missing targetId');
-  if (!normalizeRelation(link.relation || link.type || link.kind || '')) errors.push('invalid relation');
+  const rawRelation = normalizeRelation(link.relation || link.type || link.kind || '');
+  const predicateState = normalizePredicateForLink(link, rawRelation);
+  const relation = rawRelation || (predicateState.valid ? predicateIdToRelation(predicateState.predicateId) : '');
+  const sourceClaimId = sourceClaimIdFromInput(link);
+  const targetClaimId = targetClaimIdFromInput(link);
+  if (!cleanString(
+    link.sourceId
+      || (isPlainObject(link.source) ? link.source.sourceId || link.source.id : link.source)
+      || link.from
+      || sourceClaimId
+      || '',
+    500,
+  )) errors.push('missing sourceId');
+  if (!cleanString(
+    link.targetId
+      || (isPlainObject(link.target) ? link.target.sourceId || link.target.id : link.target)
+      || link.to
+      || targetClaimId
+      || '',
+    500,
+  )) errors.push('missing targetId');
+  if (!relation) errors.push('invalid relation');
+  if (!predicateState.valid && (predicateState.explicit || relation)) {
+    errors.push(predicateState.reason || 'invalid predicate');
+  }
+  if (memoryLinkHasSemanticContractInput(link)) {
+    if (!sourceClaimId) errors.push('missing or invalid sourceClaimId');
+    if (!targetClaimId) errors.push('missing or invalid targetClaimId');
+  }
   const normalized = errors.length ? null : normalizeMemoryLink(link, options);
   if (!normalized) {
     if (!errors.length) errors.push('invalid memory link');
@@ -681,6 +1058,7 @@ function validateMemoryLink(link = {}, options = {}) {
 module.exports = {
   PENNY_MEMORY_LINKS_SCHEMA,
   PENNY_MEMORY_LINK_TRACE_SCHEMA,
+  PENNY_MEMORY_LINK_SEMANTIC_CONTRACT_SCHEMA,
   MEMORY_LINK_RELATIONS,
   MEMORY_LINK_SUPPORT_STATES,
   MEMORY_LINK_AUTHORITY_EFFECTS,
@@ -688,12 +1066,15 @@ module.exports = {
   MEMORY_LINK_CREATED_BY,
   MEMORY_LINK_REVIEW_STATES,
   MEMORY_LINK_MEASUREMENT_MODES,
+  MEMORY_LINK_RELATION_PREDICATE_IDS,
   DEFAULT_MEMORY_LINK_LIMITS,
   buildMemoryLinkTraceForItem,
   findLinksForItem,
   invertDirectedLink,
   normalizeMemoryLink,
   normalizeMemoryLinkSet,
+  predicateIdToRelation,
+  relationToPredicateId,
   summarizeMemoryLinks,
   validateMemoryLink,
 };
