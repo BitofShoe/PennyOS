@@ -1,6 +1,6 @@
 # Penny Session Reflection + Memory Suggestions Plan
 
-> Status: near-future implementation plan after Tier 1 bounded-aliveness primitives.
+> Status: R1-R9 landed as helper/fixture/status work; default live prompt rendering remains disabled.
 > Theme: let Penny consolidate sessions and suggest memory/open-loop updates without silently rewriting herself.
 > Scope: artifact-first reflection, review-gated memory suggestions, optional prompt bridge only after eval, no automatic canonical memory writes.
 
@@ -61,6 +61,15 @@ Current-law boundaries:
 - toolEvidenceReceipt remains a sibling artifact.
 - Reflection artifacts are not hidden chain-of-thought.
 - Reflection summaries are not proof that the summarized content is true.
+
+Current implementation status through R9:
+
+- R1-R3 landed deterministic schema, policy, and fixture artifact generation.
+- R4-R5 landed bounded reflection prep and a local review queue for memory suggestions.
+- R6 landed explicit approval routing through the existing explicit-memory helper, not a new write authority.
+- R7 landed reflection-to-open-loop updates inside advisory open-loop state.
+- R8 landed a fixture-only compact prompt-bridge compare; compact can support live-shadow review, while verbose remains a negative control and default broad/live rendering stays disabled.
+- R9 records this landed-vs-deferred status in the high-level docs.
 
 ---
 
@@ -733,6 +742,10 @@ eval: compare compact session reflection bridge
 ### Goal
 
 Record landed vs deferred.
+
+### Status
+
+Landed as a docs/status slice. The high-level docs now describe the R1-R8 stack as real helper/fixture/queue/approval/open-loop/compare code while preserving the deferrals: no automatic explicit-memory writes, no reflection-summary truth proof, no PromptTruth expansion, no `toolEvidenceReceipt` merge, no hidden chain-of-thought storage, no runtime voice change, and no default broad/live reflection prompt bridge.
 
 ### Files
 
