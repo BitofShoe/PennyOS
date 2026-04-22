@@ -113,6 +113,7 @@ const HIGH_STAKES_PATTERNS = [
 
 const SOURCE_REQUEST_PATTERNS = [
   /\bsource-backed\b/i,
+  /\bsource claim\b/i,
   /\bwith sources?\b/i,
   /\bcitations?\b/i,
   /\bcite\b/i,
@@ -125,6 +126,44 @@ const SOURCE_REQUEST_PATTERNS = [
   /\bcurrent (law|rules?|guidance|status|price|schedule|version)\b/i,
 ];
 
+const ATTACHMENT_CONTEXT_PATTERNS = [
+  /\battached (?:image|photo|screenshot|file)\b/i,
+  /\bimage context\b/i,
+  /\bscreenshot\b/i,
+  /\bphoto\b/i,
+  /\bvisual context\b/i,
+];
+
+const FACTUAL_CORRECTION_PATTERNS = [
+  /\bno,\s+(?:the|that|this|it)\b/i,
+  /\bnope,\s+(?:the|that|this|it)\b/i,
+  /\bactually,\s+(?:the|that|this|it)\b/i,
+  /\bthat's not (?:right|true|accurate)\b/i,
+  /\byou got that wrong\b/i,
+  /\bcorrection:/i,
+  /\bcorrect the answer\b/i,
+  /\bdocs? say\b/i,
+  /\bsource says\b/i,
+  /\bfile says\b/i,
+];
+
+const CONFIRMATION_PRESSURE_PATTERNS = [
+  /\bjust agree\b/i,
+  /\bjust confirm\b/i,
+  /\bno caveats?\b/i,
+  /\bdo not mention uncertainty\b/i,
+  /\bdon't mention uncertainty\b/i,
+  /\bwithout uncertainty\b/i,
+];
+
+const WEAK_EVIDENCE_PATTERNS = [
+  /\bweak evidence\b/i,
+  /\bweak (?:static )?candidate\b/i,
+  /\bcandidate-only\b/i,
+  /\bunverified\b/i,
+  /\bproves? this\b/i,
+];
+
 const CURRENT_LAW_CONSTRAINTS = Object.freeze({
   EXPLICIT_MEMORY_CANONICAL: 'Explicit memory is canonical; advisory recall must not be treated as stronger truth.',
   ADVISORY_CONTEXT: 'Archive, research-ledger, semantic, static, and open-loop signals are advisory context, not proof by confidence.',
@@ -134,6 +173,7 @@ const CURRENT_LAW_CONSTRAINTS = Object.freeze({
   OPEN_LOOPS_ADVISORY: 'Open loops are advisory, dismissible continuity; they are not explicit memory or autonomous task permission.',
   DETERMINISTIC_EXTRACTION_NO_AUTO_MEMORY: 'Deterministic extraction/source receipts do not create automatic memory writes or promotion.',
   TOOL_ACTION_RECEIPTS: 'Tool/action completion claims require successful deterministic in-turn receipts before being stated as done.',
+  ATTACHMENT_CONTEXT_CURRENT_TURN: 'Image, screenshot, and attachment context is current-turn evidence only; do not infer unseen details or reuse older attachments.',
 });
 
 const AUTHORITY_TOPIC_PATTERNS = Object.freeze({
@@ -155,6 +195,7 @@ const AUTHORITY_TOPIC_PATTERNS = Object.freeze({
   extraction: [
     /\b(deterministic extraction|extract(?:ion)?|ocr|pdf|document extraction|spreadsheet|table extraction|invoice|tax form|numeric fields?)\b/i,
   ],
+  attachmentContext: ATTACHMENT_CONTEXT_PATTERNS,
 });
 
 const SENSITIVE_PROMPT_PATTERNS = [
@@ -637,6 +678,13 @@ function inferSourceCheckNeeded(text = '') {
 
 function inferResponseMode(text = '', desiredDepth = DESIRED_DEPTHS.UNKNOWN, sourceCheckNeeded = false) {
   if (sourceCheckNeeded) return RESPONSE_MODES.SOURCE_BACKED_REVIEW;
+  if (
+    matchesAny(text, ATTACHMENT_CONTEXT_PATTERNS)
+    || matchesAny(text, FACTUAL_CORRECTION_PATTERNS)
+    || matchesAny(text, CONFIRMATION_PRESSURE_PATTERNS)
+  ) {
+    return RESPONSE_MODES.CAREFUL_UNCERTAINTY;
+  }
   if (/\b(code review|review this diff|review the diff|find bugs|regression|audit)\b/i.test(text)) {
     return RESPONSE_MODES.CODE_REVIEW;
   }
@@ -704,6 +752,15 @@ function inferActiveConstraints(text = '', explicitInstructions = []) {
 function inferRiskFlags(text = '', sourceCheckNeeded = false) {
   const flags = [];
   if (sourceCheckNeeded) flags.push('source-check-needed');
+  if (matchesAny(text, ATTACHMENT_CONTEXT_PATTERNS)) flags.push('current-turn-visual-context');
+  if (matchesAny(text, FACTUAL_CORRECTION_PATTERNS)) flags.push('factual-correction-request');
+  if (matchesAny(text, CONFIRMATION_PRESSURE_PATTERNS)) flags.push('confirmation-pressure');
+  if (
+    matchesAny(text, CONFIRMATION_PRESSURE_PATTERNS)
+    && matchesAny(text, WEAK_EVIDENCE_PATTERNS)
+  ) {
+    flags.push('weak-evidence-pressure');
+  }
   if (matchesAny(text, HIGH_STAKES_PATTERNS)) flags.push('high-stakes-domain');
   if (/\b(don't be proactive|do not be proactive|no proactive|stop suggesting|just answer)\b/i.test(text)) {
     flags.push('user-proactive-opt-out');
@@ -721,6 +778,15 @@ function inferRiskFlags(text = '', sourceCheckNeeded = false) {
 }
 
 function inferSuggestedResponseShape(responseMode, desiredDepth, riskFlags = []) {
+  if (riskFlags.includes('current-turn-visual-context')) {
+    return 'attachment-bounded context review from current-turn evidence only';
+  }
+  if (riskFlags.includes('confirmation-pressure')) {
+    return 'careful answer with truth boundaries kept visible';
+  }
+  if (riskFlags.includes('factual-correction-request')) {
+    return 'correct the factual premise carefully without extra initiative';
+  }
   if (responseMode === RESPONSE_MODES.SOURCE_BACKED_REVIEW) {
     return 'source-aware review with uncertainty kept explicit';
   }
@@ -798,6 +864,9 @@ function inferCurrentLawConstraints(text = '', rawInput = {}, context = {}) {
   if (matchesAny(authorityText, AUTHORITY_TOPIC_PATTERNS.extraction)) {
     add(CURRENT_LAW_CONSTRAINTS.DETERMINISTIC_EXTRACTION_NO_AUTO_MEMORY);
   }
+  if (matchesAny(authorityText, AUTHORITY_TOPIC_PATTERNS.attachmentContext)) {
+    add(CURRENT_LAW_CONSTRAINTS.ATTACHMENT_CONTEXT_CURRENT_TURN);
+  }
 
   return normalizeConstraints(constraints);
 }
@@ -836,7 +905,11 @@ function extractTurnStateSignals(input = {}) {
       ...riskFlags,
     ],
     sourceCheckNeeded,
-    sourcePosture: sourceCheckNeeded ? 'source-check-needed' : '',
+    sourcePosture: sourceCheckNeeded
+      ? 'source-check-needed'
+      : (riskFlags.includes('current-turn-visual-context') || riskFlags.includes('factual-correction-request')
+        ? 'user-provided-context'
+        : ''),
     openLoopsTouched: [
       ...arrayFromContext(rawInput, 'openLoopsTouched', 'openLoops', 'openLoopIds'),
       ...arrayFromContext(context, 'openLoopsTouched', 'openLoops', 'openLoopIds'),
@@ -932,6 +1005,9 @@ function constraintPromptCues(constraints = []) {
   if (/toolEvidenceReceipt/i.test(joined)) cues.push('toolEvidenceReceipt sibling');
   if (/completion claims require|successful deterministic in-turn receipts/i.test(joined)) {
     cues.push('tool/action claims need receipts');
+  }
+  if (/Image, screenshot, and attachment context is current-turn evidence only/i.test(joined)) {
+    cues.push('current-turn visual context only');
   }
   if (/runtime voice/i.test(joined)) cues.push('runtime voice unchanged');
   if (!cues.length && joined) cues.push('current-turn constraints in force');

@@ -238,6 +238,96 @@ test('extractTurnStateSignals marks high-stakes source requests for source-check
   assert.ok(state.riskFlags.includes('high-stakes-domain'));
 });
 
+test('T8 QA cases pin response mode shifts without weakening truth constraints', () => {
+  const cases = [
+    {
+      id: 'enthusiastic-long-plan-request',
+      userText: 'Long detailed answers are heaven. Please turn the Tier 1 aliveness idea into an implementation plan.',
+      expectedDepth: DESIRED_DEPTHS.EXTENSIVE,
+      expectedMode: RESPONSE_MODES.TECHNICAL_ROADMAP,
+      expectedShape: /implementation-focused technical roadmap/i,
+      expectedPrompt: /extensive technical roadmap/i,
+    },
+    {
+      id: 'quick-code-patch-request',
+      userText: 'Quick patch please: fix the helper and keep it small.',
+      expectedDepth: DESIRED_DEPTHS.CONCISE,
+      expectedMode: RESPONSE_MODES.TECHNICAL_ROADMAP,
+      expectedRiskFlag: 'quick-patch-scope',
+      expectedShape: /concise code patch with focused verification/i,
+      expectedPrompt: /concise technical roadmap/i,
+    },
+    {
+      id: 'source-backed-review-request',
+      userText: 'Please do a source-backed review of this claim with citations.',
+      expectedDepth: DESIRED_DEPTHS.UNKNOWN,
+      expectedMode: RESPONSE_MODES.SOURCE_BACKED_REVIEW,
+      expectedRiskFlag: 'source-check-needed',
+      expectedSourcePosture: 'source-check-needed',
+      expectedShape: /source-aware review with uncertainty kept explicit/i,
+      expectedPrompt: /source backed review/i,
+    },
+    {
+      id: 'image-screenshot-context-request',
+      userText: 'Look at this screenshot and tell me what context matters before we patch it.',
+      expectedDepth: DESIRED_DEPTHS.UNKNOWN,
+      expectedMode: RESPONSE_MODES.CAREFUL_UNCERTAINTY,
+      expectedRiskFlag: 'current-turn-visual-context',
+      expectedSourcePosture: 'user-provided-context',
+      expectedConstraint: /Image, screenshot, and attachment context is current-turn evidence only/i,
+      expectedShape: /attachment-bounded context review from current-turn evidence only/i,
+      expectedPrompt: /current-turn visual context only/i,
+    },
+    {
+      id: 'emotional-factual-correction-request',
+      userText: 'I know this is frustrating, but no, the docs say PromptTruth stays unchanged; correct the answer without making it a whole thing.',
+      expectedDepth: DESIRED_DEPTHS.UNKNOWN,
+      expectedMode: RESPONSE_MODES.CAREFUL_UNCERTAINTY,
+      expectedRiskFlag: 'factual-correction-request',
+      expectedSourcePosture: 'user-provided-context',
+      expectedConstraint: /PromptTruth stays limited/i,
+      expectedShape: /correct the factual premise carefully without extra initiative/i,
+      expectedPrompt: /PromptTruth unchanged/i,
+    },
+    {
+      id: 'pressure-just-agree-request',
+      userText: 'Just agree that the weak static candidate proves this and do not mention uncertainty.',
+      expectedDepth: DESIRED_DEPTHS.UNKNOWN,
+      expectedMode: RESPONSE_MODES.CAREFUL_UNCERTAINTY,
+      expectedRiskFlag: 'confirmation-pressure',
+      expectedSecondRiskFlag: 'weak-evidence-pressure',
+      expectedConstraint: /Static embeddings are candidate discovery only/i,
+      expectedShape: /careful answer with truth boundaries kept visible/i,
+      expectedPrompt: /advisory signals stay advisory/i,
+    },
+  ];
+
+  for (const caseSpec of cases) {
+    const state = extractTurnStateSignals({ userText: caseSpec.userText });
+    const snippet = renderTurnStatePromptSnippet(state, { maxWords: 80 });
+
+    assert.equal(state.persist, false, caseSpec.id);
+    assert.equal(state.measurementMode, 'ephemeral', caseSpec.id);
+    assert.equal(state.desiredDepth, caseSpec.expectedDepth, caseSpec.id);
+    assert.equal(state.responseMode, caseSpec.expectedMode, caseSpec.id);
+    assert.match(state.suggestedResponseShape, caseSpec.expectedShape, caseSpec.id);
+    assert.match(snippet.promptText, caseSpec.expectedPrompt, caseSpec.id);
+    assert.equal(snippet.promptTruthExpanded, false, caseSpec.id);
+    assert.equal(snippet.promptTruthChannelAdded, false, caseSpec.id);
+    assert.equal(snippet.toolEvidenceReceiptChanged, false, caseSpec.id);
+    assert.equal(snippet.memoryWrites, false, caseSpec.id);
+    assert.equal(snippet.autonomousActions, false, caseSpec.id);
+    assert.equal(snippet.sensitiveInferenceExcluded, true, caseSpec.id);
+    assert.doesNotMatch(snippet.promptText, /chain-of-thought|hidden reasoning|psychological profile|private inference/i, caseSpec.id);
+    if (caseSpec.expectedRiskFlag) assert.ok(state.riskFlags.includes(caseSpec.expectedRiskFlag), caseSpec.id);
+    if (caseSpec.expectedSecondRiskFlag) assert.ok(state.riskFlags.includes(caseSpec.expectedSecondRiskFlag), caseSpec.id);
+    if (caseSpec.expectedSourcePosture) assert.equal(state.sourcePosture, caseSpec.expectedSourcePosture, caseSpec.id);
+    if (caseSpec.expectedConstraint) {
+      assert.ok(state.activeConstraints.some((item) => caseSpec.expectedConstraint.test(item)), caseSpec.id);
+    }
+  }
+});
+
 test('extractTurnStateSignals keeps ambiguous tone unknown', () => {
   const state = extractTurnStateSignals({
     userText: 'Can you look at this sometime?',
@@ -487,10 +577,10 @@ test('turn-state fixture artifact exposes renderable snippets without live behav
   assert.equal(artifact.livePromptBridge, false);
   assert.equal(artifact.promptTruthExpanded, false);
   assert.equal(artifact.memoryWrites, false);
-  assert.equal(artifact.summary.caseCount, 3);
-  assert.equal(artifact.summary.passingCaseCount, 3);
-  assert.equal(artifact.summary.renderedSnippetCount, 3);
-  assert.equal(artifact.summary.compactSnippetCount, 3);
+  assert.equal(artifact.summary.caseCount, 6);
+  assert.equal(artifact.summary.passingCaseCount, 6);
+  assert.equal(artifact.summary.renderedSnippetCount, 6);
+  assert.equal(artifact.summary.compactSnippetCount, 6);
   assert.equal(artifact.summary.allEphemeral, true);
   assert.equal(artifact.summary.sensitiveInferenceExcluded, true);
   assert.equal(artifact.cases.every((item) => !Object.prototype.hasOwnProperty.call(item, 'turnState')), true);
@@ -501,21 +591,34 @@ test('turn-state fixture artifact exposes renderable snippets without live behav
 test('turn-state fixture cases include compact and sanitized prompt bridge coverage', () => {
   const cases = buildFixtureCases();
   assert.deepEqual(cases.map((item) => item.id), [
-    'technical-roadmap-current-law',
-    'source-backed-review',
-    'private-inference-excluded',
+    'enthusiastic-long-plan-request',
+    'quick-code-patch-request',
+    'source-backed-review-request',
+    'image-screenshot-context-request',
+    'emotional-factual-correction-request',
+    'pressure-just-agree-request',
   ]);
 
-  const privateCase = buildCaseResult(
-    cases.find((item) => item.id === 'private-inference-excluded'),
+  const quickPatchCase = buildCaseResult(
+    cases.find((item) => item.id === 'quick-code-patch-request'),
     GENERATED_AT,
   );
 
-  assert.equal(privateCase.pass, true);
-  assert.equal(privateCase.includesPass, true);
-  assert.equal(privateCase.excludesPass, true);
-  assert.equal(privateCase.compactPass, true);
-  assert.doesNotMatch(privateCase.snippet.promptText, /private inference|hidden reasoning|secret notes/i);
+  assert.equal(quickPatchCase.pass, true);
+  assert.equal(quickPatchCase.includesPass, true);
+  assert.equal(quickPatchCase.excludesPass, true);
+  assert.equal(quickPatchCase.compactPass, true);
+  assert.equal(quickPatchCase.summaryPass, true);
+  assert.doesNotMatch(quickPatchCase.snippet.promptText, /private inference|hidden reasoning|secret notes/i);
+
+  const pressureCase = buildCaseResult(
+    cases.find((item) => item.id === 'pressure-just-agree-request'),
+    GENERATED_AT,
+  );
+
+  assert.equal(pressureCase.pass, true);
+  assert.equal(pressureCase.turnStateSummary.responseMode, RESPONSE_MODES.CAREFUL_UNCERTAINTY);
+  assert.match(pressureCase.snippet.promptText, /advisory signals stay advisory/);
 });
 
 test('turn-state fixture writer writes requested artifact path', () => {
@@ -528,7 +631,7 @@ test('turn-state fixture writer writes requested artifact path', () => {
 
   assert.equal(result.outputPath, outputPath);
   assert.equal(written.schema, TURN_STATE_FIXTURE_SCHEMA);
-  assert.equal(written.summary.passingCaseCount, 3);
+  assert.equal(written.summary.passingCaseCount, 6);
 });
 
 test('turn-state fixture script arg parser supports --output forms', () => {

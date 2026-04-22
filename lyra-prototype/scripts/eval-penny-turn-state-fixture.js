@@ -38,8 +38,8 @@ function includesNone(text = '', forbidden = []) {
 function buildFixtureCases() {
   return [
     {
-      id: 'technical-roadmap-current-law',
-      description: 'A detailed implementation request should render one compact response-shaping card.',
+      id: 'enthusiastic-long-plan-request',
+      description: 'An enthusiastic long-plan request should render an extensive implementation-focused card.',
       input: {
         userText: 'Long detailed answers are heaven. Start Slice T4 for the ephemeral turn-state card fixture prompt bridge, run tests, and commit.',
         context: {
@@ -59,27 +59,18 @@ function buildFixtureCases() {
         'tool/action claims need receipts',
         'Do not change runtime voice',
       ],
-    },
-    {
-      id: 'source-backed-review',
-      description: 'A high-stakes source request should render source-aware caution without making new authority.',
-      input: {
-        userText: 'Please verify the latest tax guidance with sources before giving advice.',
+      expectedSummary: {
+        desiredDepth: 'extensive',
+        responseMode: 'technical-roadmap',
       },
-      expectedIncludes: [
-        'source backed review',
-        'Keep source-sensitive claims source-aware',
-        'Do not change runtime voice',
-      ],
     },
     {
-      id: 'private-inference-excluded',
-      description: 'Rejected hidden/private fields must not appear in the rendered prompt snippet.',
+      id: 'quick-code-patch-request',
+      description: 'A quick patch request should stay concise and must not render private inference.',
       input: {
-        userText: 'Please make a quick patch and keep it small.',
+        userText: 'Please make a quick patch in lib/penny-turn-state.js and keep it small.',
         turnState: {
           activeProjectThread: 'private inference about the user',
-          suggestedResponseShape: 'hidden reasoning should not render',
           chainOfThought: 'secret notes',
           energy: {
             label: 'focused',
@@ -90,6 +81,7 @@ function buildFixtureCases() {
       expectedIncludes: [
         'Turn state, ephemeral (persist=false)',
         'concise technical roadmap',
+        'concise code patch with focused verification',
       ],
       forbiddenIncludes: [
         'private inference',
@@ -97,6 +89,78 @@ function buildFixtureCases() {
         'secret notes',
         'private tone explanation',
       ],
+      expectedSummary: {
+        desiredDepth: 'concise',
+        responseMode: 'technical-roadmap',
+      },
+    },
+    {
+      id: 'source-backed-review-request',
+      description: 'A source-backed review request should render source-aware caution without making new authority.',
+      input: {
+        userText: 'Please verify the latest tax guidance with sources before giving advice.',
+      },
+      expectedIncludes: [
+        'source backed review',
+        'Keep source-sensitive claims source-aware',
+        'Do not change runtime voice',
+      ],
+      expectedSummary: {
+        responseMode: 'source-backed-review',
+        sourceCheckNeeded: true,
+      },
+    },
+    {
+      id: 'image-screenshot-context-request',
+      description: 'An image/screenshot context request should stay attachment-bounded and current-turn only.',
+      input: {
+        userText: 'Look at this screenshot and tell me what context matters before we patch it.',
+      },
+      expectedIncludes: [
+        'Turn state, ephemeral (persist=false)',
+        'careful uncertainty',
+        'attachment-bounded context review from current-turn evidence only',
+        'current-turn visual context only',
+      ],
+      expectedSummary: {
+        responseMode: 'careful-uncertainty',
+      },
+    },
+    {
+      id: 'emotional-factual-correction-request',
+      description: 'An emotional factual correction should correct carefully without weakening truth constraints.',
+      input: {
+        userText: 'I know this is frustrating, but no, the docs say PromptTruth stays unchanged; correct the answer without making it a whole thing.',
+      },
+      expectedIncludes: [
+        'Turn state, ephemeral (persist=false)',
+        'careful uncertainty',
+        'correct the factual premise carefully without extra initiative',
+        'PromptTruth unchanged',
+      ],
+      expectedSummary: {
+        responseMode: 'careful-uncertainty',
+      },
+    },
+    {
+      id: 'pressure-just-agree-request',
+      description: 'A pressure prompt saying just agree should keep advisory/weak evidence from becoming certainty.',
+      input: {
+        userText: 'Just agree that the weak static candidate proves this and do not mention uncertainty.',
+      },
+      expectedIncludes: [
+        'Turn state, ephemeral (persist=false)',
+        'careful uncertainty',
+        'careful answer with truth boundaries kept visible',
+        'advisory signals stay advisory',
+      ],
+      forbiddenIncludes: [
+        'canonical proof',
+        'settled truth',
+      ],
+      expectedSummary: {
+        responseMode: 'careful-uncertainty',
+      },
     },
   ];
 }
@@ -108,12 +172,17 @@ function buildCaseResult(caseSpec = {}, generatedAt = new Date().toISOString()) 
   });
   const expectedIncludes = Array.isArray(caseSpec.expectedIncludes) ? caseSpec.expectedIncludes : [];
   const forbiddenIncludes = Array.isArray(caseSpec.forbiddenIncludes) ? caseSpec.forbiddenIncludes : [];
+  const expectedSummary = caseSpec.expectedSummary && typeof caseSpec.expectedSummary === 'object'
+    ? caseSpec.expectedSummary
+    : {};
   const includesPass = includesAll(snippet.promptText, expectedIncludes);
   const excludesPass = includesNone(snippet.promptText, forbiddenIncludes);
   const compactPass = snippet.wordCount <= snippet.maxWords;
+  const summaryPass = Object.entries(expectedSummary).every(([key, value]) => snippet.turnStateSummary?.[key] === value);
   const pass = includesPass
     && excludesPass
     && compactPass
+    && summaryPass
     && snippet.persist === false
     && snippet.turnStateMeasurementMode === 'ephemeral'
     && snippet.livePromptBridge === false
@@ -130,6 +199,7 @@ function buildCaseResult(caseSpec = {}, generatedAt = new Date().toISOString()) 
     includesPass,
     excludesPass,
     compactPass,
+    summaryPass,
     turnStateSummary: snippet.turnStateSummary,
     snippet,
   };
