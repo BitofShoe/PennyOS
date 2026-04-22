@@ -1,5 +1,11 @@
 const PROMPT_TRUTH_SCHEMA = 'penny-prompttruth.v1';
 
+const {
+  claimCanBeRendered,
+  normalizeSemanticClaim,
+  summarizeSemanticClaim,
+} = require('./penny-semantic-claims');
+
 const PROMPT_TRUTH_CHANNEL_KEYS = Object.freeze([
   'stableFacts',
   'memoryBooks',
@@ -38,17 +44,133 @@ const PROMPT_TRUTH_AUDIT_LIMITS = Object.freeze({
   researchLedger: 4,
 });
 
+const PROMPT_TRUTH_RENDERED_CLAIM_LIMIT = 8;
+
+const PROMPT_TRUTH_RENDERED_CLAIM_SOURCE_AUTHORITIES = new Set([
+  'canonical',
+  'advisory',
+]);
+
+const PROMPT_TRUTH_RENDERED_CLAIM_SUPPORT_STATES = new Set([
+  'verified',
+  'rendered-advisory',
+]);
+
+function compactText(value = '', limit = 500) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length <= limit ? text : text.slice(0, Math.max(0, limit)).trim();
+}
+
 function uniqueStrings(values = [], limit = 12) {
   const seen = new Set();
   const output = [];
   for (const value of Array.isArray(values) ? values : []) {
-    const text = String(value || '').trim();
+    const text = compactText(value);
     if (!text) continue;
     const key = text.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     output.push(text);
     if (output.length >= limit) break;
+  }
+  return output;
+}
+
+function listRenderedClaimInputs(...values) {
+  return values.flatMap((value) => {
+    if (Array.isArray(value)) return value;
+    if (value === undefined || value === null || value === '') return [];
+    return [value];
+  });
+}
+
+function renderedClaimAuthorityFromSemanticClaim(raw = {}) {
+  const claim = normalizeSemanticClaim(raw);
+  if (!claim || !claimCanBeRendered(claim)) return null;
+  const summary = summarizeSemanticClaim(claim);
+  if (!summary?.claimId || !summary?.domainId) return null;
+  return {
+    renderedClaimId: summary.claimId,
+    domainId: summary.domainId,
+    sourceAuthority: summary.authority?.sourceAuthority || '',
+    supportState: summary.authority?.supportState || '',
+    temporalScope: summary.temporalScope || '',
+  };
+}
+
+function normalizePromptTruthRenderedClaim(raw = {}) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const semanticClaim = raw.claim || raw.semanticClaim || raw.structuredClaim;
+  const compactRenderedClaim = Boolean(
+    raw.renderedClaimId
+      || (raw.claimId && raw.domainId && (raw.sourceAuthority || raw.supportState || raw.temporalScope)),
+  );
+  const semanticLike = semanticClaim
+    || (!compactRenderedClaim && (
+      raw.schema === 'penny-semantic-claim.v1'
+      || raw.subject
+      || raw.predicate
+      || raw.object
+      || raw.source
+    ))
+    ? (semanticClaim || raw)
+    : null;
+  const fromClaim = semanticLike ? renderedClaimAuthorityFromSemanticClaim(semanticLike) : null;
+  const source = fromClaim || raw;
+  if (source.stale === true || source.status?.stale === true) return null;
+  const sourceAuthority = compactText(
+    source.sourceAuthority
+      || source.authority?.sourceAuthority
+      || source.authority,
+    80,
+  ).toLowerCase();
+  const supportState = compactText(
+    source.supportState
+      || source.authority?.supportState
+      || source.support,
+    80,
+  ).toLowerCase();
+  if (!PROMPT_TRUTH_RENDERED_CLAIM_SOURCE_AUTHORITIES.has(sourceAuthority)) return null;
+  if (!PROMPT_TRUTH_RENDERED_CLAIM_SUPPORT_STATES.has(supportState)) return null;
+
+  const renderedClaimId = compactText(
+    source.renderedClaimId
+      || source.claimId
+      || source.id,
+    500,
+  );
+  const domainId = compactText(source.domainId || source.domain?.id, 500);
+  if (!renderedClaimId || !domainId) return null;
+
+  return {
+    renderedClaimId,
+    domainId,
+    sourceAuthority,
+    supportState,
+    temporalScope: compactText(
+      source.temporalScope
+        || source.temporal?.temporalScope
+        || source.temporal?.scope
+        || 'unknown',
+      80,
+    ).toLowerCase() || 'unknown',
+  };
+}
+
+function normalizePromptTruthRenderedClaims(values = [], limit = PROMPT_TRUTH_RENDERED_CLAIM_LIMIT) {
+  const max = Math.max(0, Math.floor(Number(limit || 0)));
+  if (max <= 0) return [];
+  const seen = new Set();
+  const output = [];
+  for (const raw of Array.isArray(values) ? values : [values]) {
+    const claim = normalizePromptTruthRenderedClaim(raw);
+    if (!claim) continue;
+    const key = claim.renderedClaimId.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(claim);
+    if (output.length >= max) break;
   }
   return output;
 }
@@ -72,8 +194,12 @@ function derivePromptTruthChannelState(raw = {}) {
   if (explicitState) return explicitState;
   const candidateCount = Math.max(0, Number(value.candidateCount || 0) || 0);
   const renderedCount = Math.max(0, Number(value.renderedCount || 0) || 0);
+  const renderedClaimCount = normalizePromptTruthRenderedClaims(
+    listRenderedClaimInputs(value.renderedClaims, value.renderedClaim, value.renderedClaimSummary),
+    1,
+  ).length;
   const heldBackReason = String(value.heldBackReason || '').trim();
-  if (renderedCount > 0) return 'rendered';
+  if (renderedCount > 0 || renderedClaimCount > 0) return 'rendered';
   if (heldBackReason === PROMPT_TRUTH_HOLDBACK_REASONS.LEDGER_DISABLED) return 'disabled';
   if (candidateCount > 0 && heldBackReason) return 'held_back';
   if (candidateCount > 0) return 'candidate';
@@ -88,6 +214,10 @@ function normalizePromptTruthChannel(raw = {}) {
     renderedCount: Math.max(0, Number(value.renderedCount || 0) || 0),
     candidateSourceIds: uniqueStrings(value.candidateSourceIds || [], 12),
     renderedSourceIds: uniqueStrings(value.renderedSourceIds || [], 12),
+    renderedClaims: normalizePromptTruthRenderedClaims(
+      listRenderedClaimInputs(value.renderedClaims, value.renderedClaim, value.renderedClaimSummary),
+      PROMPT_TRUTH_RENDERED_CLAIM_LIMIT,
+    ),
     heldBackReason: String(value.heldBackReason || '').trim(),
   };
 }
@@ -124,6 +254,10 @@ function promptTruthRenderedCount(promptTruth = null, channel = '') {
   return Math.max(0, Number(promptTruthChannel(promptTruth, channel).renderedCount || 0));
 }
 
+function promptTruthRenderedClaims(promptTruth = null, channel = '', limit = PROMPT_TRUTH_RENDERED_CLAIM_LIMIT) {
+  return normalizePromptTruthRenderedClaims(promptTruthChannel(promptTruth, channel).renderedClaims || [], limit);
+}
+
 function promptTruthCandidateCount(promptTruth = null, channel = '') {
   return Math.max(0, Number(promptTruthChannel(promptTruth, channel).candidateCount || 0));
 }
@@ -148,6 +282,7 @@ function hasPromptTruthReceipt(promptTruth = null) {
     || Number(channel?.renderedCount || 0) > 0
     || (Array.isArray(channel?.candidateSourceIds) && channel.candidateSourceIds.length > 0)
     || (Array.isArray(channel?.renderedSourceIds) && channel.renderedSourceIds.length > 0)
+    || (Array.isArray(channel?.renderedClaims) && channel.renderedClaims.length > 0)
     || !!String(channel?.heldBackReason || '').trim()
     || normalizePromptTruthChannelState(channel?.state) === 'rendered'
     || normalizePromptTruthChannelState(channel?.state) === 'held_back'
@@ -191,13 +326,17 @@ module.exports = {
   PROMPT_TRUTH_CHANNEL_STATES,
   PROMPT_TRUTH_HOLDBACK_REASONS,
   PROMPT_TRUTH_AUDIT_LIMITS,
+  PROMPT_TRUTH_RENDERED_CLAIM_LIMIT,
   normalizePromptTruthChannelState,
+  normalizePromptTruthRenderedClaim,
+  normalizePromptTruthRenderedClaims,
   preferRenderedCompatibilityBoolean,
   derivePromptTruthChannelState,
   normalizePromptTruthChannel,
   normalizePromptTruth,
   promptTruthChannel,
   promptTruthRenderedSourceIds,
+  promptTruthRenderedClaims,
   promptTruthCandidateSourceIds,
   promptTruthRenderedCount,
   promptTruthCandidateCount,

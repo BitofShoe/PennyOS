@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const {
   normalizePromptTruth,
+  normalizePromptTruthRenderedClaims,
   PROMPT_TRUTH_SCHEMA,
   PROMPT_TRUTH_HOLDBACK_REASONS,
 } = require('./penny-prompttruth');
@@ -371,6 +372,18 @@ function archivePromptTruthSourceId(item = {}, prefix = 'archive') {
   return String(item?.id || '').trim() || stablePromptTruthSourceId(prefix, item?.text || item?.evidenceSnippet || '');
 }
 
+function archivePromptTruthRenderedClaims(item = {}) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+  return normalizePromptTruthRenderedClaims([
+    ...(Array.isArray(item.renderedClaims) ? item.renderedClaims : []),
+    item.renderedClaim,
+    item.renderedClaimSummary,
+    item.claim,
+    item.semanticClaim,
+    item.structuredClaim,
+  ].filter(Boolean));
+}
+
 function researchLedgerPromptTruthSourceId(item = {}) {
   return String(item?.topicId || '').trim() || stablePromptTruthSourceId('research-ledger', item?.topicLabel || item?.summary || item?.question || '');
 }
@@ -507,6 +520,7 @@ function buildPromptMemoryContext(
     .map((item) => ({
       sourceId: archivePromptTruthSourceId(item, 'archive-session'),
       text: normalizeText(item?.text || ''),
+      renderedClaims: archivePromptTruthRenderedClaims(item),
     }))
     .filter((item) => item.text);
   const sessionContext = sessionContextEntries.map((item) => item.text);
@@ -519,6 +533,7 @@ function buildPromptMemoryContext(
       sourceId: archivePromptTruthSourceId(item, 'archive-global'),
       sourceLabel: normalizeText(item?.sourceLabel || item?.source || 'archive'),
       text: normalizeText(item?.text || ''),
+      renderedClaims: archivePromptTruthRenderedClaims(item),
     }))
     .filter((item) => item.text)
     .slice(0, 2);
@@ -624,6 +639,9 @@ function buildPromptMemoryContext(
           renderedCount: suppressArchiveForDirectAuthority ? 0 : sessionContextEntries.length,
           candidateSourceIds: sessionContextEntries.map((item) => item.sourceId),
           renderedSourceIds: suppressArchiveForDirectAuthority ? [] : sessionContextEntries.map((item) => item.sourceId),
+          renderedClaims: suppressArchiveForDirectAuthority
+            ? []
+            : sessionContextEntries.flatMap((item) => item.renderedClaims),
           heldBackReason: sessionArchiveHeldBackReason,
         },
         globalArchive: {
@@ -638,6 +656,9 @@ function buildPromptMemoryContext(
           renderedCount: suppressArchiveForDirectAuthority ? 0 : globalArchiveEntries.length,
           candidateSourceIds: globalArchiveEntries.map((item) => item.sourceId),
           renderedSourceIds: suppressArchiveForDirectAuthority ? [] : globalArchiveEntries.map((item) => item.sourceId),
+          renderedClaims: suppressArchiveForDirectAuthority
+            ? []
+            : globalArchiveEntries.flatMap((item) => item.renderedClaims),
           heldBackReason: globalArchiveHeldBackReason,
         },
         researchLedger: {

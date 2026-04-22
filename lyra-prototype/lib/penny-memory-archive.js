@@ -8,6 +8,7 @@ const {
 } = require('./penny-memory');
 const {
   normalizePromptTruth,
+  normalizePromptTruthRenderedClaims,
   PROMPT_TRUTH_AUDIT_LIMITS,
   preferRenderedCompatibilityBoolean,
 } = require('./penny-prompttruth');
@@ -1060,6 +1061,17 @@ function createMemoryArchiveApi({
     return Object.keys(flatClaim).length ? flatClaim : null;
   }
 
+  function buildRenderedArchiveClaim(item = {}) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    return normalizePromptTruthRenderedClaims([
+      item.renderedClaim,
+      item.renderedClaimSummary,
+      item.claim,
+      item.semanticClaim,
+      item.structuredClaim,
+    ].filter(Boolean), 1)[0] || null;
+  }
+
   function buildArchiveCandidateTraceItem(raw = {}, {
     group = '',
     rank = null,
@@ -1585,6 +1597,7 @@ function createMemoryArchiveApi({
       Array.isArray(raw.candidateChannels) ? raw.candidateChannels : [],
     );
     const staticEmbedding = normalizeStaticEmbeddingInfo(raw);
+    const renderedClaim = buildRenderedArchiveClaim(raw);
     return {
       id: String(raw.id || '').trim(),
       text,
@@ -1613,6 +1626,7 @@ function createMemoryArchiveApi({
       ...(scoreReasons.length ? { scoreReasons } : {}),
       ...(candidateChannels.length ? { candidateChannels } : {}),
       ...(staticEmbedding ? { staticEmbedding } : {}),
+      ...(renderedClaim ? { renderedClaim } : {}),
       ...(isStaticOnlyArchiveCandidate(raw) ? { staticOnly: true } : {}),
       ...(raw.sourceItemId ? { sourceItemId: String(raw.sourceItemId || '').trim() } : {}),
       sourceEpisodeIds,

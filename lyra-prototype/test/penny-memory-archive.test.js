@@ -619,7 +619,7 @@ test('buildArchiveContext includes bounded candidate trace only when explicitly 
   }
 });
 
-test('buildArchiveContext passes structured claim payloads through candidate trace only', async () => {
+test('buildArchiveContext keeps raw claims in trace and compact rendered authority in archive context', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi({ ...files, embedReady: false });
 
@@ -700,6 +700,16 @@ test('buildArchiveContext passes structured claim payloads through candidate tra
     assert.equal(Object.prototype.hasOwnProperty.call(defaultResult.retrieval, 'candidateTrace'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(tracedResult.archiveContext, 'candidateTrace'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(tracedResult.archiveContext.session[0], 'claim'), false);
+    assert.deepEqual(tracedResult.archiveContext.session[0].renderedClaim, {
+      renderedClaimId: claimId,
+      domainId: SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE,
+      sourceAuthority: 'advisory',
+      supportState: 'rendered-advisory',
+      temporalScope: 'current',
+    });
+    assert.equal(Object.prototype.hasOwnProperty.call(tracedResult.archiveContext.session[0].renderedClaim, 'subject'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(tracedResult.archiveContext.session[0].renderedClaim, 'predicate'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(tracedResult.archiveContext.session[0].renderedClaim, 'source'), false);
     const trace = tracedResult.retrieval.candidateTrace.find((item) => item.id === 'session:copper-rabbit');
     assert.ok(trace);
     assert.equal(trace.claim.claimId, claimId);

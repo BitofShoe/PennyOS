@@ -6,6 +6,7 @@ const {
   deriveResearchLedgerPromptInjected,
   hasPromptTruthReceipt,
   normalizePromptTruth,
+  normalizePromptTruthRenderedClaims,
   preferRenderedCompatibilityBoolean,
   projectAuditRetrievalFromPromptTruth,
 } = require('../lib/penny-prompttruth');
@@ -136,4 +137,89 @@ test('hasPromptTruthReceipt treats explicit no-candidate state as a real receipt
 
   assert.equal(normalized.channels.stableFacts.state, 'no_candidate');
   assert.equal(hasPromptTruthReceipt(normalized), true);
+});
+
+test('normalizePromptTruth preserves compact rendered claim authority labels only', () => {
+  const normalized = normalizePromptTruth({
+    schema: 'penny-prompttruth.v1',
+    toolEvidenceReceipt: { schema: 'penny-tool-evidence-receipt.v1' },
+    channels: {
+      sessionArchive: {
+        candidateCount: 2,
+        renderedCount: 1,
+        candidateSourceIds: ['session-candidate', 'static-candidate'],
+        renderedSourceIds: ['session-candidate'],
+        renderedClaims: [
+          {
+            renderedClaimId: 'penny:claim:sha256:current-mascot',
+            domainId: 'penny:domain:session-archive',
+            sourceAuthority: 'advisory',
+            supportState: 'rendered-advisory',
+            temporalScope: 'current',
+            subject: { id: 'raw-subject-should-not-survive' },
+            predicate: { id: 'raw-predicate-should-not-survive' },
+            object: { text: 'raw object should not survive' },
+            source: { sourceId: 'raw-source-should-not-survive' },
+            dynamicLinks: [{ id: 'raw-link-should-not-survive' }],
+            staticSimilarity: 0.98,
+            toolEvidenceReceipt: { leaked: true },
+          },
+        ],
+        candidateClaims: [
+          {
+            renderedClaimId: 'penny:claim:sha256:candidate-only',
+            domainId: 'penny:domain:static-candidate',
+            sourceAuthority: 'candidate-only',
+            supportState: 'candidate-only',
+            temporalScope: 'current',
+          },
+        ],
+      },
+    },
+  });
+
+  assert.deepEqual(normalized.channels.sessionArchive.renderedClaims, [
+    {
+      renderedClaimId: 'penny:claim:sha256:current-mascot',
+      domainId: 'penny:domain:session-archive',
+      sourceAuthority: 'advisory',
+      supportState: 'rendered-advisory',
+      temporalScope: 'current',
+    },
+  ]);
+  assert.equal(Object.prototype.hasOwnProperty.call(normalized.channels.sessionArchive.renderedClaims[0], 'subject'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(normalized.channels.sessionArchive.renderedClaims[0], 'predicate'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(normalized.channels.sessionArchive.renderedClaims[0], 'source'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(normalized.channels.sessionArchive, 'candidateClaims'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(normalized.channels, 'toolEvidenceReceipt'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(normalized, 'toolEvidenceReceipt'), false);
+});
+
+test('rendered claim normalization drops candidate-only and fixture-only claim attempts', () => {
+  const claims = normalizePromptTruthRenderedClaims([
+    {
+      renderedClaimId: 'penny:claim:sha256:current-mascot',
+      domainId: 'penny:domain:session-archive',
+      sourceAuthority: 'advisory',
+      supportState: 'rendered-advisory',
+      temporalScope: 'current',
+    },
+    {
+      renderedClaimId: 'penny:claim:sha256:static-candidate',
+      domainId: 'penny:domain:static-candidate',
+      sourceAuthority: 'candidate-only',
+      supportState: 'candidate-only',
+      temporalScope: 'current',
+    },
+    {
+      renderedClaimId: 'penny:claim:sha256:fixture-only',
+      domainId: 'penny:domain:fixture',
+      sourceAuthority: 'fixture-only',
+      supportState: 'fixture-only',
+      temporalScope: 'current',
+    },
+  ]);
+
+  assert.equal(claims.length, 1);
+  assert.equal(claims[0].renderedClaimId, 'penny:claim:sha256:current-mascot');
 });

@@ -10,6 +10,17 @@ const {
   isCanonicalMemoryQuestion,
   isWordingRecallQuestion,
 } = require('../lib/penny-memory');
+const {
+  buildSemanticClaimId,
+  buildSemanticEntityId,
+  buildSemanticSourceId,
+} = require('../lib/penny-semantic-ids');
+const {
+  SEMANTIC_DOMAIN_IDS,
+} = require('../lib/penny-semantic-domains');
+const {
+  SEMANTIC_PREDICATE_IDS,
+} = require('../lib/penny-semantic-predicates');
 
 test('mergeMemoryItems deduplicates normalized text and drops junk', () => {
   const now = Date.UTC(2026, 3, 12);
@@ -341,6 +352,111 @@ test('buildPromptTruth records rendered advisory states when channels actually r
   assert.equal(promptTruth.channels.sessionArchive.state, 'rendered');
   assert.equal(promptTruth.channels.globalArchive.state, 'rendered');
   assert.equal(promptTruth.channels.researchLedger.state, 'rendered');
+});
+
+test('buildPromptTruth preserves rendered archive claim authority labels without raw claim graph', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const claimLike = {
+    domainId: SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE,
+    subject: {
+      id: buildSemanticEntityId({ entityType: 'project', entityKey: 'lyra-prototype' }),
+      type: 'project',
+      label: 'lyra-prototype',
+    },
+    predicate: { id: SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT },
+    object: { type: 'text', text: 'copper rabbit' },
+    source: {
+      sourceId: buildSemanticSourceId({ sourceType: 'archive-episode', sourceId: 'session-copper-rabbit' }),
+      sourceType: 'archive-episode',
+      excerpt: 'The current coding mascot is copper rabbit.',
+      observedAt: '2026-04-22T13:00:00.000Z',
+    },
+    temporal: { temporalScope: 'current' },
+    status: { stale: false },
+  };
+  const claimId = buildSemanticClaimId(claimLike);
+  const promptTruth = buildPromptTruth({
+    archiveContext: {
+      reasonCode: 'semantic_query',
+      session: [
+        {
+          id: 'session-copper-rabbit',
+          text: 'The current coding mascot is copper rabbit.',
+          claim: {
+            ...claimLike,
+            claimId,
+          },
+        },
+      ],
+      global: [
+        {
+          id: 'static-copper-rabbit',
+          text: 'A static candidate also mentioned copper rabbit.',
+          renderedClaim: {
+            renderedClaimId: 'penny:claim:sha256:static-candidate',
+            domainId: SEMANTIC_DOMAIN_IDS.STATIC_CANDIDATE,
+            sourceAuthority: 'candidate-only',
+            supportState: 'candidate-only',
+            temporalScope: 'current',
+          },
+        },
+      ],
+    },
+  }, 'What is the coding mascot now?', 3, '- Nothing yet.', now, { archiveEligible: true });
+
+  assert.deepEqual(promptTruth.channels.sessionArchive.renderedClaims, [
+    {
+      renderedClaimId: claimId,
+      domainId: SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE,
+      sourceAuthority: 'advisory',
+      supportState: 'rendered-advisory',
+      temporalScope: 'current',
+    },
+  ]);
+  assert.deepEqual(promptTruth.channels.globalArchive.renderedClaims, []);
+  assert.equal(Object.prototype.hasOwnProperty.call(promptTruth.channels.sessionArchive.renderedClaims[0], 'subject'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(promptTruth.channels.sessionArchive.renderedClaims[0], 'predicate'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(promptTruth.channels.sessionArchive.renderedClaims[0], 'source'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(promptTruth.channels, 'toolEvidenceReceipt'), false);
+});
+
+test('buildPromptTruth does not list claim authority labels for held-back archive candidates', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const claim = {
+    domainId: SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE,
+    subject: {
+      id: buildSemanticEntityId({ entityType: 'user', entityKey: 'self' }),
+      type: 'user',
+    },
+    predicate: { id: SEMANTIC_PREDICATE_IDS.FAVORITE_TEA },
+    object: { type: 'text', text: 'oolong' },
+    source: {
+      sourceId: buildSemanticSourceId({ sourceType: 'archive-episode', sourceId: 'session-oolong' }),
+      sourceType: 'archive-episode',
+      excerpt: 'Favorite tea used to be oolong.',
+    },
+    temporal: { temporalScope: 'historical' },
+    status: { stale: false },
+  };
+  const promptTruth = buildPromptTruth({
+    memories: [
+      { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: now },
+    ],
+    archiveContext: {
+      reasonCode: 'semantic_query',
+      session: [
+        {
+          id: 'session-oolong',
+          text: 'Favorite tea used to be oolong.',
+          claim,
+        },
+      ],
+    },
+  }, 'What tea do I like again?', 3, '- Nothing yet.', now, { archiveEligible: true });
+
+  assert.equal(promptTruth.channels.sessionArchive.state, 'held_back');
+  assert.equal(promptTruth.channels.sessionArchive.renderedCount, 0);
+  assert.deepEqual(promptTruth.channels.sessionArchive.renderedClaims, []);
 });
 
 test('buildPromptTruth records no-candidate states only when the runtime can prove selection ran', () => {
