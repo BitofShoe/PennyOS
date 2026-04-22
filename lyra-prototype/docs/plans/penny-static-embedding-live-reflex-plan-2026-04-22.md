@@ -92,9 +92,17 @@ node --test test/penny-memory-archive-policy.test.js test/penny-memory-archive.t
 
 ## Next Slice Guidance
 
-Before implementing the next Plan 1 slice, inspect the checked-out tree and the existing live-advisory plan. The Tier 1 plan's Slice S2 provider seam appears already implemented in this repo, so the next useful pass may be either:
+Before implementing another Plan 1 slice, inspect the checked-out tree and the existing live-advisory
+plan. The Tier 1 plan's newer numbering maps to the older/current static-sidecar run like this:
 
-- a slice-by-slice audit that marks Plan 1 S2-S10 as landed, mismatched, or still missing against current code; or
-- the first genuinely missing follow-through slice after that audit.
+- Tier Plan 1 S1 maps to the provider posture in this note plus the older live-advisory S0 decision.
+- Tier Plan 1 S2-S10 map to the older live-advisory S1-S9 implementation/docs run.
 
-Do not duplicate provider/cache/live-shadow/live-advisory code just because the new Tier 1 bundle describes it as future work.
+Current verification on 2026-04-22 found no genuinely missing Plan 1 runtime slice in the checked-out
+tree. Provider seam, optional provider, isolated cache, static memory index, live-shadow trace,
+live-advisory merge, correction guardrails, runtime status/trace metadata, compare harness, and
+local enablement docs are already represented in code/tests/docs.
+
+Do not duplicate provider/cache/live-shadow/live-advisory code just because the new Tier 1 bundle
+describes it as future work. Future work should be evidence-led: compare a stronger provider, interpret
+local experimental `live-advisory` results, make a separate live-fallback decision, or park the run.

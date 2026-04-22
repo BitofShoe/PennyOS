@@ -128,6 +128,32 @@ Initial repo default should remain `off` or current QA-only behavior. Local expe
 }
 ```
 
+## Checked-out status and slice numbering
+
+This Tier 1 plan uses newer Plan 1 slice numbers. The older/current live-advisory run in
+`docs/plans/penny-static-embedding-live-advisory-plan-2026-04-22.md` used `S0` for the provider
+decision record and `S1-S9` for the implementation run. Reconcile the two before editing.
+
+Current checked-out status, verified against code and focused static-sidecar tests on 2026-04-22:
+
+| Tier Plan 1 slice | Older live-advisory slice | Checked-out status |
+| --- | --- | --- |
+| S1 Provider decision record | S0 plus `docs/plans/penny-static-embedding-live-reflex-plan-2026-04-22.md` | Landed. Provider posture is recorded; default LM Studio/Nomic semantic memory remains default. |
+| S2 Provider seam | S1 | Landed in `lib/penny-embedding-providers.js` and `test/penny-embedding-providers.test.js`. |
+| S3 Optional real static provider | S2 | Landed as exact-pinned optional `@yarflam/potion-base-8m` with dynamic/explicit loading. |
+| S4 Model-aware static vector cache/index | S3-S4 | Landed in `lib/penny-static-embedding-cache.js`, `lib/penny-static-memory-index.js`, and matching tests. |
+| S5 Live-shadow archive trace | S5 | Landed in `lib/penny-memory-archive.js` with trace-only runtime artifact coverage. |
+| S6 Live-advisory candidate merge | S6 | Landed behind explicit `live-advisory` mode with the static-only render cap and advisory authority. |
+| S7 Correction/source guardrail regression suite | S7 | Landed for stale/current correction cases and candidate-survival interpretation. |
+| S8 Runtime status and telemetry | S4 plus route/artifact tests | Landed as sibling status/trace metadata; it is not PromptTruth or tool evidence. |
+| S9 Static live compare harness | S8 | Landed as `npm run eval:static-embedding-live-compare` and `test/penny-static-embedding-live-compare.test.js`. |
+| S10 Docs and local enablement | S9 | Landed in high-level docs and this reconciliation note. Normal repo default remains static mode unset/`off` or QA shadow. |
+
+Next genuinely missing Plan 1 runtime slice: none in this checked-out tree. Do not reimplement
+provider/cache/live-shadow/live-advisory/harness behavior under the newer numbering. Future work should
+come from new evidence: local experimental `live-advisory` results, stronger provider comparison, a
+separate live-fallback decision, or parking the run.
+
 ## Slice S1 — Provider decision record
 
 ### Goal
