@@ -35,6 +35,7 @@ test('fixture provider normalizes provider info and stays candidate-discovery-on
     dimensions: 12,
     truncateDim: 8,
     distance: 'cosine',
+    normalization: 'unit-l2',
     localOnly: true,
     license: 'repo-test-fixture',
     dependency: 'none',
@@ -150,6 +151,7 @@ test('model2vec potion 8m provider dynamically loads the optional package', asyn
   assert.equal(info.dependency, `${MODEL2VEC_POTION_8M_PACKAGE}@${MODEL2VEC_POTION_8M_PACKAGE_VERSION}`);
   assert.equal(info.transitiveDependencies, 'none');
   assert.equal(info.runtimeNetwork, 'none-after-install');
+  assert.equal(info.normalization, 'unit-l2');
   assert.equal(info.experimental, true);
   assert.equal(info.defaultForLive, false);
   assert.equal(info.authority, EMBEDDING_PROVIDER_AUTHORITY);

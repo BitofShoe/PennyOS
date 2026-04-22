@@ -294,6 +294,15 @@ Cache identity must include:
 
 Never mix static vectors with Nomic or EmbeddingGemma vectors.
 
+Slice S3 implementation note:
+
+- Added `lib/penny-static-embedding-cache.js` as the static-cache owner for future live-shadow/live-advisory indexing.
+- Default static cache files are separate from the LM Studio/Nomic cache, using names like `data/penny-memory-embeddings.static.model2vec-potion-8m.dim256.json`.
+- Static cache identity includes provider id, model id, model revision/hash when available, dimensions, truncate dimension, normalization, source item id, source update time, and source content hash.
+- Static cache reads drop incompatible vector spaces instead of reusing stale model/provider/dimension/normalization data.
+- Provider metadata now explicitly records `normalization: unit-l2`, matching the provider adapter's normalized vector output.
+- No live-shadow integration, live-advisory merge, PromptTruth change, `toolEvidenceReceipt` change, Nomic cache reuse, or default behavior change landed in S3.
+
 ### Slice S4 - Background live indexer
 
 Add `lib/penny-static-memory-index.js` and tests.

@@ -6,6 +6,7 @@ const {
 
 const EMBEDDING_PROVIDER_AUTHORITY = 'candidate-discovery-only';
 const EMBEDDING_PROVIDER_DISTANCE = 'cosine';
+const EMBEDDING_PROVIDER_NORMALIZATION = 'unit-l2';
 const FIXTURE_PROVIDER_ID = 'fixture';
 const STATIC_PROVIDER_ID = 'static';
 const MODEL2VEC_POTION_8M_PROVIDER_ID = 'model2vec-potion-8m';
@@ -111,6 +112,7 @@ function buildProviderInfo({
   runtimeNetwork,
   runtime,
   experimental,
+  normalization = EMBEDDING_PROVIDER_NORMALIZATION,
 } = {}) {
   const normalizedDimensions = normalizeDimension(dimensions, FIXTURE_DIMENSIONS);
   const info = {
@@ -120,6 +122,7 @@ function buildProviderInfo({
     dimensions: normalizedDimensions,
     truncateDim: normalizeTruncateDim(truncateDim, normalizedDimensions),
     distance: EMBEDDING_PROVIDER_DISTANCE,
+    normalization: normalizeModelId(normalization, EMBEDDING_PROVIDER_NORMALIZATION),
     localOnly: true,
     license: normalizeModelId(license, 'repo-local'),
     dependency: normalizeModelId(dependency, 'none'),
@@ -353,6 +356,7 @@ function createEmbeddingProvider({
 module.exports = {
   EMBEDDING_PROVIDER_AUTHORITY,
   EMBEDDING_PROVIDER_DISTANCE,
+  EMBEDDING_PROVIDER_NORMALIZATION,
   FIXTURE_PROVIDER_ID,
   FIXTURE_MODEL_ID,
   STATIC_PROVIDER_ID,
