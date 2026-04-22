@@ -6,6 +6,8 @@ const FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA = 'penny-frame-budget-sidecar-schedul
 
 const FRAME_BUDGET_SIDECAR_SCHEMA = 'penny-frame-budget-sidecar.v1';
 
+const FRAME_BUDGET_CANDIDATE_MERGE_SCHEMA = 'penny-frame-budget-candidate-merge.v1';
+
 const FRAME_BUDGET_EVENT_STATUSES = Object.freeze({
   MET: 'met',
   MISSED: 'missed',
@@ -405,6 +407,196 @@ function frameBudgetSidecarToBudgetEvent(sidecarLike = {}) {
   });
 }
 
+function countList(value = []) {
+  return Array.isArray(value) ? value.length : normalizeCount(value);
+}
+
+function normalizeCandidateMergeBudgetConfig(options = {}) {
+  const raw = isPlainObject(options) ? options : {};
+  const candidateMergeBudgetMs = finiteNonNegativeNumberOrNull(
+    raw.candidateMergeBudgetMs
+      ?? raw.candidateBudgetMs
+      ?? raw.budgetMs,
+  ) ?? FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS.CANDIDATE_MERGE;
+  const deadlineMs = finiteNonNegativeNumberOrNull(
+    raw.prePromptBudgetMs
+      ?? raw.deadlineMs
+      ?? raw.totalBudgetMs,
+  );
+  const elapsedMs = finiteNonNegativeNumberOrNull(
+    raw.prePromptElapsedMs
+      ?? raw.elapsedMs,
+  ) ?? 0;
+  const remainingMs = deadlineMs === null
+    ? candidateMergeBudgetMs
+    : Math.max(0, deadlineMs - elapsedMs);
+  const sourceSensitive = raw.sourceSensitive === true
+    || raw.highRisk === true
+    || raw.sourceSensitiveQuery === true
+    || raw.querySourceSensitive === true;
+  const authorityReserveMs = sourceSensitive
+    ? Math.min(
+      candidateMergeBudgetMs,
+      finiteNonNegativeNumberOrNull(raw.authorityReserveMs)
+        ?? FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS.EXACT_ANCHORS,
+    )
+    : 0;
+  return {
+    candidateMergeBudgetMs,
+    deadlineMs,
+    elapsedMs,
+    remainingMs,
+    sourceSensitive,
+    authorityReserveMs,
+  };
+}
+
+function normalizeStaticExpansionDecision({
+  enabled = true,
+  tight = false,
+  exhausted = false,
+  cachedStaticCandidateCount = 0,
+  maxStaticCandidates = null,
+} = {}) {
+  const normalizedMax = finiteNonNegativeNumberOrNull(maxStaticCandidates);
+  if (!enabled) {
+    return {
+      status: FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED,
+      mode: 'disabled',
+      reason: 'static-expansion-disabled',
+      fallback: '',
+      maxCandidates: 0,
+      cachedCandidateCount: normalizeCount(cachedStaticCandidateCount),
+    };
+  }
+  const cachedCount = normalizeCount(cachedStaticCandidateCount);
+  if (tight || exhausted) {
+    if (cachedCount > 0) {
+      return {
+        status: FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED,
+        mode: 'cached-only',
+        reason: 'pre-prompt-budget-tight',
+        fallback: 'cached-static-candidates',
+        maxCandidates: Math.max(1, Math.min(cachedCount, normalizeCount(normalizedMax ?? cachedCount) || cachedCount, 2)),
+        cachedCandidateCount: cachedCount,
+      };
+    }
+    return {
+      status: FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED,
+      mode: 'skipped',
+      reason: 'pre-prompt-budget-exhausted',
+      fallback: 'keyword+cached-candidates',
+      maxCandidates: 0,
+      cachedCandidateCount: 0,
+    };
+  }
+  return {
+    status: FRAME_BUDGET_SIDECAR_STATUSES.SCHEDULED,
+    mode: 'full',
+    reason: 'within-budget',
+    fallback: '',
+    maxCandidates: normalizedMax === null ? null : normalizeCount(normalizedMax),
+    cachedCandidateCount: cachedCount,
+  };
+}
+
+function buildCandidateMergeFrameBudgetPlan(options = {}) {
+  const raw = isPlainObject(options) ? options : {};
+  const {
+    candidateMergeBudgetMs,
+    deadlineMs,
+    elapsedMs,
+    remainingMs,
+    sourceSensitive,
+    authorityReserveMs,
+  } = normalizeCandidateMergeBudgetConfig(raw);
+  const tight = remainingMs < candidateMergeBudgetMs;
+  const exhausted = deadlineMs !== null && remainingMs <= authorityReserveMs && tight;
+  const staticExpansion = normalizeStaticExpansionDecision({
+    enabled: raw.staticExpansionEnabled !== false,
+    tight,
+    exhausted,
+    cachedStaticCandidateCount: raw.cachedStaticCandidateCount,
+    maxStaticCandidates: raw.maxStaticCandidates,
+  });
+  const skipLowPriorityOpenLoops = tight;
+  const candidateCount = normalizeCount(raw.candidateCount ?? raw.rawCandidatesInspected);
+  const staticCandidateCount = normalizeCount(raw.staticCandidateCount ?? raw.staticCandidatesInspected);
+  const openLoopCount = normalizeCount(raw.openLoopCount ?? raw.openLoopsScored);
+  const selectedCount = normalizeCount(raw.selectedCount ?? raw.candidatesSelected);
+  const renderedCount = normalizeCount(raw.renderedCount ?? raw.candidatesRendered);
+  const staleCandidatesBlocked = normalizeCount(raw.staleCandidatesBlocked);
+  const sourceChecksRun = normalizeCount(raw.sourceChecksRun);
+  const actualMs = finiteNonNegativeNumberOrNull(raw.actualMs ?? raw.candidateMergeMs) ?? 0;
+  const status = exhausted || tight
+    ? FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED
+    : FRAME_BUDGET_SIDECAR_STATUSES.SCHEDULED;
+  const reason = exhausted
+    ? 'pre-prompt-budget-exhausted'
+    : (tight
+      ? 'pre-prompt-budget-tight'
+      : (sourceSensitive ? 'source-sensitive-authority-reserve' : 'within-budget'));
+  const fallback = tight
+    ? (staticExpansion.fallback || 'keyword+cached-candidates')
+    : '';
+  return {
+    schema: FRAME_BUDGET_CANDIDATE_MERGE_SCHEMA,
+    status,
+    reason,
+    fallback,
+    deadlineMs,
+    elapsedMs,
+    remainingBeforeMs: remainingMs,
+    budgetMs: candidateMergeBudgetMs,
+    actualMs,
+    tight,
+    exhausted,
+    sourceSensitive,
+    authorityReserveMs,
+    staticExpansion,
+    openLoops: {
+      skipLowPriority: skipLowPriorityOpenLoops,
+      originalCount: countList(raw.openLoopOriginalCount ?? raw.openLoopCount ?? raw.openLoopsScored),
+      scoredCount: openLoopCount,
+      skippedLowPriorityCount: normalizeCount(raw.skippedLowPriorityOpenLoopCount),
+    },
+    workDone: {
+      rawCandidatesInspected: candidateCount,
+      staticCandidatesInspected: staticCandidateCount,
+      openLoopsScored: openLoopCount,
+      candidatesSelected: selectedCount,
+      candidatesRendered: renderedCount,
+      staleCandidatesBlocked,
+      sourceChecksRun,
+    },
+    guardrails: {
+      explicitMemoryCanonicalityPreserved: true,
+      sourceAuthorityChecksPreserved: true,
+      correctionGatesPreserved: true,
+      promptTruthExpanded: false,
+      toolEvidenceReceiptChanged: false,
+      promptLimitChanged: false,
+      renderedLimitChanged: false,
+      answerQualityProof: false,
+    },
+    frameBudgetSidecar: buildFrameBudgetSidecarReceipt({
+      id: 'candidate-merge',
+      label: 'Candidate merge',
+      spendClass: FRAME_BUDGET_SIDECAR_SPEND_CLASSES.CANDIDATE_SELECTION,
+      status,
+      budgetMs: candidateMergeBudgetMs,
+      actualMs,
+      candidateCount,
+      selectedCount,
+      renderedCount,
+      openLoopCount,
+      sourceAuthority: sourceSensitive ? 'source-sensitive' : 'advisory',
+      reason,
+      fallback,
+    }),
+  };
+}
+
 function buildDeadlineAwareSidecarSchedule({
   generatedAt = new Date().toISOString(),
   measurementMode = 'fixture-only',
@@ -669,6 +861,7 @@ module.exports = {
   PENNY_FRAME_BUDGET_SCHEMA,
   FRAME_BUDGET_SIDECAR_SCHEMA,
   FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA,
+  FRAME_BUDGET_CANDIDATE_MERGE_SCHEMA,
   FRAME_BUDGET_EVENT_STATUSES,
   FRAME_BUDGET_SIDECAR_STATUSES,
   FRAME_BUDGET_SIDECAR_SPEND_CLASSES,
@@ -678,6 +871,7 @@ module.exports = {
   buildFrameBudgetSidecarReceipt,
   normalizeFrameBudgetSidecarReceipt,
   frameBudgetSidecarToBudgetEvent,
+  buildCandidateMergeFrameBudgetPlan,
   buildDeadlineAwareSidecarSchedule,
   addFrameTiming,
   addFrameWorkCount,

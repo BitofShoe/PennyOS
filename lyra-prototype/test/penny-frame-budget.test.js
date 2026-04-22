@@ -5,10 +5,12 @@ const {
   PENNY_FRAME_BUDGET_SCHEMA,
   FRAME_BUDGET_SIDECAR_SCHEMA,
   FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA,
+  FRAME_BUDGET_CANDIDATE_MERGE_SCHEMA,
   FRAME_BUDGET_EVENT_STATUSES,
   FRAME_BUDGET_SIDECAR_STATUSES,
   FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS,
   buildFrameBudgetSidecarReceipt,
+  buildCandidateMergeFrameBudgetPlan,
   addFrameBudgetEvent,
   addFrameTiming,
   addFrameWorkCount,
@@ -232,6 +234,67 @@ test('normalizes live sidecar receipts into budget events without prompt authori
   assert.equal(event.status, FRAME_BUDGET_EVENT_STATUSES.DEGRADED);
   assert.equal(event.budgetMs, 20);
   assert.equal(event.actualMs, 24);
+});
+
+test('candidate merge frame plan skips optional expansion under tight budget without authority changes', () => {
+  const plan = buildCandidateMergeFrameBudgetPlan({
+    prePromptBudgetMs: 12,
+    prePromptElapsedMs: 10,
+    sourceSensitive: true,
+    staticExpansionEnabled: true,
+    cachedStaticCandidateCount: 0,
+    openLoopOriginalCount: 3,
+    openLoopCount: 1,
+    skippedLowPriorityOpenLoopCount: 2,
+    candidateCount: 5,
+    selectedCount: 2,
+    renderedCount: 2,
+    staleCandidatesBlocked: 1,
+    sourceChecksRun: 5,
+  });
+
+  assert.equal(plan.schema, FRAME_BUDGET_CANDIDATE_MERGE_SCHEMA);
+  assert.equal(plan.status, FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED);
+  assert.equal(plan.tight, true);
+  assert.equal(plan.sourceSensitive, true);
+  assert.equal(plan.staticExpansion.status, FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED);
+  assert.equal(plan.staticExpansion.mode, 'skipped');
+  assert.equal(plan.staticExpansion.fallback, 'keyword+cached-candidates');
+  assert.equal(plan.openLoops.skipLowPriority, true);
+  assert.equal(plan.openLoops.skippedLowPriorityCount, 2);
+  assert.equal(plan.workDone.rawCandidatesInspected, 5);
+  assert.equal(plan.workDone.staleCandidatesBlocked, 1);
+  assert.equal(plan.guardrails.explicitMemoryCanonicalityPreserved, true);
+  assert.equal(plan.guardrails.sourceAuthorityChecksPreserved, true);
+  assert.equal(plan.guardrails.correctionGatesPreserved, true);
+  assert.equal(plan.guardrails.promptTruthExpanded, false);
+  assert.equal(plan.guardrails.toolEvidenceReceiptChanged, false);
+  assert.equal(plan.guardrails.promptLimitChanged, false);
+  assert.equal(plan.frameBudgetSidecar.id, 'candidate-merge');
+  assert.equal(plan.frameBudgetSidecar.status, FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED);
+});
+
+test('candidate merge frame plan uses cached static candidates before full expansion under pressure', () => {
+  const tight = buildCandidateMergeFrameBudgetPlan({
+    deadlineMs: 18,
+    elapsedMs: 3,
+    cachedStaticCandidateCount: 5,
+    maxStaticCandidates: 12,
+  });
+  const roomy = buildCandidateMergeFrameBudgetPlan({
+    deadlineMs: 80,
+    elapsedMs: 3,
+    cachedStaticCandidateCount: 5,
+    maxStaticCandidates: 12,
+  });
+
+  assert.equal(tight.staticExpansion.mode, 'cached-only');
+  assert.equal(tight.staticExpansion.status, FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED);
+  assert.equal(tight.staticExpansion.maxCandidates, 2);
+  assert.equal(roomy.staticExpansion.mode, 'full');
+  assert.equal(roomy.staticExpansion.status, FRAME_BUDGET_SIDECAR_STATUSES.SCHEDULED);
+  assert.equal(roomy.staticExpansion.maxCandidates, 12);
+  assert.equal(roomy.guardrails.renderedLimitChanged, false);
 });
 
 test('classifies first-token misses, prompt growth, and static-only rendered cap breaches', () => {

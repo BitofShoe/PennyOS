@@ -354,6 +354,28 @@ test('scoreArchiveCandidateHybridShadow boosts current contradiction repairs and
   assert.equal(stale.reasons.includes('stale-contradiction:favorite tea:-3.20'), true);
 });
 
+test('selectOpenLoopsForCandidateMergeBudget skips low-priority loops only under tight budget', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const loops = [
+    { id: 'urgent', text: 'Copper rabbit follow-up', priority: 'high' },
+    { id: 'background', text: 'Someday polish docs', priority: 'low' },
+    { id: 'numeric', text: 'Check receipt source', priorityScore: 0.82 },
+  ];
+
+  const normal = policy.selectOpenLoopsForCandidateMergeBudget(loops);
+  const tight = policy.selectOpenLoopsForCandidateMergeBudget(loops, { skipLowPriority: true });
+
+  assert.deepEqual(normal.openLoops.map((item) => item.id), ['urgent', 'background', 'numeric']);
+  assert.equal(normal.skippedLowPriorityCount, 0);
+  assert.deepEqual(tight.openLoops.map((item) => item.id), ['urgent', 'numeric']);
+  assert.equal(tight.totalCount, 3);
+  assert.equal(tight.scoredCount, 2);
+  assert.equal(tight.skippedLowPriorityCount, 1);
+});
+
 test('scoreArchiveCandidate preserves lexical semantic and sensitivity ordering signals', () => {
   const policy = createMemoryArchivePolicyApi({
     tokenizeMemoryText,

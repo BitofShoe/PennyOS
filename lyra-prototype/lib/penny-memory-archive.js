@@ -25,6 +25,13 @@ const {
   normalizePromotionPacket,
   validatePromotionPacket,
 } = require('./penny-knowledge-contracts');
+const {
+  FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS,
+  FRAME_BUDGET_SIDECAR_SPEND_CLASSES,
+  FRAME_BUDGET_SIDECAR_STATUSES,
+  buildCandidateMergeFrameBudgetPlan,
+  buildFrameBudgetSidecarReceipt,
+} = require('./penny-frame-budget');
 
 const ARCHIVE_SCHEMA_VERSION = 2;
 const EMBEDDINGS_SCHEMA_VERSION = 1;
@@ -1102,6 +1109,85 @@ function createMemoryArchiveApi({
       ...(raw.skipped === true ? { skipped: true, skippedReason: reason || 'not-ready' } : {}),
       ...(status.ready === true || status.ready === false ? { ready: status.ready === true } : {}),
     });
+  }
+
+  function countStaticMemoryCandidates(raw = null) {
+    return Array.isArray(raw?.candidates) ? raw.candidates.length : 0;
+  }
+
+  function normalizeCachedStaticMemoryIndexResult(raw = null) {
+    if (!raw || typeof raw !== 'object') return null;
+    const candidates = Array.isArray(raw.candidates) ? raw.candidates : [];
+    if (!candidates.length) return null;
+    return raw;
+  }
+
+  function limitStaticMemoryIndexCandidates(raw = null, maxCandidates = null) {
+    if (!raw || typeof raw !== 'object') return raw;
+    if (maxCandidates === null || maxCandidates === undefined || maxCandidates === '') return raw;
+    const limit = Number(maxCandidates);
+    if (!Number.isFinite(limit) || limit < 0) return raw;
+    const candidates = Array.isArray(raw.candidates) ? raw.candidates : [];
+    return {
+      ...raw,
+      candidates: candidates.slice(0, Math.floor(limit)),
+      fullCandidateCount: candidates.length,
+      candidateLimitApplied: candidates.length > Math.floor(limit),
+    };
+  }
+
+  function buildSkippedStaticExpansionResult({
+    reason = 'pre-prompt-budget-exhausted',
+    mode = 'live-advisory',
+    budgetMs = FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS.STATIC_MEMORY_QUERY,
+  } = {}) {
+    return {
+      skipped: true,
+      reason,
+      candidates: [],
+      queryMs: 0,
+      status: {
+        enabled: true,
+        mode,
+        ready: true,
+      },
+      frameBudgetSidecar: buildFrameBudgetSidecarReceipt({
+        id: 'static-expansion',
+        label: 'Static memory expansion',
+        spendClass: FRAME_BUDGET_SIDECAR_SPEND_CLASSES.CANDIDATE_SELECTION,
+        status: FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED,
+        budgetMs,
+        actualMs: 0,
+        candidateCount: 0,
+        sourceAuthority: 'advisory',
+        reason,
+        fallback: 'keyword+cached-candidates',
+      }),
+    };
+  }
+
+  function buildCachedStaticExpansionResult(raw = {}, {
+    budgetMs = FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS.STATIC_MEMORY_QUERY,
+  } = {}) {
+    const candidates = Array.isArray(raw.candidates) ? raw.candidates : [];
+    return {
+      ...raw,
+      skipped: false,
+      reason: raw.reason || 'cached-static-candidates',
+      queryMs: 0,
+      frameBudgetSidecar: buildFrameBudgetSidecarReceipt({
+        id: 'static-expansion',
+        label: 'Static memory expansion',
+        spendClass: FRAME_BUDGET_SIDECAR_SPEND_CLASSES.CANDIDATE_SELECTION,
+        status: FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED,
+        budgetMs,
+        actualMs: 0,
+        candidateCount: candidates.length,
+        sourceAuthority: 'advisory',
+        reason: 'pre-prompt-budget-tight',
+        fallback: 'cached-static-candidates',
+      }),
+    };
   }
 
   function staticSourceParts(sourceItemId = '') {
@@ -2543,6 +2629,7 @@ function createMemoryArchiveApi({
     rerankShadowInputTopK = null,
     queryStaticMemoryIndex = null,
     maxStaticOnlyRendered = 1,
+    frameBudget = null,
   } = {}) {
     if (lane !== 'chat') {
       const semanticMemory = await getSemanticMemoryStatus();
@@ -2574,31 +2661,104 @@ function createMemoryArchiveApi({
     const rerankShadowRuns = [];
     let staticEmbeddingShadow = null;
     let staticMemoryIndexResult = null;
+    const frameBudgetConfig = frameBudget && typeof frameBudget === 'object' ? frameBudget : null;
+    const cachedStaticMemoryIndexResult = normalizeCachedStaticMemoryIndexResult(
+      frameBudgetConfig?.cachedStaticMemoryIndexResult
+        || frameBudgetConfig?.cachedStaticResult
+        || frameBudgetConfig?.staticMemoryIndexResult,
+    );
+    const sourceSensitiveBudget = frameBudgetConfig
+      ? (
+        frameBudgetConfig.sourceSensitive === true
+        || frameBudgetConfig.highRisk === true
+        || queryTouchesActiveContradiction(userText, activeContradictions)
+      )
+      : false;
+    let candidateMergeBudget = frameBudgetConfig
+      ? buildCandidateMergeFrameBudgetPlan({
+        ...frameBudgetConfig,
+        sourceSensitive: sourceSensitiveBudget,
+        staticExpansionEnabled: typeof queryStaticMemoryIndex === 'function' || !!cachedStaticMemoryIndexResult,
+        cachedStaticCandidateCount: countStaticMemoryCandidates(cachedStaticMemoryIndexResult),
+        maxStaticCandidates: frameBudgetConfig.maxStaticCandidates
+          ?? frameBudgetConfig.staticMaxCandidates
+          ?? frameBudgetConfig.staticCandidateLimit
+          ?? null,
+      })
+      : null;
+    if (candidateMergeBudget) shouldIncludeCandidateTrace = true;
+    const openLoopBudgetSelection = archivePolicyApi.selectOpenLoopsForCandidateMergeBudget(session.openLoops, {
+      skipLowPriority: candidateMergeBudget?.openLoops?.skipLowPriority === true,
+    });
+    const candidateMergeOpenLoops = openLoopBudgetSelection.openLoops;
 
     if (typeof queryStaticMemoryIndex === 'function') {
-      try {
-        staticMemoryIndexResult = await queryStaticMemoryIndex(userText);
+      const staticExpansionMode = candidateMergeBudget?.staticExpansion?.mode || 'full';
+      const staticExpansionBudgetMs = frameBudgetConfig?.staticMemoryBudgetMs
+        ?? frameBudgetConfig?.staticExpansionBudgetMs
+        ?? FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS.STATIC_MEMORY_QUERY;
+      if (staticExpansionMode === 'cached-only' && cachedStaticMemoryIndexResult) {
+        staticMemoryIndexResult = buildCachedStaticExpansionResult(
+          limitStaticMemoryIndexCandidates(
+            cachedStaticMemoryIndexResult,
+            candidateMergeBudget?.staticExpansion?.maxCandidates,
+          ),
+          { budgetMs: staticExpansionBudgetMs },
+        );
         staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult(staticMemoryIndexResult);
-      } catch (error) {
-        staticMemoryIndexResult = {
-          skipped: true,
-          reason: String(error?.message || error || 'static-memory-index-query-failed').trim(),
-          candidates: [],
-          queryMs: 0,
-          status: {
-            mode: 'live-shadow',
-          },
-        };
-        staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult({
-          skipped: true,
-          reason: String(error?.message || error || 'static-memory-index-query-failed').trim(),
-          candidates: [],
-          queryMs: 0,
-          status: {
-            mode: 'live-shadow',
-          },
+      } else if (staticExpansionMode === 'skipped') {
+        staticMemoryIndexResult = buildSkippedStaticExpansionResult({
+          reason: candidateMergeBudget?.staticExpansion?.reason || 'pre-prompt-budget-exhausted',
+          mode: frameBudgetConfig?.staticMode || 'live-advisory',
+          budgetMs: staticExpansionBudgetMs,
         });
+        staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult(staticMemoryIndexResult);
+      } else {
+        try {
+          staticMemoryIndexResult = await queryStaticMemoryIndex(userText, {
+            maxCandidates: candidateMergeBudget?.staticExpansion?.maxCandidates ?? undefined,
+            budgetMs: staticExpansionBudgetMs,
+            frameBudget: candidateMergeBudget?.staticExpansion || null,
+          });
+          staticMemoryIndexResult = limitStaticMemoryIndexCandidates(
+            staticMemoryIndexResult,
+            candidateMergeBudget?.staticExpansion?.maxCandidates,
+          );
+          staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult(staticMemoryIndexResult);
+        } catch (error) {
+          staticMemoryIndexResult = {
+            skipped: true,
+            reason: String(error?.message || error || 'static-memory-index-query-failed').trim(),
+            candidates: [],
+            queryMs: 0,
+            status: {
+              mode: 'live-shadow',
+            },
+          };
+          staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult({
+            skipped: true,
+            reason: String(error?.message || error || 'static-memory-index-query-failed').trim(),
+            candidates: [],
+            queryMs: 0,
+            status: {
+              mode: 'live-shadow',
+            },
+          });
+        }
       }
+    } else if (candidateMergeBudget?.staticExpansion?.mode === 'cached-only' && cachedStaticMemoryIndexResult) {
+      staticMemoryIndexResult = buildCachedStaticExpansionResult(
+        limitStaticMemoryIndexCandidates(
+          cachedStaticMemoryIndexResult,
+          candidateMergeBudget?.staticExpansion?.maxCandidates,
+        ),
+        {
+          budgetMs: frameBudgetConfig?.staticMemoryBudgetMs
+            ?? frameBudgetConfig?.staticExpansionBudgetMs
+            ?? FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS.STATIC_MEMORY_QUERY,
+        },
+      );
+      staticEmbeddingShadow = normalizeStaticEmbeddingShadowResult(staticMemoryIndexResult);
     }
 
     if (semanticAttempted) {
@@ -2684,7 +2844,7 @@ function createMemoryArchiveApi({
           queryVector,
           vector,
           activeContradictions,
-          openLoops: session.openLoops,
+          openLoops: candidateMergeOpenLoops,
         });
         const staticEligibility = staticAdvisoryEligibility(scoringItem, scored, {
           userText,
@@ -2763,7 +2923,7 @@ function createMemoryArchiveApi({
           inputTopK,
           selectedLimit: limit,
           activeContradictions,
-          openLoops: session.openLoops,
+          openLoops: candidateMergeOpenLoops,
           now,
         });
         rerankShadowRuns.push({
@@ -2875,6 +3035,7 @@ function createMemoryArchiveApi({
       return {
         ranked,
         selected,
+        filteredCount: filtered.length,
         trace: shouldIncludeCandidateTrace ? traceCandidates : [],
       };
     }
@@ -2887,6 +3048,7 @@ function createMemoryArchiveApi({
     const staticOnlyCapState = staticAdvisorySummary.enabled
       ? { max: staticOnlyRenderedCap, used: 0 }
       : null;
+    const candidateMergeStartedAt = frameBudgetConfig ? Date.now() : 0;
     const sessionRanking = await rankGroupDetailed(candidateGroups.session, sessionPromptLimit, 'session', {
       staticOnlyCapState,
     });
@@ -2911,6 +3073,38 @@ function createMemoryArchiveApi({
       sessionItems,
       rankGroup: (items, limit) => rankGroup(items, limit, 'chapters'),
     });
+    if (frameBudgetConfig) {
+      const staleCandidatesBlocked = traceCandidates.filter((entry) => (
+        /stale-correction|correction-source|stale-contradiction/i.test(String(entry?.eligibility?.filterReason || entry?.heldBackReason || ''))
+      )).length;
+      const candidateCount = Number(sessionRanking.ranked?.length || 0)
+        + Number(globalRanking.ranked?.length || 0)
+        + Number(sessionRanking.filteredCount || 0)
+        + Number(globalRanking.filteredCount || 0);
+      const selectedCount = Number(sessionRanking.selected?.length || 0)
+        + Number(globalRanking.selected?.length || 0);
+      candidateMergeBudget = buildCandidateMergeFrameBudgetPlan({
+        ...frameBudgetConfig,
+        sourceSensitive: sourceSensitiveBudget,
+        staticExpansionEnabled: typeof queryStaticMemoryIndex === 'function' || !!cachedStaticMemoryIndexResult,
+        cachedStaticCandidateCount: countStaticMemoryCandidates(cachedStaticMemoryIndexResult),
+        maxStaticCandidates: candidateMergeBudget?.staticExpansion?.maxCandidates
+          ?? frameBudgetConfig.maxStaticCandidates
+          ?? frameBudgetConfig.staticMaxCandidates
+          ?? frameBudgetConfig.staticCandidateLimit
+          ?? null,
+        actualMs: Math.max(0, Date.now() - candidateMergeStartedAt),
+        candidateCount,
+        staticCandidateCount: staticAdvisorySummary.candidateCount,
+        openLoopOriginalCount: openLoopBudgetSelection.totalCount,
+        openLoopCount: openLoopBudgetSelection.scoredCount,
+        skippedLowPriorityOpenLoopCount: openLoopBudgetSelection.skippedLowPriorityCount,
+        selectedCount,
+        renderedCount: combinedSessionItems.length + globalItems.length,
+        staleCandidatesBlocked,
+        sourceChecksRun: activeContradictions.length ? candidateCount : 0,
+      });
+    }
     const renderedCandidateKeys = new Set(
       [...combinedSessionItems, ...globalItems].map(archiveCandidateTraceKey).filter(Boolean),
     );
@@ -2961,6 +3155,7 @@ function createMemoryArchiveApi({
           staticOnlyRenderedCount: staticOnlyCapState?.used || 0,
         },
       } : {}),
+      ...(candidateMergeBudget ? { candidateMergeBudget } : {}),
       ...(shouldIncludeCandidateTrace ? { candidateTrace } : {}),
     };
     if (!shouldIncludeCandidateTrace && staticTraceCandidates.length) {

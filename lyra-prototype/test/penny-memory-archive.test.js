@@ -864,6 +864,308 @@ test('buildArchiveContext merges live-advisory static candidates under the stati
   }
 });
 
+test('buildArchiveContext skips optional static expansion under tight frame budget without raising limits', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'tea-current',
+          type: 'episode',
+          text: 'Favorite tea is lapsang souchong now.',
+          excerpt: 'Favorite tea is lapsang souchong now.',
+          userText: 'Favorite tea is lapsang souchong now.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    let queryCalls = 0;
+    const result = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'What is my favorite tea?',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      maxStaticOnlyRendered: 1,
+      queryStaticMemoryIndex: async () => {
+        queryCalls += 1;
+        return {
+          skipped: false,
+          queryMs: 0.8,
+          status: { enabled: true, mode: 'live-advisory', provider: 'model2vec-potion-8m', ready: true },
+          candidates: [
+            {
+              id: 'session:demo:episode:static-extra',
+              text: 'The chipped moon mug was beside the arcade register.',
+              textPreview: 'Moon mug beside arcade register.',
+              sourceType: 'session-episode',
+              sourceAuthority: 'advisory',
+              supportState: 'candidate',
+              candidateChannels: ['static-embedding'],
+              staticEmbedding: { provider: 'model2vec-potion-8m', similarity: 0.99, rank: 1, queryMs: 0.8 },
+            },
+          ],
+        };
+      },
+      frameBudget: {
+        prePromptBudgetMs: 5,
+        prePromptElapsedMs: 5,
+        staticMode: 'live-advisory',
+      },
+    });
+
+    assert.equal(queryCalls, 0);
+    assert.deepEqual(result.archiveContext.session.map((item) => item.id), ['tea-current']);
+    assert.equal(result.retrieval.staticEmbeddingShadow.skipped, true);
+    assert.equal(result.retrieval.staticEmbeddingShadow.skippedReason, 'pre-prompt-budget-exhausted');
+    assert.equal(result.retrieval.staticEmbeddingShadow.frameBudgetSidecar.id, 'static-expansion');
+    assert.equal(result.retrieval.staticEmbeddingShadow.frameBudgetSidecar.status, 'skipped');
+    assert.equal(result.retrieval.candidateMergeBudget.staticExpansion.mode, 'skipped');
+    assert.equal(result.retrieval.candidateMergeBudget.status, 'degraded');
+    assert.equal(result.retrieval.candidateMergeBudget.guardrails.explicitMemoryCanonicalityPreserved, true);
+    assert.equal(result.retrieval.candidateMergeBudget.guardrails.sourceAuthorityChecksPreserved, true);
+    assert.equal(result.retrieval.candidateMergeBudget.guardrails.promptLimitChanged, false);
+    assert.equal(result.retrieval.candidateMergeBudget.guardrails.renderedLimitChanged, false);
+    assert.equal(result.archiveContext.session.length, 1);
+    assert.equal(result.archiveContext.global.length, 0);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext uses cached static candidates under budget pressure while preserving correction gates', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [
+        {
+          id: 'contr-tea',
+          oldText: 'Favorite tea is oolong',
+          newText: 'Favorite tea is lapsang souchong',
+          conflictKey: 'favorite tea',
+          status: 'active',
+          sourceEpisodeId: 'tea-current-static',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+      ],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    let queryCalls = 0;
+    const cachedStaticMemoryIndexResult = {
+      skipped: false,
+      queryMs: 4,
+      status: { enabled: true, mode: 'live-advisory', provider: 'model2vec-potion-8m', ready: true },
+      candidates: [
+        {
+          id: 'session:demo:episode:tea-stale-static',
+          text: 'Favorite tea is oolong.',
+          textPreview: 'Favorite tea is oolong.',
+          sourceType: 'session-episode',
+          sourceAuthority: 'advisory',
+          supportState: 'candidate',
+          candidateChannels: ['static-embedding'],
+          staticEmbedding: { provider: 'model2vec-potion-8m', similarity: 0.99, rank: 1, queryMs: 4 },
+        },
+        {
+          id: 'session:demo:episode:tea-current-static',
+          text: 'Correction: my favorite tea is lapsang souchong now, not oolong.',
+          textPreview: 'Favorite tea is lapsang souchong now.',
+          sourceType: 'session-episode',
+          sourceAuthority: 'advisory',
+          supportState: 'candidate',
+          candidateChannels: ['static-embedding'],
+          staticEmbedding: { provider: 'model2vec-potion-8m', similarity: 0.62, rank: 2, queryMs: 4 },
+        },
+      ],
+    };
+    const result = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'What is my favorite tea now?',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      maxStaticOnlyRendered: 1,
+      queryStaticMemoryIndex: async () => {
+        queryCalls += 1;
+        return { skipped: true, reason: 'should-not-run', candidates: [] };
+      },
+      frameBudget: {
+        deadlineMs: 12,
+        elapsedMs: 10,
+        cachedStaticMemoryIndexResult,
+      },
+    });
+
+    assert.equal(queryCalls, 0);
+    assert.deepEqual(result.archiveContext.session.map((item) => item.id), ['tea-current-static']);
+    assert.equal(result.retrieval.staticEmbeddingShadow.frameBudgetSidecar.id, 'static-expansion');
+    assert.equal(result.retrieval.staticEmbeddingShadow.frameBudgetSidecar.status, 'degraded');
+    assert.equal(result.retrieval.candidateMergeBudget.staticExpansion.mode, 'cached-only');
+    assert.equal(result.retrieval.candidateMergeBudget.staticExpansion.maxCandidates, 2);
+    assert.equal(result.retrieval.candidateMergeBudget.workDone.staleCandidatesBlocked, 1);
+    assert.equal(result.retrieval.candidateMergeBudget.guardrails.correctionGatesPreserved, true);
+
+    const stale = result.retrieval.candidateTrace.find((item) => item.id === 'tea-stale-static');
+    const current = result.retrieval.candidateTrace.find((item) => item.id === 'tea-current-static');
+    assert.ok(stale);
+    assert.ok(current);
+    assert.equal(current.selected, true);
+    assert.equal(current.rendered, true);
+    assert.equal(stale.selected, false);
+    assert.equal(stale.rendered, false);
+    assert.equal(stale.eligibility.filtered, true);
+    assert.equal(stale.eligibility.filterReason, 'static-stale-correction-gate');
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext inspects more optional candidates when frame budget is roomy', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 's1',
+          type: 'episode',
+          text: 'Midnight rain on the arcade window.',
+          excerpt: 'Midnight rain on the arcade window.',
+          userText: 'Midnight rain on the arcade window.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const staticResult = {
+      skipped: false,
+      queryMs: 1,
+      status: { enabled: true, mode: 'live-advisory', provider: 'model2vec-potion-8m', ready: true },
+      candidates: [
+        {
+          id: 'session:demo:episode:static-copper-rabbit',
+          text: 'Correction: my coding mascot is a copper rabbit now, not a brass fox.',
+          textPreview: 'Copper rabbit replaced the brass fox.',
+          sourceType: 'session-episode',
+          sourceAuthority: 'advisory',
+          supportState: 'candidate',
+          candidateChannels: ['static-embedding'],
+          staticEmbedding: { provider: 'model2vec-potion-8m', similarity: 0.92, rank: 1, queryMs: 1 },
+        },
+        {
+          id: 'session:demo:episode:static-moon-mug',
+          text: 'The chipped moon mug was beside the arcade register.',
+          textPreview: 'Moon mug beside arcade register.',
+          sourceType: 'session-episode',
+          sourceAuthority: 'advisory',
+          supportState: 'candidate',
+          candidateChannels: ['static-embedding'],
+          staticEmbedding: { provider: 'model2vec-potion-8m', similarity: 0.87, rank: 2, queryMs: 1 },
+        },
+      ],
+    };
+    let roomyCalls = 0;
+    const roomy = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'What do you remember about the copper rabbit?',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 2,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      maxStaticOnlyRendered: 1,
+      queryStaticMemoryIndex: async () => {
+        roomyCalls += 1;
+        return staticResult;
+      },
+      frameBudget: {
+        deadlineMs: 80,
+        elapsedMs: 3,
+      },
+    });
+    let tightCalls = 0;
+    const tight = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'What do you remember about the copper rabbit?',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 2,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      maxStaticOnlyRendered: 1,
+      queryStaticMemoryIndex: async () => {
+        tightCalls += 1;
+        return staticResult;
+      },
+      frameBudget: {
+        deadlineMs: 5,
+        elapsedMs: 5,
+        staticMode: 'live-advisory',
+      },
+    });
+
+    assert.equal(roomyCalls, 1);
+    assert.equal(tightCalls, 0);
+    assert.equal(roomy.retrieval.candidateMergeBudget.staticExpansion.mode, 'full');
+    assert.equal(tight.retrieval.candidateMergeBudget.staticExpansion.mode, 'skipped');
+    assert.equal(roomy.retrieval.candidateMergeBudget.workDone.staticCandidatesInspected, 2);
+    assert.equal(tight.retrieval.candidateMergeBudget.workDone.staticCandidatesInspected, 0);
+    assert.ok(
+      roomy.retrieval.candidateMergeBudget.workDone.rawCandidatesInspected
+        > tight.retrieval.candidateMergeBudget.workDone.rawCandidatesInspected,
+    );
+    assert.equal(roomy.retrieval.candidateMergeBudget.guardrails.promptLimitChanged, false);
+    assert.equal(roomy.retrieval.candidateMergeBudget.guardrails.renderedLimitChanged, false);
+    assert.equal(roomy.archiveContext.session.length <= 2, true);
+    assert.equal(tight.archiveContext.session.length <= 2, true);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('buildArchiveContext blocks stale live-advisory static-only candidates on active correction topics', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi({ ...files, embedReady: false });

@@ -231,6 +231,45 @@ function createMemoryArchivePolicyApi({
     };
   }
 
+  function openLoopPriorityRank(loop = {}) {
+    const raw = String(loop?.priority || loop?.urgency || '').trim().toLowerCase();
+    if (['critical', 'urgent', 'high'].includes(raw)) return 3;
+    if (['medium', 'normal'].includes(raw)) return 2;
+    if (['low', 'later', 'background'].includes(raw)) return 1;
+    const numeric = Number(loop?.priorityScore ?? loop?.score ?? loop?.confidenceScore);
+    if (Number.isFinite(numeric)) {
+      if (numeric >= 0.75) return 3;
+      if (numeric >= 0.4) return 2;
+      return 1;
+    }
+    return 2;
+  }
+
+  function selectOpenLoopsForCandidateMergeBudget(openLoops = [], {
+    skipLowPriority = false,
+  } = {}) {
+    const loops = Array.isArray(openLoops)
+      ? openLoops.filter((item) => item && typeof item === 'object')
+      : [];
+    if (!skipLowPriority) {
+      return {
+        openLoops: loops,
+        totalCount: loops.length,
+        scoredCount: loops.length,
+        skippedLowPriorityCount: 0,
+        skippedLowPriority: false,
+      };
+    }
+    const selected = loops.filter((loop) => openLoopPriorityRank(loop) >= 3);
+    return {
+      openLoops: selected,
+      totalCount: loops.length,
+      scoredCount: selected.length,
+      skippedLowPriorityCount: Math.max(0, loops.length - selected.length),
+      skippedLowPriority: true,
+    };
+  }
+
   function scoreArchiveUtilityCandidate(candidate = {}, now = Date.now()) {
     const createdAtMs = Date.parse(candidate.createdAt || '');
     const ageDays = Number.isFinite(createdAtMs)
@@ -794,6 +833,7 @@ function createMemoryArchivePolicyApi({
     scoreArchiveCandidate,
     scoreArchiveCandidateHybridShadow,
     scoreArchiveCandidateWithProfile,
+    selectOpenLoopsForCandidateMergeBudget,
     rerankShadowCandidates,
     buildSessionChapterText,
     buildSessionChapters,
