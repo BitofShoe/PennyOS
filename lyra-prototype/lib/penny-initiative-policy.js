@@ -1,4 +1,5 @@
 const INITIATIVE_DECISION_SCHEMA = 'penny-initiative-decision.v1';
+const INITIATIVE_PROMPT_SCAFFOLD_SCHEMA = 'penny-initiative-prompt-scaffold.v1';
 
 const INITIATIVE_TYPES = Object.freeze({
   NONE: 'none',
@@ -134,6 +135,18 @@ function cleanString(value = '', limit = 500) {
   if (!text) return '';
   if (text.length <= limit) return text;
   return `${text.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+}
+
+function cleanPromptFragment(value = '', limit = 180) {
+  return cleanString(value, limit)
+    .replace(/[.!?]+$/g, '')
+    .replace(/[.!?]\s+/g, '; ');
+}
+
+function countWords(value = '') {
+  const text = cleanString(value, 2000);
+  if (!text) return 0;
+  return text.split(/\s+/).filter(Boolean).length;
 }
 
 function cleanToken(value = '') {
@@ -461,6 +474,8 @@ function baseDecision({ reason = 'no initiative candidate', heldBack = [], riskC
     autoWrite: false,
     actionPermission: 'not-allowed',
     suggestionText: '',
+    source: '',
+    candidateId: '',
     forbiddenActions: FORBIDDEN_ACTIONS.slice(),
     heldBack,
   };
@@ -974,8 +989,119 @@ function decideInitiative({
     autoWrite: false,
     actionPermission: 'suggest-only-requires-explicit-user-approval',
     suggestionText: candidate.suggestionText,
+    source: candidate.source || '',
+    candidateId: candidate.id || '',
     forbiddenActions: FORBIDDEN_ACTIONS.slice(),
     heldBack: [],
+  };
+}
+
+function initiativeScaffoldLabel(initiativeType = INITIATIVE_TYPES.NONE) {
+  switch (normalizeInitiativeType(initiativeType, INITIATIVE_TYPES.NONE)) {
+    case INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION:
+      return 'source-check suggestion';
+    case INITIATIVE_TYPES.OPEN_LOOP_REMINDER:
+      return 'open-loop reminder';
+    case INITIATIVE_TYPES.MEMORY_SUGGESTION:
+      return 'memory suggestion';
+    case INITIATIVE_TYPES.TINY_WARNING:
+      return 'tiny warning';
+    case INITIATIVE_TYPES.CLARIFYING_QUESTION:
+      return 'clarifying question';
+    case INITIATIVE_TYPES.CELEBRATORY_REFLECTION:
+      return 'celebratory reflection';
+    case INITIATIVE_TYPES.NEXT_STEP_SUGGESTION:
+    default:
+      return 'next-step suggestion';
+  }
+}
+
+function buildInitiativePromptScaffold({
+  decision = null,
+  maxSuggestionChars = 180,
+  maxSourceChars = 120,
+} = {}) {
+  const base = {
+    schema: INITIATIVE_PROMPT_SCAFFOLD_SCHEMA,
+    rendered: false,
+    renderedCount: 0,
+    promptText: '',
+    wordCount: 0,
+    initiativeType: INITIATIVE_TYPES.NONE,
+    sourceLabel: '',
+    maxSuggestions: 0,
+    livePromptBridge: false,
+    liveChatTouched: false,
+    promptTruthExpanded: false,
+    promptTruthChannelAdded: false,
+    memoryWriteAllowed: false,
+    actionAllowed: false,
+    heldBack: [],
+  };
+
+  if (!isPlainObject(decision)) {
+    return {
+      ...base,
+      heldBack: [buildHeldBack('missing-decision', { initiativeType: INITIATIVE_TYPES.NONE })],
+    };
+  }
+
+  const initiativeType = normalizeInitiativeType(decision.initiativeType, INITIATIVE_TYPES.NONE);
+  if (decision.initiativeAllowed !== true) {
+    return {
+      ...base,
+      initiativeType,
+      heldBack: [
+        buildHeldBack('initiative-not-allowed', {
+          initiativeType,
+          sourceReason: cleanString(decision.reason || '', 220),
+        }),
+      ],
+    };
+  }
+
+  if (Number(decision.maxSuggestions || 0) < 1) {
+    return {
+      ...base,
+      initiativeType,
+      heldBack: [buildHeldBack('max-suggestions-zero', { initiativeType })],
+    };
+  }
+
+  const suggestion = cleanPromptFragment(decision.suggestionText || '', maxSuggestionChars);
+  if (!suggestion) {
+    return {
+      ...base,
+      initiativeType,
+      maxSuggestions: 1,
+      heldBack: [buildHeldBack('missing-suggestion-text', { initiativeType })],
+    };
+  }
+
+  const sourceLabel = cleanPromptFragment(
+    decision.source
+      || decision.supportRef
+      || decision.sourceLabel
+      || decision.sourcePath
+      || '',
+    maxSourceChars,
+  );
+  const sourceClause = sourceLabel
+    ? `grounded in ${sourceLabel}`
+    : 'without claiming extra source verification';
+  const promptText = `Optional initiative, max one sentence: Suggest as an ignorable ${initiativeScaffoldLabel(initiativeType)}, ${sourceClause}: ${suggestion}; do not take action; do not save memory; make it easy to ignore.`;
+
+  return {
+    ...base,
+    rendered: true,
+    renderedCount: 1,
+    promptText,
+    wordCount: countWords(promptText),
+    initiativeType,
+    sourceLabel,
+    maxSuggestions: 1,
+    requiresUserApproval: decision.requiresUserApproval !== false,
+    actionPermission: decision.actionPermission || 'suggest-only-requires-explicit-user-approval',
   };
 }
 
@@ -983,7 +1109,9 @@ module.exports = {
   FORBIDDEN_ACTIONS,
   INITIATIVE_CONFIDENCE,
   INITIATIVE_DECISION_SCHEMA,
+  INITIATIVE_PROMPT_SCAFFOLD_SCHEMA,
   INITIATIVE_RISK_CLASSES,
   INITIATIVE_TYPES,
+  buildInitiativePromptScaffold,
   decideInitiative,
 };

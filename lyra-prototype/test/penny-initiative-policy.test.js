@@ -1,14 +1,27 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
   FORBIDDEN_ACTIONS,
   INITIATIVE_CONFIDENCE,
   INITIATIVE_DECISION_SCHEMA,
+  INITIATIVE_PROMPT_SCAFFOLD_SCHEMA,
   INITIATIVE_RISK_CLASSES,
   INITIATIVE_TYPES,
+  buildInitiativePromptScaffold,
   decideInitiative,
 } = require('../lib/penny-initiative-policy');
+const {
+  INITIATIVE_FIXTURE_SCHEMA,
+  buildCaseResult,
+  buildFixtureCases,
+  buildInitiativeFixtureArtifact,
+  parseArgValue,
+  writeInitiativeFixtureArtifact,
+} = require('../scripts/eval-penny-initiative-fixture');
 
 test('direct commands suppress extra initiative', () => {
   const decision = decideInitiative({
@@ -433,4 +446,137 @@ test('missing optional turn-state, open-loop, static, and trust inputs degrade g
   assert.equal(decision.initiativeType, INITIATIVE_TYPES.NONE);
   assert.match(decision.reason, /no high-confidence initiative candidate/i);
   assert.deepEqual(decision.heldBack, []);
+});
+
+test('initiative prompt scaffold renders one compact source-aware instruction', () => {
+  const decision = decideInitiative({
+    userText: 'What is the smallest useful next move here?',
+    retrievalSignals: [
+      {
+        kind: 'next-step',
+        confidence: 'high',
+        suggestionText: 'Test the correction guardrail before enabling live-advisory.',
+        source: 'docs/penny-tier1-aliveness-plans/01-live-static-memory-reflex-plan.md',
+      },
+    ],
+  });
+
+  const scaffold = buildInitiativePromptScaffold({ decision });
+
+  assert.equal(scaffold.schema, INITIATIVE_PROMPT_SCAFFOLD_SCHEMA);
+  assert.equal(scaffold.rendered, true);
+  assert.equal(scaffold.renderedCount, 1);
+  assert.equal(scaffold.maxSuggestions, 1);
+  assert.equal(scaffold.livePromptBridge, false);
+  assert.equal(scaffold.liveChatTouched, false);
+  assert.equal(scaffold.promptTruthExpanded, false);
+  assert.equal(scaffold.promptTruthChannelAdded, false);
+  assert.equal(scaffold.memoryWriteAllowed, false);
+  assert.equal(scaffold.actionAllowed, false);
+  assert.equal(scaffold.sourceLabel, 'docs/penny-tier1-aliveness-plans/01-live-static-memory-reflex-plan.md');
+  assert.match(scaffold.promptText, /^Optional initiative, max one sentence:/);
+  assert.match(scaffold.promptText, /grounded in docs\/penny-tier1-aliveness-plans\/01-live-static-memory-reflex-plan\.md/);
+  assert.match(scaffold.promptText, /Test the correction guardrail before enabling live-advisory/);
+  assert.match(scaffold.promptText, /do not take action/);
+  assert.match(scaffold.promptText, /do not save memory/);
+  assert.match(scaffold.promptText, /make it easy to ignore/);
+  assert.ok(scaffold.wordCount <= 55);
+});
+
+test('initiative prompt scaffold holds back denied decisions without live injection', () => {
+  const decision = decideInitiative({
+    userText: 'Please implement Slice I5 and commit when done.',
+    retrievalSignals: [
+      {
+        kind: 'next-step',
+        confidence: 'high',
+        suggestionText: 'Offer one more live prompt bridge idea.',
+      },
+    ],
+  });
+  const scaffold = buildInitiativePromptScaffold({ decision });
+
+  assert.equal(decision.initiativeAllowed, false);
+  assert.equal(scaffold.schema, INITIATIVE_PROMPT_SCAFFOLD_SCHEMA);
+  assert.equal(scaffold.rendered, false);
+  assert.equal(scaffold.renderedCount, 0);
+  assert.equal(scaffold.promptText, '');
+  assert.equal(scaffold.livePromptBridge, false);
+  assert.equal(scaffold.promptTruthExpanded, false);
+  assert.deepEqual(scaffold.heldBack, [
+    {
+      reason: 'initiative-not-allowed',
+      initiativeType: INITIATIVE_TYPES.NONE,
+      sourceReason: 'direct command should not get extra initiative',
+    },
+  ]);
+});
+
+test('bounded initiative fixture exposes allowed vs held-back scaffolds without live model calls', () => {
+  const generatedAt = '2026-04-22T12:00:00.000Z';
+  const artifact = buildInitiativeFixtureArtifact({ generatedAt });
+
+  assert.equal(artifact.schema, INITIATIVE_FIXTURE_SCHEMA);
+  assert.equal(artifact.scaffoldSchema, INITIATIVE_PROMPT_SCAFFOLD_SCHEMA);
+  assert.equal(artifact.artifactKind, 'bounded-initiative-fixture');
+  assert.equal(artifact.measurementMode, 'fixture-only');
+  assert.equal(artifact.liveModelCalls, false);
+  assert.equal(artifact.livePromptBridge, false);
+  assert.equal(artifact.liveChatTouched, false);
+  assert.equal(artifact.promptTruthExpanded, false);
+  assert.equal(artifact.promptTruthChannelAdded, false);
+  assert.equal(artifact.toolEvidenceReceiptChanged, false);
+  assert.equal(artifact.memoryWrites, false);
+  assert.equal(artifact.autonomousActions, false);
+  assert.equal(artifact.summary.caseCount, 4);
+  assert.equal(artifact.summary.passingCaseCount, 4);
+  assert.equal(artifact.summary.renderedSnippetCount, 2);
+  assert.equal(artifact.summary.heldBackInitiativeCount, 2);
+  assert.equal(artifact.summary.allowedVsHeldBackShown, true);
+  assert.equal(artifact.summary.guardrailsPresent, true);
+  assert.equal(artifact.summary.sourceAwareRenderedCount, 2);
+
+  const sourceAware = artifact.cases.find((item) => item.id === 'allowed-next-step-source-aware');
+  assert.equal(sourceAware.pass, true);
+  assert.equal(sourceAware.scaffold.rendered, true);
+  assert.match(sourceAware.scaffold.promptText, /grounded in docs\/penny-tier1-aliveness-plans\/01-live-static-memory-reflex-plan\.md/);
+
+  const heldBack = artifact.cases.find((item) => item.id === 'direct-command-held-back');
+  assert.equal(heldBack.pass, true);
+  assert.equal(heldBack.scaffold.rendered, false);
+  assert.deepEqual(heldBack.decision.heldBack, [
+    { reason: 'direct-command', initiativeType: INITIATIVE_TYPES.NONE },
+  ]);
+});
+
+test('bounded initiative fixture helpers keep cases and writer deterministic', () => {
+  const generatedAt = '2026-04-22T12:00:00.000Z';
+  const cases = buildFixtureCases();
+  assert.deepEqual(cases.map((item) => item.id), [
+    'allowed-next-step-source-aware',
+    'direct-command-held-back',
+    'urgency-source-check-warning',
+    'memory-auto-write-held-back',
+  ]);
+
+  const sourceCheck = buildCaseResult(
+    cases.find((item) => item.id === 'urgency-source-check-warning'),
+    generatedAt,
+  );
+  assert.equal(sourceCheck.pass, true);
+  assert.equal(sourceCheck.scaffold.initiativeType, INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION);
+  assert.match(sourceCheck.scaffold.promptText, /without claiming extra source verification/);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-initiative-fixture-'));
+  const outputPath = path.join(dir, 'fixture.json');
+  const artifact = buildInitiativeFixtureArtifact({ generatedAt });
+  const result = writeInitiativeFixtureArtifact({ outputPath, artifact });
+  const written = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+
+  assert.equal(result.outputPath, outputPath);
+  assert.equal(written.schema, INITIATIVE_FIXTURE_SCHEMA);
+  assert.equal(written.summary.passingCaseCount, 4);
+  assert.equal(parseArgValue('output', ['--output', 'tmp/out.json']), 'tmp/out.json');
+  assert.equal(parseArgValue('output', ['--output=tmp/out.json']), 'tmp/out.json');
+  assert.equal(parseArgValue('output', ['--other', 'tmp/out.json']), '');
 });
