@@ -1042,12 +1042,23 @@ function normalizeCandidateRerankShadow(raw = null) {
   };
 }
 
+function normalizeCandidatePolicyReasons(source = {}) {
+  const policy = source?.policy && typeof source.policy === 'object' ? source.policy : {};
+  return uniqueStrings([
+    ...asArray(source.policyReasons),
+    ...asArray(source.policyReasonCodes),
+    ...asArray(policy.reasons),
+    policy.heldBackReason,
+  ], 12);
+}
+
 function normalizeCandidateTraceItem(itemLike = {}) {
   const source = itemLike && typeof itemLike === 'object' ? itemLike : { text: String(itemLike || '') };
   const stage = normalizeKey(source.stage || source.status || source.outcome || source.state || '');
   const rank = normalizeRank(source.rank ?? source.rankIndex ?? source.position ?? source.scoreRank);
   const shadowScores = normalizeCandidateShadowScores(source.shadowScores);
   const rerankShadow = normalizeCandidateRerankShadow(source.rerankShadow);
+  const policyReasons = normalizeCandidatePolicyReasons(source);
   const eligibilitySource = source.eligibility && typeof source.eligibility === 'object'
     ? source.eligibility
     : {};
@@ -1102,6 +1113,7 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     sensitivity: source.sensitivity === 'high' ? 'high' : '',
     text: trimText(source.text || source.textPreview || source.summary || source.content || source.label || '', 500),
     heldBackReason: trimText(source.heldBackReason || source.holdbackReason || source.reason || eligibilitySource.filterReason || '', 200),
+    policyReasons,
     shadowScores,
     rerankShadow,
   });
@@ -1448,6 +1460,10 @@ function applyPromptTruthToCandidateTrace(traceLike = [], promptTruth = null) {
     if (!promptTruthMatch) return item;
     const rendered = promptTruthMatch.rendered === true;
     const heldBackReason = rendered ? '' : promptTruthMatch.heldBackReason;
+    const policyReasons = uniqueStrings([
+      ...asArray(item.policyReasons),
+      heldBackReason === 'canon-priority-suppression' ? 'explicit-memory-override:block' : '',
+    ], 12);
     return normalizeCandidateTraceItem({
       ...item,
       selected: true,
@@ -1455,6 +1471,7 @@ function applyPromptTruthToCandidateTrace(traceLike = [], promptTruth = null) {
       heldBack: Boolean(heldBackReason),
       stage: rendered ? 'rendered' : (heldBackReason ? 'selected-held-back' : item.stage),
       heldBackReason,
+      policyReasons,
     });
   });
 }

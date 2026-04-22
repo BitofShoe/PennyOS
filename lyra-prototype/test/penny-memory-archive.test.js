@@ -946,6 +946,166 @@ test('buildArchiveContext blocks stale live-advisory static-only candidates on a
   }
 });
 
+test('buildArchiveContext live-advisory prefers current static corrections over stale static similarity', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  const cases = [
+    {
+      sessionId: 'coding-static',
+      query: 'What is the coding mascot now?',
+      staleId: 'brass-fox-stale-static',
+      currentId: 'copper-rabbit-current-static',
+      staleText: 'Remember this exactly: my coding mascot is a brass fox.',
+      currentText: 'Correction: my coding mascot is a copper rabbit now, not a brass fox.',
+      oldText: 'Coding mascot is a brass fox',
+      newText: 'Coding mascot is a copper rabbit',
+      conflictKey: 'coding mascot',
+    },
+    {
+      sessionId: 'watch-static',
+      query: 'What color is the arcade cashier watch now?',
+      staleId: 'silver-watch-stale-static',
+      currentId: 'gold-watch-current-static',
+      staleText: 'My first anchor detail: the arcade cashier wore a silver watch with a cracked face.',
+      currentText: 'Correction: the arcade cashier watch is gold now, not silver.',
+      oldText: 'Arcade cashier watch is silver',
+      newText: 'Arcade cashier watch is gold',
+      conflictKey: 'arcade cashier watch',
+    },
+    {
+      sessionId: 'tea-static',
+      query: 'What is my favorite tea now?',
+      staleId: 'oolong-stale-static',
+      currentId: 'lapsang-current-static',
+      staleText: 'Favorite tea is oolong.',
+      currentText: 'Correction: my favorite tea is lapsang souchong now, not oolong.',
+      oldText: 'Favorite tea is oolong',
+      newText: 'Favorite tea is lapsang souchong',
+      conflictKey: 'favorite tea',
+    },
+  ];
+
+  try {
+    const archive = api.buildArchiveStore();
+    for (const item of cases) {
+      archive.sessions[item.sessionId] = {
+        sessionId: item.sessionId,
+        episodes: [],
+        summaries: [],
+        chapters: [],
+        provenance: [],
+        activeContradictions: [
+          {
+            id: `contr-${item.sessionId}`,
+            oldText: item.oldText,
+            newText: item.newText,
+            conflictKey: item.conflictKey,
+            status: 'active',
+            sourceEpisodeId: item.currentId,
+            createdAt: '2026-04-13T12:00:00.000Z',
+          },
+        ],
+        openLoops: [],
+        lastRetrieval: null,
+        lastArchivedAt: '',
+        updatedAt: '',
+      };
+    }
+    api.writeArchiveStore(archive);
+
+    for (const item of cases) {
+      const result = await api.buildArchiveContext({
+        sessionId: item.sessionId,
+        userText: item.query,
+        lane: 'chat',
+        now: Date.parse('2026-04-13T12:10:00.000Z'),
+        sessionPromptLimit: 1,
+        globalPromptLimit: 0,
+        allowArchiveCompression: false,
+        maxStaticOnlyRendered: 1,
+        queryStaticMemoryIndex: async () => ({
+          skipped: false,
+          queryMs: 0.7,
+          status: {
+            enabled: true,
+            mode: 'live-advisory',
+            provider: 'model2vec-potion-8m',
+            ready: true,
+          },
+          candidates: [
+            {
+              id: `session:${item.sessionId}:episode:${item.staleId}`,
+              text: item.staleText,
+              textPreview: item.staleText,
+              sourceType: 'session-episode',
+              sourceAuthority: 'advisory',
+              supportState: 'candidate',
+              candidateChannels: ['static-embedding'],
+              staticEmbedding: {
+                provider: 'model2vec-potion-8m',
+                modelId: 'minishlab/potion-base-8M',
+                dimensions: 256,
+                similarity: 0.99,
+                rank: 1,
+                queryMs: 0.7,
+              },
+            },
+            {
+              id: `session:${item.sessionId}:episode:${item.currentId}`,
+              text: item.currentText,
+              textPreview: item.currentText,
+              sourceType: 'session-episode',
+              sourceAuthority: 'advisory',
+              supportState: 'candidate',
+              candidateChannels: ['static-embedding'],
+              staticEmbedding: {
+                provider: 'model2vec-potion-8m',
+                modelId: 'minishlab/potion-base-8M',
+                dimensions: 256,
+                similarity: 0.62,
+                rank: 2,
+                queryMs: 0.7,
+              },
+            },
+          ],
+        }),
+      });
+
+      assert.deepEqual(result.archiveContext.session.map((entry) => entry.id), [item.currentId]);
+      assert.equal(result.retrieval.staticEmbeddingAdvisory.candidateCount, 2);
+      assert.equal(result.retrieval.staticEmbeddingAdvisory.staticOnlyCandidateCount, 2);
+      assert.equal(result.retrieval.staticEmbeddingAdvisory.staticOnlyRenderedCount, 1);
+
+      const stale = result.retrieval.candidateTrace.find((entry) => entry.id === item.staleId);
+      const current = result.retrieval.candidateTrace.find((entry) => entry.id === item.currentId);
+      assert.ok(stale);
+      assert.ok(current);
+      assert.equal(current.selected, true);
+      assert.equal(current.rendered, true);
+      assert.equal(current.staticOnly, true);
+      assert.equal(current.policy.reasons.includes('static-similarity:+3.10'), true);
+      assert.equal(
+        current.policy.reasons.includes(`current-correction-boost:${item.conflictKey}:+2.40`),
+        true,
+      );
+      assert.equal(stale.selected, false);
+      assert.equal(stale.rendered, false);
+      assert.equal(stale.supportState, 'candidate');
+      assert.equal(stale.eligibility.filtered, true);
+      assert.equal(stale.eligibility.filterReason, 'static-stale-correction-gate');
+      assert.equal(stale.policy.heldBackReason, 'static-stale-correction-gate');
+      assert.equal(stale.policy.reasons.includes('static-similarity:+4.95'), true);
+      assert.equal(
+        stale.policy.reasons.includes(`stale-contradiction-penalty:${item.conflictKey}:-3.20`),
+        true,
+      );
+    }
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('buildArchiveContext computes hybrid shadow rank without changing active selection or rendered context', async () => {
   const files = makeTempFiles();
   const { api } = buildArchiveApi({ ...files, embedReady: false });

@@ -397,6 +397,14 @@ Expected:
 - Policy prefers current correction and canonical explicit facts.
 - Stale static-only candidates do not render as current truth.
 
+Slice S7 implementation note:
+
+- Added static-correction guardrail canaries for brass fox -> copper rabbit, silver watch -> gold watch, and oolong -> lapsang souchong.
+- Archive policy now emits score-shaped reasons for static similarity, current correction boosts, and stale contradiction penalties while preserving the older contradiction-repair reason codes for compatibility.
+- Live-advisory trace policy reasons now carry hybrid correction reasons and static eligibility gates, so stale static-only candidates show why they were blocked.
+- Candidate-survival prompt-truth overlays preserve candidate policy reasons and add `explicit-memory-override:block` when canonical explicit memory holds advisory archive context back.
+- No prompt-limit increase, PromptTruth expansion, `toolEvidenceReceipt` change, runtime voice change, or default static-mode change landed in S7.
+
 ### Slice S8 - Live A/B harness
 
 Add `npm run eval:static-embedding-live-compare`.

@@ -317,7 +317,8 @@ function createMemoryArchivePolicyApi({
     if (staticSimilarity != null) {
       components.staticSimilarityScore = staticSimilarity * 5;
       score += components.staticSimilarityScore;
-      reasons.push(`static-similarity:${formatSimilarity(staticSimilarity)}`);
+      reasons.push(`static-similarity:${formatScoreComponent(components.staticSimilarityScore)}`);
+      reasons.push(`static-similarity-raw:${formatSimilarity(staticSimilarity)}`);
     }
     const createdAtMs = Date.parse(candidate.createdAt || '');
     if (Number.isFinite(createdAtMs)) {
@@ -375,9 +376,11 @@ function createMemoryArchivePolicyApi({
       reasons.push(`exact-anchor:${exactAnchor.matchedPhrases.join(',')}`);
     }
     for (const label of contradictionRepair.repairs) {
+      reasons.push(`current-correction-boost:${label}:+2.40`);
       reasons.push(`contradiction-repair:${label}:+2.40`);
     }
     for (const label of contradictionRepair.stale) {
+      reasons.push(`stale-contradiction-penalty:${label}:-3.20`);
       reasons.push(`stale-contradiction:${label}:-3.20`);
     }
     if (sourceAuthority.score > 0 && sourceAuthority.label) {

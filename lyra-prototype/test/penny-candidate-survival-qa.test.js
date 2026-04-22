@@ -555,12 +555,21 @@ test('archive-unit classification overlays prompt rendered and held-back state',
       rendered: true,
       rank: 1,
       score: 11,
+      policy: {
+        reasons: [
+          'static-similarity:+3.10',
+          'current-correction-boost:favorite tea:+2.40',
+        ],
+      },
     },
   ], promptTruth);
 
   assert.equal(trace[0].selected, true);
   assert.equal(trace[0].rendered, false);
   assert.equal(trace[0].heldBackReason, 'canon-priority-suppression');
+  assert.equal(trace[0].policyReasons.includes('static-similarity:+3.10'), true);
+  assert.equal(trace[0].policyReasons.includes('current-correction-boost:favorite tea:+2.40'), true);
+  assert.equal(trace[0].policyReasons.includes('explicit-memory-override:block'), true);
   assert.equal(summarizeCandidateTrace(trace).selectedCandidateCount, 1);
   assert.equal(summarizeCandidateTrace(trace).renderedCandidateCount, 0);
 });

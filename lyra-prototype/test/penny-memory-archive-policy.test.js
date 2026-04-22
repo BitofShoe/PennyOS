@@ -134,8 +134,106 @@ test('scoreArchiveCandidate adds static similarity as a separate advisory compon
   }, new Set(['copper', 'rabbit']), Date.parse('2026-04-21T00:00:00.000Z'));
 
   assert.equal(scored.components.staticSimilarityScore, 4);
-  assert.equal(scored.reasons.includes('static-similarity:0.80'), true);
+  assert.equal(scored.reasons.includes('static-similarity:+4.00'), true);
+  assert.equal(scored.reasons.includes('static-similarity-raw:0.80'), true);
   assert.equal(scored.score, 2.5 + (2 * 2.25) + 0.75 + 4);
+});
+
+test('scoreArchiveCandidateWithProfile prefers current corrections when stale static similarity is stronger', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const now = Date.parse('2026-04-21T00:00:00.000Z');
+  const cases = [
+    {
+      queryText: 'coding mascot',
+      staleId: 'brass-fox-stale',
+      currentId: 'copper-rabbit-current',
+      staleText: 'Remember this exactly: my coding mascot is a brass fox.',
+      currentText: 'Correction: my coding mascot is a copper rabbit now, not a brass fox.',
+      oldText: 'Coding mascot is a brass fox',
+      newText: 'Coding mascot is a copper rabbit',
+      conflictKey: 'coding mascot',
+    },
+    {
+      queryText: 'arcade cashier watch',
+      staleId: 'silver-watch-stale',
+      currentId: 'gold-watch-current',
+      staleText: 'My first anchor detail: the arcade cashier wore a silver watch with a cracked face.',
+      currentText: 'Correction: the arcade cashier watch is gold now, not silver.',
+      oldText: 'Arcade cashier watch is silver',
+      newText: 'Arcade cashier watch is gold',
+      conflictKey: 'arcade cashier watch',
+    },
+    {
+      queryText: 'favorite tea',
+      staleId: 'oolong-stale',
+      currentId: 'lapsang-current',
+      staleText: 'Favorite tea is oolong.',
+      currentText: 'Correction: my favorite tea is lapsang souchong now, not oolong.',
+      oldText: 'Favorite tea is oolong',
+      newText: 'Favorite tea is lapsang souchong',
+      conflictKey: 'favorite tea',
+    },
+  ];
+
+  for (const item of cases) {
+    const queryTokens = new Set(tokenizeMemoryText(item.queryText));
+    const activeContradictions = [
+      {
+        id: `contr-${item.conflictKey.replace(/\s+/g, '-')}`,
+        oldText: item.oldText,
+        newText: item.newText,
+        conflictKey: item.conflictKey,
+        status: 'active',
+        sourceEpisodeId: item.currentId,
+      },
+    ];
+    const stale = policy.scoreArchiveCandidateWithProfile({
+      id: item.staleId,
+      text: item.staleText,
+      sourceType: 'episode',
+      scope: 'session',
+      sourceAuthority: 'advisory',
+      candidateChannels: ['static-embedding'],
+      staticEmbedding: { similarity: 0.99 },
+    }, {
+      scoringProfile: 'hybrid-v1',
+      queryText: item.queryText,
+      queryTokens,
+      now,
+      activeContradictions,
+    });
+    const current = policy.scoreArchiveCandidateWithProfile({
+      id: item.currentId,
+      text: item.currentText,
+      sourceType: 'episode',
+      scope: 'session',
+      sourceAuthority: 'advisory',
+      candidateChannels: ['static-embedding'],
+      staticEmbedding: { similarity: 0.62 },
+    }, {
+      scoringProfile: 'hybrid-v1',
+      queryText: item.queryText,
+      queryTokens,
+      now,
+      activeContradictions,
+    });
+
+    assert.ok(stale.baselineScore > current.baselineScore);
+    assert.ok(stale.baselineScoreReasons.includes('static-similarity:+4.95'));
+    assert.ok(current.baselineScoreReasons.includes('static-similarity:+3.10'));
+    assert.ok(current.activeScore > stale.activeScore);
+    assert.equal(
+      current.activeScoreReasons.includes(`current-correction-boost:${item.conflictKey}:+2.40`),
+      true,
+    );
+    assert.equal(
+      stale.activeScoreReasons.includes(`stale-contradiction-penalty:${item.conflictKey}:-3.20`),
+      true,
+    );
+  }
 });
 
 test('scoreArchiveCandidateHybridShadow reports exact-anchor boost without changing active score', () => {

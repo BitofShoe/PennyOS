@@ -735,7 +735,7 @@ function createMemoryArchiveApi({
       if (!reason || seen.has(reason)) continue;
       seen.add(reason);
       out.push(reason);
-      if (out.length >= 8) break;
+      if (out.length >= 12) break;
     }
     return out;
   }
@@ -918,13 +918,20 @@ function createMemoryArchiveApi({
     );
     const staticEmbedding = normalizeStaticEmbeddingInfo(item);
     const normalizedHeldBackReason = trimText(heldBackReason || item.heldBackReason || '', 120);
+    const normalizedEligibilityReason = normalizedEligibility.filtered
+      ? trimText(normalizedEligibility.filterReason || '', 120)
+      : '';
     const staticCandidate = isStaticEmbeddingCandidate(item);
     const policyReasons = staticCandidate
       ? normalizeArchiveScoreReasons([
           ...(activeScoreReasons.length ? activeScoreReasons : scoreReasons),
-          normalizedHeldBackReason || (selected ? 'live-advisory-selected' : 'live-advisory-ranked'),
+          ...(shadowScores?.hybridV1?.reasons || []),
+          normalizedEligibilityReason,
+          normalizedHeldBackReason,
+          normalizedHeldBackReason || normalizedEligibilityReason || (selected ? 'live-advisory-selected' : 'live-advisory-ranked'),
         ])
       : [];
+    const policyHeldBackReason = normalizedHeldBackReason || normalizedEligibilityReason;
     return compactCandidateTraceObject({
       id: String(item.id || '').trim(),
       group: String(group || '').trim(),
@@ -976,7 +983,7 @@ function createMemoryArchiveApi({
         policy: {
           selected,
           rendered,
-          heldBackReason: normalizedHeldBackReason,
+          heldBackReason: policyHeldBackReason,
           reasons: policyReasons,
         },
       } : {}),
