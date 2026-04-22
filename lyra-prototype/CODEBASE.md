@@ -309,6 +309,7 @@ Current modules worth knowing:
 - [lib/penny-qa-trust.js](./lib/penny-qa-trust.js)
 - [lib/penny-context-pressure-qa.js](./lib/penny-context-pressure-qa.js)
 - [lib/penny-candidate-survival-qa.js](./lib/penny-candidate-survival-qa.js)
+- [lib/penny-semantic-ids.js](./lib/penny-semantic-ids.js)
 - [lib/penny-gemma-runtime-watch.js](./lib/penny-gemma-runtime-watch.js)
 - [lib/penny-route-handlers.js](./lib/penny-route-handlers.js)
 - [lib/penny-server-http.js](./lib/penny-server-http.js)
@@ -404,6 +405,7 @@ Likely modules you will touch:
 - bounded reasoning-policy receipt generation in `lib/penny-runtime-artifacts.js`
 - turn-state prompt bridge receipt normalization in `lib/penny-runtime-artifacts.js`; it stores only a redacted summary and retention policy, not the full turn-state card or raw private inference
 - research-ledger identity/settled-state rules in `lib/penny-research-ledger.js`
+- local semantic identifier contracts in `lib/penny-semantic-ids.js`; these mint opaque `penny:*` IDs for later claims, links, traces, vector sources, and rendered-context receipts without making the IDs fetchable, authoritative, canonical, or prompt-visible by themselves
 - route assembly in `lib/penny-route-handlers.js`
 - combined inspector construction in `server.js` / `lib/penny-runtime-artifacts.js`
 - QA trace/trust helpers in `lib/penny-qa-trace.js` and `lib/penny-qa-trust.js`
@@ -469,7 +471,9 @@ The frame-budget owners are now real code, but still deliberately bounded: `lib/
 
 Session reflection and memory suggestions have moved from docs-only boundary into helper-owned fixture/status code, while keeping the same authority line. `lib/penny-session-reflection.js` owns normalization, summaries, prep artifacts, and compare-only prompt bridge shaping; `lib/penny-memory-suggestions.js` owns unsafe/support classification; `lib/penny-memory-suggestion-queue.js` owns the local review queue and explicit approval handoff; `lib/penny-open-loops.js` can apply source-backed reflection updates only as advisory open-loop state. Reflection may summarize, suggest, and prepare reviewable updates, but it may not write explicit memory without explicit approval through the existing path, canonize its summaries, store hidden reasoning, expand PromptTruth, merge `toolEvidenceReceipt`, change runtime voice, or bypass approval. The compact prompt bridge is fixture-compare evidence with default broad/live rendering still disabled.
 
-Dynamic memory linking is docs/current-law only in this slice. Future owners may include `lib/penny-memory-links.js`, `lib/penny-memory-link-policy.js`, archive trace/QA helpers, and link compare runners, but those owners should start with schema and fixture traces before any scoring. A memory link is a retrieval/navigation hint, not proof that either side is true: links cannot promote advisory/archive/semantic/static candidates into canonical explicit memory, cannot turn candidate-only support into verified support, cannot expand PromptTruth or `toolEvidenceReceipt`, cannot change runtime voice, and cannot justify a graph DB or universal memory index. Correction-link scoring is the only candidate for later conservative activation, and only behind a gate after schema, fixture, shadow, and candidate-survival tests; project-thread, research-pattern, and open-loop links stay advisory/shadow until separately measured.
+Dynamic memory linking has helper/fixture/QA/compare code in `lib/penny-memory-links.js`, `lib/penny-memory-link-policy.js`, archive trace/QA helpers, and the memory-link compare runner. A memory link is still a retrieval/navigation hint, not proof that either side is true: links cannot promote advisory/archive/semantic/static candidates into canonical explicit memory, cannot turn candidate-only support into verified support, cannot expand PromptTruth or `toolEvidenceReceipt`, cannot change runtime voice, and cannot justify a graph DB or universal memory index. Conservative correction-link scoring can become active only behind `PENNY_MEMORY_LINK_SCORING=correction-v1`; project-thread, research-pattern, and open-loop links stay advisory/shadow until separately measured.
+
+Semantic identity and provenance contracts have started with the smallest helper-owned slice: `lib/penny-semantic-ids.js` plus `test/penny-semantic-ids.test.js`. The helper can mint stable local IDs for source, claim, entity, predicate, link, domain, rendered-context, and vector-source objects. Slice 1 does not adopt those IDs into existing PromptTruth, archive, static-cache, memory-link, or route surfaces yet; future slices should dual-write or explicitly migrate consumers instead of replacing serialized IDs in place.
 
 Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, `lib/penny-qa-trace.js`, and their tests cover social pressure, companion-feedback bias, remote/source pressure, and agent-integrity receipt canaries. Gemma runtime watch lives in `lib/penny-gemma-runtime-watch.js` plus status/preflight/runtime-fit artifacts. Tool output-cost descriptors live in `lib/penny-tool-registry.js` and optional sibling runtime artifact cost summaries. None of those status surfaces change runtime voice, expand `promptTruth`, switch default embeddings, enable default thinking, raise default context, or import external dependencies.
 
