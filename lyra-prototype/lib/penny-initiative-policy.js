@@ -18,6 +18,13 @@ const INITIATIVE_CONFIDENCE = Object.freeze({
   UNKNOWN: 'unknown',
 });
 
+const INITIATIVE_RISK_CLASSES = Object.freeze({
+  LOW: 'low',
+  MEDIUM: 'medium',
+  HIGH: 'high',
+  BLOCKED: 'blocked',
+});
+
 const FORBIDDEN_ACTIONS = Object.freeze([
   'take-action',
   'save-memory',
@@ -26,6 +33,7 @@ const FORBIDDEN_ACTIONS = Object.freeze([
 
 const INITIATIVE_TYPE_VALUES = new Set(Object.values(INITIATIVE_TYPES));
 const CONFIDENCE_VALUES = new Set(Object.values(INITIATIVE_CONFIDENCE));
+const RISK_CLASS_VALUES = new Set(Object.values(INITIATIVE_RISK_CLASSES));
 
 const DIRECT_COMMAND_INTENTS = new Set([
   'direct-command',
@@ -58,6 +66,25 @@ const SENSITIVE_TOPIC_PATTERNS = [
   /\b(?:stalk|blackmail|doxx|doxxing|abuse evidence)\b/i,
 ];
 
+const HIGH_RISK_DOMAIN_PATTERNS = [
+  /\b(?:edit|change|update|write|delete|remove|overwrite|commit|push|merge|rename)\b.{0,80}\b(?:file|files|repo|branch|code|doc|docs|document|config)\b/i,
+  /\b(?:file edit|file write|write file|delete file|commit|push|git)\b/i,
+  /\b(?:email|e-mail|send message|dm|text them|reply to|post this|tweet)\b/i,
+  /\b(?:calendar|schedule|meeting invite|appointment|reminder alarm)\b/i,
+  /\b(?:diagnose|medical|legal|tax|financial)\b/i,
+  /\b(?:private inference|personal inference|infer their)\b/i,
+];
+
+const SIDE_EFFECT_DONE_PATTERNS = [
+  /\b(?:i|penny|she|we)\s+(?:already\s+)?(?:edited|changed|updated|wrote|deleted|removed|sent|emailed|scheduled|committed|pushed|posted|saved|remembered)\b/i,
+  /\b(?:has been|have been|is now|are now)\s+(?:edited|changed|updated|written|deleted|removed|sent|emailed|scheduled|committed|pushed|posted|saved|remembered)\b/i,
+];
+
+const UNAPPROVED_MEMORY_WRITE_PATTERNS = [
+  /\b(?:i(?:'ll| will)|i am going to|i'm going to|let me|penny will|she will)\s+(?:remember|save|store|record)\b/i,
+  /\b(?:saved|stored|recorded|remembered)\s+(?:that|this)\s+(?:for|in)\s+(?:memory|later)\b/i,
+];
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -79,6 +106,49 @@ function normalizeConfidence(value = '', fallback = INITIATIVE_CONFIDENCE.UNKNOW
   if (confidence === 'normal') return INITIATIVE_CONFIDENCE.MEDIUM;
   if (confidence === 'none' || confidence === 'unclear') return INITIATIVE_CONFIDENCE.UNKNOWN;
   return CONFIDENCE_VALUES.has(confidence) ? confidence : fallback;
+}
+
+function normalizeRiskClass(value = '', fallback = null) {
+  const riskClass = cleanToken(value);
+  const aliases = {
+    none: INITIATIVE_RISK_CLASSES.LOW,
+    safe: INITIATIVE_RISK_CLASSES.LOW,
+    advisory: INITIATIVE_RISK_CLASSES.LOW,
+    normal: INITIATIVE_RISK_CLASSES.MEDIUM,
+    sensitive: INITIATIVE_RISK_CLASSES.HIGH,
+    danger: INITIATIVE_RISK_CLASSES.HIGH,
+    forbidden: INITIATIVE_RISK_CLASSES.BLOCKED,
+    disallowed: INITIATIVE_RISK_CLASSES.BLOCKED,
+  };
+  const normalized = aliases[riskClass] || riskClass;
+  return RISK_CLASS_VALUES.has(normalized) ? normalized : fallback;
+}
+
+function riskRank(riskClass = '') {
+  switch (normalizeRiskClass(riskClass, null)) {
+    case INITIATIVE_RISK_CLASSES.BLOCKED:
+      return 4;
+    case INITIATIVE_RISK_CLASSES.HIGH:
+      return 3;
+    case INITIATIVE_RISK_CLASSES.MEDIUM:
+      return 2;
+    case INITIATIVE_RISK_CLASSES.LOW:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function strongestRiskClass(...values) {
+  let strongest = null;
+  for (const value of values) {
+    const riskClass = normalizeRiskClass(value, null);
+    if (!riskClass) continue;
+    if (!strongest || riskRank(riskClass) > riskRank(strongest)) {
+      strongest = riskClass;
+    }
+  }
+  return strongest;
 }
 
 function normalizeInitiativeType(value = '', fallback = INITIATIVE_TYPES.NONE) {
@@ -136,8 +206,8 @@ function isDirectCommand({ userText = '', turnState = {} } = {}) {
 
 function isSensitiveTopic({ userText = '', turnState = {}, riskContext = null } = {}) {
   if (isPlainObject(riskContext)) {
-    const riskClass = cleanToken(riskContext.riskClass || riskContext.level || riskContext.sensitivity || '');
-    if (['sensitive', 'high', 'blocked'].includes(riskClass)) return true;
+    const sensitivity = cleanToken(riskContext.sensitivity || riskContext.safetyClass || '');
+    if (['sensitive', 'high', 'blocked'].includes(sensitivity)) return true;
     if (riskContext.sensitive === true || riskContext.privateInference === true) return true;
   }
   if (isPlainObject(turnState)) {
@@ -179,19 +249,210 @@ function buildHeldBack(reason, extras = {}) {
   };
 }
 
-function baseDecision({ reason = 'no initiative candidate', heldBack = [] } = {}) {
+function baseDecision({ reason = 'no initiative candidate', heldBack = [], riskClass = null } = {}) {
   return {
     schema: INITIATIVE_DECISION_SCHEMA,
     initiativeAllowed: false,
     initiativeType: INITIATIVE_TYPES.NONE,
     reason: cleanString(reason, 220),
     confidence: INITIATIVE_CONFIDENCE.UNKNOWN,
+    riskClass,
     maxSuggestions: 0,
     requiresUserApproval: true,
+    autoWrite: false,
+    actionPermission: 'not-allowed',
     suggestionText: '',
     forbiddenActions: FORBIDDEN_ACTIONS.slice(),
     heldBack,
   };
+}
+
+function hasAnyFlag(raw = {}, names = []) {
+  return names.some((name) => raw[name] === true);
+}
+
+function looksLikeHighRiskDomain(text = '') {
+  return HIGH_RISK_DOMAIN_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function looksLikeSideEffectDone(text = '') {
+  return SIDE_EFFECT_DONE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function looksLikeUnapprovedMemoryWrite(text = '') {
+  return UNAPPROVED_MEMORY_WRITE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function inferRiskClass({ raw = {}, initiativeType = INITIATIVE_TYPES.NONE, suggestionText = '' } = {}) {
+  const explicitRisk = normalizeRiskClass(
+    raw.riskClass
+      || raw.risk
+      || raw.permissionRisk
+      || raw.permissionClass
+      || raw.initiativeRisk
+      || '',
+    null,
+  );
+  if (explicitRisk) return explicitRisk;
+
+  const rawKind = cleanToken(raw.kind || raw.type || raw.intent || raw.action || '');
+  if (
+    hasAnyFlag(raw, [
+      'blocked',
+      'secretMonitoring',
+      'unsupportedSourceClaim',
+      'unsupportedSourceClaims',
+      'pressureDrivenAgreement',
+      'claimsUncheckedSource',
+    ])
+  ) {
+    return INITIATIVE_RISK_CLASSES.BLOCKED;
+  }
+
+  if (initiativeType === INITIATIVE_TYPES.MEMORY_SUGGESTION
+    || initiativeType === INITIATIVE_TYPES.OPEN_LOOP_REMINDER
+    || rawKind === 'plan-branch'
+    || rawKind === 'branch'
+  ) {
+    return INITIATIVE_RISK_CLASSES.MEDIUM;
+  }
+
+  if (
+    hasAnyFlag(raw, [
+      'sideEffect',
+      'fileEdit',
+      'emailAction',
+      'calendarAction',
+      'personalInference',
+      'privateInference',
+    ])
+    || looksLikeSideEffectDone(suggestionText)
+    || looksLikeHighRiskDomain(suggestionText)
+  ) {
+    return INITIATIVE_RISK_CLASSES.HIGH;
+  }
+
+  return INITIATIVE_RISK_CLASSES.LOW;
+}
+
+function userDirectlyRequestedRiskDomain({
+  userText = '',
+  turnState = {},
+  riskContext = null,
+  candidate = {},
+} = {}) {
+  if (candidate.userRequestedDomain === true || candidate.directlyRequestedDomain === true) return true;
+  if (isPlainObject(riskContext)) {
+    if (riskContext.userRequestedDomain === true || riskContext.directlyRequestedDomain === true) return true;
+    const requested = cleanToken(riskContext.requestedRiskDomain || riskContext.requestedDomain || '');
+    if (requested && requested !== 'none') return true;
+  }
+  if (isPlainObject(turnState)) {
+    if (turnState.userRequestedRiskDomain === true || turnState.userRequestedDomain === true) return true;
+    const requestedDomains = listValue(turnState.requestedDomains || turnState.domains || []);
+    if (requestedDomains.some((value) => cleanToken(value))) return true;
+  }
+  return looksLikeHighRiskDomain(userText);
+}
+
+function evaluateCandidateRisk({
+  candidate = {},
+  userText = '',
+  turnState = {},
+  riskContext = null,
+} = {}) {
+  const contextRiskClass = isPlainObject(riskContext)
+    ? strongestRiskClass(
+      riskContext.riskClass,
+      riskContext.risk,
+      riskContext.permissionRisk,
+      riskContext.permissionClass,
+      riskContext.initiativeRisk,
+    )
+    : null;
+  const turnRiskClass = isPlainObject(turnState)
+    ? strongestRiskClass(
+      turnState.riskClass,
+      turnState.risk,
+      turnState.permissionRisk,
+      turnState.permissionClass,
+      turnState.initiativeRisk,
+    )
+    : null;
+  const riskClass = strongestRiskClass(candidate.riskClass, contextRiskClass, turnRiskClass)
+    || INITIATIVE_RISK_CLASSES.LOW;
+  candidate.riskClass = riskClass;
+
+  if (
+    (isPlainObject(riskContext)
+      && hasAnyFlag(riskContext, [
+        'blocked',
+        'secretMonitoring',
+        'unsupportedSourceClaim',
+        'unsupportedSourceClaims',
+        'pressureDrivenAgreement',
+        'claimsUncheckedSource',
+      ]))
+    || (isPlainObject(turnState)
+      && hasAnyFlag(turnState, [
+        'blocked',
+        'secretMonitoring',
+        'unsupportedSourceClaim',
+        'unsupportedSourceClaims',
+        'pressureDrivenAgreement',
+        'claimsUncheckedSource',
+      ]))
+  ) {
+    candidate.riskClass = INITIATIVE_RISK_CLASSES.BLOCKED;
+  }
+
+  const heldBackBase = {
+    initiativeType: candidate.initiativeType,
+    suggestionText: candidate.suggestionText,
+    riskClass: candidate.riskClass,
+  };
+
+  if (candidate.riskClass === INITIATIVE_RISK_CLASSES.BLOCKED) {
+    return {
+      allowed: false,
+      reason: 'blocked initiative risk never surfaces',
+      heldBack: buildHeldBack('blocked-risk', heldBackBase),
+    };
+  }
+
+  if (looksLikeSideEffectDone(candidate.suggestionText)) {
+    return {
+      allowed: false,
+      reason: 'initiative cannot claim side-effect actions as completed',
+      heldBack: buildHeldBack('side-effect-completion-claim', heldBackBase),
+    };
+  }
+
+  if (
+    candidate.initiativeType === INITIATIVE_TYPES.MEMORY_SUGGESTION
+    && (candidate.autoWrite === true
+      || candidate.requiresUserApproval === false
+      || looksLikeUnapprovedMemoryWrite(candidate.suggestionText))
+  ) {
+    return {
+      allowed: false,
+      reason: 'memory initiative requires explicit approval before saving',
+      heldBack: buildHeldBack('memory-write-needs-approval', heldBackBase),
+    };
+  }
+
+  if (
+    candidate.riskClass === INITIATIVE_RISK_CLASSES.HIGH
+    && !userDirectlyRequestedRiskDomain({ userText, turnState, riskContext, candidate })
+  ) {
+    return {
+      allowed: false,
+      reason: 'high-risk initiative requires direct user request for that domain',
+      heldBack: buildHeldBack('high-risk-not-requested', heldBackBase),
+    };
+  }
+
+  return { allowed: true, riskClass: candidate.riskClass };
 }
 
 function normalizeCandidate(raw = {}) {
@@ -220,16 +481,23 @@ function normalizeCandidate(raw = {}) {
     || confidence === INITIATIVE_CONFIDENCE.HIGH;
   if (!explicitHighConfidence) return null;
 
+  const initiativeType = normalizeInitiativeType(
+    raw.initiativeType || raw.type || raw.kind || '',
+    INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
+  );
+  const riskClass = inferRiskClass({ raw, initiativeType, suggestionText });
+
   return {
-    initiativeType: normalizeInitiativeType(
-      raw.initiativeType || raw.type || raw.kind || '',
-      INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
-    ),
+    initiativeType,
     suggestionText,
     confidence,
+    riskClass,
     reason: cleanString(raw.reason || raw.surfaceReason || 'current project has one high-confidence next step', 220),
     source: cleanString(raw.source || raw.sourceLabel || raw.path || raw.url || '', 220),
     id: cleanString(raw.id || raw.openLoopId || '', 120),
+    requiresUserApproval: raw.requiresUserApproval !== false,
+    autoWrite: raw.autoWrite === true || raw.saveMemory === true || raw.memoryWrite === true,
+    userRequestedDomain: raw.userRequestedDomain === true || raw.directlyRequestedDomain === true,
   };
 }
 
@@ -324,13 +592,29 @@ function decideInitiative({
     });
   }
 
+  const riskDecision = evaluateCandidateRisk({
+    candidate,
+    userText: cleanUserText,
+    turnState,
+    riskContext,
+  });
+  if (!riskDecision.allowed) {
+    return baseDecision({
+      reason: riskDecision.reason,
+      riskClass: candidate.riskClass,
+      heldBack: [riskDecision.heldBack],
+    });
+  }
+
   if (recentInitiativeStillApplies(candidate, recentInitiatives)) {
     return baseDecision({
       reason: 'recent initiative cooldown suppresses repeated suggestion',
+      riskClass: candidate.riskClass,
       heldBack: [
         buildHeldBack('recent-initiative-cooldown', {
           initiativeType: candidate.initiativeType,
           suggestionText: candidate.suggestionText,
+          riskClass: candidate.riskClass,
         }),
       ],
     });
@@ -344,8 +628,11 @@ function decideInitiative({
     confidence: candidate.confidence === INITIATIVE_CONFIDENCE.HIGH
       ? INITIATIVE_CONFIDENCE.HIGH
       : INITIATIVE_CONFIDENCE.MEDIUM,
+    riskClass: candidate.riskClass,
     maxSuggestions: 1,
     requiresUserApproval: true,
+    autoWrite: false,
+    actionPermission: 'suggest-only-requires-explicit-user-approval',
     suggestionText: candidate.suggestionText,
     forbiddenActions: FORBIDDEN_ACTIONS.slice(),
     heldBack: [],
@@ -356,6 +643,7 @@ module.exports = {
   FORBIDDEN_ACTIONS,
   INITIATIVE_CONFIDENCE,
   INITIATIVE_DECISION_SCHEMA,
+  INITIATIVE_RISK_CLASSES,
   INITIATIVE_TYPES,
   decideInitiative,
 };
