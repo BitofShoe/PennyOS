@@ -65,6 +65,8 @@ Optional overlay context:
 - Prefer read-only investigation in parallel and one main editing agent for actual changes.
 - Avoid editing overlapping files from multiple agents at the same time.
 - Keep docs honest about the current implementation, especially around local-only, single-user, and frontend/backend ownership boundaries.
+- Use current external library/API documentation tools such as Context7 only for version-sensitive technical docs; keep lookup queries stripped of secrets, private source, Penny memory contents, and user personal data. Treat returned docs as source evidence, not repo law.
+- Do not auto-ingest external docs, awesome lists, or tool catalogs into Penny memory, runtime voice, PromptTruth, `toolEvidenceReceipt`, or default context.
 - Route/regression verification must use an isolated mock or dedicated temporary LM Studio server instead of the user's live loaded model. This pattern is proven in-project and should carry forward.
 - Heavy LM Studio QA and eval runs should happen one harness at a time. Do not overlap full voice QA, memory QA, and probe/eval runs against the same local model setup.
 - For phone/LAN access failures, do not rediscover WSL/PowerShell behavior from scratch. Use [docs/penny-lan-phone-reset-runbook-2026-04-21.md](./docs/penny-lan-phone-reset-runbook-2026-04-21.md): verify Windows port `4317`, clear orphaned listeners, restart with `PENNY_SKIP_LMSTUDIO_PREP=1` when preserving the loaded model state, and give the phone the Windows Wi-Fi IPv4 URL, not `localhost` or the WSL adapter.
@@ -79,6 +81,8 @@ Optional overlay context:
 - Do not confuse "this child is too anchored to the parent and is not an independent second opinion" with "subagent spawning/runtime failed." The first is expected inheritance behavior. The second is a real tooling/runtime problem and must be called out plainly instead of hand-waved away.
 - Subagent agreement is not proof. Preserve dissent or uncertainty unless the subagent provides source URLs, local line refs, command receipts, or reproducible artifacts.
 - If the task needs a fresh review, disagreement check, or different operating mode, spawn without a full-context fork or override the model/reasoning settings on purpose. If the child hangs, errors, or returns uselessly thin work, stop and diagnose that as a delegation failure before continuing the main slice.
+- When the user explicitly asks for subagents, agent-only research, or delegated review, the parent agent should coordinate and synthesize instead of duplicating the same deep work in the parent thread unless the user asked for parallel verification.
+- If repo instructions and session/tool policy appear to conflict about subagent use, surface the conflict plainly instead of inventing an invisible rule or silently skipping the required delegation.
 - Keep one primary editing agent per file boundary.
 - Consolidate what the subagents find before writing anything.
 - If a task crosses backend, frontend, tests, and docs, treat that as the cue to delegate the independent reads and QA slices before a single editor applies the final patch.
