@@ -9,6 +9,9 @@ const {
   ARCHIVE_RETRIEVAL_REASON_CODES,
   ARCHIVE_COMPRESSION_REASON_CODES,
 } = require('../lib/penny-memory-archive');
+const {
+  buildCorrectionLinks,
+} = require('../lib/penny-memory-link-policy');
 
 function makeTempFiles(prefix = 'penny-archive-') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -61,6 +64,7 @@ function buildArchiveApi({
   statusInstalledModels = null,
   statusNativeAvailableModels = null,
   statusAvailableModels = null,
+  memoryLinkScoring = 'shadow',
 } = {}) {
   let fetchCalls = 0;
   const api = createMemoryArchiveApi({
@@ -92,6 +96,7 @@ function buildArchiveApi({
     LMSTUDIO_API_KEY: 'lm-studio-local',
     PENNY_LMSTUDIO_EMBED_MODEL: embedModel,
     PENNY_ARCHIVE_SCORING_PROFILE: archiveScoringProfile,
+    PENNY_MEMORY_LINK_SCORING: memoryLinkScoring,
     ENABLE_BACKGROUND_CHAT_VECTORS: enableBackgroundChatVectors,
     BACKGROUND_CHAT_VECTOR_BATCH_LIMIT: backgroundChatVectorBatchLimit,
     async getLmStudioConnectionStatus() {
@@ -1931,6 +1936,176 @@ test('buildArchiveContext attaches correction memory links to candidate trace wi
     assert.equal(stale.memoryLinks.relationSummary.currentCorrectionFor, 1);
     assert.equal(stale.memoryLinks.relationSummary.stalePriorOf, 1);
     assert.deepEqual(current.memoryLinks.authorityEffects, ['none']);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext gates active correction-link scoring behind correction-v1', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false, memoryLinkScoring: 'shadow' });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'tea-current',
+          type: 'episode',
+          text: 'Favorite tea is lapsang souchong now.',
+          excerpt: 'Favorite tea is lapsang souchong now.',
+          userText: 'Favorite tea is lapsang souchong now.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+        {
+          id: 'tea-stale',
+          type: 'episode',
+          text: 'Favorite tea is oolong.',
+          excerpt: 'Favorite tea is oolong.',
+          userText: 'Favorite tea is oolong.',
+          createdAt: '2026-04-13T12:02:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+    const correctionLinks = buildCorrectionLinks({
+      generatedAt: '2026-04-13T12:10:00.000Z',
+      subject: 'favorite tea',
+      staleItem: { id: 'tea-stale', text: 'Favorite tea is oolong.' },
+      currentItem: { id: 'tea-current', text: 'Favorite tea is lapsang souchong now.' },
+      staleObject: 'oolong',
+      currentObject: 'lapsang souchong',
+      supportState: 'explicit',
+      sourceReceipts: [{ type: 'turn', id: 'turn-tea-correction' }],
+    }, { now: '2026-04-13T12:10:00.000Z' });
+    const request = {
+      sessionId: 'demo',
+      userText: 'favorite tea',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      includeCandidateTrace: true,
+      includeCandidateTraceLinks: true,
+      candidateTraceLimit: 4,
+      candidateTraceLinkLimit: 6,
+      candidateTraceMemoryLinks: correctionLinks.links,
+    };
+    const shadowResult = await api.buildArchiveContext(request);
+    const activeResult = await api.buildArchiveContext({
+      ...request,
+      memoryLinkScoring: 'correction-v1',
+    });
+
+    assert.deepEqual(shadowResult.archiveContext.session.map((item) => item.id), ['tea-stale']);
+    assert.deepEqual(activeResult.archiveContext.session.map((item) => item.id), ['tea-current']);
+    assert.equal(shadowResult.archiveContext.session.length, 1);
+    assert.equal(activeResult.archiveContext.session.length, 1);
+    assert.equal(shadowResult.retrieval.memoryLinkScoring, 'shadow');
+    assert.equal(activeResult.retrieval.memoryLinkScoring, 'correction-v1');
+
+    const current = activeResult.retrieval.candidateTrace.find((item) => item.id === 'tea-current');
+    const stale = activeResult.retrieval.candidateTrace.find((item) => item.id === 'tea-stale');
+    assert.ok(current);
+    assert.ok(stale);
+    assert.equal(current.selected, true);
+    assert.equal(current.rendered, true);
+    assert.equal(stale.selected, false);
+    assert.equal(stale.rendered, false);
+    assert.equal(current.activeScoreComponents.memoryLinkCorrectionScore, 1.5);
+    assert.equal(stale.activeScoreComponents.memoryLinkCorrectionScore, -2.2);
+    assert.equal(current.activeScoreReasons.includes('active-current-correction-link:+1.50'), true);
+    assert.equal(stale.activeScoreReasons.includes('active-stale-prior-link:-2.20'), true);
+    assert.equal(current.memoryLinks.truthProof, false);
+    assert.equal(stale.memoryLinks.truthProof, false);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext correction-v1 does not promote candidate-only correction links', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false, memoryLinkScoring: 'correction-v1' });
+
+  try {
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'semantic-current',
+          type: 'episode',
+          text: 'Semantic candidate says the mascot is a blue bottle now.',
+          excerpt: 'Semantic candidate says the mascot is a blue bottle now.',
+          userText: 'Semantic candidate says the mascot is a blue bottle now.',
+          createdAt: '2026-04-13T12:00:00.000Z',
+        },
+        {
+          id: 'static-stale',
+          type: 'episode',
+          text: 'Static candidate says the mascot is a silver thermos.',
+          excerpt: 'Static candidate says the mascot is a silver thermos.',
+          userText: 'Static candidate says the mascot is a silver thermos.',
+          createdAt: '2026-04-13T12:02:00.000Z',
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+    const candidateOnlyLinks = buildCorrectionLinks({
+      generatedAt: '2026-04-13T12:10:00.000Z',
+      subject: 'mascot',
+      staleItem: { id: 'static-stale', text: 'Static candidate says the mascot is a silver thermos.' },
+      currentItem: { id: 'semantic-current', text: 'Semantic candidate says the mascot is a blue bottle now.' },
+      staleObject: 'silver thermos',
+      currentObject: 'blue bottle',
+      supportState: 'static-candidate',
+      sourceReceipts: [{ type: 'static-sidecar', id: 'candidate-only' }],
+    }, { now: '2026-04-13T12:10:00.000Z' });
+
+    const result = await api.buildArchiveContext({
+      sessionId: 'demo',
+      userText: 'mascot candidate',
+      lane: 'chat',
+      now: Date.parse('2026-04-13T12:10:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+      includeCandidateTrace: true,
+      includeCandidateTraceLinks: true,
+      candidateTraceLimit: 4,
+      candidateTraceLinkLimit: 6,
+      candidateTraceMemoryLinks: candidateOnlyLinks.links,
+    });
+
+    assert.deepEqual(result.archiveContext.session.map((item) => item.id), ['static-stale']);
+    const current = result.retrieval.candidateTrace.find((item) => item.id === 'semantic-current');
+    const stale = result.retrieval.candidateTrace.find((item) => item.id === 'static-stale');
+    assert.ok(current);
+    assert.ok(stale);
+    assert.equal(current.selected, false);
+    assert.equal(stale.selected, true);
+    assert.equal(current.activeScoreComponents.memoryLinkCorrectionScore, 0);
+    assert.equal(stale.activeScoreComponents.memoryLinkCorrectionScore, 0);
+    assert.deepEqual(current.memoryLinks.authorityEffects, ['none']);
+    assert.equal(current.memoryLinks.truthProof, false);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

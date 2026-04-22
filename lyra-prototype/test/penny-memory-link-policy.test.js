@@ -8,8 +8,12 @@ const {
 } = require('../lib/penny-memory-links');
 const {
   PENNY_CORRECTION_LINK_BUILDER_SCHEMA,
+  PENNY_MEMORY_LINK_ACTIVE_SCORE_SCHEMA,
   PENNY_MEMORY_LINK_SHADOW_SCORE_SCHEMA,
+  MEMORY_LINK_SCORING_MODES,
   buildCorrectionLinks,
+  normalizeMemoryLinkScoringMode,
+  scoreMemoryLinkCorrectionActiveForCandidate,
   scoreMemoryLinkShadowForCandidate,
   scoreMemoryLinkShadowForCandidates,
 } = require('../lib/penny-memory-link-policy');
@@ -188,6 +192,59 @@ test('scoreMemoryLinkShadowForCandidate boosts explicit current corrections with
   assert.equal(shadow.shadowAdjustedScore, 7.25);
   assert.equal(shadow.reasons.includes('current-correction-link:+3.00'), true);
   assert.equal(shadow.wouldChangeRank, false);
+});
+
+test('scoreMemoryLinkCorrectionActiveForCandidate activates only explicit correction components behind correction-v1', () => {
+  const linkSet = buildCorrectionLinks({
+    generatedAt: NOW,
+    subject: 'coding mascot',
+    staleItem: { id: 'archive:brass-fox', text: 'The mascot was a brass fox.' },
+    currentItem: { id: 'memory:copper-rabbit', text: 'The mascot is a copper rabbit now.' },
+    staleObject: 'brass fox',
+    currentObject: 'copper rabbit',
+    supportState: 'explicit',
+    sourceReceipts: [{ type: 'turn', id: 'turn-correction' }],
+  }, { now: NOW });
+  const broadLinks = [
+    ...linkSet.links,
+    {
+      id: 'project-thread-link',
+      sourceId: 'memory:copper-rabbit',
+      targetId: 'plan:static-live',
+      relation: MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD,
+      confidence: 'medium',
+      support: { state: 'research' },
+      directionality: 'bidirectional',
+    },
+  ];
+
+  const shadowMode = scoreMemoryLinkCorrectionActiveForCandidate({
+    id: 'memory:copper-rabbit',
+    activeScore: 4.25,
+  }, {
+    memoryLinks: broadLinks,
+    memoryLinkScoring: 'shadow',
+  });
+  const activeMode = scoreMemoryLinkCorrectionActiveForCandidate({
+    id: 'memory:copper-rabbit',
+    activeScore: 4.25,
+  }, {
+    memoryLinks: broadLinks,
+    memoryLinkScoring: 'correction-v1',
+  });
+
+  assert.equal(normalizeMemoryLinkScoringMode('correction'), MEMORY_LINK_SCORING_MODES.CORRECTION_V1);
+  assert.equal(shadowMode.schema, PENNY_MEMORY_LINK_ACTIVE_SCORE_SCHEMA);
+  assert.equal(shadowMode.active, false);
+  assert.equal(shadowMode.score, 0);
+  assert.equal(activeMode.active, true);
+  assert.equal(activeMode.behaviorChanged, true);
+  assert.equal(activeMode.score, 1.5);
+  assert.equal(activeMode.components.currentCorrectionBoost, 1.5);
+  assert.equal(activeMode.ignoredComponents.sameProjectThreadBoost, 0.45);
+  assert.equal(activeMode.reasons.includes('active-current-correction-link:+1.50'), true);
+  assert.equal(activeMode.reasons.includes('same-project-thread:shadow-only'), true);
+  assert.equal(activeMode.truthProof, false);
 });
 
 test('scoreMemoryLinkShadowForCandidate penalizes explicit stale priors without changing active rank', () => {

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   createMemoryArchivePolicyApi,
+  normalizeMemoryLinkScoringMode,
   normalizeArchiveScoringProfile,
 } = require('../lib/penny-memory-archive-policy');
 const {
@@ -426,6 +427,139 @@ test('scoreArchiveCandidateWithProfile reports inactive link shadow scores witho
   );
   assert.equal(staleWithLinks.linkShadowScore.components.stalePriorPenalty, -3.4);
   assert.equal(staleWithLinks.linkShadowScore.active, false);
+});
+
+test('scoreArchiveCandidateWithProfile gates active correction-link scoring behind correction-v1', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const now = Date.parse('2026-04-22T18:05:00.000Z');
+  const queryTokens = new Set(['coding', 'mascot']);
+  const correctionLinks = buildCorrectionLinks({
+    generatedAt: '2026-04-22T18:05:00.000Z',
+    subject: 'coding mascot',
+    staleItem: { id: 'archive:brass-fox', text: 'Coding mascot is a brass fox.' },
+    currentItem: { id: 'memory:copper-rabbit', text: 'Coding mascot is a copper rabbit now.' },
+    staleObject: 'brass fox',
+    currentObject: 'copper rabbit',
+    supportState: 'explicit',
+    sourceReceipts: [{ type: 'turn', id: 'turn-correction' }],
+  }, { now: '2026-04-22T18:05:00.000Z' });
+  const currentCandidate = {
+    id: 'memory:copper-rabbit',
+    text: 'Coding mascot is a copper rabbit now.',
+    sourceType: 'episode',
+    scope: 'session',
+    sourceAuthority: 'advisory',
+  };
+  const staleCandidate = {
+    id: 'archive:brass-fox',
+    text: 'Coding mascot is a brass fox.',
+    sourceType: 'episode',
+    scope: 'session',
+    sourceAuthority: 'advisory',
+  };
+
+  const defaultScore = policy.scoreArchiveCandidateWithProfile(currentCandidate, {
+    queryText: 'coding mascot',
+    queryTokens,
+    now,
+    memoryLinks: correctionLinks.links,
+  });
+  const activeCurrent = policy.scoreArchiveCandidateWithProfile(currentCandidate, {
+    queryText: 'coding mascot',
+    queryTokens,
+    now,
+    memoryLinks: correctionLinks.links,
+    memoryLinkScoring: 'correction-v1',
+  });
+  const activeStale = policy.scoreArchiveCandidateWithProfile(staleCandidate, {
+    queryText: 'coding mascot',
+    queryTokens,
+    now,
+    memoryLinks: correctionLinks.links,
+    memoryLinkScoring: 'correction-v1',
+  });
+
+  assert.equal(normalizeMemoryLinkScoringMode('bogus'), 'shadow');
+  assert.equal(defaultScore.memoryLinkScoring, 'shadow');
+  assert.equal(defaultScore.activeScore, defaultScore.baselineScore);
+  assert.equal(defaultScore.linkActiveScore.active, false);
+  assert.equal(activeCurrent.memoryLinkScoring, 'correction-v1');
+  assert.equal(activeCurrent.linkActiveScore.active, true);
+  assert.equal(activeCurrent.linkActiveScore.behaviorChanged, true);
+  assert.equal(activeCurrent.activeScore, activeCurrent.baselineScore + 1.5);
+  assert.equal(activeCurrent.activeScoreComponents.memoryLinkCorrectionScore, 1.5);
+  assert.equal(activeCurrent.activeScoreReasons.includes('active-current-correction-link:+1.50'), true);
+  assert.equal(activeStale.activeScore, activeStale.baselineScore - 2.2);
+  assert.equal(activeStale.activeScoreComponents.memoryLinkCorrectionScore, -2.2);
+  assert.equal(activeStale.activeScoreReasons.includes('active-stale-prior-link:-2.20'), true);
+});
+
+test('correction-v1 active scoring ignores broad and candidate-only link authority', () => {
+  const policy = createMemoryArchivePolicyApi({
+    tokenizeMemoryText,
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const now = Date.parse('2026-04-22T18:10:00.000Z');
+  const queryTokens = new Set(['static', 'memory']);
+  const candidateOnlyCorrection = buildCorrectionLinks({
+    generatedAt: '2026-04-22T18:10:00.000Z',
+    subject: 'static mascot',
+    staleItem: { id: 'static:old-mascot', object: 'old mascot' },
+    currentItem: { id: 'semantic:new-mascot', object: 'new mascot' },
+    supportState: 'static-candidate',
+  }, { now: '2026-04-22T18:10:00.000Z' });
+  const broadLinks = [
+    ...candidateOnlyCorrection.links,
+    {
+      id: 'same-project-thread',
+      sourceId: 'plan:static-memory',
+      targetId: 'memory:frame-budget',
+      relation: MEMORY_LINK_RELATIONS.SAME_PROJECT_THREAD,
+      confidence: 'medium',
+      support: { state: 'research' },
+      directionality: 'bidirectional',
+    },
+  ];
+
+  const project = policy.scoreArchiveCandidateWithProfile({
+    id: 'plan:static-memory',
+    text: 'Static memory sidecar plan.',
+    sourceType: 'summary',
+    scope: 'global',
+  }, {
+    queryText: 'static memory',
+    queryTokens,
+    now,
+    memoryLinks: broadLinks,
+    memoryLinkScoring: 'correction-v1',
+  });
+  const semanticCurrent = policy.scoreArchiveCandidateWithProfile({
+    id: 'semantic:new-mascot',
+    text: 'Semantic candidate says the mascot is new.',
+    sourceType: 'episode',
+    scope: 'session',
+  }, {
+    queryText: 'static memory',
+    queryTokens,
+    now,
+    memoryLinks: broadLinks,
+    memoryLinkScoring: 'correction-v1',
+  });
+
+  assert.equal(project.linkShadowScore.components.sameProjectThreadBoost, 0.45);
+  assert.equal(project.linkActiveScore.active, true);
+  assert.equal(project.linkActiveScore.score, 0);
+  assert.equal(project.activeScore, project.baselineScore);
+  assert.equal(project.activeScoreComponents.memoryLinkCorrectionScore, 0);
+  assert.equal(project.linkActiveScore.reasons.includes('same-project-thread:shadow-only'), true);
+  assert.equal(semanticCurrent.linkShadowScore.components.currentCorrectionBoost, 0);
+  assert.equal(semanticCurrent.linkActiveScore.score, 0);
+  assert.equal(semanticCurrent.activeScore, semanticCurrent.baselineScore);
+  assert.equal(semanticCurrent.linkActiveScore.truthProof, false);
+  assert.equal(semanticCurrent.linkActiveScore.candidateOnlyVerifiedSupport, false);
 });
 
 test('link shadow broad boosts stay advisory and weaker than correction shadows', () => {

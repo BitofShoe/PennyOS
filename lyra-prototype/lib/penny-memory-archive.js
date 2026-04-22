@@ -15,8 +15,10 @@ const {
   ARCHIVE_SCORING_PROFILES,
   RERANK_SHADOW_MEASUREMENT_MODES,
   RERANK_SHADOW_PROVIDERS,
+  MEMORY_LINK_SCORING_MODES,
   createMemoryArchivePolicyApi,
   normalizeArchiveScoringProfile,
+  normalizeMemoryLinkScoringMode,
   normalizeRerankShadowProvider,
 } = require('./penny-memory-archive-policy');
 const {
@@ -312,6 +314,7 @@ function createMemoryArchiveApi({
   LMSTUDIO_API_KEY = 'lm-studio-local',
   PENNY_LMSTUDIO_EMBED_MODEL = '',
   PENNY_ARCHIVE_SCORING_PROFILE = ARCHIVE_SCORING_PROFILES.BASELINE,
+  PENNY_MEMORY_LINK_SCORING = process.env.PENNY_MEMORY_LINK_SCORING || MEMORY_LINK_SCORING_MODES.SHADOW,
   PENNY_RERANK_SHADOW_PROVIDER = '',
   ENABLE_BACKGROUND_CHAT_VECTORS = true,
   BACKGROUND_CHAT_VECTOR_BATCH_LIMIT = 2,
@@ -333,6 +336,7 @@ function createMemoryArchiveApi({
 
   const configuredEmbedModel = normalizeEmbedModelId(PENNY_LMSTUDIO_EMBED_MODEL);
   const archiveScoringProfile = normalizeArchiveScoringProfile(PENNY_ARCHIVE_SCORING_PROFILE);
+  const configuredMemoryLinkScoring = normalizeMemoryLinkScoringMode(PENNY_MEMORY_LINK_SCORING);
   const configuredRerankShadowProvider = normalizeRerankShadowProvider(PENNY_RERANK_SHADOW_PROVIDER);
   const backgroundChatVectorsEnabled = ENABLE_BACKGROUND_CHAT_VECTORS === true;
   const backgroundChatVectorBatchLimit = Math.max(0, Number(BACKGROUND_CHAT_VECTOR_BATCH_LIMIT || 2));
@@ -724,6 +728,7 @@ function createMemoryArchiveApi({
       'sourceAuthorityScore',
       'evidenceCountScore',
       'openLoopRelevanceScore',
+      'memoryLinkCorrectionScore',
     ];
     const out = {};
     let found = false;
@@ -1080,6 +1085,7 @@ function createMemoryArchiveApi({
       score: Number.isFinite(Number(item.score)) ? Number(item.score) : 0,
       confidence: Number.isFinite(Number(item.confidence)) ? Number(item.confidence) : 0,
       scoringProfile: normalizeArchiveScoringProfile(item.scoringProfile),
+      memoryLinkScoring: normalizeMemoryLinkScoringMode(item.memoryLinkScoring),
       activeScore: Number.isFinite(Number(item.activeScore))
         ? Number(item.activeScore)
         : (Number.isFinite(Number(item.score)) ? Number(item.score) : 0),
@@ -2749,6 +2755,7 @@ function createMemoryArchiveApi({
     candidateTraceLinkLimit = DEFAULT_CANDIDATE_LINK_TRACE_LIMIT,
     candidateTraceMemoryLinks = null,
     scoringProfile = archiveScoringProfile,
+    memoryLinkScoring = configuredMemoryLinkScoring,
     includeRerankShadow = false,
     rerankShadowProvider = configuredRerankShadowProvider,
     rerankShadowInputTopK = null,
@@ -2779,10 +2786,15 @@ function createMemoryArchiveApi({
     let shouldIncludeCandidateTrace = includeCandidateTrace === true || includeCandidateTraceLinks === true;
     const shouldIncludeRerankShadow = shouldIncludeCandidateTrace && includeRerankShadow === true;
     const activeScoringProfile = normalizeArchiveScoringProfile(scoringProfile);
+    const activeMemoryLinkScoring = normalizeMemoryLinkScoringMode(memoryLinkScoring);
     const activeRerankShadowProvider = normalizeRerankShadowProvider(rerankShadowProvider);
     const traceLimit = normalizeCandidateTraceLimit(candidateTraceLimit);
     const shouldAttachCandidateTraceLinks = shouldIncludeCandidateTrace && includeCandidateTraceLinks === true;
     const linkTraceLimit = normalizeCandidateLinkTraceLimit(candidateTraceLinkLimit);
+    const suppliedCandidateMemoryLinks = normalizeTraceCandidateMemoryLinks(
+      candidateTraceMemoryLinks,
+      new Date(now).toISOString(),
+    );
     const staticOnlyRenderedCap = normalizeStaticOnlyRenderedCap(maxStaticOnlyRendered);
     const traceCandidates = [];
     const rerankShadowRuns = [];
@@ -2965,6 +2977,7 @@ function createMemoryArchiveApi({
         }
         const scored = archivePolicyApi.scoreArchiveCandidateWithProfile(scoringItem, {
           scoringProfile: activeScoringProfile,
+          memoryLinkScoring: activeMemoryLinkScoring,
           queryText: userText,
           queryTokens,
           now,
@@ -2972,6 +2985,7 @@ function createMemoryArchiveApi({
           vector,
           activeContradictions,
           openLoops: candidateMergeOpenLoops,
+          memoryLinks: suppliedCandidateMemoryLinks,
         });
         const staticEligibility = staticAdvisoryEligibility(scoringItem, scored, {
           userText,
@@ -2990,9 +3004,11 @@ function createMemoryArchiveApi({
             ? Number(scored.activeConfidence)
             : Math.max(0, Math.min(1, score / 12)),
           scoringProfile: scored.scoringProfile,
+          memoryLinkScoring: scored.memoryLinkScoring,
           activeScore: score,
           activeScoreComponents: scoreComponents,
           activeScoreReasons: scoreReasons,
+          linkActiveScore: scored.linkActiveScore,
           ...(scored.scoringProfile === ARCHIVE_SCORING_PROFILES.HYBRID_V1 ? { baselineScore: scored.baselineScore } : {}),
           ...(scored.scoringProfile === ARCHIVE_SCORING_PROFILES.BASELINE ? { hybridShadowScore: scored.hybridV1Score } : {}),
           scoreComponents,
@@ -3273,6 +3289,7 @@ function createMemoryArchiveApi({
         ? ARCHIVE_RETRIEVAL_REASON_CODES.SEMANTIC_QUERY
         : ARCHIVE_RETRIEVAL_REASON_CODES.KEYWORD_FALLBACK,
       scoringProfile: activeScoringProfile,
+      memoryLinkScoring: activeMemoryLinkScoring,
       embedModel: semanticMemory.ready ? configuredEmbedModel : '',
       semanticReady: semanticMemory.ready,
       semanticAttempted,
@@ -4066,6 +4083,7 @@ function createMemoryArchiveApi({
   return {
     configuredEmbedModel,
     archiveScoringProfile,
+    memoryLinkScoring: configuredMemoryLinkScoring,
     rerankShadowProvider: configuredRerankShadowProvider,
     buildArchiveStore: (embedModel = configuredEmbedModel) => buildArchiveStore(embedModel, {
       backgroundVectorsEnabled: backgroundChatVectorsEnabled,

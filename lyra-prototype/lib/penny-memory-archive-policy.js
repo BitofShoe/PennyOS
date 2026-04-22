@@ -1,4 +1,7 @@
 const {
+  MEMORY_LINK_SCORING_MODES,
+  normalizeMemoryLinkScoringMode,
+  scoreMemoryLinkCorrectionActiveForCandidate,
   scoreMemoryLinkShadowForCandidate,
 } = require('./penny-memory-link-policy');
 
@@ -455,6 +458,7 @@ function createMemoryArchivePolicyApi({
     activeContradictions = [],
     openLoops = [],
     memoryLinks = null,
+    memoryLinkScoring = MEMORY_LINK_SCORING_MODES.SHADOW,
     activeRank = null,
     shadowRank = null,
   } = {}) {
@@ -471,20 +475,41 @@ function createMemoryArchivePolicyApi({
     });
     const hybridV1Score = Number.isFinite(Number(hybridV1?.score)) ? Number(hybridV1.score) : 0;
     const active = profile === ARCHIVE_SCORING_PROFILES.HYBRID_V1 ? hybridV1 : baseline;
-    const activeScore = Number.isFinite(Number(active?.score)) ? Number(active.score) : 0;
+    const baseActiveScore = Number.isFinite(Number(active?.score)) ? Number(active.score) : 0;
     const linkShadowScore = scoreMemoryLinkShadowForCandidate(candidate, {
       memoryLinks: memoryLinks || candidate.memoryLinks || [],
-      activeScore,
+      activeScore: baseActiveScore,
       activeRank,
       shadowRank,
     });
+    const linkActiveScore = scoreMemoryLinkCorrectionActiveForCandidate(candidate, {
+      memoryLinks: memoryLinks || candidate.memoryLinks || [],
+      memoryLinkScoring: normalizeMemoryLinkScoringMode(memoryLinkScoring),
+      activeScore: baseActiveScore,
+      activeRank,
+      shadowRank,
+      linkShadowScore,
+    });
+    const linkDelta = Number.isFinite(Number(linkActiveScore?.score)) ? Number(linkActiveScore.score) : 0;
+    const activeScore = linkDelta ? roundShadowScore(baseActiveScore + linkDelta) : baseActiveScore;
+    const activeScoreComponents = active?.components && typeof active.components === 'object'
+      ? { ...active.components }
+      : {};
+    const activeScoreReasons = Array.isArray(active?.reasons) ? active.reasons.slice() : [];
+    if (linkActiveScore.active === true) {
+      activeScoreComponents.memoryLinkCorrectionScore = linkDelta;
+      for (const reason of linkActiveScore.reasons || []) {
+        if (!activeScoreReasons.includes(reason)) activeScoreReasons.push(reason);
+      }
+    }
 
     return {
       scoringProfile: profile,
+      memoryLinkScoring: linkActiveScore.scoringMode,
       activeScore,
       activeConfidence: Math.max(0, Math.min(1, activeScore / 12)),
-      activeScoreComponents: active?.components && typeof active.components === 'object' ? active.components : {},
-      activeScoreReasons: Array.isArray(active?.reasons) ? active.reasons : [],
+      activeScoreComponents,
+      activeScoreReasons,
       baselineScore,
       baselineScoreComponents: baseline?.components && typeof baseline.components === 'object' ? baseline.components : {},
       baselineScoreReasons: Array.isArray(baseline?.reasons) ? baseline.reasons : [],
@@ -494,6 +519,7 @@ function createMemoryArchivePolicyApi({
       hybridV1Components: hybridV1?.components && typeof hybridV1.components === 'object' ? hybridV1.components : {},
       hybridV1Reasons: Array.isArray(hybridV1?.reasons) ? hybridV1.reasons : [],
       hybridV1,
+      linkActiveScore,
       linkShadowScore,
     };
   }
@@ -860,7 +886,9 @@ module.exports = {
   ARCHIVE_SCORING_PROFILES,
   RERANK_SHADOW_MEASUREMENT_MODES,
   RERANK_SHADOW_PROVIDERS,
+  MEMORY_LINK_SCORING_MODES,
   createMemoryArchivePolicyApi,
   normalizeArchiveScoringProfile,
   normalizeRerankShadowProvider,
+  normalizeMemoryLinkScoringMode,
 };

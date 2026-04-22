@@ -14,6 +14,13 @@ const {
 
 const PENNY_CORRECTION_LINK_BUILDER_SCHEMA = 'penny-correction-link-builder.v1';
 const PENNY_MEMORY_LINK_SHADOW_SCORE_SCHEMA = 'penny-memory-link-shadow-score.v1';
+const PENNY_MEMORY_LINK_ACTIVE_SCORE_SCHEMA = 'penny-memory-link-active-score.v1';
+
+const MEMORY_LINK_SCORING_MODES = Object.freeze({
+  OFF: 'off',
+  SHADOW: 'shadow',
+  CORRECTION_V1: 'correction-v1',
+});
 
 const STRONG_CORRECTION_SUPPORT_STATES = new Set([
   MEMORY_LINK_SUPPORT_STATES.EXPLICIT,
@@ -32,6 +39,14 @@ const LINK_SHADOW_SCORE_LIMITS = Object.freeze([
   'Only explicit correction support can produce current/stale authority shadows.',
   'Project-thread, open-loop, and research-pattern links remain advisory shadow metadata.',
   'Weak semantic/static relations cannot override source authority or become verified support.',
+]);
+
+const LINK_ACTIVE_SCORE_LIMITS = Object.freeze([
+  ...DEFAULT_MEMORY_LINK_LIMITS,
+  'Active memory-link scoring is gated by PENNY_MEMORY_LINK_SCORING=correction-v1.',
+  'Only explicit current-vs-stale correction links can affect active archive ranking.',
+  'Project-thread, open-loop, research-pattern, static, semantic, and candidate-only links remain shadow/advisory.',
+  'Active link scoring does not make either side of a link true or canonical.',
 ]);
 
 const EMPTY_LINK_SHADOW_COMPONENTS = Object.freeze({
@@ -133,6 +148,16 @@ function normalizeSupportStateForPolicy(value = '') {
   return Object.values(MEMORY_LINK_SUPPORT_STATES).includes(normalized)
     ? normalized
     : MEMORY_LINK_SUPPORT_STATES.UNKNOWN;
+}
+
+function normalizeMemoryLinkScoringMode(value = MEMORY_LINK_SCORING_MODES.SHADOW) {
+  const mode = cleanToken(value || MEMORY_LINK_SCORING_MODES.SHADOW);
+  if (['0', 'none', 'disabled'].includes(mode)) return MEMORY_LINK_SCORING_MODES.OFF;
+  if (mode === MEMORY_LINK_SCORING_MODES.CORRECTION_V1 || mode === 'correction') {
+    return MEMORY_LINK_SCORING_MODES.CORRECTION_V1;
+  }
+  if (mode === MEMORY_LINK_SCORING_MODES.OFF || mode === MEMORY_LINK_SCORING_MODES.SHADOW) return mode;
+  return MEMORY_LINK_SCORING_MODES.SHADOW;
 }
 
 function normalizeSourceReceiptForPolicy(receipt = {}) {
@@ -425,6 +450,79 @@ function scoreMemoryLinkShadowForCandidates(candidates = [], options = {}) {
   });
 }
 
+function activeCorrectionScoreFromShadow(shadow = {}) {
+  const components = shadow?.components && typeof shadow.components === 'object' ? shadow.components : {};
+  const rawCurrent = Number(components.currentCorrectionBoost || 0);
+  const rawStale = Number(components.stalePriorPenalty || 0);
+  const currentCorrectionBoost = rawCurrent > 0 ? 1.5 : 0;
+  let stalePriorPenalty = 0;
+  if (rawStale < 0) {
+    stalePriorPenalty = rawStale <= -4 ? -3.0 : -2.2;
+  }
+  return {
+    currentCorrectionBoost,
+    stalePriorPenalty,
+    score: roundShadowScore(currentCorrectionBoost + stalePriorPenalty),
+  };
+}
+
+function scoreMemoryLinkCorrectionActiveForCandidate(candidate = {}, options = {}) {
+  const scoringMode = normalizeMemoryLinkScoringMode(options.memoryLinkScoring || options.scoringMode);
+  const activeScore = normalizeActiveScore(candidate, options.activeScore);
+  const shadowScore = options.linkShadowScore && typeof options.linkShadowScore === 'object'
+    ? options.linkShadowScore
+    : scoreMemoryLinkShadowForCandidate(candidate, options);
+  const correctionComponents = activeCorrectionScoreFromShadow(shadowScore);
+  const active = scoringMode === MEMORY_LINK_SCORING_MODES.CORRECTION_V1;
+  const score = active ? correctionComponents.score : 0;
+  const ignoredComponents = {
+    sameProjectThreadBoost: shadowScore.components?.sameProjectThreadBoost || 0,
+    openLoopRelevanceBoost: shadowScore.components?.openLoopRelevanceBoost || 0,
+    weakRelationPenalty: shadowScore.components?.weakRelationPenalty || 0,
+  };
+  const reasons = [];
+
+  if (active && correctionComponents.currentCorrectionBoost) {
+    reasons.push(`active-current-correction-link:${formatScoreComponent(correctionComponents.currentCorrectionBoost)}`);
+  }
+  if (active && correctionComponents.stalePriorPenalty) {
+    reasons.push(`active-stale-prior-link:${formatScoreComponent(correctionComponents.stalePriorPenalty)}`);
+  }
+  if (ignoredComponents.sameProjectThreadBoost) reasons.push('same-project-thread:shadow-only');
+  if (ignoredComponents.openLoopRelevanceBoost) reasons.push('open-loop-about:shadow-only');
+  if (ignoredComponents.weakRelationPenalty) reasons.push('related-but-weak:shadow-only');
+  if (shadowScore.reasons?.some((reason) => /^research-pattern:/.test(reason))) {
+    reasons.push('research-pattern:shadow-only');
+  }
+  if (shadowScore.reasons?.some((reason) => /^candidate-only-authority-held-back:/.test(reason))) {
+    reasons.push('candidate-only-authority-held-back');
+  }
+
+  return {
+    schema: PENNY_MEMORY_LINK_ACTIVE_SCORE_SCHEMA,
+    scoringMode,
+    active,
+    behaviorChanged: active && score !== 0,
+    advisoryOnly: true,
+    truthProof: false,
+    canonicalMemoryWrite: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    score,
+    activeScore,
+    activeAdjustedScore: roundShadowScore(activeScore + score),
+    components: {
+      currentCorrectionBoost: active ? correctionComponents.currentCorrectionBoost : 0,
+      stalePriorPenalty: active ? correctionComponents.stalePriorPenalty : 0,
+    },
+    ignoredComponents,
+    reasons: reasons.slice(0, 12),
+    linkCount: Number(shadowScore.linkCount || 0),
+    candidateOnlyVerifiedSupport: false,
+    limits: LINK_ACTIVE_SCORE_LIMITS,
+  };
+}
+
 function normalizeCorrectionItem(item = {}, role = 'item', hints = {}) {
   const source = isPlainObject(item) ? item : { text: item };
   const rawId = firstClean(
@@ -715,10 +813,15 @@ function buildCorrectionLinks(input = {}, options = {}) {
 module.exports = {
   PENNY_CORRECTION_LINK_BUILDER_SCHEMA,
   PENNY_MEMORY_LINK_SHADOW_SCORE_SCHEMA,
+  PENNY_MEMORY_LINK_ACTIVE_SCORE_SCHEMA,
   CORRECTION_LINK_LIMITS,
+  LINK_ACTIVE_SCORE_LIMITS,
   LINK_SHADOW_SCORE_LIMITS,
+  MEMORY_LINK_SCORING_MODES,
   STRONG_CORRECTION_SUPPORT_STATES,
   buildCorrectionLinks,
+  normalizeMemoryLinkScoringMode,
+  scoreMemoryLinkCorrectionActiveForCandidate,
   scoreMemoryLinkShadowForCandidate,
   scoreMemoryLinkShadowForCandidates,
 };
