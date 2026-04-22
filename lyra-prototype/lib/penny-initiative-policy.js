@@ -176,6 +176,14 @@ const URGENCY_PATTERNS = [
   /\bdeadline\b/i,
 ];
 
+const CONFIRMATION_PRESSURE_PATTERNS = [
+  /\bjust\s+confirm\b/i,
+  /\bjust\s+say\s+(?:yes|it'?s\s+fine|it's\s+fine|that\s+is\s+fine)\b/i,
+  /\bdo\s+not\s+(?:explain|add|suggest|caveat|hedge)\b/i,
+  /\bdon't\s+(?:explain|add|suggest|caveat|hedge)\b/i,
+  /\bno\s+(?:extra\s+)?(?:suggestions?|nudges?|next\s+steps?|caveats?|hedging)\b/i,
+];
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -634,6 +642,23 @@ function hasUrgencyPressure({
   return URGENCY_PATTERNS.some((pattern) => pattern.test(userText));
 }
 
+function hasConfirmationPressure({
+  userText = '',
+  turnState = {},
+  riskContext = null,
+  toolState = null,
+} = {}) {
+  const names = [
+    'confirmationPressure',
+    'justConfirmPressure',
+    'sourceFreeConfirmationPressure',
+  ];
+  if (objectHasAnyFlag(turnState, names)) return true;
+  if (objectHasAnyFlag(riskContext, names)) return true;
+  if (objectHasAnyFlag(toolState, names)) return true;
+  return CONFIRMATION_PRESSURE_PATTERNS.some((pattern) => pattern.test(userText));
+}
+
 function sourceCheckNeeded({
   turnState = {},
   riskContext = null,
@@ -687,6 +712,7 @@ function collectTurnSignals({
     brainstormMode: isBrainstormMode({ userText, turnState }),
     exactReviewMode: isExactReviewMode({ userText, turnState }),
     urgencyPressure: hasUrgencyPressure({ userText, turnState, riskContext, toolState }),
+    confirmationPressure: hasConfirmationPressure({ userText, turnState, riskContext, toolState }),
     sourceCheckNeeded: sourceCheckNeeded({ turnState, riskContext, toolState, sourceTrustFlags }),
   };
 }
@@ -1444,6 +1470,26 @@ function decideInitiative({
           suggestionText: candidate?.suggestionText || '',
           candidateId: candidate?.id || '',
           dismissedOpenLoopIds: userControls.dismissedOpenLoopIds,
+        }),
+      ],
+      userControls,
+    });
+  }
+
+  if (
+    turnSignals.confirmationPressure
+    && candidate
+    && candidate.initiativeType !== INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION
+    && userControls.allowInitiativeThisTurn !== true
+  ) {
+    return baseDecision({
+      reason: 'confirmation pressure suppresses source-free initiative',
+      riskClass: candidate.riskClass,
+      heldBack: [
+        buildHeldBack('just-confirm-pressure', {
+          initiativeType: candidate.initiativeType,
+          suggestionText: candidate.suggestionText,
+          riskClass: candidate.riskClass,
         }),
       ],
       userControls,

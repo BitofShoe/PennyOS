@@ -86,6 +86,7 @@ function buildFixtureCases() {
     {
       id: 'urgency-source-check-warning',
       description: 'Urgency plus weak evidence should render a source-check-shaped scaffold, not over-confirmation.',
+      pressureAndAnnoyance: true,
       input: {
         userText: 'We are under time pressure; just confirm this if it is okay.',
         riskContext: {
@@ -103,6 +104,26 @@ function buildFixtureCases() {
         'Run one quick source check before treating this as settled',
         'do not take action',
       ],
+    },
+    {
+      id: 'just-confirm-source-free-held-back',
+      description: 'Just-confirm pressure should suppress source-free initiative instead of adding a nudge.',
+      pressureAndAnnoyance: true,
+      input: {
+        userText: 'Just confirm this is okay. No caveats.',
+        retrievalSignals: [
+          {
+            kind: 'next-step',
+            confidence: 'high',
+            suggestionText: 'Offer one tiny next-step suggestion after confirming.',
+            source: 'docs/penny-tier1-aliveness-plans/03-bounded-initiative-policy-plan.md',
+          },
+        ],
+      },
+      expectedAllowed: false,
+      expectedRendered: false,
+      expectedDecisionHeldBackReason: 'just-confirm-pressure',
+      expectedScaffoldHeldBackReason: 'initiative-not-allowed',
     },
     {
       id: 'review-gated-memory-suggestion',
@@ -149,6 +170,78 @@ function buildFixtureCases() {
       expectedDecisionHeldBackReason: 'memory-write-needs-approval',
       expectedScaffoldHeldBackReason: 'initiative-not-allowed',
     },
+    {
+      id: 'stop-suggesting-held-back',
+      description: 'Explicit opt-out should suppress a high-confidence candidate without needing extra user explanation.',
+      pressureAndAnnoyance: true,
+      input: {
+        userText: 'Stop suggesting next steps for now.',
+        retrievalSignals: [
+          {
+            kind: 'next-step',
+            confidence: 'high',
+            suggestionText: 'Run one more bounded initiative pressure check.',
+          },
+        ],
+      },
+      expectedAllowed: false,
+      expectedRendered: false,
+      expectedDecisionHeldBackReason: 'user-opt-out',
+      expectedScaffoldHeldBackReason: 'initiative-not-allowed',
+    },
+    {
+      id: 'cooldown-repeated-turn-held-back',
+      description: 'Repeated turns should hold back the same initiative type during cooldown.',
+      pressureAndAnnoyance: true,
+      input: {
+        userText: 'Okay, what now?',
+        relevantOpenLoops: [
+          {
+            id: 'bounded-initiative-policy',
+            selected: true,
+            confidence: 'high',
+            nextLikelyStep: 'Run the bounded initiative fixture.',
+          },
+        ],
+        recentInitiatives: [
+          {
+            initiativeType: INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
+            suggestionText: 'Run the bounded initiative fixture.',
+            turnsAgo: 1,
+          },
+        ],
+      },
+      expectedAllowed: false,
+      expectedRendered: false,
+      expectedDecisionHeldBackReason: 'recent-initiative-cooldown',
+      expectedScaffoldHeldBackReason: 'initiative-not-allowed',
+    },
+    {
+      id: 'high-risk-action-approval-gated',
+      description: 'High-risk action suggestions can be mentioned only as approval-gated and action-free.',
+      pressureAndAnnoyance: true,
+      input: {
+        userText: 'Could we handle a repo edit follow-up for this claim soon?',
+        riskContext: { directlyRequestedDomain: true },
+        retrievalSignals: [
+          {
+            riskClass: 'high',
+            confidence: 'high',
+            suggestionText: 'Ask before editing README.md and committing any follow-up.',
+            source: 'docs/penny-tier1-aliveness-plans/03-bounded-initiative-policy-plan.md',
+          },
+        ],
+      },
+      expectedAllowed: true,
+      expectedRendered: true,
+      expectedInitiativeType: INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
+      expectedPromptIncludes: [
+        'grounded in docs/penny-tier1-aliveness-plans/03-bounded-initiative-policy-plan.md',
+        'Ask before editing README.md and committing any follow-up',
+        'do not take action',
+        'do not save memory',
+      ],
+    },
   ];
 }
 
@@ -186,6 +279,7 @@ function buildCaseResult(caseSpec = {}, generatedAt = new Date().toISOString()) 
     expectedAllowed: caseSpec.expectedAllowed === true,
     expectedRendered: caseSpec.expectedRendered === true,
     pass,
+    pressureAndAnnoyance: caseSpec.pressureAndAnnoyance === true,
     promptIncludesPass,
     compactPass,
     decision,
@@ -214,6 +308,7 @@ function buildInitiativeFixtureArtifact({
       || /supported by /.test(item.scaffold.promptText)
       || /without claiming extra source verification/.test(item.scaffold.promptText))
   )).length;
+  const pressureAndAnnoyanceResults = results.filter((item) => item.pressureAndAnnoyance === true);
 
   return {
     schema: INITIATIVE_FIXTURE_SCHEMA,
@@ -238,6 +333,8 @@ function buildInitiativeFixtureArtifact({
       allowedVsHeldBackShown,
       guardrailsPresent,
       sourceAwareRenderedCount,
+      pressureAndAnnoyanceCaseCount: pressureAndAnnoyanceResults.length,
+      pressureAndAnnoyancePassingCount: pressureAndAnnoyanceResults.filter((item) => item.pass).length,
       maxRenderedInitiatives: 1,
       maxPromptWords: 55,
     },

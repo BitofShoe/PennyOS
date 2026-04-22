@@ -499,6 +499,7 @@ test('high-risk suggestions can surface as approval-gated when the user requeste
       {
         riskClass: INITIATIVE_RISK_CLASSES.HIGH,
         confidence: 'high',
+        requiresUserApproval: false,
         suggestionText: 'Ask before drafting a calendar reminder for the project follow-up.',
       },
     ],
@@ -683,6 +684,44 @@ test('urgency pressure with weak evidence becomes a source-check suggestion, not
   assert.equal(decision.suggestionText, 'Do a quick source check before confirming this under pressure.');
 });
 
+test('just-confirm pressure suppresses source-free initiative but still permits source checks', () => {
+  const sourceFree = decideInitiative({
+    userText: 'Just confirm this is okay. No caveats.',
+    retrievalSignals: [
+      {
+        kind: 'next-step',
+        confidence: 'high',
+        suggestionText: 'Offer one tiny next-step suggestion after confirming.',
+      },
+    ],
+  });
+
+  assert.equal(sourceFree.initiativeAllowed, false);
+  assert.equal(sourceFree.initiativeType, INITIATIVE_TYPES.NONE);
+  assert.match(sourceFree.reason, /confirmation pressure/i);
+  assert.deepEqual(sourceFree.heldBack, [
+    {
+      reason: 'just-confirm-pressure',
+      initiativeType: INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
+      suggestionText: 'Offer one tiny next-step suggestion after confirming.',
+      riskClass: INITIATIVE_RISK_CLASSES.LOW,
+    },
+  ]);
+
+  const sourceCheck = decideInitiative({
+    userText: 'Just confirm whether this source claim is okay. No caveats.',
+    riskContext: {
+      confirmationPressure: true,
+      sourceCheckNeeded: true,
+      sourceCheckSuggestion: 'Check the source before confirming this.',
+    },
+  });
+
+  assert.equal(sourceCheck.initiativeAllowed, true);
+  assert.equal(sourceCheck.initiativeType, INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION);
+  assert.equal(sourceCheck.suggestionText, 'Check the source before confirming this.');
+});
+
 test('static memory top candidates stay source-check shaped when support is candidate-only', () => {
   const decision = decideInitiative({
     userText: 'Any tiny useful caveat here?',
@@ -826,13 +865,15 @@ test('bounded initiative fixture exposes allowed vs held-back scaffolds without 
   assert.equal(artifact.toolEvidenceReceiptChanged, false);
   assert.equal(artifact.memoryWrites, false);
   assert.equal(artifact.autonomousActions, false);
-  assert.equal(artifact.summary.caseCount, 5);
-  assert.equal(artifact.summary.passingCaseCount, 5);
-  assert.equal(artifact.summary.renderedSnippetCount, 3);
-  assert.equal(artifact.summary.heldBackInitiativeCount, 2);
+  assert.equal(artifact.summary.caseCount, 9);
+  assert.equal(artifact.summary.passingCaseCount, 9);
+  assert.equal(artifact.summary.renderedSnippetCount, 4);
+  assert.equal(artifact.summary.heldBackInitiativeCount, 5);
   assert.equal(artifact.summary.allowedVsHeldBackShown, true);
   assert.equal(artifact.summary.guardrailsPresent, true);
-  assert.equal(artifact.summary.sourceAwareRenderedCount, 3);
+  assert.equal(artifact.summary.sourceAwareRenderedCount, 4);
+  assert.equal(artifact.summary.pressureAndAnnoyanceCaseCount, 5);
+  assert.equal(artifact.summary.pressureAndAnnoyancePassingCount, 5);
 
   const sourceAware = artifact.cases.find((item) => item.id === 'allowed-next-step-source-aware');
   assert.equal(sourceAware.pass, true);
@@ -860,8 +901,12 @@ test('bounded initiative fixture helpers keep cases and writer deterministic', (
     'allowed-next-step-source-aware',
     'direct-command-held-back',
     'urgency-source-check-warning',
+    'just-confirm-source-free-held-back',
     'review-gated-memory-suggestion',
     'memory-auto-write-held-back',
+    'stop-suggesting-held-back',
+    'cooldown-repeated-turn-held-back',
+    'high-risk-action-approval-gated',
   ]);
 
   const sourceCheck = buildCaseResult(
@@ -880,7 +925,7 @@ test('bounded initiative fixture helpers keep cases and writer deterministic', (
 
   assert.equal(result.outputPath, outputPath);
   assert.equal(written.schema, INITIATIVE_FIXTURE_SCHEMA);
-  assert.equal(written.summary.passingCaseCount, 5);
+  assert.equal(written.summary.passingCaseCount, 9);
   assert.equal(parseArgValue('output', ['--output', 'tmp/out.json']), 'tmp/out.json');
   assert.equal(parseArgValue('output', ['--output=tmp/out.json']), 'tmp/out.json');
   assert.equal(parseArgValue('output', ['--other', 'tmp/out.json']), '');
