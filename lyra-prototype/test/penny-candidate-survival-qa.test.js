@@ -7,6 +7,8 @@ const {
   CANDIDATE_LINK_VERDICTS,
   CANDIDATE_SURVIVAL_OUTCOMES,
   CANDIDATE_SURVIVAL_QA_SCHEMA,
+  STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES,
+  STRUCTURED_CANDIDATE_CONTRACT_QA_SCHEMA,
   applyPromptTruthToCandidateTrace,
   buildCandidateSurvivalArchiveUnitArtifact,
   buildCandidateSurvivalArchiveUnitCaseResult,
@@ -16,6 +18,8 @@ const {
   buildEmbeddingProviderComparison,
   buildRerankerShadowArtifactSummary,
   buildRerankerShadowComparison,
+  buildStructuredCandidateContractQaFixture,
+  classifyStructuredCandidateContract,
   classifyCandidateFailureMode,
   classifyCandidateSurvival,
   matchCandidateAgainstForbidden,
@@ -28,6 +32,17 @@ const {
 const {
   PENNY_MEMORY_LINK_TRACE_SCHEMA,
 } = require('../lib/penny-memory-links');
+const {
+  buildSemanticClaimId,
+  buildSemanticEntityId,
+  buildSemanticSourceId,
+} = require('../lib/penny-semantic-ids');
+const {
+  SEMANTIC_PREDICATE_IDS,
+} = require('../lib/penny-semantic-predicates');
+const {
+  SEMANTIC_DOMAIN_IDS,
+} = require('../lib/penny-semantic-domains');
 
 const ARCHIVE_CASE = {
   id: 'archive-test-case',
@@ -49,6 +64,60 @@ const ARCHIVE_CASE = {
     authority: 'advisory',
   },
 };
+
+function makeStructuredContractCandidate({
+  subject,
+  predicateId = SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT,
+  objectText = 'copper rabbit',
+  domainId = SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE,
+  sourceType = 'archive-episode',
+  sourceId = buildSemanticSourceId({ sourceType: 'archive-episode', sourceId: 'session:copper-rabbit' }),
+  sourceAuthority = 'advisory',
+  supportState = 'rendered-advisory',
+  canonicality = 'advisory',
+  temporalScope = 'current',
+  stale = false,
+  rendered = true,
+  selected = true,
+  claimId = undefined,
+  claimTreatment = null,
+} = {}) {
+  const claimLike = {
+    domainId,
+    subject,
+    predicate: { id: predicateId },
+    object: { type: 'text', text: objectText },
+    source: {
+      ...(sourceId ? { sourceId } : {}),
+      sourceType,
+      excerpt: `${objectText} test fixture`,
+      observedAt: '2026-04-22T12:00:00.000Z',
+    },
+    authority: {
+      sourceAuthority,
+      supportState,
+      canonicality,
+    },
+    temporal: {
+      temporalScope,
+      observedAt: '2026-04-22T12:00:00.000Z',
+    },
+    status: { stale },
+  };
+  return {
+    id: sourceId || 'candidate:missing-source',
+    raw: true,
+    ranked: true,
+    selected,
+    rendered,
+    rank: 1,
+    claim: {
+      ...claimLike,
+      claimId: claimId === undefined ? buildSemanticClaimId(claimLike) : claimId,
+    },
+    ...(claimTreatment ? { claimTreatment } : {}),
+  };
+}
 
 test('candidate-survival fixture is fixture-only and carries explicit outcome definitions', () => {
   const fixture = buildCandidateSurvivalQaFixture({
@@ -100,6 +169,54 @@ test('candidate-survival fixture is fixture-only and carries explicit outcome de
   assert.equal(fixture.candidateSurvivalCorrelation.contextPressure.answerDrift, 'not-run');
   assert.equal(fixture.candidateSurvivalCorrelation.latency.firstTokenLatencyDeltaMs, null);
   assert.equal(fixture.rerankerShadow.verdict, 'not-run');
+  assert.equal(fixture.structuredCandidateContracts.schema, STRUCTURED_CANDIDATE_CONTRACT_QA_SCHEMA);
+  assert.equal(fixture.structuredCandidateContracts.measurementMode, 'fixture-only');
+  assert.equal(fixture.structuredCandidateContracts.summary.behaviorChanged, false);
+  assert.equal(fixture.structuredCandidateContracts.summary.promptTruthExpanded, false);
+  assert.equal(fixture.structuredCandidateContracts.summary.toolEvidenceReceiptChanged, false);
+});
+
+test('structured candidate contract fixture covers semantic failure classes without runtime behavior', () => {
+  const fixture = buildStructuredCandidateContractQaFixture({
+    generatedAt: '2026-04-22T12:00:00.000Z',
+  });
+  const byId = new Map(fixture.cases.map((item) => [item.caseId, item]));
+
+  assert.equal(fixture.schema, STRUCTURED_CANDIDATE_CONTRACT_QA_SCHEMA);
+  assert.equal(fixture.measurementMode, 'fixture-only');
+  assert.equal(fixture.liveModelCalls, false);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.NONE], 1);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_OBJECT_WRONG_PREDICATE], 1);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_PREDICATE_STALE_OBJECT], 1);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_SOURCE_WRONG_TEMPORAL_SCOPE], 1);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.CANDIDATE_ONLY_TREATED_AS_VERIFIED], 1);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RENDERED_ADVISORY_TREATED_AS_CANONICAL], 1);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.FOUND_NOT_RENDERED], 1);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.MISSING_SOURCE_ID], 1);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.UNSTABLE_CLAIM_ID], 1);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.AUTHORITY_DOMAIN_MISMATCH], 1);
+  assert.equal(fixture.summary.byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.SOURCE_ID_MISMATCH], 1);
+  assert.equal(fixture.summary.candidateOnlyTreatedAsVerifiedCount, 1);
+  assert.equal(fixture.summary.renderedAdvisoryTreatedAsCanonicalCount, 1);
+  assert.equal(fixture.summary.canonicalMemoryWriteCount, 0);
+  assert.equal(fixture.summary.defaultPromptLimitsRaised, false);
+  assert.equal(
+    byId.get('structured-contract-candidate-only-treated-verified').matchedCandidate.semanticClaim.candidateOnly,
+    true,
+  );
+  assert.equal(
+    byId.get('structured-contract-rendered-advisory-treated-canonical').matchedCandidate.semanticClaim.canonical,
+    false,
+  );
+  assert.equal(
+    byId.get('structured-contract-found-not-rendered').matchedCandidate.rendered,
+    false,
+  );
+  assert.ok(fixture.limits.includes('Candidate-only claims cannot satisfy verified or canonical support contracts.'));
+  assert.ok(fixture.failureModeDefinitions.find((item) => (
+    item.failureMode === STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.SOURCE_ID_MISMATCH
+      && item.definition.includes('source id')
+  )));
 });
 
 test('candidate-survival fixture includes Penny-native explicit archive semantic and absent cases', () => {
@@ -256,6 +373,105 @@ test('candidate matching uses ids and expected source/object anchors', () => {
     text: 'Correction episode: my favorite tea is lapsang souchong now, not oolong.',
     selected: true,
   }, [{ id: 'session:tea-old-oolong', object: 'oolong' }]), false);
+});
+
+test('structured candidate contract classifier distinguishes object predicate temporal and authority failures', () => {
+  const subject = {
+    id: buildSemanticEntityId({ entityType: 'project', entityKey: 'lyra-prototype' }),
+    type: 'project',
+  };
+  const sourceId = buildSemanticSourceId({
+    sourceType: 'archive-episode',
+    sourceId: 'session:copper-rabbit',
+  });
+  const baseCase = {
+    id: 'contract-case',
+    expectedClaim: {
+      subjectId: subject.id,
+      subjectType: subject.type,
+      predicateId: SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT,
+      objectText: 'copper rabbit',
+      temporalScope: 'current',
+      sourceId,
+      allowedDomainIds: [SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE],
+      requiredSupportStates: ['rendered-advisory'],
+      requireRendered: true,
+    },
+    forbiddenClaims: [
+      {
+        predicateId: SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT,
+        objectText: 'brass fox',
+      },
+    ],
+  };
+  const valid = makeStructuredContractCandidate({ subject, sourceId });
+  const rebuiltValid = makeStructuredContractCandidate({ subject, sourceId });
+
+  assert.equal(valid.claim.claimId, rebuiltValid.claim.claimId);
+  assert.equal(
+    classifyStructuredCandidateContract(baseCase, [valid]).failureMode,
+    STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.NONE,
+  );
+  assert.equal(
+    classifyStructuredCandidateContract(baseCase, [
+      makeStructuredContractCandidate({
+        subject,
+        sourceId,
+        predicateId: SEMANTIC_PREDICATE_IDS.FAVORITE_TEA,
+      }),
+    ]).failureMode,
+    STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_OBJECT_WRONG_PREDICATE,
+  );
+  assert.equal(
+    classifyStructuredCandidateContract(baseCase, [
+      makeStructuredContractCandidate({
+        subject,
+        sourceId,
+        objectText: 'brass fox',
+        stale: true,
+      }),
+    ]).failureMode,
+    STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_PREDICATE_STALE_OBJECT,
+  );
+  assert.equal(
+    classifyStructuredCandidateContract(baseCase, [
+      makeStructuredContractCandidate({
+        subject,
+        sourceId,
+        temporalScope: 'historical',
+      }),
+    ]).failureMode,
+    STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_SOURCE_WRONG_TEMPORAL_SCOPE,
+  );
+  assert.equal(
+    classifyStructuredCandidateContract({
+      ...baseCase,
+      expectedClaim: {
+        ...baseCase.expectedClaim,
+        allowedDomainIds: [SEMANTIC_DOMAIN_IDS.STATIC_CANDIDATE],
+        requiredSupportStates: ['verified'],
+        sourceId: buildSemanticSourceId({
+          sourceType: 'static-candidate',
+          sourceId: 'static:copper-rabbit',
+        }),
+      },
+    }, [
+      makeStructuredContractCandidate({
+        subject,
+        domainId: SEMANTIC_DOMAIN_IDS.STATIC_CANDIDATE,
+        sourceType: 'static-candidate',
+        sourceId: buildSemanticSourceId({
+          sourceType: 'static-candidate',
+          sourceId: 'static:copper-rabbit',
+        }),
+        sourceAuthority: 'candidate-only',
+        supportState: 'candidate-only',
+        canonicality: 'not-canonical',
+        claimTreatment: { supportState: 'verified', verified: true },
+      }),
+    ]).failureMode,
+    STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.CANDIDATE_ONLY_TREATED_AS_VERIFIED,
+  );
 });
 
 test('trace normalization infers stage booleans without runtime dependencies', () => {

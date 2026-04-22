@@ -208,6 +208,12 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(artifact.linkAnalysisSummary.candidateOnlyVerifiedSupportCount, 0);
     assert.equal(artifact.linkAnalysisSummary.byFailureMode['weak-link'] >= 1, true);
     assert.equal(artifact.linkAnalysisSummary.byFailureMode['missing-link'] >= 1, true);
+    assert.equal(artifact.structuredCandidateContracts.measurementMode, 'fixture-only');
+    assert.equal(artifact.structuredCandidateContracts.summary.byFailureMode['candidate-only-treated-as-verified'], 1);
+    assert.equal(artifact.structuredCandidateContracts.summary.byFailureMode['rendered-advisory-treated-as-canonical'], 1);
+    assert.equal(artifact.structuredCandidateContracts.summary.byFailureMode['source-id-mismatch'], 1);
+    assert.equal(artifact.structuredCandidateContracts.summary.promptTruthExpanded, false);
+    assert.equal(artifact.structuredCandidateContracts.summary.toolEvidenceReceiptChanged, false);
     assert.equal(artifact.rerankerShadow.provider, 'fixture-reranker');
     assert.equal(artifact.rerankerShadow.measurementMode, 'shadow-fixture');
     assert.deepEqual(artifact.rerankerShadow.improvedCases, ['archive-reranker-low-rank-shadow']);

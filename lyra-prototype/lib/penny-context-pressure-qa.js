@@ -2,6 +2,7 @@ const CONTEXT_PRESSURE_QA_SCHEMA = 'penny-context-pressure-memory-qa.v1';
 const SOURCE_SENSITIVE_MEMORY_QA_SCHEMA = 'penny-source-sensitive-memory-qa.v1';
 const {
   buildCandidateSurvivalCorrelationSummary,
+  buildStructuredCandidateContractQaFixture,
 } = require('./penny-candidate-survival-qa');
 const {
   PROMPT_TRUTH_CHANNEL_KEYS,
@@ -723,6 +724,7 @@ function buildSourceSensitiveMemoryQaFixture({
       'False-premise repair may mention the stale object only when the answer explicitly rejects it.',
       'Abstention is a passing outcome when evidence is absent or weak.',
     ],
+    structuredCandidateContracts: buildStructuredCandidateContractQaFixture({ generatedAt }),
   };
 }
 

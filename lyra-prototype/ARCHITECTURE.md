@@ -352,7 +352,7 @@ The QA/eval harnesses now share small helper layers and script-owned fixture mod
 - `lib/penny-context-pressure-qa.js`
   - fixture schemas for context-pressure and source-sensitive answer fixtures, estimated prompt tokens, selected/rendered memory counts, fixture-assumed semantic readiness shapes, nullable latency fields, answer-drift classes, and source-sensitive support outcomes
 - `lib/penny-candidate-survival-qa.js`
-  - candidate-survival fixture/archive-unit schemas, outcome and failure-mode taxonomy, candidate trace interpretation, baseline-vs-`hybrid-v1` profile comparison, fixture reranker-shadow summaries, and static embedding comparison without changing normal defaults
+  - candidate-survival fixture/archive-unit schemas, outcome and failure-mode taxonomy, candidate trace interpretation, structured semantic candidate-contract checks, baseline-vs-`hybrid-v1` profile comparison, fixture reranker-shadow summaries, and static embedding comparison without changing normal defaults
 - `lib/penny-static-memory-index.js`
   - explicit-mode static sidecar indexing/query status for live-shadow and live-advisory retrieval traces
 - `lib/penny-gemma-runtime-watch.js`
@@ -502,7 +502,7 @@ Bounded aliveness compare harness. `--fixture` / `npm run eval:aliveness:fixture
 - `scripts/eval-penny-runtime-fit.js`
 Runtime-fit harness for context-length and semantic-fallback tradeoff measurement, with a fixture-only context-pressure mode for short/medium/long rendered-context artifacts whose answer drift remains `not-run` until live eval.
 - `scripts/qa-penny-memory.js`
-Segmented memory QA harness with trace-first runtime artifact validation, judged `write / retrieve / forget` suites, fixture-only source-sensitive memory cases, fixture-only candidate-survival schema output, and archive-unit candidate-survival artifacts.
+Segmented memory QA harness with trace-first runtime artifact validation, judged `write / retrieve / forget` suites, fixture-only source-sensitive memory cases, fixture-only candidate-survival schema output with structured candidate-contract checks, and archive-unit candidate-survival artifacts.
 - `scripts/qa-penny-voice-redo.js`
 Chat-lane voice QA harness that records prompt-set, lane/model/fallback metadata, and normalized trust.
 - `scripts/qa-penny-browser-smoke.js`

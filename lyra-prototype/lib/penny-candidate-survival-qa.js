@@ -1,5 +1,27 @@
 const CANDIDATE_SURVIVAL_QA_SCHEMA = 'penny-candidate-survival-memory-qa.v1';
+const STRUCTURED_CANDIDATE_CONTRACT_QA_SCHEMA = 'penny-structured-candidate-contract-qa.v1';
 
+const {
+  SEMANTIC_ID_KINDS,
+  buildSemanticClaimId,
+  buildSemanticEntityId,
+  buildSemanticSourceId,
+  validateSemanticId,
+} = require('./penny-semantic-ids');
+const {
+  SEMANTIC_PREDICATE_IDS,
+} = require('./penny-semantic-predicates');
+const {
+  SEMANTIC_DOMAIN_IDS,
+} = require('./penny-semantic-domains');
+const {
+  claimCanBeRendered,
+  claimCanBeTreatedAsCanonical,
+  claimIsCandidateOnly,
+  claimIsStale,
+  normalizeSemanticClaim,
+  validateSemanticClaim,
+} = require('./penny-semantic-claims');
 const {
   MEMORY_LINK_AUTHORITY_EFFECTS,
   MEMORY_LINK_RELATIONS,
@@ -99,6 +121,38 @@ const CANDIDATE_LINK_VERDICTS = Object.freeze({
   NEUTRAL: 'neutral',
 });
 
+const STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES = Object.freeze({
+  NONE: 'none',
+  RIGHT_OBJECT_WRONG_PREDICATE: 'right-object-wrong-predicate',
+  RIGHT_PREDICATE_STALE_OBJECT: 'right-predicate-stale-object',
+  RIGHT_SOURCE_WRONG_TEMPORAL_SCOPE: 'right-source-wrong-temporal-scope',
+  CANDIDATE_ONLY_TREATED_AS_VERIFIED: 'candidate-only-treated-as-verified',
+  RENDERED_ADVISORY_TREATED_AS_CANONICAL: 'rendered-advisory-treated-as-canonical',
+  FOUND_NOT_RENDERED: 'found-not-rendered',
+  MISSING_SOURCE_ID: 'missing-source-id',
+  UNSTABLE_CLAIM_ID: 'unstable-claim-id',
+  AUTHORITY_DOMAIN_MISMATCH: 'authority-domain-mismatch',
+  SOURCE_ID_MISMATCH: 'source-id-mismatch',
+  MISSING_EXPECTED_CLAIM: 'missing-expected-claim',
+  NOT_APPLICABLE: 'not-applicable',
+});
+
+const STRUCTURED_CANDIDATE_CONTRACT_FAILURE_DEFINITIONS = Object.freeze({
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.NONE]: 'Structured candidate claim matches the expected subject, predicate, object, source, authority, and temporal contract.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_OBJECT_WRONG_PREDICATE]: 'A candidate matched the expected object text under the wrong predicate.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_PREDICATE_STALE_OBJECT]: 'A candidate matched the expected predicate but carried a stale or forbidden object.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_SOURCE_WRONG_TEMPORAL_SCOPE]: 'A candidate matched source/predicate/object expectations but used the wrong temporal scope.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.CANDIDATE_ONLY_TREATED_AS_VERIFIED]: 'Candidate-only support was treated as verified or required to satisfy a verified-support contract.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RENDERED_ADVISORY_TREATED_AS_CANONICAL]: 'Rendered advisory support was treated as canonical truth.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.FOUND_NOT_RENDERED]: 'The expected claim appeared in candidate traces but did not reach rendered support when rendering was required.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.MISSING_SOURCE_ID]: 'A structured claim candidate was missing a stable semantic source id.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.UNSTABLE_CLAIM_ID]: 'A structured claim candidate had an invalid or field-mismatched semantic claim id.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.AUTHORITY_DOMAIN_MISMATCH]: 'A candidate came from a domain outside the expected authority contract.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.SOURCE_ID_MISMATCH]: 'A candidate source id did not match the expected source id.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.MISSING_EXPECTED_CLAIM]: 'No structured candidate claim matched the expected claim contract.',
+  [STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.NOT_APPLICABLE]: 'The case did not declare a structured expected claim contract.',
+});
+
 const CORRECTION_LINK_RELATIONS = new Set([
   MEMORY_LINK_RELATIONS.CORRECTION_OF,
   MEMORY_LINK_RELATIONS.STALE_PRIOR_OF,
@@ -125,6 +179,16 @@ const LINK_ANALYSIS_LIMITS = Object.freeze([
   'Link-aware candidate survival is retrieval-path evidence, not answer-quality proof.',
   'Link analysis does not activate archive scoring or prompt rendering changes.',
   'Candidate-only, static, and semantic links cannot become verified support.',
+]);
+
+const STRUCTURED_CANDIDATE_CONTRACT_LIMITS = Object.freeze([
+  'Structured semantic candidate contracts are QA evidence only.',
+  'Semantic/static retrieval is candidate discovery, not truth authority.',
+  'Candidate-only claims cannot satisfy verified or canonical support contracts.',
+  'Rendered advisory claims cannot be reported as canonical.',
+  'PromptTruth remains prompt-time rendered/candidate memory/research context.',
+  'toolEvidenceReceipt remains a sibling runtime artifact.',
+  'This artifact does not promote memory or raise prompt/rendered memory limits.',
 ]);
 
 const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
@@ -1000,6 +1064,52 @@ function normalizeRetrievalExpectation(expectationLike = {}) {
   });
 }
 
+function cleanContractId(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeStructuredCandidateExpectedClaim(claimLike = {}) {
+  const source = claimLike && typeof claimLike === 'object' ? claimLike : {};
+  const allowedDomainIds = uniqueStrings([
+    ...asArray(source.allowedDomainIds),
+    ...asArray(source.domainIds),
+    source.domainId,
+  ], 12).map(cleanContractId).filter(Boolean);
+  const requiredSupportStates = uniqueStrings([
+    ...asArray(source.requiredSupportStates),
+    ...asArray(source.supportStates),
+    source.supportState,
+  ], 12).map(normalizeKey).filter(Boolean);
+  const requiredSourceAuthorities = uniqueStrings([
+    ...asArray(source.requiredSourceAuthorities),
+    ...asArray(source.sourceAuthorities),
+    source.sourceAuthority,
+  ], 12).map(normalizeKey).filter(Boolean);
+  return compactObject({
+    subjectId: trimText(source.subjectId || source.subject?.id || '', 500),
+    subjectType: normalizeKey(source.subjectType || source.subject?.type || ''),
+    predicateId: trimText(source.predicateId || source.predicate?.id || source.relationId || '', 500),
+    objectText: trimText(source.objectText || source.object?.text || source.object?.label || source.object || '', 240),
+    temporalScope: normalizeKey(source.temporalScope || source.temporal?.temporalScope || ''),
+    sourceId: trimText(source.sourceId || source.source?.sourceId || '', 500),
+    allowedDomainIds,
+    requiredSupportStates,
+    requiredSourceAuthorities,
+    requiredCanonicality: normalizeKey(source.requiredCanonicality || source.canonicality || ''),
+    requireRendered: source.requireRendered === true || source.shouldRender === true,
+    requireSourceId: source.requireSourceId === false ? false : true,
+    requireStableClaimId: source.requireStableClaimId === false ? false : true,
+  });
+}
+
+function normalizeStructuredForbiddenClaim(claimLike = {}) {
+  const source = claimLike && typeof claimLike === 'object' ? claimLike : {};
+  return compactObject({
+    ...normalizeStructuredCandidateExpectedClaim(source),
+    reason: trimText(source.reason || '', 200),
+  });
+}
+
 function inferDefaultSurvivalOutcome({ support = {}, expected = {} } = {}) {
   const supportState = normalizeKey(support.supportState || '');
   const supportOwner = normalizeForComparison([
@@ -1034,8 +1144,12 @@ function normalizeCandidateSurvivalCase(caseLike = {}) {
     inferDefaultSurvivalOutcome({ support, expected }),
   );
   const retrievalExpectation = normalizeRetrievalExpectation(source.retrievalExpectation || {});
+  const expectedClaim = normalizeStructuredCandidateExpectedClaim(source.expectedClaim || source.expected?.claim || {});
+  const forbiddenClaims = asArray(source.forbiddenClaims || [])
+    .map((item) => normalizeStructuredForbiddenClaim(item))
+    .filter((item) => item.predicateId || item.objectText || item.sourceId || item.allowedDomainIds);
 
-  return {
+  return compactObject({
     id: trimText(source.id || '', 120),
     query: trimText(source.query || source.prompt || '', 360),
     expected,
@@ -1043,8 +1157,10 @@ function normalizeCandidateSurvivalCase(caseLike = {}) {
     support,
     retrievalExpectation,
     expectedSurvival,
+    expectedClaim: Object.keys(expectedClaim).length ? expectedClaim : null,
+    forbiddenClaims,
     notes: uniqueStrings(source.notes || [], 12),
-  };
+  });
 }
 
 function stageMatches(stage = '', values = []) {
@@ -1106,6 +1222,199 @@ function normalizeCandidatePolicyReasons(source = {}) {
   ], 12);
 }
 
+function rawSemanticClaimFromCandidate(source = {}) {
+  if (source.claim && typeof source.claim === 'object') return source.claim;
+  if (source.semanticClaim && typeof source.semanticClaim === 'object') return source.semanticClaim;
+  if (source.structuredClaim && typeof source.structuredClaim === 'object') return source.structuredClaim;
+  return null;
+}
+
+function candidateHasStructuredClaimFields(source = {}) {
+  return Boolean(
+    rawSemanticClaimFromCandidate(source)
+      || source.claimId
+      || source.domainId
+      || source.subjectId
+      || source.predicateId
+      || source.objectText
+      || source.temporalScope
+      || source.supportState
+      || source.canonicality,
+  );
+}
+
+function rawClaimIdFromCandidate(source = {}, rawClaim = null) {
+  return trimText(
+    source.claimId
+      || rawClaim?.claimId
+      || rawClaim?.id
+      || rawClaim?.claim?.claimId
+      || '',
+    500,
+  );
+}
+
+function rawSourceIdFromCandidate(source = {}, rawClaim = null) {
+  return trimText(
+    source.semanticSourceId
+      || rawClaim?.source?.sourceId
+      || rawClaim?.sourceId
+      || source.claimSourceId
+      || '',
+    500,
+  );
+}
+
+function buildClaimLikeFromCandidate(source = {}) {
+  const rawClaim = rawSemanticClaimFromCandidate(source);
+  if (rawClaim) {
+    if (rawClaim.source && typeof rawClaim.source === 'object') return rawClaim;
+    return {
+      claimId: rawClaim.claimId || rawClaim.id,
+      domainId: rawClaim.domainId,
+      subject: {
+        id: rawClaim.subjectId,
+        type: rawClaim.subjectType || 'entity',
+      },
+      predicate: rawClaim.predicateId,
+      object: {
+        id: rawClaim.objectId,
+        type: rawClaim.objectType || 'text',
+        text: rawClaim.objectText,
+      },
+      source: {
+        sourceId: rawClaim.sourceId,
+        sourceType: rawClaim.sourceType,
+      },
+      authority: {
+        sourceAuthority: rawClaim.sourceAuthority,
+        supportState: rawClaim.supportState,
+        canonicality: rawClaim.canonicality,
+      },
+      temporal: {
+        temporalScope: rawClaim.temporalScope,
+      },
+      status: {
+        stale: rawClaim.stale,
+      },
+    };
+  }
+  return {
+    claimId: source.claimId,
+    domainId: source.domainId,
+    subject: {
+      id: source.subjectId,
+      type: source.subjectType || 'entity',
+      label: source.subject,
+    },
+    predicate: source.predicateId || source.relationId || source.predicate,
+    object: {
+      id: source.objectId,
+      type: source.objectType || 'text',
+      label: source.objectLabel || source.object,
+      text: source.objectText || source.object,
+    },
+    source: {
+      sourceId: source.semanticSourceId || source.claimSourceId,
+      sourceType: source.claimSourceType || source.sourceType,
+      excerpt: source.claimExcerpt || source.text || source.textPreview || source.summary,
+      observedAt: source.observedAt,
+    },
+    authority: {
+      sourceAuthority: source.sourceAuthority,
+      supportState: source.supportState,
+      canonicality: source.canonicality,
+      confidence: source.confidence,
+    },
+    temporal: {
+      temporalScope: source.temporalScope,
+      observedAt: source.observedAt,
+    },
+    status: {
+      stale: source.stale,
+      contradictedBy: source.contradictedBy,
+      supersededBy: source.supersededBy,
+    },
+  };
+}
+
+function stableClaimIdForNormalizedClaim(claim = null) {
+  if (!claim) return '';
+  return buildSemanticClaimId({
+    subject: claim.subject,
+    predicate: claim.predicate,
+    object: claim.object,
+    source: claim.source,
+    domainId: claim.domainId,
+    temporal: claim.temporal,
+  });
+}
+
+function normalizeCandidateSemanticClaimForTrace(source = {}) {
+  if (!candidateHasStructuredClaimFields(source)) return null;
+  const rawClaim = rawSemanticClaimFromCandidate(source);
+  const claimLike = buildClaimLikeFromCandidate(source);
+  const rawClaimId = rawClaimIdFromCandidate(source, rawClaim);
+  const rawSourceId = rawSourceIdFromCandidate(source, rawClaim);
+  const claim = normalizeSemanticClaim(claimLike);
+  if (!claim) return null;
+  const validation = validateSemanticClaim(claimLike);
+  const stableClaimId = stableClaimIdForNormalizedClaim(claim);
+  const rawClaimIdValid = rawClaimId
+    ? validateSemanticId(rawClaimId, SEMANTIC_ID_KINDS.CLAIM).valid
+    : true;
+  const normalizedClaimIdValid = validateSemanticId(claim.claimId, SEMANTIC_ID_KINDS.CLAIM).valid;
+  const claimIdStable = normalizedClaimIdValid
+    && claim.claimId === stableClaimId
+    && rawClaimIdValid
+    && (!rawClaimId || rawClaimId === claim.claimId);
+
+  return compactObject({
+    schema: 'penny-structured-candidate-claim.v1',
+    claimId: claim.claimId,
+    rawClaimId,
+    stableClaimId,
+    claimIdStable,
+    domainId: claim.domainId,
+    subjectId: claim.subject.id,
+    subjectType: claim.subject.type,
+    predicateId: claim.predicate?.id || '',
+    objectText: claim.object.text || claim.object.label || claim.object.id || '',
+    sourceId: claim.source.sourceId,
+    rawSourceId,
+    sourceType: claim.source.sourceType,
+    sourceAuthority: claim.authority.sourceAuthority,
+    supportState: claim.authority.supportState,
+    canonicality: claim.authority.canonicality,
+    temporalScope: claim.temporal.temporalScope,
+    stale: claimIsStale(claim),
+    candidateOnly: claimIsCandidateOnly(claim),
+    canonical: claimCanBeTreatedAsCanonical(claim),
+    renderable: claimCanBeRendered(claim),
+    validation: {
+      valid: validation.valid === true,
+      errors: uniqueStrings(validation.errors || [], 12),
+    },
+  });
+}
+
+function normalizeCandidateClaimTreatmentForTrace(source = {}) {
+  const treatment = source.claimTreatment
+    || source.semanticClaimTreatment
+    || source.treatedAs
+    || source.reportedAs
+    || {};
+  if (!treatment || typeof treatment !== 'object') return null;
+  return compactObject({
+    sourceAuthority: normalizeKey(treatment.sourceAuthority || treatment.authority || ''),
+    supportState: normalizeKey(treatment.supportState || treatment.support || ''),
+    canonicality: normalizeKey(treatment.canonicality || ''),
+    verified: treatment.verified === true,
+    canonical: treatment.canonical === true,
+    note: trimText(treatment.note || '', 180),
+  });
+}
+
 function normalizeCandidateTraceMemoryLinks(raw = null, candidateId = '') {
   if (!raw || typeof raw !== 'object') return null;
   const links = [
@@ -1161,6 +1470,8 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     : (source.eligible === true || eligibilitySource.eligible === true ? true : null);
 
   const memoryLinks = normalizeCandidateTraceMemoryLinks(source.memoryLinks, id || sourceId);
+  const semanticClaim = normalizeCandidateSemanticClaimForTrace(source);
+  const claimTreatment = normalizeCandidateClaimTreatmentForTrace(source);
 
   return compactObject({
     id,
@@ -1188,6 +1499,8 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     shadowScores,
     rerankShadow,
     memoryLinks,
+    semanticClaim,
+    claimTreatment,
   });
 }
 
@@ -1378,6 +1691,40 @@ function summarizeTraceItem(item = null) {
           outgoingCount: asArray(item.memoryLinks.outgoing).length,
           relationSummary: item.memoryLinks.relationSummary || {},
           authorityEffects: uniqueStrings(item.memoryLinks.authorityEffects || [], 8),
+        })
+      : null,
+    semanticClaim: item.semanticClaim
+      ? compactObject({
+          schema: item.semanticClaim.schema || '',
+          claimId: item.semanticClaim.claimId || '',
+          stableClaimId: item.semanticClaim.stableClaimId || '',
+          claimIdStable: item.semanticClaim.claimIdStable === true,
+          domainId: item.semanticClaim.domainId || '',
+          subjectId: item.semanticClaim.subjectId || '',
+          subjectType: item.semanticClaim.subjectType || '',
+          predicateId: item.semanticClaim.predicateId || '',
+          objectText: item.semanticClaim.objectText || '',
+          sourceId: item.semanticClaim.sourceId || '',
+          sourceType: item.semanticClaim.sourceType || '',
+          sourceAuthority: item.semanticClaim.sourceAuthority || '',
+          supportState: item.semanticClaim.supportState || '',
+          canonicality: item.semanticClaim.canonicality || '',
+          temporalScope: item.semanticClaim.temporalScope || '',
+          stale: item.semanticClaim.stale === true,
+          candidateOnly: item.semanticClaim.candidateOnly === true,
+          canonical: item.semanticClaim.canonical === true,
+          renderable: item.semanticClaim.renderable === true,
+          validation: item.semanticClaim.validation || {},
+        })
+      : null,
+    claimTreatment: item.claimTreatment
+      ? compactObject({
+          sourceAuthority: item.claimTreatment.sourceAuthority || '',
+          supportState: item.claimTreatment.supportState || '',
+          canonicality: item.claimTreatment.canonicality || '',
+          verified: item.claimTreatment.verified === true,
+          canonical: item.claimTreatment.canonical === true,
+          note: item.claimTreatment.note || '',
         })
       : null,
   });
@@ -2015,6 +2362,575 @@ function buildCandidateLinkAnalysisSummary(cases = []) {
     behaviorChanged: false,
     scoringActive: false,
     truthProof: false,
+  };
+}
+
+function buildStructuredCandidateContractFailureDefinitionList() {
+  return Object.values(STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES).map((failureMode) => ({
+    failureMode,
+    definition: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_DEFINITIONS[failureMode],
+  }));
+}
+
+function traceItemsWithSemanticClaims(traceLike = []) {
+  return normalizeTraceArray(traceLike).filter((item) => item.semanticClaim);
+}
+
+function claimValueMatches(value = '', expectedValue = '') {
+  const expected = trimText(expectedValue, 500);
+  if (!expected) return true;
+  return hasNormalizedNeedle(value, expected);
+}
+
+function semanticClaimObjectMatches(claim = {}, expectedClaim = {}) {
+  return claimValueMatches(claim.objectText || '', expectedClaim.objectText || '');
+}
+
+function semanticClaimPredicateMatches(claim = {}, expectedClaim = {}) {
+  const expectedPredicateId = cleanContractId(expectedClaim.predicateId || '');
+  if (!expectedPredicateId) return true;
+  return cleanContractId(claim.predicateId || '') === expectedPredicateId;
+}
+
+function semanticClaimSubjectMatches(claim = {}, expectedClaim = {}) {
+  const expectedSubjectId = cleanContractId(expectedClaim.subjectId || '');
+  const expectedSubjectType = normalizeKey(expectedClaim.subjectType || '');
+  if (expectedSubjectId && cleanContractId(claim.subjectId || '') !== expectedSubjectId) return false;
+  if (expectedSubjectType && normalizeKey(claim.subjectType || '') !== expectedSubjectType) return false;
+  return true;
+}
+
+function semanticClaimMatchesExpected(claim = {}, expectedClaim = {}) {
+  return semanticClaimSubjectMatches(claim, expectedClaim)
+    && semanticClaimPredicateMatches(claim, expectedClaim)
+    && semanticClaimObjectMatches(claim, expectedClaim);
+}
+
+function semanticClaimMatchesForbidden(claim = {}, forbiddenClaim = {}) {
+  return semanticClaimSubjectMatches(claim, forbiddenClaim)
+    && semanticClaimPredicateMatches(claim, forbiddenClaim)
+    && semanticClaimObjectMatches(claim, forbiddenClaim);
+}
+
+function semanticClaimTemporalMatches(claim = {}, expectedClaim = {}) {
+  const expectedTemporalScope = normalizeKey(expectedClaim.temporalScope || '');
+  if (!expectedTemporalScope) return true;
+  return normalizeKey(claim.temporalScope || '') === expectedTemporalScope;
+}
+
+function semanticClaimDomainAllowed(claim = {}, expectedClaim = {}) {
+  const allowed = asArray(expectedClaim.allowedDomainIds).map(cleanContractId).filter(Boolean);
+  if (!allowed.length) return true;
+  return allowed.includes(cleanContractId(claim.domainId || ''));
+}
+
+function semanticClaimSourceMatches(claim = {}, expectedClaim = {}) {
+  const expectedSourceId = cleanContractId(expectedClaim.sourceId || '');
+  if (!expectedSourceId) return true;
+  return cleanContractId(claim.sourceId || '') === expectedSourceId;
+}
+
+function semanticClaimSupportMeets(claim = {}, expectedClaim = {}) {
+  const required = asArray(expectedClaim.requiredSupportStates).map(normalizeKey).filter(Boolean);
+  if (!required.length) return true;
+  return required.includes(normalizeKey(claim.supportState || ''));
+}
+
+function semanticClaimSourceAuthorityMeets(claim = {}, expectedClaim = {}) {
+  const required = asArray(expectedClaim.requiredSourceAuthorities).map(normalizeKey).filter(Boolean);
+  if (!required.length) return true;
+  return required.includes(normalizeKey(claim.sourceAuthority || ''));
+}
+
+function semanticClaimCanonicalityMeets(claim = {}, expectedClaim = {}) {
+  const required = normalizeKey(expectedClaim.requiredCanonicality || '');
+  if (!required) return true;
+  return normalizeKey(claim.canonicality || '') === required;
+}
+
+function expectedClaimRequiresVerifiedSupport(expectedClaim = {}) {
+  return asArray(expectedClaim.requiredSupportStates).map(normalizeKey).includes('verified')
+    || asArray(expectedClaim.requiredSourceAuthorities).map(normalizeKey).includes('canonical')
+    || normalizeKey(expectedClaim.requiredCanonicality || '') === 'canonical';
+}
+
+function treatmentLooksVerified(treatment = {}) {
+  return treatment.verified === true
+    || normalizeKey(treatment.supportState || '') === 'verified'
+    || normalizeKey(treatment.sourceAuthority || '') === 'canonical'
+    || normalizeKey(treatment.canonicality || '') === 'canonical';
+}
+
+function treatmentLooksCanonical(treatment = {}) {
+  return treatment.canonical === true
+    || normalizeKey(treatment.canonicality || '') === 'canonical'
+    || normalizeKey(treatment.sourceAuthority || '') === 'canonical';
+}
+
+function structuredContractFailureResult({
+  normalizedCase = {},
+  failureMode = STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.NONE,
+  matchedCandidate = null,
+  reason = '',
+} = {}) {
+  return {
+    schema: STRUCTURED_CANDIDATE_CONTRACT_QA_SCHEMA,
+    caseId: normalizedCase.id || '',
+    failureMode,
+    failureDefinition: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_DEFINITIONS[failureMode],
+    reason: trimText(reason || STRUCTURED_CANDIDATE_CONTRACT_FAILURE_DEFINITIONS[failureMode], 240),
+    expectedClaim: normalizedCase.expectedClaim || {},
+    matchedCandidate: summarizeTraceItem(matchedCandidate),
+    advisoryOnly: true,
+    truthProof: false,
+    behaviorChanged: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    canonicalMemoryWrite: false,
+    defaultPromptLimitsRaised: false,
+  };
+}
+
+function classifyStructuredCandidateContract(caseLike = {}, traceLike = []) {
+  const normalizedCase = normalizeCandidateSurvivalCase(caseLike);
+  const expectedClaim = normalizedCase.expectedClaim || null;
+  const trace = traceItemsWithSemanticClaims(traceLike);
+  if (!expectedClaim || !Object.keys(expectedClaim).length) {
+    return structuredContractFailureResult({
+      normalizedCase,
+      failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.NOT_APPLICABLE,
+      reason: 'Case does not declare expectedClaim.',
+    });
+  }
+
+  const exactMatches = trace.filter((item) => semanticClaimMatchesExpected(item.semanticClaim, expectedClaim));
+  const bestExact = findBestTraceMatch(exactMatches, () => true);
+  if (bestExact) {
+    const claim = bestExact.semanticClaim || {};
+    if (expectedClaim.requireSourceId !== false && !claim.sourceId) {
+      return structuredContractFailureResult({
+        normalizedCase,
+        failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.MISSING_SOURCE_ID,
+        matchedCandidate: bestExact,
+        reason: 'Expected claim matched but sourceId is missing.',
+      });
+    }
+    if (expectedClaim.requireStableClaimId !== false && claim.claimIdStable !== true) {
+      return structuredContractFailureResult({
+        normalizedCase,
+        failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.UNSTABLE_CLAIM_ID,
+        matchedCandidate: bestExact,
+        reason: 'Expected claim matched but claimId is invalid or does not match normalized claim fields.',
+      });
+    }
+    if (!semanticClaimDomainAllowed(claim, expectedClaim)) {
+      return structuredContractFailureResult({
+        normalizedCase,
+        failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.AUTHORITY_DOMAIN_MISMATCH,
+        matchedCandidate: bestExact,
+        reason: `Claim domain ${claim.domainId || 'unknown'} is outside the allowed domain contract.`,
+      });
+    }
+    if (!semanticClaimSourceMatches(claim, expectedClaim)) {
+      return structuredContractFailureResult({
+        normalizedCase,
+        failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.SOURCE_ID_MISMATCH,
+        matchedCandidate: bestExact,
+        reason: 'Claim sourceId does not match the expected sourceId.',
+      });
+    }
+    if (!semanticClaimTemporalMatches(claim, expectedClaim)) {
+      return structuredContractFailureResult({
+        normalizedCase,
+        failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_SOURCE_WRONG_TEMPORAL_SCOPE,
+        matchedCandidate: bestExact,
+        reason: `Claim temporal scope ${claim.temporalScope || 'unknown'} does not match ${expectedClaim.temporalScope || 'expected scope'}.`,
+      });
+    }
+    if ((claim.candidateOnly || claim.supportState === 'candidate-only') && (
+      expectedClaimRequiresVerifiedSupport(expectedClaim) || treatmentLooksVerified(bestExact.claimTreatment || {})
+    )) {
+      return structuredContractFailureResult({
+        normalizedCase,
+        failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.CANDIDATE_ONLY_TREATED_AS_VERIFIED,
+        matchedCandidate: bestExact,
+        reason: 'Candidate-only support cannot satisfy a verified/canonical contract.',
+      });
+    }
+    if (claim.supportState === 'rendered-advisory' && (
+      normalizeKey(expectedClaim.requiredCanonicality || '') === 'canonical'
+        || treatmentLooksCanonical(bestExact.claimTreatment || {})
+    )) {
+      return structuredContractFailureResult({
+        normalizedCase,
+        failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RENDERED_ADVISORY_TREATED_AS_CANONICAL,
+        matchedCandidate: bestExact,
+        reason: 'Rendered advisory support cannot be treated as canonical.',
+      });
+    }
+    if (!semanticClaimSupportMeets(claim, expectedClaim)
+      || !semanticClaimSourceAuthorityMeets(claim, expectedClaim)
+      || !semanticClaimCanonicalityMeets(claim, expectedClaim)) {
+      return structuredContractFailureResult({
+        normalizedCase,
+        failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.AUTHORITY_DOMAIN_MISMATCH,
+        matchedCandidate: bestExact,
+        reason: 'Claim authority/support fields do not satisfy the expected authority contract.',
+      });
+    }
+    if (expectedClaim.requireRendered === true && bestExact.rendered !== true) {
+      return structuredContractFailureResult({
+        normalizedCase,
+        failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.FOUND_NOT_RENDERED,
+        matchedCandidate: bestExact,
+        reason: 'Expected claim was found but not rendered.',
+      });
+    }
+    return structuredContractFailureResult({
+      normalizedCase,
+      failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.NONE,
+      matchedCandidate: bestExact,
+      reason: 'Expected structured claim contract was satisfied.',
+    });
+  }
+
+  const stalePredicateMatch = trace.find((item) => (
+    semanticClaimSubjectMatches(item.semanticClaim, expectedClaim)
+      && semanticClaimPredicateMatches(item.semanticClaim, expectedClaim)
+      && (
+        item.semanticClaim.stale === true
+        || asArray(normalizedCase.forbiddenClaims).some((forbidden) => semanticClaimMatchesForbidden(item.semanticClaim, forbidden))
+      )
+  ));
+  if (stalePredicateMatch) {
+    return structuredContractFailureResult({
+      normalizedCase,
+      failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_PREDICATE_STALE_OBJECT,
+      matchedCandidate: stalePredicateMatch,
+      reason: 'Candidate used the expected predicate with a stale or forbidden object.',
+    });
+  }
+
+  const wrongPredicateMatch = trace.find((item) => (
+    semanticClaimSubjectMatches(item.semanticClaim, expectedClaim)
+      && semanticClaimObjectMatches(item.semanticClaim, expectedClaim)
+      && !semanticClaimPredicateMatches(item.semanticClaim, expectedClaim)
+  ));
+  if (wrongPredicateMatch) {
+    return structuredContractFailureResult({
+      normalizedCase,
+      failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RIGHT_OBJECT_WRONG_PREDICATE,
+      matchedCandidate: wrongPredicateMatch,
+      reason: 'Candidate carried the expected object under the wrong predicate.',
+    });
+  }
+
+  return structuredContractFailureResult({
+    normalizedCase,
+    failureMode: STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.MISSING_EXPECTED_CLAIM,
+    reason: 'No structured candidate claim matched the expected contract.',
+  });
+}
+
+function buildStructuredCandidateContractSummary(cases = []) {
+  const byFailureMode = Object.fromEntries(
+    Object.values(STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES).map((mode) => [mode, 0]),
+  );
+  const caseIdsByFailureMode = Object.fromEntries(
+    Object.values(STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES).map((mode) => [mode, []]),
+  );
+  for (const item of asArray(cases)) {
+    const failureMode = Object.values(STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES).includes(item?.failureMode)
+      ? item.failureMode
+      : STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.NOT_APPLICABLE;
+    byFailureMode[failureMode] += 1;
+    if (item?.caseId || item?.id) caseIdsByFailureMode[failureMode].push(item.caseId || item.id);
+  }
+  return {
+    totalCases: asArray(cases).filter((item) => item && typeof item === 'object').length,
+    byFailureMode,
+    caseIdsByFailureMode,
+    candidateOnlyTreatedAsVerifiedCount: byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.CANDIDATE_ONLY_TREATED_AS_VERIFIED],
+    renderedAdvisoryTreatedAsCanonicalCount: byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.RENDERED_ADVISORY_TREATED_AS_CANONICAL],
+    missingSourceIdCount: byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.MISSING_SOURCE_ID],
+    unstableClaimIdCount: byFailureMode[STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES.UNSTABLE_CLAIM_ID],
+    behaviorChanged: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    canonicalMemoryWriteCount: 0,
+    defaultPromptLimitsRaised: false,
+  };
+}
+
+function buildStructuredCandidateFixtureCandidate({
+  id = '',
+  subject,
+  predicateId = SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT,
+  objectText = 'copper rabbit',
+  domainId = SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE,
+  sourceType = 'archive-episode',
+  sourceRef = 'session:coding-mascot-current-copper-rabbit',
+  sourceId = '',
+  sourceAuthority = 'advisory',
+  supportState = 'rendered-advisory',
+  canonicality = 'advisory',
+  temporalScope = 'current',
+  stale = false,
+  rendered = true,
+  selected = true,
+  rank = 1,
+  claimId = undefined,
+  claimTreatment = null,
+} = {}) {
+  const claimSourceId = sourceId === null
+    ? ''
+    : (sourceId || buildSemanticSourceId({ sourceType, sourceId: sourceRef }));
+  const claimLike = {
+    domainId,
+    subject,
+    predicate: { id: predicateId },
+    object: { type: 'text', text: objectText },
+    source: {
+      ...(claimSourceId ? { sourceId: claimSourceId } : {}),
+      sourceType,
+      excerpt: `${objectText} structured candidate fixture`,
+      observedAt: '2026-04-22T12:00:00.000Z',
+    },
+    authority: {
+      sourceAuthority,
+      supportState,
+      canonicality,
+    },
+    temporal: {
+      temporalScope,
+      observedAt: '2026-04-22T12:00:00.000Z',
+    },
+    status: { stale },
+  };
+  const stableClaimId = buildSemanticClaimId(claimLike);
+  return {
+    id: id || sourceRef,
+    raw: true,
+    ranked: true,
+    selected,
+    rendered,
+    rank,
+    claim: {
+      ...claimLike,
+      claimId: claimId === undefined ? stableClaimId : claimId,
+    },
+    ...(claimTreatment ? { claimTreatment } : {}),
+  };
+}
+
+function buildStructuredCandidateContractFixtureCases() {
+  const projectSubject = {
+    id: buildSemanticEntityId({ entityType: 'project', entityKey: 'lyra-prototype' }),
+    type: 'project',
+    label: 'lyra-prototype',
+  };
+  const expectedSourceId = buildSemanticSourceId({
+    sourceType: 'archive-episode',
+    sourceId: 'session:coding-mascot-current-copper-rabbit',
+  });
+  const alternateSourceId = buildSemanticSourceId({
+    sourceType: 'archive-episode',
+    sourceId: 'session:coding-mascot-other-source',
+  });
+  const expectedClaim = {
+    subjectId: projectSubject.id,
+    subjectType: projectSubject.type,
+    predicateId: SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT,
+    objectText: 'copper rabbit',
+    temporalScope: 'current',
+    allowedDomainIds: [
+      SEMANTIC_DOMAIN_IDS.EXPLICIT_MEMORY,
+      SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE,
+    ],
+    requiredSupportStates: ['verified', 'rendered-advisory'],
+    requireRendered: true,
+    sourceId: expectedSourceId,
+  };
+  const forbiddenBrassFox = [{
+    predicateId: SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT,
+    objectText: 'brass fox',
+    reason: 'stale prior',
+  }];
+  const validCandidate = buildStructuredCandidateFixtureCandidate({
+    id: 'contract:coding-mascot-current',
+    subject: projectSubject,
+    sourceId: expectedSourceId,
+  });
+  const baseCase = {
+    query: 'What is the current coding mascot?',
+    expected: {
+      subject: 'lyra-prototype',
+      relation: 'current coding mascot',
+      object: 'copper rabbit',
+    },
+    expectedClaim,
+    forbiddenClaims: forbiddenBrassFox,
+  };
+
+  return [
+    {
+      ...baseCase,
+      id: 'structured-contract-valid-current-claim',
+      trace: [validCandidate],
+    },
+    {
+      ...baseCase,
+      id: 'structured-contract-right-object-wrong-predicate',
+      trace: [buildStructuredCandidateFixtureCandidate({
+        id: 'contract:wrong-predicate',
+        subject: projectSubject,
+        predicateId: SEMANTIC_PREDICATE_IDS.FAVORITE_TEA,
+        sourceId: expectedSourceId,
+      })],
+    },
+    {
+      ...baseCase,
+      id: 'structured-contract-right-predicate-stale-object',
+      trace: [buildStructuredCandidateFixtureCandidate({
+        id: 'contract:stale-object',
+        subject: projectSubject,
+        objectText: 'brass fox',
+        sourceId: expectedSourceId,
+        temporalScope: 'historical',
+        stale: true,
+      })],
+    },
+    {
+      ...baseCase,
+      id: 'structured-contract-wrong-temporal-scope',
+      trace: [buildStructuredCandidateFixtureCandidate({
+        id: 'contract:historical-current-object',
+        subject: projectSubject,
+        sourceId: expectedSourceId,
+        temporalScope: 'historical',
+      })],
+    },
+    {
+      ...baseCase,
+      id: 'structured-contract-candidate-only-treated-verified',
+      expectedClaim: {
+        ...expectedClaim,
+        allowedDomainIds: [SEMANTIC_DOMAIN_IDS.STATIC_CANDIDATE],
+        requiredSupportStates: ['verified'],
+        sourceId: buildSemanticSourceId({
+          sourceType: 'static-candidate',
+          sourceId: 'static:coding-mascot-candidate',
+        }),
+      },
+      trace: [buildStructuredCandidateFixtureCandidate({
+        id: 'contract:candidate-only',
+        subject: projectSubject,
+        domainId: SEMANTIC_DOMAIN_IDS.STATIC_CANDIDATE,
+        sourceType: 'static-candidate',
+        sourceRef: 'static:coding-mascot-candidate',
+        sourceAuthority: 'candidate-only',
+        supportState: 'candidate-only',
+        canonicality: 'not-canonical',
+        claimTreatment: { supportState: 'verified', verified: true },
+      })],
+    },
+    {
+      ...baseCase,
+      id: 'structured-contract-rendered-advisory-treated-canonical',
+      expectedClaim: {
+        ...expectedClaim,
+        requiredCanonicality: 'canonical',
+      },
+      trace: [buildStructuredCandidateFixtureCandidate({
+        id: 'contract:rendered-advisory-canonical-overclaim',
+        subject: projectSubject,
+        sourceId: expectedSourceId,
+        claimTreatment: { canonicality: 'canonical', canonical: true },
+      })],
+    },
+    {
+      ...baseCase,
+      id: 'structured-contract-found-not-rendered',
+      trace: [buildStructuredCandidateFixtureCandidate({
+        id: 'contract:found-not-rendered',
+        subject: projectSubject,
+        sourceId: expectedSourceId,
+        rendered: false,
+        selected: true,
+      })],
+    },
+    {
+      ...baseCase,
+      id: 'structured-contract-missing-source-id',
+      expectedClaim: {
+        ...expectedClaim,
+        sourceId: '',
+      },
+      trace: [buildStructuredCandidateFixtureCandidate({
+        id: 'contract:missing-source-id',
+        subject: projectSubject,
+        sourceId: null,
+      })],
+    },
+    {
+      ...baseCase,
+      id: 'structured-contract-unstable-claim-id',
+      trace: [buildStructuredCandidateFixtureCandidate({
+        id: 'contract:unstable-claim-id',
+        subject: projectSubject,
+        sourceId: expectedSourceId,
+        claimId: 'penny:claim:not-a-digest',
+      })],
+    },
+    {
+      ...baseCase,
+      id: 'structured-contract-authority-domain-mismatch',
+      trace: [buildStructuredCandidateFixtureCandidate({
+        id: 'contract:domain-mismatch',
+        subject: projectSubject,
+        domainId: SEMANTIC_DOMAIN_IDS.STATIC_CANDIDATE,
+        sourceType: 'static-candidate',
+        sourceRef: 'static:coding-mascot-domain-mismatch',
+        sourceAuthority: 'candidate-only',
+        supportState: 'candidate-only',
+        canonicality: 'not-canonical',
+      })],
+    },
+    {
+      ...baseCase,
+      id: 'structured-contract-source-id-mismatch',
+      trace: [buildStructuredCandidateFixtureCandidate({
+        id: 'contract:source-mismatch',
+        subject: projectSubject,
+        sourceId: alternateSourceId,
+      })],
+    },
+  ];
+}
+
+function buildStructuredCandidateContractQaFixture({
+  generatedAt = new Date().toISOString(),
+  cases = null,
+} = {}) {
+  const fixtureCases = Array.isArray(cases) && cases.length
+    ? cases
+    : buildStructuredCandidateContractFixtureCases();
+  const results = fixtureCases.map((item) => {
+    const classification = classifyStructuredCandidateContract(item, item.trace || item.candidateTrace || []);
+    return {
+      ...classification,
+      traceSummary: summarizeCandidateTrace(item.trace || item.candidateTrace || []),
+    };
+  });
+  return {
+    schema: STRUCTURED_CANDIDATE_CONTRACT_QA_SCHEMA,
+    generatedAt,
+    measurementMode: 'fixture-only',
+    liveModelCalls: false,
+    failureModeDefinitions: buildStructuredCandidateContractFailureDefinitionList(),
+    cases: results,
+    summary: buildStructuredCandidateContractSummary(results),
+    limits: STRUCTURED_CANDIDATE_CONTRACT_LIMITS,
   };
 }
 
@@ -2738,6 +3654,7 @@ function buildCandidateSurvivalArchiveUnitArtifact({
     cleanup,
     summary: summarizeCandidateSurvivalCases(normalizedCases),
     linkAnalysisSummary: buildCandidateLinkAnalysisSummary(normalizedCases),
+    structuredCandidateContracts: buildStructuredCandidateContractQaFixture({ generatedAt }),
     rerankerShadow: buildRerankerShadowArtifactSummary(normalizedCases),
     ...(embeddingProviderComparison && typeof embeddingProviderComparison === 'object'
       ? { embeddingProviderComparison }
@@ -2786,6 +3703,7 @@ function buildCandidateSurvivalQaFixture({
     cases: casesWithFailureModes,
     summary: summarizeCandidateSurvivalCases(casesWithFailureModes),
     linkAnalysisSummary: buildCandidateLinkAnalysisSummary(casesWithFailureModes),
+    structuredCandidateContracts: buildStructuredCandidateContractQaFixture({ generatedAt }),
     rerankerShadow: buildRerankerShadowArtifactSummary(casesWithFailureModes),
     candidateSurvivalCorrelation: buildCandidateSurvivalCorrelationSummary({
       generatedAt,
@@ -2805,12 +3723,14 @@ function buildCandidateSurvivalQaFixture({
 
 module.exports = {
   CANDIDATE_SURVIVAL_QA_SCHEMA,
+  STRUCTURED_CANDIDATE_CONTRACT_QA_SCHEMA,
   CANDIDATE_SURVIVAL_OUTCOMES,
   CANDIDATE_SURVIVAL_OUTCOME_DEFINITIONS,
   CANDIDATE_FAILURE_MODES,
   CANDIDATE_FAILURE_MODE_DEFINITIONS,
   CANDIDATE_LINK_FAILURE_MODES,
   CANDIDATE_LINK_VERDICTS,
+  STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES,
   CANDIDATE_SURVIVAL_FIXTURE_CASES,
   CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
   applyPromptTruthToCandidateTrace,
@@ -2825,6 +3745,9 @@ module.exports = {
   buildEmbeddingProviderComparison,
   buildRerankerShadowArtifactSummary,
   buildRerankerShadowComparison,
+  buildStructuredCandidateContractQaFixture,
+  buildStructuredCandidateContractSummary,
+  classifyStructuredCandidateContract,
   classifyCandidateFailureMode,
   classifyCandidateSurvival,
   matchCandidateAgainstForbidden,

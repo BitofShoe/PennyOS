@@ -124,6 +124,9 @@ test('source-sensitive memory fixture separates subject relation object source a
     SOURCE_SENSITIVE_OUTCOMES.UNKNOWN,
   ]);
   assert.equal(fixture.outcomeClasses.includes(SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED), true);
+  assert.equal(fixture.structuredCandidateContracts.measurementMode, 'fixture-only');
+  assert.equal(fixture.structuredCandidateContracts.summary.candidateOnlyTreatedAsVerifiedCount, 1);
+  assert.equal(fixture.structuredCandidateContracts.summary.promptTruthExpanded, false);
 });
 
 test('source-sensitive cases bind retrieval expectations separately from answer outcomes', () => {
