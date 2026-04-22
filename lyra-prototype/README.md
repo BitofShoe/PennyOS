@@ -52,6 +52,7 @@ Read these in order if you need the current truth:
 - Pressure-watch trust canaries now live in QA/eval coverage and `penny-pressure-watch-qa.v1` artifacts. They test truthfulness under user, source, social, companion-feedback, and agent-integrity pressure without changing runtime voice.
 - Gemma runtime watch now lives as fixture/status artifact coverage and status/preflight output, not as a behavior change. It records watch items such as vision budget exposure, thinking-control state, prompt-cache/RAM risk, loaded-model identity, and chat sampling without enabling default thinking, raising default context, or changing the default embedding provider.
 - The April 21 external-link follow-through did not import external dependencies, change runtime voice, expand `promptTruth`, broaden `toolEvidenceReceipt` beyond optional cost metadata on existing runtime artifact surfaces, enable default thinking, raise default context/rendered-memory limits, or switch embedding providers.
+- Static embedding live sidecar support is opt-in. Normal repo work leaves `PENNY_STATIC_EMBED_MODE` unset or `off`; QA/shadow comparison uses `qa-shadow` or `npm run eval:static-embedding-live-compare`. Local experimental Penny runs may set `PENNY_STATIC_EMBED_MODE=live-advisory`, but static candidates remain advisory, static-only rendered items stay capped, prompt limits stay unchanged, and PromptTruth / `toolEvidenceReceipt` do not expand.
 - The research continuity ledger is question-scoped instead of file-scoped: one repo anchor can hold multiple bounded topics, and the inspector exposes each topic's anchor/scope identity instead of flattening them together.
 - Question-scoped ledger topics only settle when verified non-`query` evidence supports an evidence-tight summary. Otherwise Penny keeps the topic provisional, leaves the durable conclusion empty, and falls back to the question or open follow-up instead of laundering assistant wording into continuity.
 - Generic authored file-write turns stay out of the research ledger unless the turn was genuinely research-shaped and anchored by verified read evidence. Penny's Playground free-writing can matter to archive/audit continuity without pretending it was research provenance.
@@ -128,6 +129,7 @@ npm run eval:probes
 npm run eval:epistemic-compare
 npm run eval:epistemic-compare:synthesis
 npm run eval:ledger-compare
+npm run eval:static-embedding-live-compare
 npm run eval:runtime-fit
 npm run eval:runtime-fit:context-pressure
 npm run eval:runtime-fit:gemma-watch
@@ -141,6 +143,7 @@ npm run bundle:review
 Practical notes:
 
 - `npm run qa:browser:smoke` checks the real streaming browser path against a disposable current-code server and mock LM Studio.
+- `npm run eval:static-embedding-live-compare` compares static-off, static-live-shadow, and static-live-advisory through disposable per-case Penny servers and a mock LM Studio route backend.
 - `npm run eval:runtime-fit` measures latency/context/semantic-readiness tradeoffs instead of only correctness. Runtime token counts are request-message estimates unless a future artifact exposes true assembled-prompt/tokenizer counts.
 - `npm run eval:runtime-fit:context-pressure` writes a cheap short/medium/long rendered-context fixture-only artifact with nullable latency fields and a candidate-survival correlation appendix; answer drift remains `not-run` until live eval, and semantic readiness may be fixture-assumed.
 - `npm run eval:runtime-fit:gemma-watch` writes a status/preflight-only Gemma runtime watch artifact. It does not run live chat generation, change LM Studio defaults, enable thinking by default, or raise context/vision budgets.
@@ -227,7 +230,8 @@ The browser cache is not the source of truth for long-term memory.
   - `PENNY_LMSTUDIO_EMBED_MODEL` defaults to `text-embedding-nomic-embed-text-v1.5`
   - if that model is missing or unloaded, Penny falls back to keyword-style archive retrieval instead of failing chat
   - EmbeddingGemma is supported as a comparison candidate, but it is not the default; the embedding cache is model-aware so vectors from one embedding model are not reused in another model's vector space
-  - the static embedding shadow comparator is QA-only discovery machinery and does not replace the LM Studio embedding default
+  - static embedding support is a separate opt-in sidecar, not a replacement for the LM Studio embedding default
+  - normal repo default is `PENNY_STATIC_EMBED_MODE=off` or QA-only shadow comparison; local experimental live mode is `PENNY_STATIC_EMBED_MODE=live-advisory`, with `PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED` still enforcing the static-only render cap
 - Archive retrieval scoring defaults to `PENNY_ARCHIVE_SCORING_PROFILE=baseline`.
   - `PENNY_ARCHIVE_SCORING_PROFILE=hybrid-v1` is an explicit gated profile for candidate ordering only
   - invalid or empty profile values fall back to `baseline`

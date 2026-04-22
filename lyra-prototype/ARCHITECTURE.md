@@ -184,6 +184,8 @@ Current archive-policy behavior:
 - `hybrid-v1` can change which archive candidates survive ranking, but it does not increase `SESSION_PROMPT_LIMIT`, `GLOBAL_PROMPT_LIMIT`, memory-book limits, or rendered archive counts
 - profile comparison in candidate-survival archive-unit QA is model-answer-free and compares baseline vs `hybrid-v1` on the same fixture stores
 - the scoring profile gate does not change the default embedding provider, does not auto-promote archive hits into explicit memory, and does not expand `promptTruth` or `toolEvidenceReceipt`
+- static embedding live sidecar support is explicit-mode only: normal repo default is `off`, `qa-shadow` is for QA comparison, `live-shadow` records trace-only candidates, and local experimental `live-advisory` can merge static candidates into archive selection only under authority/source/correction gates and the static-only rendered cap
+- static embedding sidecar cache files are derived retrieval artifacts, separate from LM Studio embedding vectors, and do not become authored memory or canonical truth
 - background chat vectorization now defaults on, but it still runs only after `archiveCompletedTurn`, never in prompt assembly, and can be disabled with `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=0`. It is off the reply-latency path, but it still shares process, embedding-backend, and cache/store capacity.
 - inspector payloads expose background-vectorization telemetry, including the session `lastArchivedAt` timestamp, and the in-app panel now surfaces a compact background-vectorization summary so the behavior stays inspectable in practice
 
@@ -329,9 +331,13 @@ The QA/eval harnesses now share small helper layers and script-owned fixture mod
 - `lib/penny-context-pressure-qa.js`
   - fixture schemas for context-pressure and source-sensitive answer fixtures, estimated prompt tokens, selected/rendered memory counts, fixture-assumed semantic readiness shapes, nullable latency fields, answer-drift classes, and source-sensitive support outcomes
 - `lib/penny-candidate-survival-qa.js`
-  - candidate-survival fixture/archive-unit schemas, outcome and failure-mode taxonomy, candidate trace interpretation, baseline-vs-`hybrid-v1` profile comparison, fixture reranker-shadow summaries, and optional static embedding shadow comparison without changing live defaults
+  - candidate-survival fixture/archive-unit schemas, outcome and failure-mode taxonomy, candidate trace interpretation, baseline-vs-`hybrid-v1` profile comparison, fixture reranker-shadow summaries, and static embedding comparison without changing normal defaults
+- `lib/penny-static-memory-index.js`
+  - explicit-mode static sidecar indexing/query status for live-shadow and live-advisory retrieval traces
 - `lib/penny-gemma-runtime-watch.js`
   - fixture/status schema for Gemma runtime watch items such as vision-budget exposure, thinking-control default-off state, current-turn image policy, prompt-cache/RAM risk, compatible loaded-model fallback, and chat sampling
+- `scripts/eval-penny-static-embedding-live-compare.js`
+  - disposable-server three-arm compare for static-off, static-live-shadow, and static-live-advisory route behavior
 - `scripts/qa-penny-memory.js`
   - combined segmented memory QA plus a judged `write / retrieve / forget` mode, with semantic replacement grading for premise-correction cases, fixture-only source-sensitive mode, fixture-only candidate-survival mode, and archive-unit candidate-survival runner so wording noise does not create fake regressions
 - `scripts/eval-penny-runtime-fit.js`
@@ -452,6 +458,8 @@ Tool-lane leaning probe harness that prefers E4B by default.
 Epistemic compare harness; current favored primary pair is `off` vs `synthesis-only`.
 - `scripts/eval-penny-ledger-compare.js`
 Ledger compare harness for bounded research-ledger prompt strategies.
+- `scripts/eval-penny-static-embedding-live-compare.js`
+Static embedding sidecar compare harness that runs static-off, live-shadow, and live-advisory modes against disposable per-case servers and a mock LM Studio backend. It is the normal receipt path before treating local `PENNY_STATIC_EMBED_MODE=live-advisory` experiments as useful.
 - `scripts/eval-penny-runtime-fit.js`
 Runtime-fit harness for context-length and semantic-fallback tradeoff measurement, with a fixture-only context-pressure mode for short/medium/long rendered-context artifacts whose answer drift remains `not-run` until live eval.
 - `scripts/qa-penny-memory.js`

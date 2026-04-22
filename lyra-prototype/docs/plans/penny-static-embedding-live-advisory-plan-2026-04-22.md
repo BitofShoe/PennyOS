@@ -2,9 +2,9 @@
 
 > Category: Implementation plan / dependency decision record
 > Authority: Implementation plan
-> Status: Draft for Slice 0
+> Status: Current through Slice S9
 > Use this for: the static-embedding live sidecar run, provider decisions, mode ladder, guardrails, and next-slice handoff
-> Do not use this for: proof that live static retrieval shipped, default embedding-provider law, prompt-truth expansion, or canonical memory authority
+> Do not use this for: default embedding-provider law, PromptTruth expansion, canonical memory authority, or proof that live-advisory is the normal repo default
 
 ## Guiding Light
 
@@ -447,6 +447,13 @@ Local experimental mode:
 - `PENNY_STATIC_EMBED_MODE=live-advisory`
 - static-only rendered cap still enforced.
 
+Slice S9 implementation note:
+
+- High-level docs now state the normal repo posture plainly: leave `PENNY_STATIC_EMBED_MODE` unset/`off`, or use `qa-shadow` / `npm run eval:static-embedding-live-compare` for QA comparison.
+- Local Penny experiments may set `PENNY_STATIC_EMBED_MODE=live-advisory`; this is the cool local mode, not default law for future reviewers.
+- The docs keep the guardrails attached to the knob: static candidates remain advisory, authority/source/correction gates still apply, `PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED` keeps static-only rendered items capped, prompt limits stay unchanged, the LM Studio embedding default is unchanged, and PromptTruth / `toolEvidenceReceipt` do not expand.
+- No runtime code, prompt text, default static mode, runtime voice, or live QA behavior changed in S9.
+
 ## Task Fit
 
 - Blockers: no hard provider dependency is approved yet; live provider source/revision and install/runtime behavior need review.
@@ -510,21 +517,28 @@ Cleanup rules:
 - Broad `server.js` expansion.
 - Flower runtime dependency before normal public/contracted access exists.
 
-## Slice 0 Result
+## Slice Results
 
-Landed:
+S0 landed:
 
 - This decision record and implementation run map.
 
-Deferred:
+S1-S8 landed:
 
-- Provider seam.
-- Real provider dependency.
-- Static cache/index.
-- Live-shadow behavior.
-- Live-advisory behavior.
-- Live A/B harness.
+- Provider seam, optional Potion provider, isolated static cache, background static indexer, live-shadow traces, live-advisory merge, stale/current correction guardrails, and the disposable live compare harness.
 
-Next slice:
+S9 landed:
 
-- S1 should add the provider seam and tests without changing chat behavior.
+- Local dev enablement docs in the high-level repo maps and this plan.
+- Normal repo default is still `off` / QA shadow comparison.
+- Local experimental mode is `PENNY_STATIC_EMBED_MODE=live-advisory` with the static-only rendered cap still enforced.
+
+Still deferred:
+
+- Real-model/manual A/B interpretation beyond the bounded mock route harness.
+- Any move from local experimental `live-advisory` to normal repo default.
+- Live-fallback static embedding mode.
+
+Next slice, if any:
+
+- Decide from local experimental evidence whether to keep `live-advisory` as a personal/operator mode, compare a stronger provider, or leave the run parked.

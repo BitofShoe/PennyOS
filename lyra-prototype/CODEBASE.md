@@ -195,6 +195,8 @@ Bounded tool-lane probe harness.
 Epistemic compare harness for `off`, `synthesis-only`, and diagnostic modes.
 - [scripts/eval-penny-ledger-compare.js](./scripts/eval-penny-ledger-compare.js)
 Comparative ledger-prompt harness for the current off vs synthesis-focused research/memory modes.
+- [scripts/eval-penny-static-embedding-live-compare.js](./scripts/eval-penny-static-embedding-live-compare.js)
+Three-arm static embedding live sidecar compare harness for static-off, live-shadow, and live-advisory modes against disposable per-case servers and a mock LM Studio route backend.
 - [scripts/eval-penny-runtime-fit.js](./scripts/eval-penny-runtime-fit.js)
 Latency/runtime-fit harness for context-length and semantic-readiness tradeoffs; `eval:runtime-fit:context-pressure` adds a fixture-only short/medium/long rendered-context artifact with nullable latency fields and `not-run` answer drift.
 - [scripts/qa-penny-memory.js](./scripts/qa-penny-memory.js)
@@ -232,6 +234,8 @@ Untracked runtime memory store created on first run.
 Hybrid archive runtime store for episodic recall, summaries, patterns, the promotion queue, and bounded per-session `recentAuditTrail` turn slices.
 - `penny-memory-embeddings.json`
 Embedding cache for semantic archive retrieval when a local embedding model is available, plus bounded default-on background-vectorization telemetry that can still be disabled by env. The cache is model-aware; vectors from Nomic and EmbeddingGemma are treated as different vector spaces.
+- `penny-memory-embeddings.static.*.json`
+Derived static embedding sidecar cache files when an explicit live static mode is enabled. These are local retrieval artifacts, not authored memory, and should stay separate from the LM Studio embedding cache.
 - `penny-memory-ledger.json`
 Research continuity ledger for bounded advisory topics, evidence refs, open follow-ups, additive question-scoped identity (`kind`, `anchorType`, `anchorRef`, `scopeKey`, `scopeLabel`), and truth metadata (`sourceClass`, `summaryClass`, `summaryEvidenceRefs`).
 - various QA/eval memory files
@@ -407,6 +411,7 @@ Start here:
 - `scripts/eval-penny-runtime-fit.js`
 - `lib/penny-context-pressure-qa.js`
 - `lib/penny-candidate-survival-qa.js`
+- `scripts/eval-penny-static-embedding-live-compare.js`
 - `lib/penny-gemma-runtime-watch.js`
 - `scripts/qa-penny-voice-redo.js`
 - `lib/penny-qa-trace.js`
@@ -415,6 +420,8 @@ Start here:
 - `PENNY_MODEL_EVAL.md`
 
 `scripts/qa-penny-memory.js` now also carries semantic-correction grading, source-sensitive fixture cases, candidate-survival fixture/archive-unit modes, and `runIdentity` harness canaries; treat those traces as first-pass environment drift checks, not as a new benchmark platform. `lib/penny-memory-archive.js` owns archive retrieval, `lib/penny-memory-archive-policy.js` owns ranking policy, `lib/penny-candidate-survival-qa.js` owns candidate-survival artifact interpretation, `lib/penny-context-pressure-qa.js` owns context-pressure/source-sensitive answer fixtures, and `scripts/qa-penny-memory.js` is the QA runner. `eval:runtime-fit:context-pressure`, `qa:memory:source-sensitive`, `qa:memory:candidate-survival-fixture`, and `qa:memory:candidate-survival` are cheap fixture/archive-unit artifact runs; they define and record fields, may use fixture-assumed semantic readiness, and do not prove live LM Studio answer drift without a separate isolated runtime-fit run.
+
+Static embedding live sidecar work is opt-in. Normal repo work should leave `PENNY_STATIC_EMBED_MODE` unset or `off`, while QA comparison can use `qa-shadow` / `npm run eval:static-embedding-live-compare`. Local experimental Penny runs may set `PENNY_STATIC_EMBED_MODE=live-advisory`; that lets static candidates enter archive selection under gates, but it does not make static retrieval truth authority, does not replace the LM Studio embedding default, does not raise prompt limits, and keeps static-only rendered items capped.
 
 Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, `lib/penny-qa-trace.js`, and their tests cover social pressure, companion-feedback bias, remote/source pressure, and agent-integrity receipt canaries. Gemma runtime watch lives in `lib/penny-gemma-runtime-watch.js` plus status/preflight/runtime-fit artifacts. Tool output-cost descriptors live in `lib/penny-tool-registry.js` and optional sibling runtime artifact cost summaries. None of those status surfaces change runtime voice, expand `promptTruth`, switch default embeddings, enable default thinking, raise default context, or import external dependencies.
 
