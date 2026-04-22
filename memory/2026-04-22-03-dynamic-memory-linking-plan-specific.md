@@ -19,3 +19,13 @@
 - Behavior not changed: no runtime wiring, no archive ranking/scoring, no prompt bridge, no PromptTruth expansion, no `toolEvidenceReceipt` change, no runtime voice change, no graph DB/universal index, no memory store migration, no default feature flag, and no project-thread/open-loop/research-pattern scoring activation.
 - Guardrail preserved: candidate-only/static/semantic links normalize as advisory support and cannot retain `current-truth-boost` style authority effects.
 - Verification before journal update: `node --check lib/penny-memory-links.js` passed, `node --check test/penny-memory-links.test.js` passed, `node --test test/penny-memory-links.test.js` passed (`7 passing`), and `git diff --check` passed.
+
+## Slice L2 - Deterministic correction-link builder
+
+- Slice L2 landed as deterministic correction-link builder work only.
+- Added `lyra-prototype/lib/penny-memory-link-policy.js` with `penny-correction-link-builder.v1` and `buildCorrectionLinks`.
+- Added `lyra-prototype/test/penny-memory-link-policy.test.js` covering brass fox -> copper rabbit, oolong -> lapsang souchong, silver watch -> gold watch, weak candidate/static support, and incomplete correction holdback.
+- Behavior changed: fixture/policy helpers can now build inspectable correction link sets with `current-correction-for`, `stale-prior-of`, and `correction-of` links plus a bounded correction trace.
+- Behavior not changed: no runtime wiring, no archive ranking/scoring, no prompt bridge, no PromptTruth expansion, no `toolEvidenceReceipt` change, no runtime voice change, no graph DB/universal index, no memory store migration, no default feature flag, and no project-thread/open-loop/research-pattern scoring activation.
+- Guardrails preserved: explicit correction support can encode future-gated `current-truth-boost`, `stale-current-penalty`, or `do-not-render-as-current` hints, but the artifact marks `behaviorChanged: false` and `scoringActive: false`. Candidate-only/static/semantic correction links stay advisory and cannot become verified support or current-truth boosts.
+- Verification before journal update: `node --check lib/penny-memory-link-policy.js` passed, `node --check test/penny-memory-link-policy.test.js` passed, `node --test test/penny-memory-links.test.js test/penny-memory-link-policy.test.js` passed (`12 passing`), and `git diff --check` passed.
