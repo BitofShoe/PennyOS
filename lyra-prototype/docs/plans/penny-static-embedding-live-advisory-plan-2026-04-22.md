@@ -267,6 +267,17 @@ Preference order:
 
 No default provider change.
 
+Slice S2 implementation note:
+
+- Chosen first real provider: `@yarflam/potion-base-8m@1.0.4`, wrapping `minishlab/potion-base-8M`.
+- Dependency posture: exact-pinned `optionalDependencies` entry plus dynamic import; creating the provider is explicit and no chat/live path uses it by default.
+- Package metadata checked on 2026-04-22: MIT license, ESM package, Node `>=18`, zero transitive dependencies, about 30.9 MB unpacked.
+- Registry tarball reviewed locally: bundled `models/model.safetensors`, `models/tokenizer.json`, `models/config.json`, plus small JS source files; package integrity is recorded in `package-lock.json`.
+- Install/runtime posture: the registry tarball already contains the model files, and runtime embedding reads local package files through Node filesystem APIs. The adapter records `runtimeNetwork: none-after-install`.
+- Provider authority: still `candidate-discovery-only`, `defaultForLive: false`, experimental, local-only, and not a prompt-truth or tool-evidence surface.
+- Missing optional package behavior: `healthCheck()` returns `ok: false` with an install hint, and embedding calls fail with the same explicit optional-provider error.
+- Source caveat: this is a small third-party wrapper around a MIT MinishLab model, not the upstream Python `model2vec` package. Keep it experimental until Penny-specific quality and correction canaries exist.
+
 ### Slice S3 - Model-aware static vector cache
 
 Add isolated cache files or cache namespaces for static vectors.

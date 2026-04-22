@@ -42,5 +42,8 @@
     "ingest:conversations": "node scripts/import-penny-conversations.js",
     "preset:lmstudio": "node scripts/ensure-lmstudio-penny-preset.js",
     "bundle:review": "node scripts/build-review-bundle.js"
+  },
+  "optionalDependencies": {
+    "@yarflam/potion-base-8m": "1.0.4"
   }
 }
