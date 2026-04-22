@@ -1,5 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const {
   PENNY_BACKGROUND_FRAME_QUEUE_SCHEMA,
@@ -8,6 +11,10 @@ const {
   BACKGROUND_FRAME_JOB_STATUSES,
   createBackgroundFrameQueue,
 } = require('../lib/penny-background-frame');
+
+const {
+  PENNY_SESSION_REFLECTION_PREP_SCHEMA,
+} = require('../lib/penny-session-reflection');
 
 function makeManualQueue(options = {}) {
   let now = Date.UTC(2026, 3, 22, 12, 0, 0);
@@ -247,4 +254,82 @@ test('deadlines are capped and drains stay bounded', async () => {
   assert.equal(secondDrain.drainedCount, 1);
   assert.equal(secondDrain.pendingCount, 0);
   assert.equal(ran, 3);
+});
+
+test('queues session reflection prep for after-turn background work without memory writes', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-session-reflection-prep-'));
+  const outputPath = path.join(dir, 'reflection-prep.json');
+  const { queue } = makeManualQueue({
+    defaultDeadlineMs: 40,
+    maxDeadlineMs: 80,
+  });
+
+  const queued = queue.queueSessionReflectionPrepJob({
+    sessionId: 'session-r4',
+    generatedAt: '2026-04-22T12:10:00.000Z',
+    outputPath,
+    turns: [
+      {
+        id: 'turn-1',
+        role: 'user',
+        text: 'I prefer detailed slice-by-slice plans.',
+        scratchpad: 'hidden chain-of-thought must not be retained',
+      },
+      {
+        id: 'turn-2',
+        role: 'assistant',
+        text: 'I will keep the slice bounded and verify it.',
+      },
+    ],
+    memorySuggestions: [
+      {
+        text: 'User prefers detailed slice-by-slice implementation plans.',
+        kind: 'user-preference',
+        support: 'explicit user statement',
+        requiresApproval: false,
+        autoPromoted: true,
+      },
+    ],
+  });
+  const duplicate = queue.queueSessionReflectionPrepJob({
+    sessionId: 'session-r4',
+    generatedAt: '2026-04-22T12:10:00.000Z',
+    outputPath,
+    turns: [
+      { id: 'turn-1', role: 'user', text: 'I prefer detailed slice-by-slice plans.' },
+      { id: 'turn-2', role: 'assistant', text: 'I will keep the slice bounded and verify it.' },
+    ],
+  });
+
+  assert.equal(queued.status, BACKGROUND_FRAME_JOB_STATUSES.QUEUED);
+  assert.equal(queued.runAttempted, false);
+  assert.equal(queued.completionClaimed, false);
+  assert.equal(queued.candidateCount, 2);
+  assert.equal(duplicate.status, BACKGROUND_FRAME_JOB_STATUSES.DEDUPED);
+  assert.equal(duplicate.runAttempted, false);
+  assert.equal(fs.existsSync(outputPath), false);
+
+  const drained = await queue.drainBackgroundFrameQueue();
+  const receipt = drained.receipts[0];
+  const artifact = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+
+  assert.equal(drained.completedCount, 1);
+  assert.equal(receipt.kind, BACKGROUND_FRAME_JOB_KINDS.SESSION_REFLECTION_PREP);
+  assert.equal(receipt.resultSummary.schema, PENNY_SESSION_REFLECTION_PREP_SCHEMA);
+  assert.equal(receipt.resultSummary.artifactKind, 'session-reflection-prep');
+  assert.equal(receipt.resultSummary.artifactPath, outputPath);
+  assert.equal(receipt.resultSummary.memorySuggestionCount, 1);
+  assert.equal(receipt.resultSummary.reflectionPrepared, true);
+  assert.equal(receipt.resultSummary.memoryWrites, false);
+  assert.equal(receipt.resultSummary.canonicalMemoryWrites, false);
+  assert.equal(receipt.resultSummary.promptTruthExpanded, false);
+  assert.equal(receipt.resultSummary.toolEvidenceReceiptChanged, false);
+  assert.equal(artifact.schema, PENNY_SESSION_REFLECTION_PREP_SCHEMA);
+  assert.equal(artifact.reflectionPrepared, true);
+  assert.equal(artifact.sourceTurnCount, 2);
+  assert.equal(artifact.reflection.memorySuggestions[0].requiresApproval, true);
+  assert.equal(artifact.reflection.memorySuggestions[0].autoPromoted, false);
+  assert.equal(artifact.reflection.memoryWrites, false);
+  assert.equal(artifact.reflection.promptTruthExpanded, false);
+  assert.equal(JSON.stringify(artifact).includes('hidden chain-of-thought'), false);
 });

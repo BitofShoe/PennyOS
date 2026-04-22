@@ -3,6 +3,9 @@ const {
   FRAME_BUDGET_SIDECAR_STATUSES,
   buildFrameBudgetSidecarReceipt,
 } = require('./penny-frame-budget');
+const {
+  buildSessionReflectionPrepJob,
+} = require('./penny-session-reflection');
 
 const PENNY_BACKGROUND_FRAME_QUEUE_SCHEMA = 'penny-background-frame-queue.v1';
 const PENNY_BACKGROUND_FRAME_JOB_SCHEMA = 'penny-background-frame-job.v1';
@@ -146,15 +149,30 @@ function summarizeJobResult(value) {
 
   const scalar = {};
   for (const key of [
+    'schema',
+    'artifactKind',
     'id',
     'status',
     'reason',
     'artifactPath',
+    'sessionId',
+    'sourceTurnCount',
     'candidateCount',
+    'memorySuggestionCount',
+    'doNotSaveCount',
     'updatedCount',
     'createdCount',
     'skippedCount',
     'queuedCount',
+    'validationValid',
+    'reflectionPrepared',
+    'memoryWrites',
+    'explicitMemoryWrites',
+    'canonicalMemoryWrites',
+    'promptTruthExpanded',
+    'toolEvidenceReceiptChanged',
+    'hiddenChainOfThoughtStored',
+    'runtimeVoiceChanged',
   ]) {
     const raw = value[key];
     if (typeof raw === 'string') scalar[key] = cleanString(raw, 180);
@@ -438,6 +456,10 @@ function createBackgroundFrameQueue({
     }));
   }
 
+  function queueSessionReflectionPrepJob(options = {}) {
+    return queueBackgroundFrameJob(buildSessionReflectionPrepJob(options));
+  }
+
   function takeNextJob() {
     if (!pending.length) return null;
     let bestIndex = 0;
@@ -592,6 +614,7 @@ function createBackgroundFrameQueue({
 
   return {
     queueBackgroundFrameJob,
+    queueSessionReflectionPrepJob,
     drainBackgroundFrameQueue,
     getBackgroundFrameQueueSnapshot,
     clearBackgroundFrameQueue,
@@ -602,6 +625,10 @@ const defaultBackgroundFrameQueue = createBackgroundFrameQueue();
 
 function queueBackgroundFrameJob(job = {}) {
   return defaultBackgroundFrameQueue.queueBackgroundFrameJob(job);
+}
+
+function queueSessionReflectionPrepJob(options = {}) {
+  return defaultBackgroundFrameQueue.queueSessionReflectionPrepJob(options);
 }
 
 function drainBackgroundFrameQueue(options = {}) {
@@ -623,6 +650,7 @@ module.exports = {
   BACKGROUND_FRAME_JOB_STATUSES,
   createBackgroundFrameQueue,
   queueBackgroundFrameJob,
+  queueSessionReflectionPrepJob,
   drainBackgroundFrameQueue,
   getBackgroundFrameQueueSnapshot,
   clearBackgroundFrameQueue,

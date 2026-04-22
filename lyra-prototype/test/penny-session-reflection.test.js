@@ -3,10 +3,14 @@ const assert = require('node:assert/strict');
 
 const {
   PENNY_SESSION_REFLECTION_SCHEMA,
+  PENNY_SESSION_REFLECTION_PREP_SCHEMA,
+  SESSION_REFLECTION_PREP_STATUSES,
   SUPPORT_STATES,
+  buildSessionReflectionPrepArtifact,
   normalizeDoNotSaveItem,
   normalizeMemorySuggestion,
   normalizeReflectionDecision,
+  selectRecentReflectionTurns,
   normalizeSessionReflection,
   summarizeSessionReflection,
   validateSessionReflection,
@@ -208,4 +212,87 @@ test('decision normalization remains advisory unless explicit memory support is 
   assert.equal(sourceDecision.memoryAuthority, 'advisory');
   assert.equal(explicitDecision.memoryAuthority, 'explicit-candidate');
   assert.equal(explicitDecision.status, 'tentative');
+});
+
+test('selects bounded visible turn summaries for after-turn reflection prep', () => {
+  const turns = selectRecentReflectionTurns([
+    { id: 'turn-1', role: 'user', text: 'Older turn that should fall out of the bounded window.' },
+    { id: 'turn-2', role: 'assistant', visibleText: 'Visible assistant reply.', scratchpad: 'private reasoning' },
+    { id: 'turn-3', role: 'user', content: 'Latest user turn.' },
+  ], {
+    maxTurns: 2,
+    maxExcerptChars: 40,
+  });
+
+  assert.deepEqual(turns.map((turn) => turn.id), ['turn-2', 'turn-3']);
+  assert.equal(turns[0].role, 'assistant');
+  assert.equal(turns[0].excerpt, 'Visible assistant reply.');
+  assert.equal(Object.prototype.hasOwnProperty.call(turns[0], 'scratchpad'), false);
+});
+
+test('builds bounded after-turn reflection prep artifacts without authority or memory writes', () => {
+  const artifact = buildSessionReflectionPrepArtifact({
+    generatedAt: NOW,
+    sessionId: 'session-r4',
+    maxTurns: 2,
+    turns: [
+      { id: 'turn-1', role: 'user', text: 'Older setup turn.' },
+      { id: 'turn-2', role: 'assistant', text: 'I will keep this bounded.' },
+      {
+        id: 'turn-3',
+        role: 'user',
+        text: 'I prefer detailed slice-by-slice plans.',
+        scratchpad: 'hidden chain-of-thought must not survive',
+      },
+    ],
+    memorySuggestions: [
+      {
+        text: 'User prefers detailed slice-by-slice implementation plans.',
+        kind: 'user-preference',
+        support: 'explicit user statement',
+        requiresApproval: false,
+        autoPromoted: true,
+      },
+    ],
+  });
+
+  assert.equal(artifact.schema, PENNY_SESSION_REFLECTION_PREP_SCHEMA);
+  assert.equal(artifact.status, SESSION_REFLECTION_PREP_STATUSES.DEGRADED);
+  assert.equal(artifact.reflectionPrepared, true);
+  assert.equal(artifact.sourceTurnCount, 2);
+  assert.equal(artifact.truncatedTurnCount, 1);
+  assert.deepEqual(artifact.reflection.sourceWindow.turnIds, ['turn-2', 'turn-3']);
+  assert.match(artifact.reflection.sourceWindow.excludedBecause.join('\n'), /recent turn window truncated/i);
+  assert.equal(artifact.reflection.measurementMode, 'after-turn');
+  assert.equal(artifact.reflection.memorySuggestions.length, 1);
+  assert.equal(artifact.reflection.memorySuggestions[0].supportState, SUPPORT_STATES.EXPLICIT_USER);
+  assert.equal(artifact.reflection.memorySuggestions[0].sensitivity, 'low');
+  assert.equal(artifact.reflection.memorySuggestions[0].requiresApproval, true);
+  assert.equal(artifact.reflection.memorySuggestions[0].autoPromoted, false);
+  assert.equal(artifact.memoryWrites, false);
+  assert.equal(artifact.explicitMemoryWrites, false);
+  assert.equal(artifact.canonicalMemoryWrites, false);
+  assert.equal(artifact.promptTruthExpanded, false);
+  assert.equal(artifact.toolEvidenceReceiptChanged, false);
+  assert.equal(artifact.hiddenChainOfThoughtStored, false);
+  assert.equal(artifact.runtimeVoiceChanged, false);
+  assert.equal(JSON.stringify(artifact).includes('hidden chain-of-thought'), false);
+});
+
+test('reflection prep records skipped state when no bounded turns are available', () => {
+  const artifact = buildSessionReflectionPrepArtifact({
+    generatedAt: NOW,
+    sessionId: 'empty-session',
+    turns: [{}],
+  });
+
+  assert.equal(artifact.status, SESSION_REFLECTION_PREP_STATUSES.SKIPPED);
+  assert.equal(artifact.reflectionPrepared, false);
+  assert.equal(artifact.sourceTurnCount, 0);
+  assert.equal(artifact.reflection.memorySuggestions.length, 0);
+  assert.match(artifact.reason, /no-bounded-recent-turns/i);
+  assert.match(artifact.reflection.sourceWindow.excludedBecause.join('\n'), /no bounded recent turns/i);
+  assert.equal(artifact.memoryWrites, false);
+  assert.equal(artifact.promptTruthExpanded, false);
+  assert.equal(artifact.toolEvidenceReceiptChanged, false);
 });
