@@ -1,5 +1,10 @@
 const OPEN_LOOP_SCHEMA = 'penny-open-loop-state.v1';
 const OPEN_LOOP_PROMPT_BRIDGE_SCHEMA = 'penny-open-loop-prompt-bridge.v1';
+const {
+  FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS,
+  FRAME_BUDGET_SIDECAR_SPEND_CLASSES,
+  buildFrameBudgetSidecarReceipt,
+} = require('./penny-frame-budget');
 
 const OPEN_LOOP_STATUSES = Object.freeze({
   OPEN: 'open',
@@ -12,6 +17,7 @@ const OPEN_LOOP_STATUSES = Object.freeze({
 });
 
 const OPEN_LOOP_AUTHORITY = 'advisory';
+const OPEN_LOOP_RELEVANCE_BUDGET_MS = FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS.OPEN_LOOP_RELEVANCE;
 const OPEN_LOOP_LIFECYCLE_ACTIONS = Object.freeze({
   CREATE: 'create',
   UPDATE: 'update',
@@ -560,6 +566,9 @@ function buildOpenLoopPromptBridge({
     liveChatTouched: mode === 'live-advisory' && bridgeRendered,
     promptTruthExpanded: false,
     promptTruthChannelAdded: false,
+    toolEvidenceReceiptChanged: false,
+    memoryWrites: false,
+    autonomousActions: false,
     maxRenderedLoops: renderedCap,
     maxSnippetWords: wordCap,
     selected: snippets,
@@ -598,7 +607,10 @@ function buildLiveOpenLoopPromptBridge({
   now = new Date(),
   enabled = false,
   disabledReason = '',
+  budgetMs = OPEN_LOOP_RELEVANCE_BUDGET_MS,
+  clockMs = () => Date.now(),
 } = {}) {
+  const startedMs = typeof clockMs === 'function' ? clockMs() : Date.now();
   const rawLoops = rawLoopList(state).length ? rawLoopList(state) : loops;
   const cap = clampInteger(maxRendered, 1, 0, 1);
   const wordCap = clampInteger(
@@ -607,7 +619,7 @@ function buildLiveOpenLoopPromptBridge({
     40,
     120,
   );
-  return buildOpenLoopPromptBridge({
+  const bridge = buildOpenLoopPromptBridge({
     loops: rawLoops,
     userText,
     staticCandidates,
@@ -619,6 +631,29 @@ function buildLiveOpenLoopPromptBridge({
     enabled: enabled === true,
     disabledReason,
   });
+  const finishedMs = typeof clockMs === 'function' ? clockMs() : Date.now();
+  const actualMs = Math.max(0, Number(finishedMs || 0) - Number(startedMs || 0));
+  const selection = bridge.selection && typeof bridge.selection === 'object' ? bridge.selection : {};
+  const inspectedCount = selection.inspectedCount ?? rawLoopList(rawLoops).length;
+  return {
+    ...bridge,
+    frameBudgetSidecar: buildFrameBudgetSidecarReceipt({
+      id: 'open-loop-relevance',
+      label: 'Open-loop relevance',
+      spendClass: FRAME_BUDGET_SIDECAR_SPEND_CLASSES.RELEVANCE,
+      budgetMs,
+      actualMs,
+      enabled: bridge.enabled === true,
+      skipped: bridge.enabled !== true,
+      openLoopCount: inspectedCount,
+      candidateCount: inspectedCount,
+      selectedCount: bridge.selected?.length || 0,
+      renderedCount: bridge.promptBridge?.renderedCount || 0,
+      sourceAuthority: OPEN_LOOP_AUTHORITY,
+      reason: bridge.enabled === true ? '' : bridge.disabledReason,
+      fallback: bridge.enabled === true ? '' : 'Hold back open-loop prompt context for this frame.',
+    }),
+  };
 }
 
 function mergeOpenLoopPromptBridgeIntoArchiveContext({
@@ -739,10 +774,12 @@ function selectRelevantOpenLoops({
   const selected = [];
   const heldBack = [];
   const scored = [];
+  let inspectedCount = 0;
 
   for (const rawLoop of rawLoopList(loops)) {
     const loop = normalizeOpenLoop(rawLoop);
     if (!loop) continue;
+    inspectedCount += 1;
     const suppressed = suppressionReason(loop, now);
     if (suppressed) {
       heldBack.push({ id: loop.id, reason: suppressed });
@@ -795,7 +832,14 @@ function selectRelevantOpenLoops({
     });
   }
 
-  return { selected, heldBack };
+  return {
+    selected,
+    heldBack,
+    inspectedCount,
+    scoredCount: scored.length,
+    selectedCount: selected.length,
+    heldBackCount: heldBack.length,
+  };
 }
 
 function normalizeSourceRef(refLike = {}) {

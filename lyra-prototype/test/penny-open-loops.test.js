@@ -449,10 +449,12 @@ test('prompt bridge formatter keeps the no-overclaim guardrail under the word ca
 });
 
 test('live prompt bridge stays off by default and does not render context', () => {
+  let clock = 1000;
   const bridge = buildLiveOpenLoopPromptBridge({
     now: NOW,
     enabled: false,
     disabledReason: 'env-disabled',
+    clockMs: () => (clock += 1),
     userText: 'Continue Slice O6 for the open-loop prompt bridge.',
     state: {
       loops: [
@@ -475,14 +477,21 @@ test('live prompt bridge stays off by default and does not render context', () =
   assert.equal(bridge.promptBridge.renderedCount, 0);
   assert.equal(bridge.promptBridge.promptText, '');
   assert.deepEqual(bridge.selected, []);
+  assert.equal(bridge.frameBudgetSidecar.id, 'open-loop-relevance');
+  assert.equal(bridge.frameBudgetSidecar.status, 'skipped');
+  assert.equal(bridge.frameBudgetSidecar.budgetMs, 20);
+  assert.equal(bridge.frameBudgetSidecar.openLoopCount, 1);
+  assert.equal(bridge.frameBudgetSidecar.promptTruthExpanded, false);
 });
 
 test('live prompt bridge renders at most one relevant advisory loop', () => {
+  let clock = 2000;
   const bridge = buildLiveOpenLoopPromptBridge({
     now: NOW,
     enabled: true,
     maxRendered: 1,
     maxTokens: 70,
+    clockMs: () => (clock += 9),
     userText: 'Start Slice O6 for the live bounded open-loop bridge.',
     state: {
       loops: [
@@ -515,6 +524,9 @@ test('live prompt bridge renders at most one relevant advisory loop', () => {
   assert.equal(bridge.liveChatTouched, true);
   assert.equal(bridge.promptTruthExpanded, false);
   assert.equal(bridge.promptTruthChannelAdded, false);
+  assert.equal(bridge.toolEvidenceReceiptChanged, false);
+  assert.equal(bridge.memoryWrites, false);
+  assert.equal(bridge.autonomousActions, false);
   assert.deepEqual(bridge.selected.map((item) => item.id), ['live-open-loop-bridge']);
   assert.deepEqual(bridge.heldBack.map((item) => ({ id: item.id, reason: item.reason })), [
     { id: 'deterministic-extraction', reason: 'adjacent-not-central' },
@@ -523,6 +535,14 @@ test('live prompt bridge renders at most one relevant advisory loop', () => {
   assert.match(bridge.promptBridge.promptText, /Open loop candidate, advisory:/);
   assert.match(bridge.promptBridge.promptText, /Do not treat this as canonical memory or overclaim its status\./);
   assert.ok(bridge.selected[0].wordCount <= 70);
+  assert.equal(bridge.selection.inspectedCount, 2);
+  assert.equal(bridge.frameBudgetSidecar.id, 'open-loop-relevance');
+  assert.equal(bridge.frameBudgetSidecar.status, 'scheduled');
+  assert.equal(bridge.frameBudgetSidecar.actualMs, 9);
+  assert.equal(bridge.frameBudgetSidecar.openLoopCount, 2);
+  assert.equal(bridge.frameBudgetSidecar.selectedCount, 1);
+  assert.equal(bridge.frameBudgetSidecar.renderedCount, 1);
+  assert.equal(bridge.frameBudgetSidecar.promptTruthExpanded, false);
 });
 
 test('live bridge merge replaces ungated archive open loops while enabled', () => {

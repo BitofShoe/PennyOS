@@ -1,9 +1,15 @@
 const TURN_STATE_SCHEMA = 'penny-turn-state.v1';
 const TURN_STATE_PROMPT_BRIDGE_SCHEMA = 'penny-turn-state-prompt-bridge.v1';
 const TURN_STATE_RETENTION_SCHEMA = 'penny-turn-state-retention.v1';
+const {
+  FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS,
+  FRAME_BUDGET_SIDECAR_SPEND_CLASSES,
+  buildFrameBudgetSidecarReceipt,
+} = require('./penny-frame-budget');
 
 const MEASUREMENT_MODE = 'ephemeral';
 const DEFAULT_TURN_STATE_PROMPT_MAX_WORDS = 90;
+const TURN_STATE_BUDGET_MS = FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS.TURN_STATE;
 
 const DESIRED_DEPTHS = Object.freeze({
   UNKNOWN: 'unknown',
@@ -1171,10 +1177,29 @@ function buildLiveTurnStatePromptBridge({
   context = {},
   turnState = null,
   maxTokens = 120,
+  budgetMs = TURN_STATE_BUDGET_MS,
+  clockMs = () => Date.now(),
 } = {}) {
+  const startedMs = typeof clockMs === 'function' ? clockMs() : Date.now();
   const safeMaxTokens = clampInteger(maxTokens, 120, 20, 180);
   if (enabled !== true) {
-    return buildDisabledTurnStatePromptBridge(disabledReason || 'env-disabled', safeMaxTokens);
+    const disabled = buildDisabledTurnStatePromptBridge(disabledReason || 'env-disabled', safeMaxTokens);
+    const finishedMs = typeof clockMs === 'function' ? clockMs() : Date.now();
+    const actualMs = Math.max(0, Number(finishedMs || 0) - Number(startedMs || 0));
+    return {
+      ...disabled,
+      frameBudgetSidecar: buildFrameBudgetSidecarReceipt({
+        id: 'turn-state',
+        label: 'Turn state',
+        spendClass: FRAME_BUDGET_SIDECAR_SPEND_CLASSES.RELEVANCE,
+        budgetMs,
+        actualMs,
+        enabled: false,
+        skipped: true,
+        reason: disabled.disabledReason,
+        fallback: 'Hold back turn-state prompt scaffold for this frame.',
+      }),
+    };
   }
 
   const state = turnState
@@ -1214,6 +1239,19 @@ function buildLiveTurnStatePromptBridge({
     },
     retentionPolicy: snippet.retentionPolicy,
     turnStateSummary: snippet.turnStateSummary,
+    frameBudgetSidecar: buildFrameBudgetSidecarReceipt({
+      id: 'turn-state',
+      label: 'Turn state',
+      spendClass: FRAME_BUDGET_SIDECAR_SPEND_CLASSES.RELEVANCE,
+      budgetMs,
+      actualMs: Math.max(0, Number((typeof clockMs === 'function' ? clockMs() : Date.now()) || 0) - Number(startedMs || 0)),
+      enabled: true,
+      skipped: false,
+      candidateCount: 1,
+      selectedCount: renderedCount,
+      renderedCount,
+      sourceAuthority: 'current-turn',
+    }),
   };
 }
 

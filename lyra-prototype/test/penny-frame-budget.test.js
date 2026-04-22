@@ -3,9 +3,12 @@ const assert = require('node:assert/strict');
 
 const {
   PENNY_FRAME_BUDGET_SCHEMA,
+  FRAME_BUDGET_SIDECAR_SCHEMA,
   FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA,
   FRAME_BUDGET_EVENT_STATUSES,
   FRAME_BUDGET_SIDECAR_STATUSES,
+  FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS,
+  buildFrameBudgetSidecarReceipt,
   addFrameBudgetEvent,
   addFrameTiming,
   addFrameWorkCount,
@@ -14,6 +17,7 @@ const {
   createFrameBudgetReceipt,
   normalizeFrameBudgetReceipt,
   summarizeFrameBudget,
+  frameBudgetSidecarToBudgetEvent,
 } = require('../lib/penny-frame-budget');
 
 test('creates a frame budget receipt schema with deterministic defaults', () => {
@@ -200,6 +204,34 @@ test('deadline-aware sidecar schedule degrades required work without inferring s
   assert.equal(missed.decisions[0].deadlineReason, 'required-sidecar-missed-deadline');
   assert.match(missed.decisions[0].fallback, /Do not infer sidecar result/i);
   assert.equal(missed.budgetEvents[0].status, FRAME_BUDGET_EVENT_STATUSES.MISSED);
+});
+
+test('normalizes live sidecar receipts into budget events without prompt authority changes', () => {
+  const sidecar = buildFrameBudgetSidecarReceipt({
+    id: 'open-loop-relevance',
+    label: 'Open-loop relevance',
+    spendClass: 'relevance',
+    budgetMs: FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS.OPEN_LOOP_RELEVANCE,
+    actualMs: 24,
+    openLoopCount: 3,
+    selectedCount: 1,
+    renderedCount: 1,
+  });
+
+  assert.equal(sidecar.schema, FRAME_BUDGET_SIDECAR_SCHEMA);
+  assert.equal(sidecar.status, FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED);
+  assert.equal(sidecar.reason, 'sidecar-over-budget');
+  assert.equal(sidecar.openLoopCount, 3);
+  assert.equal(sidecar.promptTruthExpanded, false);
+  assert.equal(sidecar.toolEvidenceReceiptChanged, false);
+  assert.equal(sidecar.promptLimitChanged, false);
+  assert.equal(sidecar.renderedLimitChanged, false);
+
+  const event = frameBudgetSidecarToBudgetEvent(sidecar);
+  assert.equal(event.id, 'open-loop-relevance-deadline');
+  assert.equal(event.status, FRAME_BUDGET_EVENT_STATUSES.DEGRADED);
+  assert.equal(event.budgetMs, 20);
+  assert.equal(event.actualMs, 24);
 });
 
 test('classifies first-token misses, prompt growth, and static-only rendered cap breaches', () => {

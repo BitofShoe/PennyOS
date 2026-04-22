@@ -137,13 +137,17 @@ test('disabled index never loads the provider and skips query without blocking',
   assert.equal(index.isEnabled(), false);
   assert.equal(index.getStatus().enabled, false);
   assert.equal(index.getStatus().ready, false);
-  assert.deepEqual(await index.query('copper rabbit'), {
-    skipped: true,
-    reason: 'disabled',
-    candidates: [],
-    queryMs: 0,
-    status: index.getStatus(),
-  });
+  const result = await index.query('copper rabbit');
+  assert.equal(result.skipped, true);
+  assert.equal(result.reason, 'disabled');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(result.queryMs, 0);
+  assert.deepEqual(result.status, index.getStatus());
+  assert.equal(result.frameBudgetSidecar.id, 'static-memory-query');
+  assert.equal(result.frameBudgetSidecar.status, 'skipped');
+  assert.equal(result.frameBudgetSidecar.budgetMs, 40);
+  assert.equal(result.frameBudgetSidecar.candidateCount, 0);
+  assert.equal(result.frameBudgetSidecar.promptTruthExpanded, false);
   assert.equal(providerLoads, 0);
 });
 
@@ -194,11 +198,17 @@ test('live-shadow start hydrates cached vectors, enqueues missing sources, and b
     assert.equal(drained.pendingItems, 0);
     assert.equal(drained.ready, true);
 
-    const result = await index.query('What did I say about the copper rabbit?');
+    const result = await index.query('What did I say about the copper rabbit?', { budgetMs: 10000 });
     assert.equal(result.skipped, false);
     assert.ok(result.candidates.some((item) => item.id === 'archive:episode:g-episode-1'));
     assert.equal(result.status.lastQueryMs, result.queryMs);
     assert.equal(result.status.ready, true);
+    assert.equal(result.frameBudgetSidecar.id, 'static-memory-query');
+    assert.equal(result.frameBudgetSidecar.status, 'scheduled');
+    assert.equal(result.frameBudgetSidecar.budgetMs, 10000);
+    assert.equal(result.frameBudgetSidecar.actualMs, result.queryMs);
+    assert.equal(result.frameBudgetSidecar.candidateCount, result.candidates.length);
+    assert.equal(result.frameBudgetSidecar.promptTruthExpanded, false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

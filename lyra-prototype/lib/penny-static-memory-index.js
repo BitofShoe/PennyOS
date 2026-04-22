@@ -7,6 +7,11 @@ const {
   createStaticEmbeddingCacheApi,
   normalizeStaticEmbeddingVectorSpace,
 } = require('./penny-static-embedding-cache');
+const {
+  FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS,
+  FRAME_BUDGET_SIDECAR_SPEND_CLASSES,
+  buildFrameBudgetSidecarReceipt,
+} = require('./penny-frame-budget');
 
 const STATIC_EMBED_MODES = Object.freeze({
   OFF: 'off',
@@ -23,6 +28,7 @@ const LIVE_STATIC_EMBED_MODES = new Set([
 const DEFAULT_STATIC_INDEX_SCOPE = ['session', 'archive', 'research-ledger'];
 const DEFAULT_STATIC_EMBED_MAX_CANDIDATES = 12;
 const DEFAULT_STATIC_EMBED_BATCH_SIZE = 16;
+const STATIC_MEMORY_QUERY_BUDGET_MS = FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS.STATIC_MEMORY_QUERY;
 
 function trimText(value = '', limit = 1200) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -41,6 +47,35 @@ function normalizeStaticEmbedMode(value = '') {
   if (['advisory', 'live-advisory'].includes(text)) return STATIC_EMBED_MODES.LIVE_ADVISORY;
   if (['fallback', 'live-fallback'].includes(text)) return STATIC_EMBED_MODES.LIVE_FALLBACK;
   return STATIC_EMBED_MODES.OFF;
+}
+
+function buildStaticQueryFrameSidecar({
+  enabled = true,
+  skipped = false,
+  reason = '',
+  queryMs = 0,
+  candidateCount = 0,
+  budgetMs = STATIC_MEMORY_QUERY_BUDGET_MS,
+  error = '',
+} = {}) {
+  return buildFrameBudgetSidecarReceipt({
+    id: 'static-memory-query',
+    label: 'Static memory query',
+    spendClass: FRAME_BUDGET_SIDECAR_SPEND_CLASSES.CANDIDATE_SELECTION,
+    budgetMs,
+    actualMs: queryMs,
+    enabled,
+    skipped,
+    candidateCount,
+    selectedCount: 0,
+    renderedCount: 0,
+    sourceAuthority: 'advisory',
+    reason: reason || error,
+    error,
+    fallback: skipped || error
+      ? 'Hold back static memory candidates for this frame.'
+      : '',
+  });
 }
 
 function isLiveStaticEmbedMode(mode = '') {
@@ -509,16 +544,54 @@ function createStaticMemoryIndexApi({
     return getStatus();
   }
 
-  async function query(text = '', { maxCandidates: queryMaxCandidates = candidateLimit } = {}) {
+  async function query(text = '', {
+    maxCandidates: queryMaxCandidates = candidateLimit,
+    budgetMs = STATIC_MEMORY_QUERY_BUDGET_MS,
+  } = {}) {
     if (!enabled) {
-      return { skipped: true, reason: 'disabled', candidates: [], queryMs: 0, status: getStatus() };
+      return {
+        skipped: true,
+        reason: 'disabled',
+        candidates: [],
+        queryMs: 0,
+        status: getStatus(),
+        frameBudgetSidecar: buildStaticQueryFrameSidecar({
+          enabled: false,
+          skipped: true,
+          reason: 'disabled',
+          budgetMs,
+        }),
+      };
     }
     if (!started || ready !== true) {
-      return { skipped: true, reason: lastError || 'not-ready', candidates: [], queryMs: 0, status: getStatus() };
+      const reason = lastError || 'not-ready';
+      return {
+        skipped: true,
+        reason,
+        candidates: [],
+        queryMs: 0,
+        status: getStatus(),
+        frameBudgetSidecar: buildStaticQueryFrameSidecar({
+          skipped: true,
+          reason,
+          budgetMs,
+        }),
+      };
     }
     const cleanText = trimText(text, 1000);
     if (!cleanText) {
-      return { skipped: true, reason: 'empty-query', candidates: [], queryMs: 0, status: getStatus() };
+      return {
+        skipped: true,
+        reason: 'empty-query',
+        candidates: [],
+        queryMs: 0,
+        status: getStatus(),
+        frameBudgetSidecar: buildStaticQueryFrameSidecar({
+          skipped: true,
+          reason: 'empty-query',
+          budgetMs,
+        }),
+      };
     }
     const providerApi = await ensureProvider();
     const startedAt = nowMs();
@@ -527,7 +600,19 @@ function createStaticMemoryIndexApi({
       const queryMs = Math.max(0, nowMs() - startedAt);
       lastQueryMs = queryMs;
       if (!Array.isArray(queryVector) || !queryVector.length) {
-        return { skipped: true, reason: 'empty-query-vector', candidates: [], queryMs, status: getStatus() };
+        return {
+          skipped: true,
+          reason: 'empty-query-vector',
+          candidates: [],
+          queryMs,
+          status: getStatus(),
+          frameBudgetSidecar: buildStaticQueryFrameSidecar({
+            skipped: true,
+            reason: 'empty-query-vector',
+            queryMs,
+            budgetMs,
+          }),
+        };
       }
       const limit = clampPositiveInt(queryMaxCandidates, candidateLimit, 100);
       const candidates = [...indexed.values()]
@@ -553,12 +638,36 @@ function createStaticMemoryIndexApi({
             queryMs,
           },
         }));
-      return { skipped: false, reason: '', candidates, queryMs, status: getStatus() };
+      return {
+        skipped: false,
+        reason: '',
+        candidates,
+        queryMs,
+        status: getStatus(),
+        frameBudgetSidecar: buildStaticQueryFrameSidecar({
+          queryMs,
+          candidateCount: candidates.length,
+          budgetMs,
+        }),
+      };
     } catch (error) {
       const queryMs = Math.max(0, nowMs() - startedAt);
       lastQueryMs = queryMs;
       lastError = String(error?.message || error || 'static-memory-index-query-failed').trim();
-      return { skipped: true, reason: lastError, candidates: [], queryMs, status: getStatus() };
+      return {
+        skipped: true,
+        reason: lastError,
+        candidates: [],
+        queryMs,
+        status: getStatus(),
+        frameBudgetSidecar: buildStaticQueryFrameSidecar({
+          skipped: true,
+          reason: lastError,
+          queryMs,
+          budgetMs,
+          error: lastError,
+        }),
+      };
     }
   }
 

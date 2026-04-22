@@ -473,8 +473,10 @@ test('renderTurnStatePromptSnippet keeps explicit source-check posture without a
 });
 
 test('live turn-state prompt bridge stays disabled by default shape', () => {
+  let clock = 500;
   const bridge = buildLiveTurnStatePromptBridge({
     enabled: false,
+    clockMs: () => (clock += 1),
     userText: 'Long detailed answers are heaven. Start Slice T5.',
   });
 
@@ -489,13 +491,20 @@ test('live turn-state prompt bridge stays disabled by default shape', () => {
   assert.equal(bridge.turnStateSummary, null);
   assert.equal(bridge.promptTruthExpanded, false);
   assert.equal(bridge.memoryWrites, false);
+  assert.equal(bridge.frameBudgetSidecar.id, 'turn-state');
+  assert.equal(bridge.frameBudgetSidecar.status, 'skipped');
+  assert.equal(bridge.frameBudgetSidecar.budgetMs, 10);
+  assert.equal(bridge.frameBudgetSidecar.actualMs, 1);
+  assert.equal(bridge.frameBudgetSidecar.promptTruthExpanded, false);
 });
 
 test('live turn-state prompt bridge renders compact ephemeral scaffold when enabled', () => {
+  let clock = 900;
   const bridge = buildLiveTurnStatePromptBridge({
     enabled: true,
     userText: 'Long detailed answers are heaven. Start Slice T5 live prompt bridge behind a flag; keep PromptTruth unchanged and run tests.',
     maxTokens: 70,
+    clockMs: () => (clock += 8),
   });
 
   assert.equal(bridge.schema, TURN_STATE_PROMPT_BRIDGE_SCHEMA);
@@ -523,6 +532,12 @@ test('live turn-state prompt bridge renders compact ephemeral scaffold when enab
   assert.equal(bridge.retentionPolicy.summaryStored, true);
   assert.ok(bridge.retentionPolicy.omittedFields.includes('userIntent'));
   assert.ok(bridge.retentionPolicy.omittedFields.includes('energy.evidence'));
+  assert.equal(bridge.frameBudgetSidecar.id, 'turn-state');
+  assert.equal(bridge.frameBudgetSidecar.status, 'scheduled');
+  assert.equal(bridge.frameBudgetSidecar.actualMs, 8);
+  assert.equal(bridge.frameBudgetSidecar.selectedCount, 1);
+  assert.equal(bridge.frameBudgetSidecar.renderedCount, 1);
+  assert.equal(bridge.frameBudgetSidecar.promptTruthExpanded, false);
   assert.doesNotMatch(JSON.stringify(bridge), /hidden reasoning|private inference|secret notes/i);
 });
 

@@ -35,6 +35,8 @@ const {
 } = require('./penny-turn-state');
 const {
   createFrameBudgetReceipt,
+  frameBudgetSidecarToBudgetEvent,
+  normalizeFrameBudgetSidecarReceipt,
   normalizeFrameBudgetReceipt,
 } = require('./penny-frame-budget');
 
@@ -649,6 +651,11 @@ function normalizeStaticEmbeddingCandidate(raw = {}) {
   };
 }
 
+function normalizeFrameBudgetSidecarOrNull(value = null) {
+  if (!value || typeof value !== 'object') return null;
+  return normalizeFrameBudgetSidecarReceipt(value);
+}
+
 function normalizeStaticEmbeddingShadow(raw = null) {
   if (!raw || typeof raw !== 'object') return null;
   const candidates = (Array.isArray(raw.topCandidates) ? raw.topCandidates : [])
@@ -661,6 +668,7 @@ function normalizeStaticEmbeddingShadow(raw = null) {
     || raw.skipped === true
     || !!String(raw.mode || raw.provider || '').trim();
   if (!hasSignal) return null;
+  const frameBudgetSidecar = normalizeFrameBudgetSidecarOrNull(raw.frameBudgetSidecar);
   return {
     mode: String(raw.mode || '').trim() || 'live-shadow',
     provider: String(raw.provider || '').trim(),
@@ -672,6 +680,7 @@ function normalizeStaticEmbeddingShadow(raw = null) {
     ...(raw.mergedCandidateCount != null ? { mergedCandidateCount: normalizeNonNegativeNumber(raw.mergedCandidateCount, 0) } : {}),
     ...(raw.staticOnlyCandidateCount != null ? { staticOnlyCandidateCount: normalizeNonNegativeNumber(raw.staticOnlyCandidateCount, 0) } : {}),
     ...(raw.staticOnlyRenderedCap != null ? { staticOnlyRenderedCap: normalizeNonNegativeNumber(raw.staticOnlyRenderedCap, 0) } : {}),
+    ...(frameBudgetSidecar ? { frameBudgetSidecar } : {}),
     ...(raw.skipped === true ? { skipped: true, skippedReason: trimText(raw.skippedReason || raw.reason || '', 140) || 'not-ready' } : {}),
     ...(raw.ready === true || raw.ready === false ? { ready: raw.ready === true } : {}),
   };
@@ -1007,6 +1016,68 @@ function normalizePromptComposition(value = {}, defaults = {}) {
   );
 }
 
+function normalizeOpenLoopPromptBridge(value = {}, defaults = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const rawPromptBridge = raw.promptBridge && typeof raw.promptBridge === 'object' ? raw.promptBridge : {};
+  const fallbackPromptBridge = fallback.promptBridge && typeof fallback.promptBridge === 'object'
+    ? fallback.promptBridge
+    : {};
+  const rawSelection = raw.selection && typeof raw.selection === 'object' ? raw.selection : {};
+  const fallbackSelection = fallback.selection && typeof fallback.selection === 'object' ? fallback.selection : {};
+  const renderedCount = Math.max(0, Math.min(1, Number(
+    raw.renderedCount
+      ?? rawPromptBridge.renderedCount
+      ?? fallback.renderedCount
+      ?? fallbackPromptBridge.renderedCount
+      ?? 0,
+  )));
+  const rawSelected = Array.isArray(raw.selected) ? raw.selected : (Array.isArray(fallback.selected) ? fallback.selected : []);
+  const rawHeldBack = Array.isArray(raw.heldBack) ? raw.heldBack : (Array.isArray(fallback.heldBack) ? fallback.heldBack : []);
+  const frameBudgetSidecar = normalizeFrameBudgetSidecarOrNull(raw.frameBudgetSidecar || fallback.frameBudgetSidecar);
+  return {
+    schema: trimText(raw.schema || fallback.schema || 'penny-open-loop-prompt-bridge.v1', 120),
+    enabled: raw.enabled === true || fallback.enabled === true,
+    disabledReason: trimText(raw.disabledReason || fallback.disabledReason || '', 160),
+    measurementMode: trimText(raw.measurementMode || fallback.measurementMode || 'disabled', 80),
+    livePromptBridge: raw.livePromptBridge === true || fallback.livePromptBridge === true,
+    liveChatTouched: raw.liveChatTouched === true || fallback.liveChatTouched === true,
+    renderedCount,
+    maxRenderedLoops: Math.max(0, Math.min(1, Number(raw.maxRenderedLoops ?? fallback.maxRenderedLoops ?? 1))),
+    maxSnippetWords: Math.max(0, Math.min(160, Number(raw.maxSnippetWords ?? fallback.maxSnippetWords ?? 0))),
+    promptTruthExpanded: false,
+    promptTruthChannelAdded: false,
+    toolEvidenceReceiptChanged: false,
+    memoryWrites: false,
+    autonomousActions: false,
+    selected: rawSelected
+      .map((item) => ({
+        id: trimText(item?.id || '', 120),
+        status: trimText(item?.status || '', 80),
+        authority: trimText(item?.authority || 'advisory', 80),
+        confidence: trimText(item?.confidence || '', 60),
+        surfaceReason: trimText(item?.surfaceReason || '', 140),
+      }))
+      .filter((item) => item.id || item.surfaceReason)
+      .slice(0, 1),
+    heldBack: rawHeldBack
+      .map((item) => ({
+        id: trimText(item?.id || '', 120),
+        reason: trimText(item?.reason || '', 120),
+        score: normalizeNullableNumber(item?.score),
+      }))
+      .filter((item) => item.id || item.reason)
+      .slice(0, 8),
+    selection: {
+      inspectedCount: normalizeNonNegativeNumber(rawSelection.inspectedCount ?? fallbackSelection.inspectedCount, 0),
+      scoredCount: normalizeNonNegativeNumber(rawSelection.scoredCount ?? fallbackSelection.scoredCount, 0),
+      selectedCount: normalizeNonNegativeNumber(rawSelection.selectedCount ?? fallbackSelection.selectedCount, renderedCount),
+      heldBackCount: normalizeNonNegativeNumber(rawSelection.heldBackCount ?? fallbackSelection.heldBackCount, rawHeldBack.length),
+    },
+    ...(frameBudgetSidecar ? { frameBudgetSidecar } : {}),
+  };
+}
+
 function normalizeInitiativePromptBridge(value = {}, defaults = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
@@ -1119,6 +1190,7 @@ function normalizeTurnStatePromptBridge(value = {}, defaults = {}) {
     promptTextRetained: !!retainedPromptText,
     promptTextRedacted,
   });
+  const frameBudgetSidecar = normalizeFrameBudgetSidecarOrNull(raw.frameBudgetSidecar || fallback.frameBudgetSidecar);
   return {
     schema: trimText(raw.schema || fallback.schema || 'penny-turn-state-prompt-bridge.v1', 120),
     enabled: raw.enabled === true || fallback.enabled === true,
@@ -1148,6 +1220,7 @@ function normalizeTurnStatePromptBridge(value = {}, defaults = {}) {
     },
     retentionPolicy,
     turnStateSummary,
+    ...(frameBudgetSidecar ? { frameBudgetSidecar } : {}),
   };
 }
 
@@ -1463,17 +1536,28 @@ function buildFrameBudgetForRuntimeArtifact({
   performance = null,
   promptTruth = null,
   staticEmbeddingShadow = null,
+  openLoopPromptBridge = null,
+  turnStatePromptBridge = null,
 } = {}) {
   const safePerformance = performance && typeof performance === 'object' ? performance : {};
+  const staticSidecar = normalizeFrameBudgetSidecarOrNull(staticEmbeddingShadow?.frameBudgetSidecar);
+  const openLoopSidecar = normalizeFrameBudgetSidecarOrNull(openLoopPromptBridge?.frameBudgetSidecar);
+  const turnStateSidecar = normalizeFrameBudgetSidecarOrNull(turnStatePromptBridge?.frameBudgetSidecar);
   const promptBuildMs = nullableDurationMs(safePerformance.promptAssembly);
   const archiveRetrievalMs = nullableDurationMs(safePerformance.archiveRetrieval);
-  const staticMemoryQueryMs = normalizeNullableNumber(staticEmbeddingShadow?.queryMs);
+  const staticMemoryQueryMs = normalizeNullableNumber(staticSidecar?.actualMs ?? staticEmbeddingShadow?.queryMs);
+  const openLoopQueryMs = normalizeNullableNumber(openLoopSidecar?.actualMs);
+  const turnStateMs = normalizeNullableNumber(turnStateSidecar?.actualMs);
   const modelRoundTripMs = nullableDurationMs(safePerformance.modelRoundTrip);
   const firstTokenMs = nullableDurationMs(safePerformance.firstToken);
   const totalTurnMs = nullableDurationMs(safePerformance.request);
-  const staticCandidateCount = normalizeNonNegativeNumber(staticEmbeddingShadow?.candidateCount, 0);
+  const staticCandidateCount = normalizeNonNegativeNumber(staticSidecar?.candidateCount ?? staticEmbeddingShadow?.candidateCount, 0);
+  const openLoopCount = normalizeNonNegativeNumber(openLoopSidecar?.openLoopCount ?? openLoopPromptBridge?.selection?.inspectedCount, 0);
   const selectedCount = promptTruthTotalCandidateCount(promptTruth);
   const renderedCount = promptTruthTotalRenderedCount(promptTruth);
+  const budgetEvents = [turnStateSidecar, openLoopSidecar, staticSidecar]
+    .filter(Boolean)
+    .map(frameBudgetSidecarToBudgetEvent);
   return createFrameBudgetReceipt({
     generatedAt,
     turnId,
@@ -1484,22 +1568,32 @@ function buildFrameBudgetForRuntimeArtifact({
       maxStaticOnlyRendered: staticEmbeddingShadow?.staticOnlyRenderedCap ?? null,
     },
     timings: {
+      turnStateMs,
       staticMemoryQueryMs,
+      openLoopQueryMs,
       archiveRetrievalMs,
       promptBuildMs,
       lmStudioFirstTokenMs: firstTokenMs,
       lmStudioTotalMs: modelRoundTripMs,
       modelRoundTripMs,
-      totalPrePromptMs: sumNullableDurations([archiveRetrievalMs, staticMemoryQueryMs, promptBuildMs]),
+      totalPrePromptMs: sumNullableDurations([
+        turnStateMs,
+        openLoopQueryMs,
+        archiveRetrievalMs,
+        staticMemoryQueryMs,
+        promptBuildMs,
+      ]),
       totalTurnMs,
     },
     workDone: {
-      rawCandidatesInspected: selectedCount + staticCandidateCount,
+      rawCandidatesInspected: selectedCount + staticCandidateCount + openLoopCount,
       staticCandidatesInspected: staticCandidateCount,
+      openLoopsScored: openLoopCount,
       candidatesSelected: selectedCount,
       candidatesRendered: renderedCount,
       staticOnlyRendered: staticOnlyRenderedCount(staticEmbeddingShadow),
     },
+    budgetEvents,
   });
 }
 
@@ -2235,6 +2329,7 @@ function buildRuntimeArtifact({
   promptComposition = null,
   promptTruth = null,
   frameBudget = null,
+  openLoopPromptBridge = null,
   initiativePromptBridge = null,
   turnStatePromptBridge = null,
   latencyBudget = null,
@@ -2259,6 +2354,7 @@ function buildRuntimeArtifact({
   const normalizedEpistemics = normalizeEpistemicCaution(epistemics);
   const normalizedSynthesis = normalizeArchiveSynthesis(synthesis);
   const normalizedPromptTruth = normalizePromptTruth(promptTruth);
+  const normalizedOpenLoopPromptBridge = normalizeOpenLoopPromptBridge(openLoopPromptBridge);
   const normalizedTurnStatePromptBridge = normalizeTurnStatePromptBridge(turnStatePromptBridge);
   const toolEvidenceReceipt = buildToolEvidenceReceipt({
     toolEvidenceFacts,
@@ -2273,6 +2369,8 @@ function buildRuntimeArtifact({
     performance,
     promptTruth: normalizedPromptTruth,
     staticEmbeddingShadow,
+    openLoopPromptBridge: normalizedOpenLoopPromptBridge,
+    turnStatePromptBridge: normalizedTurnStatePromptBridge,
   }));
   const effectiveResearchLedgerRendered = deriveResearchLedgerRendered(
     normalizedPromptTruth,
@@ -2480,6 +2578,7 @@ function buildRuntimeArtifact({
       authorityPressure,
       promptComposition: normalizePromptComposition(promptComposition),
       promptTruth: normalizedPromptTruth,
+      openLoopPromptBridge: normalizedOpenLoopPromptBridge,
       initiativePromptBridge: normalizeInitiativePromptBridge(initiativePromptBridge),
       turnStatePromptBridge: normalizedTurnStatePromptBridge,
       reasoningPolicy,
@@ -2544,6 +2643,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   const epistemics = normalizeEpistemicCaution(raw.epistemics || fallback.epistemics);
   const synthesis = normalizeArchiveSynthesis(raw.synthesis || fallback.synthesis);
   const reasoningPolicy = normalizeReasoningPolicy(advisoryRaw.reasoningPolicy, fallback.modelAdvisory?.reasoningPolicy);
+  const openLoopPromptBridge = normalizeOpenLoopPromptBridge(advisoryRaw.openLoopPromptBridge, fallback.modelAdvisory?.openLoopPromptBridge);
   const initiativePromptBridge = normalizeInitiativePromptBridge(advisoryRaw.initiativePromptBridge, fallback.modelAdvisory?.initiativePromptBridge);
   const turnStatePromptBridge = normalizeTurnStatePromptBridge(advisoryRaw.turnStatePromptBridge, fallback.modelAdvisory?.turnStatePromptBridge);
   return {
@@ -2623,6 +2723,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       authorityPressure: normalizeAuthorityPressure(advisoryRaw.authorityPressure, fallback.modelAdvisory?.authorityPressure),
       promptComposition: normalizePromptComposition(advisoryRaw.promptComposition, fallback.modelAdvisory?.promptComposition),
       promptTruth,
+      openLoopPromptBridge,
       initiativePromptBridge,
       turnStatePromptBridge,
       reasoningPolicy,
@@ -2700,6 +2801,7 @@ function normalizeLastRouteInfo(value) {
       readiness,
       promptComposition: value.promptComposition || null,
       promptTruth,
+      openLoopPromptBridge: value.openLoopPromptBridge || null,
       initiativePromptBridge: value.initiativePromptBridge || null,
       turnStatePromptBridge: value.turnStatePromptBridge || null,
       latencyBudget: value.latencyBudget || null,
@@ -2775,6 +2877,7 @@ function buildLastRouteInfo({
   readiness = null,
   promptComposition = null,
   promptTruth = null,
+  openLoopPromptBridge = null,
   initiativePromptBridge = null,
   turnStatePromptBridge = null,
   latencyBudget = null,
@@ -2818,6 +2921,7 @@ function buildLastRouteInfo({
     readiness,
     promptComposition,
     promptTruth,
+    openLoopPromptBridge,
     initiativePromptBridge,
     turnStatePromptBridge,
     latencyBudget,
@@ -2862,6 +2966,7 @@ function buildLastRouteInfo({
       readiness,
       promptComposition,
       promptTruth,
+      openLoopPromptBridge,
       initiativePromptBridge,
       turnStatePromptBridge,
       latencyBudget,

@@ -4,6 +4,8 @@ const FRAME_BUDGET_SUMMARY_SCHEMA = 'penny-frame-budget-summary.v1';
 
 const FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA = 'penny-frame-budget-sidecar-schedule.v1';
 
+const FRAME_BUDGET_SIDECAR_SCHEMA = 'penny-frame-budget-sidecar.v1';
+
 const FRAME_BUDGET_EVENT_STATUSES = Object.freeze({
   MET: 'met',
   MISSED: 'missed',
@@ -30,6 +32,14 @@ const FRAME_BUDGET_SIDECAR_SPEND_CLASSES = Object.freeze({
   CANDIDATE_SELECTION: 'candidate-selection',
   RENDERED_CONTEXT: 'rendered-context',
   BACKGROUND: 'background',
+});
+
+const FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS = Object.freeze({
+  TURN_STATE: 10,
+  STATIC_MEMORY_QUERY: 40,
+  OPEN_LOOP_RELEVANCE: 20,
+  EXACT_ANCHORS: 5,
+  CANDIDATE_MERGE: 25,
 });
 
 const SIDECAR_SPEND_CLASS_RANK = Object.freeze({
@@ -258,6 +268,11 @@ function statusToBudgetEventStatus(status) {
   return FRAME_BUDGET_EVENT_STATUSES.SKIPPED;
 }
 
+function normalizeSidecarStatus(value = '') {
+  const status = cleanToken(value);
+  return Object.values(FRAME_BUDGET_SIDECAR_STATUSES).includes(status) ? status : '';
+}
+
 function sidecarDecisionToBudgetEvent(decision = {}) {
   return normalizeBudgetEvent({
     id: `${decision.id || 'sidecar'}-deadline`,
@@ -266,6 +281,127 @@ function sidecarDecisionToBudgetEvent(decision = {}) {
     actualMs: decision.reservedMs,
     fallback: decision.fallback,
     reason: decision.deadlineReason || decision.reason,
+  });
+}
+
+function sidecarStatusFromRuntime({
+  enabled = true,
+  skipped = false,
+  errored = false,
+  budgetMs = 0,
+  actualMs = 0,
+  required = false,
+  fallbackUsed = false,
+} = {}) {
+  if (enabled === false || skipped === true) return FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED;
+  if (errored === true || fallbackUsed === true) return required
+    ? FRAME_BUDGET_SIDECAR_STATUSES.MISSED
+    : FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED;
+  if (budgetMs > 0 && actualMs > budgetMs) return required
+    ? FRAME_BUDGET_SIDECAR_STATUSES.MISSED
+    : FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED;
+  return FRAME_BUDGET_SIDECAR_STATUSES.SCHEDULED;
+}
+
+function defaultReasonForSidecarStatus(status = '', {
+  enabled = true,
+  skipped = false,
+  errored = false,
+  actualMs = 0,
+  budgetMs = 0,
+} = {}) {
+  if (status === FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED) {
+    if (enabled === false) return 'sidecar-disabled';
+    if (skipped === true) return 'sidecar-skipped';
+    return 'not-run';
+  }
+  if (status === FRAME_BUDGET_SIDECAR_STATUSES.MISSED) {
+    if (errored === true) return 'required-sidecar-error';
+    return 'required-sidecar-missed-deadline';
+  }
+  if (status === FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED) {
+    if (errored === true) return 'sidecar-error';
+    if (budgetMs > 0 && actualMs > budgetMs) return 'sidecar-over-budget';
+    return 'sidecar-degraded';
+  }
+  return 'within-budget';
+}
+
+function defaultFallbackForSidecarStatus(status = '') {
+  if (status === FRAME_BUDGET_SIDECAR_STATUSES.MISSED) {
+    return 'Do not infer sidecar result from missing runtime evidence.';
+  }
+  if (status === FRAME_BUDGET_SIDECAR_STATUSES.DEGRADED) {
+    return 'Use bounded sidecar output and keep prompt/rendered limits unchanged.';
+  }
+  if (status === FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED) {
+    return 'Hold back optional sidecar output for this frame.';
+  }
+  return '';
+}
+
+function normalizeFrameBudgetSidecarReceipt(sidecarLike = {}) {
+  const raw = isPlainObject(sidecarLike) ? sidecarLike : {};
+  const budgetMs = finiteNonNegativeNumberOrNull(raw.budgetMs) ?? 0;
+  const actualMs = finiteNonNegativeNumberOrNull(raw.actualMs ?? raw.durationMs ?? raw.queryMs) ?? 0;
+  const enabled = raw.enabled !== false;
+  const skipped = raw.skipped === true;
+  const errored = raw.errored === true || !!String(raw.error || '').trim();
+  const required = raw.required === true;
+  const fallbackUsed = raw.fallbackUsed === true;
+  const status = normalizeSidecarStatus(raw.status) || sidecarStatusFromRuntime({
+    enabled,
+    skipped,
+    errored,
+    budgetMs,
+    actualMs,
+    required,
+    fallbackUsed,
+  });
+  const reason = cleanString(
+    raw.reason
+      || raw.deadlineReason
+      || defaultReasonForSidecarStatus(status, { enabled, skipped, errored, actualMs, budgetMs }),
+    180,
+  );
+  return {
+    schema: FRAME_BUDGET_SIDECAR_SCHEMA,
+    id: cleanToken(raw.id || raw.name || 'sidecar', 'sidecar'),
+    label: cleanString(raw.label || raw.name || raw.id || 'Sidecar', 160),
+    spendClass: normalizeSidecarSpendClass(raw.spendClass || raw.category || raw.kind || ''),
+    status,
+    enabled,
+    skipped: skipped || status === FRAME_BUDGET_SIDECAR_STATUSES.SKIPPED,
+    budgetMs,
+    actualMs,
+    candidateCount: normalizeCount(raw.candidateCount ?? raw.candidatesInspected),
+    selectedCount: normalizeCount(raw.selectedCount ?? raw.candidatesSelected),
+    renderedCount: normalizeCount(raw.renderedCount ?? raw.candidatesRendered),
+    openLoopCount: normalizeCount(raw.openLoopCount ?? raw.openLoopsScored),
+    fallbackUsed,
+    fallback: cleanString(raw.fallback || defaultFallbackForSidecarStatus(status), 180),
+    reason,
+    sourceAuthority: cleanToken(raw.sourceAuthority || raw.authority || 'advisory', 'advisory'),
+    promptLimitChanged: false,
+    renderedLimitChanged: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+  };
+}
+
+function buildFrameBudgetSidecarReceipt(options = {}) {
+  return normalizeFrameBudgetSidecarReceipt(options);
+}
+
+function frameBudgetSidecarToBudgetEvent(sidecarLike = {}) {
+  const sidecar = normalizeFrameBudgetSidecarReceipt(sidecarLike);
+  return normalizeBudgetEvent({
+    id: `${sidecar.id || 'sidecar'}-deadline`,
+    status: statusToBudgetEventStatus(sidecar.status),
+    budgetMs: sidecar.budgetMs,
+    actualMs: sidecar.actualMs,
+    fallback: sidecar.fallback,
+    reason: sidecar.reason,
   });
 }
 
@@ -531,12 +667,17 @@ function summarizeFrameBudget(receipts = []) {
 
 module.exports = {
   PENNY_FRAME_BUDGET_SCHEMA,
+  FRAME_BUDGET_SIDECAR_SCHEMA,
   FRAME_BUDGET_SIDECAR_SCHEDULE_SCHEMA,
   FRAME_BUDGET_EVENT_STATUSES,
   FRAME_BUDGET_SIDECAR_STATUSES,
   FRAME_BUDGET_SIDECAR_SPEND_CLASSES,
+  FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS,
   createFrameBudgetReceipt,
   normalizeFrameBudgetReceipt,
+  buildFrameBudgetSidecarReceipt,
+  normalizeFrameBudgetSidecarReceipt,
+  frameBudgetSidecarToBudgetEvent,
   buildDeadlineAwareSidecarSchedule,
   addFrameTiming,
   addFrameWorkCount,

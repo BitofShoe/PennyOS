@@ -661,6 +661,17 @@ test('buildArchiveContext records static live-shadow trace without changing sele
             provider: 'model2vec-potion-8m',
             ready: true,
           },
+          frameBudgetSidecar: {
+            id: 'static-memory-query',
+            label: 'Static memory query',
+            spendClass: 'candidate-selection',
+            status: 'scheduled',
+            budgetMs: 40,
+            actualMs: 1.2,
+            candidateCount: 1,
+            promptTruthExpanded: false,
+            toolEvidenceReceiptChanged: false,
+          },
           candidates: [
             {
               id: 'archive:episode:static-copper-rabbit',
@@ -696,6 +707,10 @@ test('buildArchiveContext records static live-shadow trace without changing sele
     assert.equal(traced.retrieval.staticEmbeddingShadow.provider, 'model2vec-potion-8m');
     assert.equal(traced.retrieval.staticEmbeddingShadow.queryMs, 1.2);
     assert.equal(traced.retrieval.staticEmbeddingShadow.candidateCount, 1);
+    assert.equal(traced.retrieval.staticEmbeddingShadow.frameBudgetSidecar.id, 'static-memory-query');
+    assert.equal(traced.retrieval.staticEmbeddingShadow.frameBudgetSidecar.status, 'scheduled');
+    assert.equal(traced.retrieval.staticEmbeddingShadow.frameBudgetSidecar.actualMs, 1.2);
+    assert.equal(traced.retrieval.staticEmbeddingShadow.frameBudgetSidecar.candidateCount, 1);
     assert.equal(traced.retrieval.staticEmbeddingShadow.wouldHaveSelected, false);
     const topCandidate = traced.retrieval.staticEmbeddingShadow.topCandidates[0];
     assert.equal(topCandidate.id, 'archive:episode:static-copper-rabbit');

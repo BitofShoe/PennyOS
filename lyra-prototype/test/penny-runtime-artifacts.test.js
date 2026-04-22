@@ -425,6 +425,109 @@ test('buildRuntimeArtifact derives frame budget receipt from existing performanc
   assert.equal(artifact.toolEvidenceReceipt, null);
 });
 
+test('buildRuntimeArtifact folds live sidecar receipts into frame budget without PromptTruth channels', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'frame-budget-sidecars',
+    requestedMode: 'local',
+    selectedLane: 'chat',
+    backend: 'local-lmstudio',
+    executionPath: 'llm-chat',
+    performance: {
+      promptAssembly: { durationMs: 10, available: true },
+      archiveRetrieval: { durationMs: 30, available: true },
+    },
+    promptTruth: {
+      channels: {
+        stableFacts: { candidateCount: 1, renderedCount: 1 },
+      },
+    },
+    retrieval: {
+      staticEmbeddingShadow: {
+        mode: 'live-advisory',
+        queryMs: 4,
+        candidateCount: 2,
+        staticOnlyRenderedCap: 1,
+        frameBudgetSidecar: {
+          id: 'static-memory-query',
+          label: 'Static memory query',
+          spendClass: 'candidate-selection',
+          status: 'scheduled',
+          budgetMs: 40,
+          actualMs: 4,
+          candidateCount: 2,
+        },
+      },
+    },
+    openLoopPromptBridge: {
+      schema: 'penny-open-loop-prompt-bridge.v1',
+      enabled: true,
+      measurementMode: 'live-advisory',
+      livePromptBridge: true,
+      liveChatTouched: true,
+      selected: [{ id: 'frame-budget-loop', status: 'in-progress', authority: 'advisory' }],
+      promptBridge: { renderedCount: 1 },
+      selection: { inspectedCount: 3, scoredCount: 1, selectedCount: 1, heldBackCount: 2 },
+      frameBudgetSidecar: {
+        id: 'open-loop-relevance',
+        label: 'Open-loop relevance',
+        spendClass: 'relevance',
+        status: 'scheduled',
+        budgetMs: 20,
+        actualMs: 7,
+        openLoopCount: 3,
+        candidateCount: 3,
+        selectedCount: 1,
+        renderedCount: 1,
+      },
+    },
+    turnStatePromptBridge: {
+      schema: 'penny-turn-state-prompt-bridge.v1',
+      enabled: true,
+      measurementMode: 'live-prompt',
+      turnStateMeasurementMode: 'ephemeral',
+      persist: false,
+      livePromptBridge: true,
+      liveChatTouched: true,
+      renderedCount: 1,
+      promptBridge: { renderedCount: 1, promptText: 'Turn state, ephemeral (persist=false): concise.', wordCount: 5, maxTokens: 80 },
+      frameBudgetSidecar: {
+        id: 'turn-state',
+        label: 'Turn state',
+        spendClass: 'relevance',
+        status: 'scheduled',
+        budgetMs: 10,
+        actualMs: 5,
+        candidateCount: 1,
+        selectedCount: 1,
+        renderedCount: 1,
+      },
+    },
+  });
+
+  assert.equal(artifact.frameBudget.timings.turnStateMs, 5);
+  assert.equal(artifact.frameBudget.timings.openLoopQueryMs, 7);
+  assert.equal(artifact.frameBudget.timings.staticMemoryQueryMs, 4);
+  assert.equal(artifact.frameBudget.timings.totalPrePromptMs, 56);
+  assert.equal(artifact.frameBudget.workDone.staticCandidatesInspected, 2);
+  assert.equal(artifact.frameBudget.workDone.openLoopsScored, 3);
+  assert.equal(artifact.frameBudget.workDone.rawCandidatesInspected, 6);
+  assert.deepEqual(artifact.frameBudget.budgetEvents.map((event) => event.id), [
+    'turn-state-deadline',
+    'open-loop-relevance-deadline',
+    'static-memory-query-deadline',
+  ]);
+  assert.equal(artifact.modelAdvisory.openLoopPromptBridge.schema, 'penny-open-loop-prompt-bridge.v1');
+  assert.equal(artifact.modelAdvisory.openLoopPromptBridge.renderedCount, 1);
+  assert.equal(artifact.modelAdvisory.openLoopPromptBridge.toolEvidenceReceiptChanged, false);
+  assert.equal(artifact.modelAdvisory.openLoopPromptBridge.memoryWrites, false);
+  assert.equal(artifact.modelAdvisory.openLoopPromptBridge.frameBudgetSidecar.openLoopCount, 3);
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.frameBudgetSidecar.actualMs, 5);
+  assert.equal(artifact.staticEmbeddingShadow.frameBudgetSidecar.candidateCount, 2);
+  assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'frameBudget'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'openLoopPromptBridge'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'turnStatePromptBridge'), false);
+});
+
 test('normalizeRuntimeArtifact preserves prompt truth schema during normalization', () => {
   const artifact = normalizeRuntimeArtifact({
     promptTruth: {

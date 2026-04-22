@@ -1096,6 +1096,9 @@ function createMemoryArchiveApi({
       candidateCount: candidates.length,
       topCandidates,
       wouldHaveSelected: false,
+      ...(raw.frameBudgetSidecar && typeof raw.frameBudgetSidecar === 'object'
+        ? { frameBudgetSidecar: raw.frameBudgetSidecar }
+        : {}),
       ...(raw.skipped === true ? { skipped: true, skippedReason: reason || 'not-ready' } : {}),
       ...(status.ready === true || status.ready === false ? { ready: status.ready === true } : {}),
     });
