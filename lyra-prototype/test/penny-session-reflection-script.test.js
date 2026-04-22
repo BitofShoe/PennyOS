@@ -11,7 +11,9 @@ const {
 const { SUPPORT_STATES } = require('../lib/penny-session-reflection');
 
 const {
+  SESSION_REFLECTION_EXPLICIT_APPROVAL_FIXTURE_SCHEMA,
   SESSION_REFLECTION_FIXTURE_SCHEMA,
+  buildExplicitApprovalPathFixture,
   buildFixtureCases,
   buildSessionReflectionFixtureArtifact,
   parseSessionReflectionArgs,
@@ -49,8 +51,35 @@ test('session reflection fixture artifact is fixture-only and keeps authority gu
   assert.equal(artifact.summary.highSensitivityHeldBack, true);
   assert.equal(artifact.summary.correctionRelationshipPreserved, true);
   assert.equal(artifact.summary.projectDecisionOpenLoopOnly, true);
+  assert.equal(artifact.explicitApprovalPath.schema, SESSION_REFLECTION_EXPLICIT_APPROVAL_FIXTURE_SCHEMA);
+  assert.equal(artifact.explicitApprovalPath.diskMemoryWrites, false);
+  assert.equal(artifact.summary.explicitApprovalPath.passingCaseCount, 4);
+  assert.equal(artifact.summary.explicitApprovalPath.approvedExplicitMemoryWriteCount, 2);
+  assert.equal(artifact.summary.explicitApprovalPath.candidateOnlyHeldWithoutOverride, true);
+  assert.equal(artifact.summary.explicitApprovalPath.correctionRelationshipPreserved, true);
   assert.match(artifact.limits.join('\n'), /Reflection can suggest but cannot canonize/i);
   assert.match(artifact.limits.join('\n'), /PromptTruth and toolEvidenceReceipt remain unchanged/i);
+});
+
+test('explicit approval path fixture routes approved suggestions through explicit memory only after approval', () => {
+  const fixture = buildExplicitApprovalPathFixture({ generatedAt: GENERATED_AT });
+  const byId = new Map(fixture.results.map((item) => [item.id, item]));
+
+  assert.equal(fixture.schema, SESSION_REFLECTION_EXPLICIT_APPROVAL_FIXTURE_SCHEMA);
+  assert.equal(fixture.measurementMode, 'fixture-only');
+  assert.equal(fixture.diskMemoryWrites, false);
+  assert.equal(fixture.promptTruthExpanded, false);
+  assert.equal(fixture.toolEvidenceReceiptChanged, false);
+  assert.equal(fixture.hiddenChainOfThoughtStored, false);
+  assert.equal(fixture.runtimeVoiceChanged, false);
+  assert.equal(fixture.summary.passingCaseCount, 4);
+  assert.equal(fixture.summary.approvedExplicitMemoryWriteCount, 2);
+  assert.equal(byId.get('approved-stable-preference').explicitMemoryWrite.explicitMemoryPath, 'mergeMemoryItems');
+  assert.equal(byId.get('approved-stable-preference').explicitMemoryWrite.autoPromoted, false);
+  assert.equal(byId.get('rejected-suggestion-no-write').reason, 'memory-suggestion-not-pending-or-approved');
+  assert.equal(byId.get('candidate-only-held-without-override').reason, 'candidate-only-support-needs-additional-support-or-manual-override');
+  assert.equal(byId.get('approved-correction-preserves-relation').explicitMemoryWrite.correction.oldText, 'The mascot is brass fox');
+  assert.equal(byId.get('approved-correction-preserves-relation').explicitMemoryWrite.correction.newText, 'The mascot is copper rabbit');
 });
 
 test('fixture cases cover preference project decision temporary affect correction and sensitive document field', () => {

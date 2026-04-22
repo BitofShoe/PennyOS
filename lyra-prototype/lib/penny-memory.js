@@ -9,6 +9,7 @@ const MEMORY_ENTRY_LIMIT = 30;
 const MEMORY_PROMPT_LIMIT = 12;
 const MEMORY_RELEVANT_LIMIT = 6;
 const MEMORY_BOOK_PROMPT_LIMIT = 2;
+const PENNY_EXPLICIT_MEMORY_APPROVAL_WRITE_SCHEMA = 'penny-explicit-memory-approval-write.v1';
 
 const MEMORY_KIND_SCORES = {
   explicit: 8,
@@ -82,6 +83,66 @@ function normalizeMemoryEvidence(values = []) {
   return output;
 }
 
+function normalizeBoundedText(value = '', limit = 220) {
+  const text = normalizeText(value || '');
+  if (!text) return '';
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+}
+
+function listValue(value = []) {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null || value === '') return [];
+  return [value];
+}
+
+function normalizeApprovalSourceReceipt(receiptLike = {}) {
+  if (typeof receiptLike === 'string') {
+    const excerpt = normalizeBoundedText(receiptLike, 360);
+    return excerpt ? { type: 'source', excerpt } : null;
+  }
+  if (!receiptLike || typeof receiptLike !== 'object' || Array.isArray(receiptLike)) return null;
+  const type = normalizeBoundedText(receiptLike.type || receiptLike.sourceType || receiptLike.kind || 'source', 80);
+  const id = normalizeBoundedText(receiptLike.id || receiptLike.ref || receiptLike.sourceId || receiptLike.turnId || '', 180);
+  const path = normalizeBoundedText(receiptLike.path || receiptLike.file || '', 500);
+  const url = normalizeBoundedText(receiptLike.url || '', 500);
+  const label = normalizeBoundedText(receiptLike.label || receiptLike.title || receiptLike.name || '', 180);
+  const note = normalizeBoundedText(receiptLike.note || receiptLike.reason || receiptLike.summary || '', 260);
+  const excerpt = normalizeBoundedText(receiptLike.excerpt || receiptLike.text || receiptLike.quote || '', 360);
+  if (!id && !path && !url && !label && !note && !excerpt) return null;
+  return {
+    type: type || 'source',
+    ...(id ? { id } : {}),
+    ...(path ? { path } : {}),
+    ...(url ? { url } : {}),
+    ...(label ? { label } : {}),
+    ...(note ? { note } : {}),
+    ...(excerpt ? { excerpt } : {}),
+  };
+}
+
+function normalizeApprovalSourceReceipts(values = []) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of listValue(values).flat(Infinity)) {
+    const receipt = normalizeApprovalSourceReceipt(raw);
+    if (!receipt) continue;
+    const key = [
+      receipt.type,
+      receipt.id || '',
+      receipt.path || '',
+      receipt.url || '',
+      receipt.label || '',
+      receipt.excerpt || '',
+    ].join('|').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(receipt);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
 function normalizeMemoryOrigin(value = null) {
   if (!value || typeof value !== 'object') return null;
   const sourceType = normalizeText(value.sourceType || value.type || '');
@@ -102,7 +163,38 @@ function normalizeMemoryOrigin(value = null) {
         endAt: normalizeText(value.temporalScope.endAt || ''),
       }
     : null;
-  if (!sourceType && !scope && !queueId && !sourceId && !evidenceSnippet && !sourceThreadId && !sourceChunkId && !sourceTurnIds.length && !temporalScope) return null;
+  const correction = value.correction && typeof value.correction === 'object'
+    ? {
+        existingMemoryId: normalizeBoundedText(value.correction.existingMemoryId || value.correction.memoryId || '', 180),
+        oldText: normalizeBoundedText(value.correction.oldText || value.correction.previousText || '', 220),
+        newText: normalizeBoundedText(value.correction.newText || value.correction.currentText || '', 220),
+      }
+    : null;
+  const approval = value.approval && typeof value.approval === 'object'
+    ? {
+        reviewedAt: normalizeText(value.approval.reviewedAt || ''),
+        reviewerDecision: normalizeText(value.approval.reviewerDecision || value.approval.action || ''),
+        manualOverride: value.approval.manualOverride === true,
+        manualOverrideReason: normalizeBoundedText(value.approval.manualOverrideReason || value.approval.reason || '', 260),
+      }
+    : null;
+  const sourceReceipts = normalizeApprovalSourceReceipts(value.sourceReceipts || value.sourceRefs || []);
+  if (
+    !sourceType
+    && !scope
+    && !queueId
+    && !sourceId
+    && !evidenceSnippet
+    && !sourceThreadId
+    && !sourceChunkId
+    && !sourceTurnIds.length
+    && !temporalScope
+    && !(correction && (correction.oldText || correction.newText || correction.existingMemoryId))
+    && !(approval && (approval.reviewedAt || approval.reviewerDecision || approval.manualOverride))
+    && !sourceReceipts.length
+  ) {
+    return null;
+  }
   return {
     sourceType,
     scope,
@@ -113,6 +205,9 @@ function normalizeMemoryOrigin(value = null) {
     sourceChunkId,
     sourceTurnIds,
     temporalScope,
+    ...(correction && (correction.oldText || correction.newText || correction.existingMemoryId) ? { correction } : {}),
+    ...(approval && (approval.reviewedAt || approval.reviewerDecision || approval.manualOverride) ? { approval } : {}),
+    ...(sourceReceipts.length ? { sourceReceipts } : {}),
   };
 }
 
@@ -580,13 +675,255 @@ function injectRelevantMemoryContext(text = '', memories = {}, userText = '', li
   return `Relevant memory for this reply:\n${relevant}\n\nCurrent user message:\n${text}`;
 }
 
+function normalizeApprovalReviewedAt(value = '', now = Date.now()) {
+  const source = String(value || '').trim();
+  const parsed = source ? Date.parse(source) : NaN;
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  return new Date(now).toISOString();
+}
+
+function resolveApprovalNowMs(options = {}) {
+  if (typeof options.nowMs === 'function') {
+    const value = Number(options.nowMs());
+    if (Number.isFinite(value)) return value;
+  }
+  const direct = Number(options.nowMs);
+  if (Number.isFinite(direct)) return direct;
+  const fromNow = Date.parse(String(options.now || options.reviewedAt || '').trim());
+  if (Number.isFinite(fromNow)) return fromNow;
+  return Date.now();
+}
+
+function normalizeManualOverride(options = {}) {
+  const reason = normalizeBoundedText(options.manualOverrideReason || options.overrideReason || options.reason || '', 260);
+  return {
+    allowed: options.manualOverride === true && !!reason,
+    reason,
+  };
+}
+
+function mapApprovedSuggestionMemoryKind(kind = '') {
+  const normalized = normalizeText(kind || '').toLowerCase();
+  if (normalized === 'user-preference' || normalized === 'preference') return 'preference';
+  if (normalized === 'stable-user-fact' || normalized === 'stable-fact' || normalized === 'fact') return 'explicit';
+  if (normalized === 'correction' || normalized === 'memory-correction') return 'explicit';
+  return '';
+}
+
+function normalizeApprovedSuggestionCandidate(input = {}) {
+  const rawItem = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const suggestion = rawItem.suggestion && typeof rawItem.suggestion === 'object' && !Array.isArray(rawItem.suggestion)
+    ? rawItem.suggestion
+    : rawItem;
+  return {
+    queueItemId: normalizeBoundedText(rawItem.id || rawItem.queueId || '', 180),
+    sourceReflectionId: normalizeBoundedText(rawItem.sourceReflectionId || suggestion.sourceReflectionId || '', 180),
+    suggestionId: normalizeBoundedText(suggestion.id || suggestion.suggestionId || '', 180),
+    text: normalizeBoundedText(suggestion.text || suggestion.memory || suggestion.suggestedMemory || '', 220),
+    kind: normalizeText(suggestion.kind || suggestion.type || suggestion.memoryKind || '').toLowerCase(),
+    supportState: normalizeText(suggestion.supportState || suggestion.support || '').toLowerCase(),
+    supportLevel: Number.isFinite(Number(suggestion.supportLevel)) ? Number(suggestion.supportLevel) : 0,
+    sensitivity: normalizeText(suggestion.sensitivity || '').toLowerCase() || 'low',
+    requiresApproval: suggestion.requiresApproval === true,
+    autoPromoted: suggestion.autoPromoted === true,
+    oldText: normalizeBoundedText(suggestion.oldText || suggestion.previousText || suggestion.correction?.oldText || '', 220),
+    newText: normalizeBoundedText(suggestion.newText || suggestion.correctedText || suggestion.correction?.newText || suggestion.text || '', 220),
+    existingMemoryId: normalizeBoundedText(suggestion.existingMemoryId || suggestion.correctionOf || suggestion.correction?.existingMemoryId || '', 180),
+    sourceReceipts: normalizeApprovalSourceReceipts([
+      ...(Array.isArray(rawItem.sourceReceipts) ? rawItem.sourceReceipts : []),
+      ...(Array.isArray(suggestion.sourceReceipts) ? suggestion.sourceReceipts : []),
+    ]),
+  };
+}
+
+function approvalCandidateHasAdditionalSupport(options = {}) {
+  const supportState = normalizeText(options.supportStateOverride || '').toLowerCase();
+  if ([
+    'explicit-user-statement',
+    'repeated-explicit-user-preference',
+    'source-backed',
+    'repo-source',
+    'artifact',
+    'promotion-review',
+    'existing-explicit-correction',
+  ].includes(supportState)) {
+    return true;
+  }
+  return normalizeApprovalSourceReceipts(options.additionalSupportReceipts || options.additionalSupport || []).length > 0;
+}
+
+function buildApprovalEvidence(receipts = [], fallback = '') {
+  const evidence = [];
+  const seen = new Set();
+  for (const receipt of receipts) {
+    const text = normalizeBoundedText(receipt.excerpt || receipt.note || receipt.label || receipt.id || receipt.path || receipt.url || '', 220);
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    evidence.push(text);
+    if (evidence.length >= 4) break;
+  }
+  const fallbackText = normalizeBoundedText(fallback, 220);
+  if (fallbackText && !seen.has(fallbackText.toLowerCase()) && evidence.length < 4) evidence.push(fallbackText);
+  return evidence;
+}
+
+function buildApprovedExplicitMemoryWrite(candidateInput = {}, options = {}) {
+  const candidate = normalizeApprovedSuggestionCandidate(candidateInput);
+  const nowMs = resolveApprovalNowMs(options);
+  const reviewedAt = normalizeApprovalReviewedAt(options.reviewedAt || options.now || '', nowMs);
+  const manualOverride = normalizeManualOverride(options);
+  const explicitApproval = options.explicitApproval === true || options.reviewerDecision === 'approve';
+  const additionalSupport = approvalCandidateHasAdditionalSupport(options);
+  const additionalReceipts = normalizeApprovalSourceReceipts(options.additionalSupportReceipts || options.additionalSupport || []);
+  const sourceReceipts = normalizeApprovalSourceReceipts([...candidate.sourceReceipts, ...additionalReceipts]);
+  const supportState = normalizeText(options.supportStateOverride || candidate.supportState || '').toLowerCase();
+
+  if (!explicitApproval) return { ok: false, reason: 'explicit-approval-required' };
+  if (candidate.requiresApproval !== true) return { ok: false, reason: 'approval-candidate-must-require-approval' };
+  if (candidate.autoPromoted === true) return { ok: false, reason: 'auto-promoted-candidate-rejected' };
+  if (!candidate.text) return { ok: false, reason: 'empty-memory-suggestion' };
+  if (candidate.sensitivity === 'high' && !manualOverride.allowed) {
+    return { ok: false, reason: 'high-sensitivity-needs-manual-override' };
+  }
+  if (
+    ['candidate-only', 'unsupported', 'unknown', 'single-mention'].includes(supportState)
+    && !additionalSupport
+    && !manualOverride.allowed
+  ) {
+    return { ok: false, reason: 'candidate-only-support-needs-additional-support-or-manual-override' };
+  }
+
+  const memoryKind = mapApprovedSuggestionMemoryKind(candidate.kind);
+  if (!memoryKind) return { ok: false, reason: 'not-explicit-memory-suggestion' };
+
+  const isCorrection = candidate.kind === 'correction' || candidate.kind === 'memory-correction';
+  if (isCorrection && (!candidate.oldText || !candidate.newText)) {
+    return { ok: false, reason: 'correction-needs-old-and-new-memory-relationship' };
+  }
+
+  const memoryText = normalizeBoundedText(isCorrection ? candidate.newText : candidate.text, 220);
+  const evidence = buildApprovalEvidence(sourceReceipts, isCorrection ? `${candidate.oldText} -> ${candidate.newText}` : candidate.text);
+  const sourceTurnIds = sourceReceipts
+    .filter((receipt) => receipt.type === 'turn' && receipt.id)
+    .map((receipt) => receipt.id)
+    .slice(0, 12);
+  const originSourceId = [candidate.sourceReflectionId, candidate.suggestionId].filter(Boolean).join(':');
+  const memoryItem = normalizeMemoryItem({
+    text: memoryText,
+    kind: memoryKind,
+    ts: nowMs,
+    source: 'review-candidate',
+    evidence,
+    origin: {
+      sourceType: 'session-reflection',
+      scope: 'explicit-approval',
+      queueId: candidate.queueItemId,
+      sourceId: originSourceId,
+      evidenceSnippet: evidence[0] || '',
+      sourceTurnIds,
+      approval: {
+        reviewedAt,
+        reviewerDecision: 'approve',
+        manualOverride: manualOverride.allowed,
+        manualOverrideReason: manualOverride.reason,
+      },
+      ...(isCorrection ? {
+        correction: {
+          existingMemoryId: candidate.existingMemoryId,
+          oldText: candidate.oldText,
+          newText: candidate.newText,
+        },
+      } : {}),
+      sourceReceipts,
+    },
+  }, nowMs);
+
+  if (!memoryItem) return { ok: false, reason: 'explicit-memory-normalization-rejected' };
+
+  return {
+    ok: true,
+    schema: PENNY_EXPLICIT_MEMORY_APPROVAL_WRITE_SCHEMA,
+    reviewedAt,
+    reviewerDecision: 'approve',
+    queueItemId: candidate.queueItemId,
+    sourceReflectionId: candidate.sourceReflectionId,
+    suggestionId: candidate.suggestionId,
+    supportState,
+    supportLevel: candidate.supportLevel,
+    sensitivity: candidate.sensitivity,
+    requiresApproval: true,
+    autoPromoted: false,
+    explicitApproval: true,
+    manualOverride: manualOverride.allowed,
+    manualOverrideReason: manualOverride.reason,
+    explicitMemoryPath: 'mergeMemoryItems',
+    memoryWrites: true,
+    explicitMemoryWrites: true,
+    canonicalMemoryWrites: true,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    hiddenChainOfThoughtStored: false,
+    runtimeVoiceChanged: false,
+    sourceReceipts,
+    promotedMemory: memoryItem,
+    ...(isCorrection ? {
+      correction: {
+        existingMemoryId: candidate.existingMemoryId,
+        oldText: candidate.oldText,
+        newText: candidate.newText,
+      },
+    } : {}),
+  };
+}
+
+function applyApprovedExplicitMemoryWrite(memoryInput = {}, candidateInput = {}, options = {}) {
+  const nowMs = resolveApprovalNowMs(options);
+  const write = candidateInput?.schema === PENNY_EXPLICIT_MEMORY_APPROVAL_WRITE_SCHEMA
+    ? candidateInput
+    : buildApprovedExplicitMemoryWrite(candidateInput, { ...options, nowMs });
+  if (!write?.ok) {
+    return {
+      ok: false,
+      action: 'held',
+      reason: write?.reason || 'explicit-memory-approval-held',
+      memory: memoryInput,
+      write: null,
+    };
+  }
+
+  const existingMemories = Array.isArray(memoryInput?.memories) ? memoryInput.memories : [];
+  const oldTextKey = normalizeText(write.correction?.oldText || '').toLowerCase();
+  const retainedMemories = oldTextKey
+    ? existingMemories.filter((item) => normalizeText(item?.text || '').toLowerCase() !== oldTextKey)
+    : existingMemories;
+  const nextMemory = {
+    ...(memoryInput && typeof memoryInput === 'object' ? memoryInput : {}),
+    memories: mergeMemoryItems([write.promotedMemory, ...retainedMemories], MEMORY_ENTRY_LIMIT, nowMs),
+  };
+
+  return {
+    ok: true,
+    action: 'explicit-memory-write-applied',
+    reason: 'approved-explicit-memory',
+    memory: nextMemory,
+    write,
+    promotedMemory: write.promotedMemory,
+    removedOldMemoryCount: existingMemories.length - retainedMemories.length,
+  };
+}
+
 module.exports = {
   MEMORY_ENTRY_LIMIT,
   MEMORY_PROMPT_LIMIT,
   MEMORY_RELEVANT_LIMIT,
   MEMORY_BOOK_PROMPT_LIMIT,
+  PENNY_EXPLICIT_MEMORY_APPROVAL_WRITE_SCHEMA,
   normalizeText,
   mergeMemoryItems,
+  buildApprovedExplicitMemoryWrite,
+  applyApprovedExplicitMemoryWrite,
   buildPromptMemoryContext,
   formatPromptMemories,
   injectRelevantMemoryContext,

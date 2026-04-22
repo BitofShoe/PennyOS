@@ -1,6 +1,10 @@
 const crypto = require('crypto');
 
 const { SUPPORT_STATES } = require('./penny-session-reflection');
+const {
+  PENNY_EXPLICIT_MEMORY_APPROVAL_WRITE_SCHEMA,
+  applyApprovedExplicitMemoryWrite,
+} = require('./penny-memory');
 
 const PENNY_MEMORY_SUGGESTION_QUEUE_SCHEMA = 'penny-memory-suggestion-review-queue.v1';
 const PENNY_MEMORY_SUGGESTION_QUEUE_ITEM_SCHEMA = 'penny-memory-suggestion-review-item.v1';
@@ -17,7 +21,7 @@ const MEMORY_SUGGESTION_QUEUE_STATUS_VALUES = new Set(Object.values(MEMORY_SUGGE
 
 const MEMORY_SUGGESTION_QUEUE_LIMITS = Object.freeze([
   'Memory suggestion queue items are review candidates only, not canonical memory.',
-  'Queue approval status does not write explicit memory in this slice.',
+  'Queue approval status alone does not write explicit memory; explicit approval must route through existing explicit-memory APIs.',
   'Every queued suggestion requires approval and autoPromoted=false.',
   'Reflection summaries and queued suggestions are not truth proof.',
   'The queue does not expand PromptTruth or toolEvidenceReceipt.',
@@ -306,6 +310,57 @@ function normalizeQueueStatus(value = '') {
     : MEMORY_SUGGESTION_QUEUE_STATUSES.PENDING;
 }
 
+function normalizeExplicitMemoryWriteReceipt(value = null) {
+  const raw = isPlainObject(value) ? value : {};
+  if (raw.schema !== PENNY_EXPLICIT_MEMORY_APPROVAL_WRITE_SCHEMA || raw.ok !== true) return null;
+  const promotedMemory = isPlainObject(raw.promotedMemory)
+    ? {
+        text: cleanString(raw.promotedMemory.text || '', 220),
+        kind: cleanString(raw.promotedMemory.kind || 'explicit', 80),
+        ts: Number.isFinite(Number(raw.promotedMemory.ts)) ? Number(raw.promotedMemory.ts) : undefined,
+        source: cleanString(raw.promotedMemory.source || 'review-candidate', 80),
+        evidence: uniqueStrings(raw.promotedMemory.evidence || [], 4, 220),
+        origin: isPlainObject(raw.promotedMemory.origin) ? raw.promotedMemory.origin : null,
+      }
+    : null;
+  if (!promotedMemory?.text) return null;
+  const correction = isPlainObject(raw.correction)
+    ? {
+        existingMemoryId: cleanString(raw.correction.existingMemoryId || '', 180),
+        oldText: cleanString(raw.correction.oldText || '', 800),
+        newText: cleanString(raw.correction.newText || '', 800),
+      }
+    : null;
+  return {
+    ok: true,
+    schema: PENNY_EXPLICIT_MEMORY_APPROVAL_WRITE_SCHEMA,
+    reviewedAt: normalizeIso(raw.reviewedAt || '', ''),
+    reviewerDecision: raw.reviewerDecision === 'approve' ? 'approve' : cleanString(raw.reviewerDecision || '', 80),
+    queueItemId: cleanString(raw.queueItemId || '', 180),
+    sourceReflectionId: cleanString(raw.sourceReflectionId || '', 180),
+    suggestionId: cleanString(raw.suggestionId || '', 180),
+    supportState: cleanString(raw.supportState || '', 80),
+    supportLevel: clampSupportLevel(raw.supportLevel, 0),
+    sensitivity: normalizeSensitivity(raw.sensitivity || '', ''),
+    requiresApproval: true,
+    autoPromoted: false,
+    explicitApproval: raw.explicitApproval === true,
+    manualOverride: raw.manualOverride === true,
+    manualOverrideReason: cleanString(raw.manualOverrideReason || '', 260),
+    explicitMemoryPath: 'mergeMemoryItems',
+    memoryWrites: raw.memoryWrites === true,
+    explicitMemoryWrites: raw.explicitMemoryWrites === true,
+    canonicalMemoryWrites: raw.canonicalMemoryWrites === true,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    hiddenChainOfThoughtStored: false,
+    runtimeVoiceChanged: false,
+    sourceReceipts: normalizeSourceReceipts(raw.sourceReceipts || []),
+    promotedMemory,
+    ...(correction && (correction.oldText || correction.newText || correction.existingMemoryId) ? { correction } : {}),
+  };
+}
+
 function buildSuggestionDedupeKey(suggestion = {}) {
   const textKey = cleanString(suggestion.text || '', 800).toLowerCase();
   const kindKey = cleanToken(suggestion.kind || 'unknown');
@@ -363,6 +418,11 @@ function normalizeQueueSuggestion(input = {}, options = {}) {
     requiresApproval: true,
     autoPromoted: false,
     suggestedExplicitMemory: null,
+    ...(kind === 'correction' ? {
+      existingMemoryId: cleanString(raw.existingMemoryId || raw.correctionOf || '', 180),
+      oldText: cleanString(raw.oldText || raw.previousText || raw.oldValue || '', 800),
+      newText: cleanString(raw.newText || raw.correctedText || raw.newValue || text, 800),
+    } : {}),
     warnings: uniqueStrings(warnings, 20, 260),
   };
 }
@@ -424,6 +484,9 @@ function normalizeMemorySuggestionQueueItem(input = {}, options = {}) {
       : []),
   ], 30, 260);
   const dedupeKey = cleanString(raw.dedupeKey || buildSuggestionDedupeKey(suggestion), 80);
+  const explicitMemoryWrite = status === MEMORY_SUGGESTION_QUEUE_STATUSES.APPROVED
+    ? normalizeExplicitMemoryWriteReceipt(raw.explicitMemoryWrite)
+    : null;
 
   return {
     schema: PENNY_MEMORY_SUGGESTION_QUEUE_ITEM_SCHEMA,
@@ -442,17 +505,22 @@ function normalizeMemorySuggestionQueueItem(input = {}, options = {}) {
       requiresApproval: true,
       autoPromoted: false,
       suggestedExplicitMemory: null,
+      ...(suggestion.kind === 'correction' ? {
+        existingMemoryId: suggestion.existingMemoryId || '',
+        oldText: suggestion.oldText || '',
+        newText: suggestion.newText || '',
+      } : {}),
     },
     status,
     reviewedAt,
-    explicitMemoryWrite: null,
+    explicitMemoryWrite,
     sourceReceipts,
     warnings,
     dedupeKey,
     localOnly: true,
-    memoryWrites: false,
-    explicitMemoryWrites: false,
-    canonicalMemoryWrites: false,
+    memoryWrites: !!explicitMemoryWrite,
+    explicitMemoryWrites: !!explicitMemoryWrite,
+    canonicalMemoryWrites: explicitMemoryWrite?.canonicalMemoryWrites === true,
     promptTruthExpanded: false,
     toolEvidenceReceiptChanged: false,
     hiddenChainOfThoughtStored: false,
@@ -488,8 +556,9 @@ function summarizeMemorySuggestionQueue(queue = {}) {
     allRequireApproval: items.every((item) => item?.suggestion?.requiresApproval === true),
     autoPromotedCount: items.filter((item) => item?.suggestion?.autoPromoted === true).length,
     explicitMemoryWriteCount: items.filter((item) => item?.explicitMemoryWrite).length,
-    memoryWrites: false,
-    canonicalMemoryWrites: false,
+    memoryWrites: items.some((item) => item?.explicitMemoryWrite?.memoryWrites === true),
+    explicitMemoryWrites: items.some((item) => item?.explicitMemoryWrite?.explicitMemoryWrites === true),
+    canonicalMemoryWrites: items.some((item) => item?.explicitMemoryWrite?.canonicalMemoryWrites === true),
     promptTruthExpanded: false,
     toolEvidenceReceiptChanged: false,
     hiddenChainOfThoughtStored: false,
@@ -534,6 +603,12 @@ function normalizeMemorySuggestionQueue(input = {}, options = {}) {
     limits: uniqueStrings([...listValue(raw.limits || []), ...MEMORY_SUGGESTION_QUEUE_LIMITS], 20, 260),
   };
   queue.summary = summarizeMemorySuggestionQueue(queue);
+  queue.memoryWrites = queue.summary.memoryWrites === true;
+  queue.explicitMemoryWrites = queue.summary.explicitMemoryWrites === true;
+  queue.canonicalMemoryWrites = queue.summary.canonicalMemoryWrites === true;
+  queue.guardrails.reviewOnly = queue.summary.explicitMemoryWriteCount === 0;
+  queue.guardrails.explicitMemoryWrites = queue.explicitMemoryWrites;
+  queue.guardrails.canonicalMemoryWrites = queue.canonicalMemoryWrites;
   return queue;
 }
 
@@ -714,6 +789,12 @@ function updateMemorySuggestionQueueItemStatus(queueInput = {}, itemId = '', sta
   queue.items[index] = nextItem;
   queue.updatedAt = reviewedAt;
   queue.summary = summarizeMemorySuggestionQueue(queue);
+  queue.memoryWrites = queue.summary.memoryWrites === true;
+  queue.explicitMemoryWrites = queue.summary.explicitMemoryWrites === true;
+  queue.canonicalMemoryWrites = queue.summary.canonicalMemoryWrites === true;
+  queue.guardrails.reviewOnly = queue.summary.explicitMemoryWriteCount === 0;
+  queue.guardrails.explicitMemoryWrites = queue.explicitMemoryWrites;
+  queue.guardrails.canonicalMemoryWrites = queue.canonicalMemoryWrites;
   return {
     action: 'updated',
     reason: 'status-updated-without-memory-write',
@@ -729,6 +810,108 @@ function approveMemorySuggestionQueueItem(queueInput = {}, itemId = '', options 
     MEMORY_SUGGESTION_QUEUE_STATUSES.APPROVED,
     { ...options, explicitReview: true },
   );
+}
+
+function approveMemorySuggestionQueueItemForExplicitMemory(queueInput = {}, itemId = '', options = {}) {
+  const reviewedAt = normalizeIso(options.reviewedAt || options.now || '', normalizeNowIso(new Date()));
+  const queue = normalizeMemorySuggestionQueue(queueInput, { ...options, updatedAt: reviewedAt });
+  const cleanItemId = cleanString(itemId, 180);
+  const index = queue.items.findIndex((item) => item.id === cleanItemId || item.suggestion.id === cleanItemId);
+  if (index === -1) {
+    return {
+      action: 'not-found',
+      reason: 'memory-suggestion-queue-item-not-found',
+      queue,
+      item: null,
+      memory: options.memory || {},
+    };
+  }
+
+  const item = queue.items[index];
+  if (options.explicitApproval !== true) {
+    return {
+      action: 'held',
+      reason: 'explicit-approval-required',
+      queue,
+      item,
+      memory: options.memory || {},
+    };
+  }
+  if (item.explicitMemoryWrite) {
+    return {
+      action: 'duplicate',
+      reason: 'explicit-memory-write-already-recorded',
+      queue,
+      item,
+      memory: options.memory || {},
+      explicitMemoryWrite: item.explicitMemoryWrite,
+    };
+  }
+  if (![
+    MEMORY_SUGGESTION_QUEUE_STATUSES.PENDING,
+    MEMORY_SUGGESTION_QUEUE_STATUSES.APPROVED,
+  ].includes(item.status)) {
+    return {
+      action: 'held',
+      reason: 'memory-suggestion-not-pending-or-approved',
+      queue,
+      item,
+      memory: options.memory || {},
+    };
+  }
+
+  const applied = applyApprovedExplicitMemoryWrite(options.memory || {}, item, {
+    ...options,
+    explicitApproval: true,
+    reviewedAt,
+  });
+  if (!applied.ok) {
+    return {
+      action: 'held',
+      reason: applied.reason,
+      queue,
+      item,
+      memory: options.memory || {},
+    };
+  }
+
+  const explicitMemoryWrite = normalizeExplicitMemoryWriteReceipt(applied.write);
+  const nextItem = {
+    ...item,
+    status: MEMORY_SUGGESTION_QUEUE_STATUSES.APPROVED,
+    reviewedAt,
+    explicitMemoryWrite,
+    warnings: uniqueStrings([
+      ...(item.warnings || []),
+      'approved through existing explicit-memory path',
+    ], 30, 260),
+    memoryWrites: true,
+    explicitMemoryWrites: true,
+    canonicalMemoryWrites: true,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    hiddenChainOfThoughtStored: false,
+    runtimeVoiceChanged: false,
+  };
+  queue.items[index] = nextItem;
+  queue.updatedAt = reviewedAt;
+  queue.summary = summarizeMemorySuggestionQueue(queue);
+  queue.memoryWrites = true;
+  queue.explicitMemoryWrites = true;
+  queue.canonicalMemoryWrites = true;
+  queue.guardrails.reviewOnly = false;
+  queue.guardrails.explicitMemoryWrites = true;
+  queue.guardrails.canonicalMemoryWrites = true;
+  return {
+    action: 'updated',
+    reason: 'approved-explicit-memory-write',
+    queue,
+    item: nextItem,
+    memory: applied.memory,
+    explicitMemoryWrite,
+    promotedMemory: applied.promotedMemory,
+    removedOldMemoryCount: applied.removedOldMemoryCount,
+  };
 }
 
 function rejectMemorySuggestionQueueItem(queueInput = {}, itemId = '', options = {}) {
@@ -766,6 +949,7 @@ module.exports = {
   queueMemorySuggestionsFromReflection,
   updateMemorySuggestionQueueItemStatus,
   approveMemorySuggestionQueueItem,
+  approveMemorySuggestionQueueItemForExplicitMemory,
   rejectMemorySuggestionQueueItem,
   dismissMemorySuggestionQueueItem,
   summarizeMemorySuggestionQueue,

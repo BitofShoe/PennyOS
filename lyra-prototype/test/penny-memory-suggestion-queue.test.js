@@ -7,12 +7,15 @@ const {
   PENNY_MEMORY_SUGGESTION_QUEUE_SCHEMA,
   addMemorySuggestionToQueue,
   approveMemorySuggestionQueueItem,
+  approveMemorySuggestionQueueItemForExplicitMemory,
   createMemorySuggestionQueue,
   queueMemorySuggestionsFromReflection,
+  rejectMemorySuggestionQueueItem,
   serializeMemorySuggestionQueue,
   updateMemorySuggestionQueueItemStatus,
 } = require('../lib/penny-memory-suggestion-queue');
 
+const { PENNY_EXPLICIT_MEMORY_APPROVAL_WRITE_SCHEMA } = require('../lib/penny-memory');
 const { SUPPORT_STATES } = require('../lib/penny-session-reflection');
 
 const CREATED_AT = '2026-04-22T14:00:00.000Z';
@@ -114,6 +117,159 @@ test('approval status requires an explicit review call and still writes no memor
   assert.equal(approved.queue.summary.approvedCount, 1);
   assert.equal(approved.queue.summary.explicitMemoryWriteCount, 0);
   assert.match(approved.item.warnings.join('\n'), /without explicit-memory write/i);
+});
+
+test('explicit approval path writes stable preference through explicit memory APIs', () => {
+  const queued = addMemorySuggestionToQueue(createMemorySuggestionQueue({ createdAt: CREATED_AT }), supportedPreference(), {
+    sourceReflectionId: 'reflection-r6-a',
+    createdAt: CREATED_AT,
+  });
+  const approved = approveMemorySuggestionQueueItemForExplicitMemory(queued.queue, queued.item.id, {
+    explicitApproval: true,
+    reviewedAt: REVIEWED_AT,
+    nowMs: Date.parse(REVIEWED_AT),
+    memory: {
+      sessionId: 'r6-demo',
+      memories: [],
+    },
+  });
+
+  assert.equal(approved.action, 'updated');
+  assert.equal(approved.reason, 'approved-explicit-memory-write');
+  assert.equal(approved.item.status, MEMORY_SUGGESTION_QUEUE_STATUSES.APPROVED);
+  assert.equal(approved.item.reviewedAt, REVIEWED_AT);
+  assert.equal(approved.item.suggestion.requiresApproval, true);
+  assert.equal(approved.item.suggestion.autoPromoted, false);
+  assert.equal(approved.item.explicitMemoryWrite.schema, PENNY_EXPLICIT_MEMORY_APPROVAL_WRITE_SCHEMA);
+  assert.equal(approved.item.explicitMemoryWrite.explicitMemoryPath, 'mergeMemoryItems');
+  assert.equal(approved.item.explicitMemoryWrite.autoPromoted, false);
+  assert.equal(approved.queue.summary.explicitMemoryWriteCount, 1);
+  assert.equal(approved.queue.summary.explicitMemoryWrites, true);
+  assert.equal(approved.queue.summary.canonicalMemoryWrites, true);
+  assert.equal(approved.queue.promptTruthExpanded, false);
+  assert.equal(approved.queue.toolEvidenceReceiptChanged, false);
+  assert.equal(approved.memory.memories.length, 1);
+  assert.equal(
+    approved.memory.memories[0].text,
+    'User prefers detailed slice-by-slice implementation plans with verification notes',
+  );
+  assert.equal(approved.memory.memories[0].kind, 'preference');
+  assert.equal(approved.memory.memories[0].source, 'review-candidate');
+  assert.equal(approved.memory.memories[0].origin.sourceType, 'session-reflection');
+  assert.equal(approved.memory.memories[0].origin.scope, 'explicit-approval');
+  assert.equal(approved.memory.memories[0].origin.queueId, queued.item.id);
+  assert.equal(approved.memory.memories[0].origin.approval.reviewerDecision, 'approve');
+  assert.equal(approved.memory.memories[0].origin.approval.manualOverride, false);
+});
+
+test('rejected suggestion cannot be written through explicit approval path', () => {
+  const queued = addMemorySuggestionToQueue(createMemorySuggestionQueue({ createdAt: CREATED_AT }), supportedPreference(), {
+    sourceReflectionId: 'reflection-r6-rejected',
+    createdAt: CREATED_AT,
+  });
+  const rejected = rejectMemorySuggestionQueueItem(queued.queue, queued.item.id, {
+    reviewedAt: REVIEWED_AT,
+  });
+  const attempted = approveMemorySuggestionQueueItemForExplicitMemory(rejected.queue, queued.item.id, {
+    explicitApproval: true,
+    reviewedAt: '2026-04-22T14:06:00.000Z',
+    memory: {
+      sessionId: 'r6-demo',
+      memories: [],
+    },
+  });
+
+  assert.equal(rejected.item.status, MEMORY_SUGGESTION_QUEUE_STATUSES.REJECTED);
+  assert.equal(attempted.action, 'held');
+  assert.equal(attempted.reason, 'memory-suggestion-not-pending-or-approved');
+  assert.equal(attempted.memory.memories.length, 0);
+  assert.equal(attempted.queue.summary.explicitMemoryWriteCount, 0);
+});
+
+test('candidate-only suggestion needs additional support or a manual override marker before approval writes', () => {
+  const queued = addMemorySuggestionToQueue(createMemorySuggestionQueue({ createdAt: CREATED_AT }), {
+    id: 'candidate-short-summaries',
+    text: 'User prefers short implementation summaries.',
+    kind: 'user-preference',
+    supportState: 'candidate-only',
+    sourceReceipts: [
+      { type: 'archive-candidate', id: 'archive-1', excerpt: 'Weak archive candidate only.' },
+    ],
+  }, {
+    sourceReflectionId: 'reflection-r6-candidate',
+    createdAt: CREATED_AT,
+  });
+  const held = approveMemorySuggestionQueueItemForExplicitMemory(queued.queue, queued.item.id, {
+    explicitApproval: true,
+    reviewedAt: REVIEWED_AT,
+    memory: {
+      sessionId: 'r6-demo',
+      memories: [],
+    },
+  });
+  const overridden = approveMemorySuggestionQueueItemForExplicitMemory(held.queue, queued.item.id, {
+    explicitApproval: true,
+    manualOverride: true,
+    manualOverrideReason: 'Reviewer confirmed this preference outside the reflection summary.',
+    reviewedAt: '2026-04-22T14:07:00.000Z',
+    nowMs: Date.parse('2026-04-22T14:07:00.000Z'),
+    memory: {
+      sessionId: 'r6-demo',
+      memories: [],
+    },
+  });
+
+  assert.equal(queued.item.suggestion.supportState, SUPPORT_STATES.CANDIDATE_ONLY);
+  assert.equal(held.action, 'held');
+  assert.equal(held.reason, 'candidate-only-support-needs-additional-support-or-manual-override');
+  assert.equal(held.item.status, MEMORY_SUGGESTION_QUEUE_STATUSES.PENDING);
+  assert.equal(held.memory.memories.length, 0);
+  assert.equal(overridden.action, 'updated');
+  assert.equal(overridden.item.explicitMemoryWrite.manualOverride, true);
+  assert.equal(overridden.memory.memories.length, 1);
+});
+
+test('explicit approval path preserves correction stale-current relation', () => {
+  const queued = addMemorySuggestionToQueue(createMemorySuggestionQueue({ createdAt: CREATED_AT }), {
+    id: 'mascot-correction',
+    text: 'The current mascot is copper rabbit.',
+    kind: 'correction',
+    supportState: 'existing-explicit-correction',
+    existingMemoryId: 'mascot-memory',
+    oldText: 'The mascot is brass fox.',
+    newText: 'The mascot is copper rabbit.',
+    sourceReceipts: [
+      { type: 'turn', id: 'turn-correction', excerpt: 'the old mascot was brass fox, but the current mascot is copper rabbit' },
+    ],
+  }, {
+    sourceReflectionId: 'reflection-r6-correction',
+    createdAt: CREATED_AT,
+  });
+  const approved = approveMemorySuggestionQueueItemForExplicitMemory(queued.queue, queued.item.id, {
+    explicitApproval: true,
+    reviewedAt: REVIEWED_AT,
+    nowMs: Date.parse(REVIEWED_AT),
+    memory: {
+      sessionId: 'r6-demo',
+      memories: [
+        { text: 'The mascot is brass fox.', kind: 'explicit', ts: 1 },
+        { text: 'Backup mug is orange.', kind: 'explicit', ts: 2 },
+      ],
+    },
+  });
+  const texts = approved.memory.memories.map((item) => item.text);
+
+  assert.equal(queued.item.suggestion.oldText, 'The mascot is brass fox.');
+  assert.equal(queued.item.suggestion.newText, 'The mascot is copper rabbit.');
+  assert.equal(approved.action, 'updated');
+  assert.equal(approved.removedOldMemoryCount, 1);
+  assert.ok(texts.includes('The mascot is copper rabbit'));
+  assert.ok(texts.includes('Backup mug is orange'));
+  assert.equal(texts.includes('The mascot is brass fox'), false);
+  assert.equal(approved.item.explicitMemoryWrite.correction.oldText, 'The mascot is brass fox');
+  assert.equal(approved.item.explicitMemoryWrite.correction.newText, 'The mascot is copper rabbit');
+  assert.equal(approved.promotedMemory.origin.correction.oldText, 'The mascot is brass fox');
+  assert.equal(approved.promotedMemory.origin.correction.newText, 'The mascot is copper rabbit');
 });
 
 test('sensitive suggestions can stay pending only as high-caution review items', () => {

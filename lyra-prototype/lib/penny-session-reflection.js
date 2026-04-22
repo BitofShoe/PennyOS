@@ -531,6 +531,11 @@ function normalizeMemorySuggestion(input = {}, options = {}) {
     requiresApproval: true,
     autoPromoted: false,
     suggestedExplicitMemory: null,
+    ...(rawKind === 'correction' ? {
+      existingMemoryId: cleanString(raw.existingMemoryId || raw.correctionOf || '', 180),
+      oldText: cleanString(raw.oldText || raw.previousText || raw.oldValue || '', 800),
+      newText: cleanString(raw.newText || raw.correctedText || raw.newValue || text, 800),
+    } : {}),
     ...(doNotSaveReason ? { doNotSaveReason } : {}),
   };
 }

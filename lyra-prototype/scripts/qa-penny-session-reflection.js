@@ -15,7 +15,15 @@ const {
   summarizeMemorySuggestionPolicy,
 } = require('../lib/penny-memory-suggestions');
 
+const {
+  addMemorySuggestionToQueue,
+  approveMemorySuggestionQueueItemForExplicitMemory,
+  createMemorySuggestionQueue,
+  rejectMemorySuggestionQueueItem,
+} = require('../lib/penny-memory-suggestion-queue');
+
 const SESSION_REFLECTION_FIXTURE_SCHEMA = 'penny-session-reflection-fixture.v1';
+const SESSION_REFLECTION_EXPLICIT_APPROVAL_FIXTURE_SCHEMA = 'penny-session-reflection-explicit-approval-path-fixture.v1';
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
@@ -409,12 +417,193 @@ function summarizeFixtureResults(results = []) {
   };
 }
 
+function buildExplicitApprovalPathFixture({ generatedAt = new Date().toISOString() } = {}) {
+  const nowMs = Date.parse(generatedAt);
+  const queue = createMemorySuggestionQueue({ createdAt: generatedAt });
+  const stable = addMemorySuggestionToQueue(queue, {
+    id: 'approval-pref-detailed-slices',
+    text: 'User prefers detailed, slice-by-slice implementation plans with verification notes.',
+    kind: 'user-preference',
+    support: 'repeated explicit user preference',
+    sourceReceipts: [
+      turnReceipt('explicit-approval-stable-preference', 'turn-1', 'Please keep this slice-by-slice and detailed.'),
+      turnReceipt('explicit-approval-stable-preference', 'turn-3', 'Long detailed implementation plans help me follow the work.'),
+    ],
+  }, {
+    sourceReflectionId: 'r6-explicit-approval-fixture',
+    createdAt: generatedAt,
+  });
+  const stableApproved = approveMemorySuggestionQueueItemForExplicitMemory(stable.queue, stable.item.id, {
+    explicitApproval: true,
+    reviewedAt: generatedAt,
+    nowMs,
+    memory: {
+      sessionId: 'r6-explicit-approval-fixture',
+      memories: [],
+    },
+  });
+
+  const rejectedQueued = addMemorySuggestionToQueue(createMemorySuggestionQueue({ createdAt: generatedAt }), {
+    id: 'approval-rejected-pref',
+    text: 'User prefers broad daily-journal scans.',
+    kind: 'user-preference',
+    support: 'explicit user statement',
+    sourceReceipts: [
+      turnReceipt('explicit-approval-rejected', 'turn-1', 'Do not save this preference.'),
+    ],
+  }, {
+    sourceReflectionId: 'r6-explicit-approval-rejected',
+    createdAt: generatedAt,
+  });
+  const rejected = rejectMemorySuggestionQueueItem(rejectedQueued.queue, rejectedQueued.item.id, {
+    reviewedAt: generatedAt,
+  });
+  const rejectedAttempt = approveMemorySuggestionQueueItemForExplicitMemory(rejected.queue, rejectedQueued.item.id, {
+    explicitApproval: true,
+    reviewedAt: generatedAt,
+    memory: {
+      sessionId: 'r6-explicit-approval-fixture',
+      memories: [],
+    },
+  });
+
+  const candidateQueued = addMemorySuggestionToQueue(createMemorySuggestionQueue({ createdAt: generatedAt }), {
+    id: 'approval-candidate-only',
+    text: 'User prefers short implementation summaries.',
+    kind: 'user-preference',
+    supportState: 'candidate-only',
+    sourceReceipts: [
+      { type: 'archive-candidate', id: 'candidate-only-1', excerpt: 'Archive-only weak candidate.' },
+    ],
+  }, {
+    sourceReflectionId: 'r6-explicit-approval-candidate',
+    createdAt: generatedAt,
+  });
+  const candidateHeld = approveMemorySuggestionQueueItemForExplicitMemory(candidateQueued.queue, candidateQueued.item.id, {
+    explicitApproval: true,
+    reviewedAt: generatedAt,
+    memory: {
+      sessionId: 'r6-explicit-approval-fixture',
+      memories: [],
+    },
+  });
+
+  const correctionQueued = addMemorySuggestionToQueue(createMemorySuggestionQueue({ createdAt: generatedAt }), {
+    id: 'approval-mascot-correction',
+    text: 'The current mascot is copper rabbit.',
+    kind: 'correction',
+    supportState: 'existing-explicit-correction',
+    existingMemoryId: 'mascot-memory',
+    oldText: 'The mascot is brass fox.',
+    newText: 'The mascot is copper rabbit.',
+    sourceReceipts: [
+      turnReceipt('explicit-approval-correction', 'turn-1', 'the old mascot was brass fox, but the current mascot is copper rabbit'),
+    ],
+  }, {
+    sourceReflectionId: 'r6-explicit-approval-correction',
+    createdAt: generatedAt,
+  });
+  const correctionApproved = approveMemorySuggestionQueueItemForExplicitMemory(correctionQueued.queue, correctionQueued.item.id, {
+    explicitApproval: true,
+    reviewedAt: generatedAt,
+    nowMs,
+    memory: {
+      sessionId: 'r6-explicit-approval-fixture',
+      memories: [
+        { text: 'The mascot is brass fox.', kind: 'explicit', ts: 1 },
+        { text: 'Backup mug is orange.', kind: 'explicit', ts: 2 },
+      ],
+    },
+  });
+
+  const results = [
+    {
+      id: 'approved-stable-preference',
+      pass: stableApproved.action === 'updated'
+        && stableApproved.item.explicitMemoryWrite?.explicitMemoryPath === 'mergeMemoryItems'
+        && stableApproved.memory.memories.some((item) => /slice-by-slice/i.test(item.text)),
+      action: stableApproved.action,
+      reason: stableApproved.reason,
+      explicitMemoryWrite: stableApproved.item.explicitMemoryWrite || null,
+      memoryPreview: stableApproved.memory.memories,
+    },
+    {
+      id: 'rejected-suggestion-no-write',
+      pass: rejectedAttempt.action === 'held'
+        && rejectedAttempt.reason === 'memory-suggestion-not-pending-or-approved'
+        && rejectedAttempt.memory.memories.length === 0,
+      action: rejectedAttempt.action,
+      reason: rejectedAttempt.reason,
+      explicitMemoryWrite: null,
+    },
+    {
+      id: 'candidate-only-held-without-override',
+      pass: candidateHeld.action === 'held'
+        && candidateHeld.reason === 'candidate-only-support-needs-additional-support-or-manual-override'
+        && candidateHeld.memory.memories.length === 0,
+      action: candidateHeld.action,
+      reason: candidateHeld.reason,
+      explicitMemoryWrite: null,
+    },
+    {
+      id: 'approved-correction-preserves-relation',
+      pass: correctionApproved.action === 'updated'
+        && correctionApproved.removedOldMemoryCount === 1
+        && correctionApproved.item.explicitMemoryWrite?.correction?.oldText === 'The mascot is brass fox'
+        && correctionApproved.item.explicitMemoryWrite?.correction?.newText === 'The mascot is copper rabbit'
+        && correctionApproved.memory.memories.some((item) => item.text === 'The mascot is copper rabbit')
+        && !correctionApproved.memory.memories.some((item) => item.text === 'The mascot is brass fox'),
+      action: correctionApproved.action,
+      reason: correctionApproved.reason,
+      explicitMemoryWrite: correctionApproved.item.explicitMemoryWrite || null,
+      memoryPreview: correctionApproved.memory.memories,
+      removedOldMemoryCount: correctionApproved.removedOldMemoryCount,
+    },
+  ];
+
+  return {
+    schema: SESSION_REFLECTION_EXPLICIT_APPROVAL_FIXTURE_SCHEMA,
+    generatedAt,
+    measurementMode: 'fixture-only',
+    runnerMode: 'fixture-only',
+    liveModelCalls: false,
+    serverSpawned: false,
+    livePromptBridge: false,
+    diskMemoryWrites: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    hiddenChainOfThoughtStored: false,
+    runtimeVoiceChanged: false,
+    explicitMemoryPath: 'mergeMemoryItems',
+    results,
+    summary: {
+      caseCount: results.length,
+      passingCaseCount: results.filter((item) => item.pass).length,
+      failingCaseIds: results.filter((item) => !item.pass).map((item) => item.id),
+      approvedExplicitMemoryWriteCount: results.filter((item) => item.explicitMemoryWrite).length,
+      rejectedSuggestionNoWrite: results.some((item) => item.id === 'rejected-suggestion-no-write' && item.pass),
+      candidateOnlyHeldWithoutOverride: results.some((item) => item.id === 'candidate-only-held-without-override' && item.pass),
+      correctionRelationshipPreserved: results.some((item) => item.id === 'approved-correction-preserves-relation' && item.pass),
+      explicitMemoryPath: 'mergeMemoryItems',
+      diskMemoryWrites: false,
+      promptTruthExpanded: false,
+      toolEvidenceReceiptChanged: false,
+      hiddenChainOfThoughtStored: false,
+      runtimeVoiceChanged: false,
+    },
+  };
+}
+
 function buildSessionReflectionFixtureArtifact({
   generatedAt = new Date().toISOString(),
   cases = buildFixtureCases(),
 } = {}) {
   const results = cases.map((caseSpec) => buildCaseResult(caseSpec, generatedAt));
-  const summary = summarizeFixtureResults(results);
+  const explicitApprovalPath = buildExplicitApprovalPathFixture({ generatedAt });
+  const summary = {
+    ...summarizeFixtureResults(results),
+    explicitApprovalPath: explicitApprovalPath.summary,
+  };
   return {
     schema: SESSION_REFLECTION_FIXTURE_SCHEMA,
     reflectionSchema: PENNY_SESSION_REFLECTION_SCHEMA,
@@ -433,6 +622,7 @@ function buildSessionReflectionFixtureArtifact({
     toolEvidenceReceiptChanged: false,
     hiddenChainOfThoughtStored: false,
     runtimeVoiceChanged: false,
+    explicitApprovalPath,
     cases: results,
     summary,
     limits: [
@@ -481,9 +671,11 @@ if (require.main === module) {
 
 module.exports = {
   SESSION_REFLECTION_FIXTURE_SCHEMA,
+  SESSION_REFLECTION_EXPLICIT_APPROVAL_FIXTURE_SCHEMA,
   buildFixtureCases,
   buildReflectionForCase,
   buildCaseResult,
+  buildExplicitApprovalPathFixture,
   buildSessionReflectionFixtureArtifact,
   writeSessionReflectionFixtureArtifact,
   parseSessionReflectionArgs,

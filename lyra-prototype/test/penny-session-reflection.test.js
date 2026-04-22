@@ -105,6 +105,31 @@ test('session normalization warns when a suggestion tries to bypass review defau
   assert.match(reflection.warnings.join('\n'), /autoPromoted=true/i);
 });
 
+test('correction memory suggestions preserve stale-current fields for explicit approval review', () => {
+  const reflection = normalizeSessionReflection({
+    now: NOW,
+    memorySuggestions: [
+      {
+        text: 'The current mascot is copper rabbit.',
+        kind: 'correction',
+        supportState: 'existing-explicit-correction',
+        existingMemoryId: 'mascot-memory',
+        oldText: 'The mascot is brass fox.',
+        newText: 'The mascot is copper rabbit.',
+      },
+    ],
+  });
+
+  assert.equal(reflection.memorySuggestions.length, 1);
+  assert.equal(reflection.memorySuggestions[0].supportState, SUPPORT_STATES.EXISTING_EXPLICIT_CORRECTION);
+  assert.equal(reflection.memorySuggestions[0].requiresApproval, true);
+  assert.equal(reflection.memorySuggestions[0].autoPromoted, false);
+  assert.equal(reflection.memorySuggestions[0].existingMemoryId, 'mascot-memory');
+  assert.equal(reflection.memorySuggestions[0].oldText, 'The mascot is brass fox.');
+  assert.equal(reflection.memorySuggestions[0].newText, 'The mascot is copper rabbit.');
+  assert.equal(reflection.memorySuggestions[0].suggestedExplicitMemory, null);
+});
+
 test('sensitive and inferred memory-like items are held as do-not-save instead of suggestions', () => {
   const reflection = normalizeSessionReflection({
     now: NOW,
