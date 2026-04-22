@@ -12,6 +12,17 @@ const {
 const {
   buildCorrectionLinks,
 } = require('../lib/penny-memory-link-policy');
+const {
+  buildSemanticClaimId,
+  buildSemanticEntityId,
+  buildSemanticSourceId,
+} = require('../lib/penny-semantic-ids');
+const {
+  SEMANTIC_DOMAIN_IDS,
+} = require('../lib/penny-semantic-domains');
+const {
+  SEMANTIC_PREDICATE_IDS,
+} = require('../lib/penny-semantic-predicates');
 
 function makeTempFiles(prefix = 'penny-archive-') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -603,6 +614,98 @@ test('buildArchiveContext includes bounded candidate trace only when explicitly 
       true,
     );
     assert.match(selectedTrace.textPreview, /midnight rain/i);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('buildArchiveContext passes structured claim payloads through candidate trace only', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({ ...files, embedReady: false });
+
+  try {
+    const subject = {
+      id: buildSemanticEntityId({ entityType: 'project', entityKey: 'lyra-prototype' }),
+      type: 'project',
+      label: 'lyra-prototype',
+    };
+    const source = {
+      sourceId: buildSemanticSourceId({ sourceType: 'archive-episode', sourceId: 'session:copper-rabbit' }),
+      sourceType: 'archive-episode',
+      excerpt: 'The current coding mascot is copper rabbit.',
+      observedAt: '2026-04-22T12:00:00.000Z',
+    };
+    const claimLike = {
+      domainId: SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE,
+      subject,
+      predicate: { id: SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT },
+      object: { type: 'text', text: 'copper rabbit' },
+      source,
+      authority: {
+        sourceAuthority: 'advisory',
+        supportState: 'rendered-advisory',
+        canonicality: 'advisory',
+      },
+      temporal: {
+        temporalScope: 'current',
+        observedAt: '2026-04-22T12:00:00.000Z',
+      },
+      status: { stale: false },
+    };
+    const claimId = buildSemanticClaimId(claimLike);
+    const archive = api.buildArchiveStore();
+    archive.sessions.demo = {
+      sessionId: 'demo',
+      episodes: [
+        {
+          id: 'session:copper-rabbit',
+          type: 'episode',
+          text: 'The current coding mascot is copper rabbit.',
+          excerpt: 'The current coding mascot is copper rabbit.',
+          userText: 'The current coding mascot is copper rabbit.',
+          createdAt: '2026-04-22T12:00:00.000Z',
+          claim: {
+            ...claimLike,
+            claimId,
+          },
+        },
+      ],
+      summaries: [],
+      chapters: [],
+      provenance: [],
+      activeContradictions: [],
+      openLoops: [],
+      lastRetrieval: null,
+      lastArchivedAt: '',
+      updatedAt: '',
+    };
+    api.writeArchiveStore(archive);
+
+    const request = {
+      sessionId: 'demo',
+      userText: 'coding mascot copper rabbit',
+      lane: 'chat',
+      now: Date.parse('2026-04-22T12:05:00.000Z'),
+      sessionPromptLimit: 1,
+      globalPromptLimit: 0,
+      allowArchiveCompression: false,
+    };
+    const defaultResult = await api.buildArchiveContext(request);
+    const tracedResult = await api.buildArchiveContext({
+      ...request,
+      includeCandidateTrace: true,
+      candidateTraceLimit: 3,
+    });
+
+    assert.equal(Object.prototype.hasOwnProperty.call(defaultResult.retrieval, 'candidateTrace'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(tracedResult.archiveContext, 'candidateTrace'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(tracedResult.archiveContext.session[0], 'claim'), false);
+    const trace = tracedResult.retrieval.candidateTrace.find((item) => item.id === 'session:copper-rabbit');
+    assert.ok(trace);
+    assert.equal(trace.claim.claimId, claimId);
+    assert.equal(trace.claim.domainId, SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE);
+    assert.equal(trace.claim.predicate.id, SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT);
+    assert.equal(trace.claim.authority.supportState, 'rendered-advisory');
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

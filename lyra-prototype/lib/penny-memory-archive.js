@@ -567,6 +567,7 @@ function createMemoryArchiveApi({
     );
     const reviewStatus = trimText(raw.reviewStatus || promotionPacket?.reviewStatus || '', 40);
     const reviewedAt = trimIso(raw.reviewedAt || promotionPacket?.reviewedAt || '', '');
+    const claim = buildArchiveCandidateTraceClaim(raw);
     return {
       id: String(raw.id || createId(type)).trim(),
       type,
@@ -622,6 +623,7 @@ function createMemoryArchiveApi({
         lossy: ['summary', 'pattern', 'promotion'].includes(type),
       }),
       promotionPacket,
+      ...(claim ? { claim } : {}),
     };
   }
 
@@ -1015,6 +1017,49 @@ function createMemoryArchiveApi({
     return 'raw';
   }
 
+  function buildArchiveCandidateTraceClaim(item = {}) {
+    const source = item && typeof item === 'object' ? item : {};
+    const rawClaim = source.claim || source.semanticClaim || source.structuredClaim;
+    if (rawClaim && typeof rawClaim === 'object' && !Array.isArray(rawClaim)) return rawClaim;
+
+    const hasFlatClaimEvidence = Boolean(
+      source.claimId
+        || source.semanticClaimId
+        || source.claimDomainId
+        || source.domainId
+        || source.claimSubjectId
+        || source.subjectId
+        || source.claimPredicateId
+        || source.predicateId
+        || source.claimObjectId
+        || source.objectId
+        || source.claimObjectText
+        || source.objectText
+        || source.semanticSourceId
+        || source.claimSourceId,
+    );
+    if (!hasFlatClaimEvidence) return null;
+
+    const flatClaim = compactCandidateTraceObject({
+      claimId: source.claimId || source.semanticClaimId,
+      domainId: source.claimDomainId || source.domainId,
+      subjectId: source.claimSubjectId || source.subjectId,
+      subjectType: source.claimSubjectType || source.subjectType,
+      predicateId: source.claimPredicateId || source.predicateId,
+      objectId: source.claimObjectId || source.objectId,
+      objectType: source.claimObjectType || source.objectType,
+      objectText: source.claimObjectText || source.objectText,
+      sourceId: source.semanticSourceId || source.claimSourceId,
+      sourceType: source.claimSourceType || source.sourceType,
+      sourceAuthority: source.claimSourceAuthority || source.sourceAuthority,
+      supportState: source.claimSupportState || source.supportState,
+      canonicality: source.claimCanonicality || source.canonicality,
+      temporalScope: source.claimTemporalScope || source.temporalScope,
+      stale: typeof source.claimStale === 'boolean' ? source.claimStale : source.stale,
+    });
+    return Object.keys(flatClaim).length ? flatClaim : null;
+  }
+
   function buildArchiveCandidateTraceItem(raw = {}, {
     group = '',
     rank = null,
@@ -1051,6 +1096,7 @@ function createMemoryArchiveApi({
     const normalizedEligibilityReason = normalizedEligibility.filtered
       ? trimText(normalizedEligibility.filterReason || '', 120)
       : '';
+    const claim = buildArchiveCandidateTraceClaim(item);
     const staticCandidate = isStaticEmbeddingCandidate(item);
     const memoryLinkTrace = memoryLinks
       ? buildMemoryLinkTraceForItem(memoryLinks, archiveCandidateLinkId(item), { linkTraceLimit })
@@ -1112,6 +1158,7 @@ function createMemoryArchiveApi({
       ...(candidateChannels.length ? { candidateChannels } : {}),
       ...(staticEmbedding ? { staticEmbedding } : {}),
       ...(memoryLinkTrace ? { memoryLinks: memoryLinkTrace } : {}),
+      ...(claim ? { claim } : {}),
       ...(isStaticOnlyArchiveCandidate(item) ? { staticOnly: true } : {}),
       ...(normalizedHeldBackReason ? { heldBackReason: normalizedHeldBackReason } : {}),
       ...(staticCandidate ? {

@@ -329,6 +329,9 @@ function createMemoryArchivePolicyApi({
       openLoopLinked: entry.openLoopLinked === true,
       recentlyRetrieved: entry.recentlyRetrieved === true,
       sourceEpisodeIds: normalizeEvidenceIds(entry.sourceEpisodeIds || entry.evidenceIds || []),
+      ...((entry.claim || entry.semanticClaim || entry.structuredClaim)
+        ? { claim: entry.claim || entry.semanticClaim || entry.structuredClaim }
+        : {}),
     };
   }
 

@@ -1,5 +1,6 @@
 const CANDIDATE_SURVIVAL_QA_SCHEMA = 'penny-candidate-survival-memory-qa.v1';
 const STRUCTURED_CANDIDATE_CONTRACT_QA_SCHEMA = 'penny-structured-candidate-contract-qa.v1';
+const SEMANTIC_CLAIM_TRACE_SCHEMA = 'penny-semantic-claim-trace.v1';
 
 const {
   SEMANTIC_ID_KINDS,
@@ -1437,6 +1438,7 @@ function normalizeCandidateTraceItem(itemLike = {}) {
   const shadowScores = normalizeCandidateShadowScores(source.shadowScores);
   const rerankShadow = normalizeCandidateRerankShadow(source.rerankShadow);
   const policyReasons = normalizeCandidatePolicyReasons(source);
+  const candidateChannels = uniqueStrings(source.candidateChannels || source.channels || [], 8);
   const eligibilitySource = source.eligibility && typeof source.eligibility === 'object'
     ? source.eligibility
     : {};
@@ -1498,6 +1500,7 @@ function normalizeCandidateTraceItem(itemLike = {}) {
     policyReasons,
     shadowScores,
     rerankShadow,
+    candidateChannels,
     memoryLinks,
     semanticClaim,
     claimTreatment,
@@ -1640,6 +1643,7 @@ function summarizeTraceItem(item = null) {
     score: Number.isFinite(Number(item.score)) ? Number(item.score) : null,
     scoringProfile: item.scoringProfile || '',
     activeScore: Number.isFinite(Number(item.activeScore)) ? Number(item.activeScore) : null,
+    candidateChannels: uniqueStrings(item.candidateChannels || [], 8),
     raw: item.raw,
     ranked: item.ranked,
     selected: item.selected,
@@ -1917,6 +1921,7 @@ function applyPromptTruthToCandidateTrace(traceLike = [], promptTruth = null) {
 function summarizeCandidateTrace(traceLike = []) {
   const trace = normalizeTraceArray(traceLike);
   const linkTraces = trace.filter((item) => item.memoryLinks);
+  const semanticClaimTraces = trace.filter((item) => item.semanticClaim);
   return {
     rawCandidateCount: trace.filter((item) => item.raw).length,
     eligibleCandidateCount: trace.filter((item) => item.raw && item.eligible !== false).length,
@@ -1926,6 +1931,10 @@ function summarizeCandidateTrace(traceLike = []) {
     filteredSensitiveCount: trace.filter((item) => item.eligible === false && (
       item.sensitivity === 'high' || item.heldBackReason === 'sensitive-low-confidence'
     )).length,
+    semanticClaimTraceCandidateCount: semanticClaimTraces.length,
+    unstructuredAdvisoryCandidateCount: Math.max(0, trace.length - semanticClaimTraces.length),
+    candidateOnlyClaimCandidateCount: semanticClaimTraces.filter((item) => item.semanticClaim?.candidateOnly === true).length,
+    renderedClaimCandidateCount: semanticClaimTraces.filter((item) => item.rendered).length,
     linkTraceCandidateCount: linkTraces.length,
     linkTraceTotalLinks: linkTraces.reduce((sum, item) => sum + Number(item.memoryLinks?.totalLinks || 0), 0),
   };
@@ -2660,6 +2669,193 @@ function buildStructuredCandidateContractSummary(cases = []) {
     canonicalMemoryWriteCount: 0,
     defaultPromptLimitsRaised: false,
   };
+}
+
+const SEMANTIC_CLAIM_TRACE_MATCHES = Object.freeze({
+  EXPECTED_CLAIM: 'expected-claim',
+  RIGHT_OBJECT_WRONG_PREDICATE: 'right-object-wrong-predicate',
+  RIGHT_PREDICATE_STALE_OBJECT: 'right-predicate-stale-object',
+  STRUCTURED_OTHER: 'structured-other',
+  UNSTRUCTURED_ADVISORY: 'unstructured-advisory',
+  NO_EXPECTED_CONTRACT: 'no-expected-contract',
+});
+
+function classifySemanticClaimTraceMatch(item = {}, expectedClaim = {}) {
+  const claim = item?.semanticClaim || null;
+  if (!claim) return SEMANTIC_CLAIM_TRACE_MATCHES.UNSTRUCTURED_ADVISORY;
+  if (!expectedClaim || !Object.keys(expectedClaim).length) {
+    return SEMANTIC_CLAIM_TRACE_MATCHES.NO_EXPECTED_CONTRACT;
+  }
+  if (semanticClaimMatchesExpected(claim, expectedClaim)) {
+    return SEMANTIC_CLAIM_TRACE_MATCHES.EXPECTED_CLAIM;
+  }
+  if (
+    semanticClaimSubjectMatches(claim, expectedClaim)
+      && semanticClaimObjectMatches(claim, expectedClaim)
+      && !semanticClaimPredicateMatches(claim, expectedClaim)
+  ) {
+    return SEMANTIC_CLAIM_TRACE_MATCHES.RIGHT_OBJECT_WRONG_PREDICATE;
+  }
+  if (
+    semanticClaimSubjectMatches(claim, expectedClaim)
+      && semanticClaimPredicateMatches(claim, expectedClaim)
+      && claim.stale === true
+  ) {
+    return SEMANTIC_CLAIM_TRACE_MATCHES.RIGHT_PREDICATE_STALE_OBJECT;
+  }
+  return SEMANTIC_CLAIM_TRACE_MATCHES.STRUCTURED_OTHER;
+}
+
+function summarizeClaimForSemanticTrace(claim = null) {
+  if (!claim) return null;
+  return compactObject({
+    schema: claim.schema || '',
+    claimId: claim.claimId || '',
+    stableClaimId: claim.stableClaimId || '',
+    claimIdStable: claim.claimIdStable === true,
+    subjectId: claim.subjectId || '',
+    subjectType: claim.subjectType || '',
+    predicateId: claim.predicateId || '',
+    objectText: claim.objectText || '',
+    domainId: claim.domainId || '',
+    sourceId: claim.sourceId || '',
+    sourceType: claim.sourceType || '',
+    sourceAuthority: claim.sourceAuthority || '',
+    supportState: claim.supportState || '',
+    canonicality: claim.canonicality || '',
+    temporalScope: claim.temporalScope || '',
+    stale: claim.stale === true,
+    candidateOnly: claim.candidateOnly === true,
+    canonical: claim.canonical === true,
+    renderable: claim.renderable === true,
+    validation: claim.validation || {},
+  });
+}
+
+function buildSemanticClaimTraceCandidate(item = {}, expectedClaim = {}) {
+  const candidate = normalizeCandidateTraceItem(item);
+  const claim = candidate.semanticClaim || null;
+  const claimTraceStatus = claim ? 'structured' : 'unstructured-advisory';
+  return compactObject({
+    candidateId: candidate.id || candidate.sourceId || '',
+    sourceId: candidate.sourceId || '',
+    textPreview: trimText(candidate.text || '', 180),
+    candidateChannels: uniqueStrings(candidate.candidateChannels || [], 8),
+    selected: candidate.selected === true,
+    rendered: candidate.rendered === true,
+    heldBackReason: candidate.heldBackReason || '',
+    claimTraceStatus,
+    claimMatch: classifySemanticClaimTraceMatch(candidate, expectedClaim),
+    claim: summarizeClaimForSemanticTrace(claim),
+    advisoryOnly: true,
+    truthProof: false,
+    scoringActive: false,
+    behaviorChanged: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    canonicalMemoryWrite: false,
+    defaultPromptLimitsRaised: false,
+  });
+}
+
+function buildSemanticClaimTraceSummary(candidates = []) {
+  const byClaimMatch = Object.fromEntries(
+    Object.values(SEMANTIC_CLAIM_TRACE_MATCHES).map((match) => [match, 0]),
+  );
+  for (const item of asArray(candidates)) {
+    const match = Object.values(SEMANTIC_CLAIM_TRACE_MATCHES).includes(item?.claimMatch)
+      ? item.claimMatch
+      : SEMANTIC_CLAIM_TRACE_MATCHES.UNSTRUCTURED_ADVISORY;
+    byClaimMatch[match] += 1;
+  }
+  const structured = asArray(candidates).filter((item) => item?.claimTraceStatus === 'structured');
+  return {
+    schema: SEMANTIC_CLAIM_TRACE_SCHEMA,
+    totalCandidates: asArray(candidates).length,
+    structuredClaimCandidateCount: structured.length,
+    unstructuredAdvisoryCandidateCount: asArray(candidates).filter((item) => item?.claimTraceStatus !== 'structured').length,
+    candidateOnlyClaimCount: structured.filter((item) => item.claim?.candidateOnly === true).length,
+    renderedClaimCandidateCount: structured.filter((item) => item.rendered === true).length,
+    selectedClaimCandidateCount: structured.filter((item) => item.selected === true).length,
+    rightObjectWrongPredicateCount: byClaimMatch[SEMANTIC_CLAIM_TRACE_MATCHES.RIGHT_OBJECT_WRONG_PREDICATE],
+    rightPredicateStaleObjectCount: byClaimMatch[SEMANTIC_CLAIM_TRACE_MATCHES.RIGHT_PREDICATE_STALE_OBJECT],
+    expectedClaimCandidateCount: byClaimMatch[SEMANTIC_CLAIM_TRACE_MATCHES.EXPECTED_CLAIM],
+    byClaimMatch,
+    advisoryOnly: true,
+    truthProof: false,
+    scoringActive: false,
+    behaviorChanged: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    canonicalMemoryWriteCount: 0,
+    defaultPromptLimitsRaised: false,
+  };
+}
+
+function buildSemanticClaimTraceForCase(normalizedCase = {}, traceLike = [], {
+  limit = 8,
+  measurementMode = 'archive-unit',
+} = {}) {
+  const expectedClaim = normalizedCase.expectedClaim || {};
+  const candidates = normalizeTraceArray(traceLike)
+    .slice()
+    .sort(compareCandidateSurvivalQuality)
+    .slice(0, Math.max(0, Number(limit || 0)))
+    .map((item) => buildSemanticClaimTraceCandidate(item, expectedClaim));
+  return {
+    schema: SEMANTIC_CLAIM_TRACE_SCHEMA,
+    measurementMode,
+    candidateSurvivalOnly: true,
+    candidateTraceOnly: true,
+    candidates,
+    summary: buildSemanticClaimTraceSummary(candidates),
+    limits: [
+      'Semantic claim trace is retrieval-path QA metadata, not PromptTruth.',
+      'Unstructured candidates remain advisory and cannot satisfy structured claim contracts.',
+      'Candidate-only/static/semantic claims cannot become verified or canonical through this trace.',
+      'toolEvidenceReceipt remains a sibling runtime artifact.',
+    ],
+  };
+}
+
+function buildSemanticClaimTraceArtifactSummary(cases = []) {
+  const totals = {
+    schema: SEMANTIC_CLAIM_TRACE_SCHEMA,
+    measurementMode: 'archive-unit',
+    totalCases: 0,
+    totalCandidates: 0,
+    structuredClaimCandidateCount: 0,
+    unstructuredAdvisoryCandidateCount: 0,
+    candidateOnlyClaimCount: 0,
+    renderedClaimCandidateCount: 0,
+    selectedClaimCandidateCount: 0,
+    rightObjectWrongPredicateCount: 0,
+    rightPredicateStaleObjectCount: 0,
+    expectedClaimCandidateCount: 0,
+    advisoryOnly: true,
+    truthProof: false,
+    scoringActive: false,
+    behaviorChanged: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    canonicalMemoryWriteCount: 0,
+    defaultPromptLimitsRaised: false,
+  };
+  for (const item of asArray(cases)) {
+    const summary = item?.semanticClaimTrace?.summary;
+    if (!summary || typeof summary !== 'object') continue;
+    totals.totalCases += 1;
+    totals.totalCandidates += Number(summary.totalCandidates || 0);
+    totals.structuredClaimCandidateCount += Number(summary.structuredClaimCandidateCount || 0);
+    totals.unstructuredAdvisoryCandidateCount += Number(summary.unstructuredAdvisoryCandidateCount || 0);
+    totals.candidateOnlyClaimCount += Number(summary.candidateOnlyClaimCount || 0);
+    totals.renderedClaimCandidateCount += Number(summary.renderedClaimCandidateCount || 0);
+    totals.selectedClaimCandidateCount += Number(summary.selectedClaimCandidateCount || 0);
+    totals.rightObjectWrongPredicateCount += Number(summary.rightObjectWrongPredicateCount || 0);
+    totals.rightPredicateStaleObjectCount += Number(summary.rightPredicateStaleObjectCount || 0);
+    totals.expectedClaimCandidateCount += Number(summary.expectedClaimCandidateCount || 0);
+  }
+  return totals;
 }
 
 function buildStructuredCandidateFixtureCandidate({
@@ -3584,6 +3780,10 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
     classification,
     failureClassification,
   });
+  const semanticClaimTrace = buildSemanticClaimTraceForCase(normalizedCase, trace, {
+    limit: topCandidateLimit,
+    measurementMode: 'archive-unit',
+  });
   return {
     id: normalizedCase.id,
     query: normalizedCase.query,
@@ -3610,6 +3810,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
     recommendedInspection: failureClassification.recommendedInspection,
     forbiddenSurvival: buildForbiddenSurvival(normalizedCase, trace),
     linkAnalysis,
+    semanticClaimTrace,
     ...(profileComparison ? { profileComparison } : {}),
     ...(shadowComparison ? { shadowComparison } : {}),
     ...(rerankerShadowComparison ? { rerankerShadowComparison } : {}),
@@ -3654,6 +3855,7 @@ function buildCandidateSurvivalArchiveUnitArtifact({
     cleanup,
     summary: summarizeCandidateSurvivalCases(normalizedCases),
     linkAnalysisSummary: buildCandidateLinkAnalysisSummary(normalizedCases),
+    semanticClaimTraceSummary: buildSemanticClaimTraceArtifactSummary(normalizedCases),
     structuredCandidateContracts: buildStructuredCandidateContractQaFixture({ generatedAt }),
     rerankerShadow: buildRerankerShadowArtifactSummary(normalizedCases),
     ...(embeddingProviderComparison && typeof embeddingProviderComparison === 'object'
@@ -3724,6 +3926,7 @@ function buildCandidateSurvivalQaFixture({
 module.exports = {
   CANDIDATE_SURVIVAL_QA_SCHEMA,
   STRUCTURED_CANDIDATE_CONTRACT_QA_SCHEMA,
+  SEMANTIC_CLAIM_TRACE_SCHEMA,
   CANDIDATE_SURVIVAL_OUTCOMES,
   CANDIDATE_SURVIVAL_OUTCOME_DEFINITIONS,
   CANDIDATE_FAILURE_MODES,
@@ -3739,6 +3942,8 @@ module.exports = {
   buildCandidateSurvivalArchiveUnitArtifact,
   buildCandidateSurvivalArchiveUnitCaseResult,
   buildCandidateSurvivalCorrelationSummary,
+  buildSemanticClaimTraceForCase,
+  buildSemanticClaimTraceArtifactSummary,
   buildCandidateSurvivalProfileComparison,
   buildCandidateSurvivalArchiveUnitSeedPlan,
   buildCandidateSurvivalQaFixture,

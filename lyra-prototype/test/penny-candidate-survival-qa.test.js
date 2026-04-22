@@ -7,6 +7,7 @@ const {
   CANDIDATE_LINK_VERDICTS,
   CANDIDATE_SURVIVAL_OUTCOMES,
   CANDIDATE_SURVIVAL_QA_SCHEMA,
+  SEMANTIC_CLAIM_TRACE_SCHEMA,
   STRUCTURED_CANDIDATE_CONTRACT_FAILURE_MODES,
   STRUCTURED_CANDIDATE_CONTRACT_QA_SCHEMA,
   applyPromptTruthToCandidateTrace,
@@ -860,6 +861,151 @@ test('candidate-survival trace normalization preserves advisory memory link meta
   assert.equal(result.topCandidates[0].memoryLinks.behaviorChanged, false);
   assert.equal(result.topCandidates[0].memoryLinks.relationSummary.currentCorrectionFor, 1);
   assert.equal(result.topCandidates[0].memoryLinks.relationSummary.stalePriorOf, 1);
+});
+
+test('archive-unit claim trace distinguishes structured claims from unstructured advisory text', () => {
+  const subjectId = buildSemanticEntityId({ entityType: 'project', entityKey: 'lyra-prototype' });
+  const expectedClaim = {
+    subjectId,
+    predicateId: SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT,
+    objectText: 'copper rabbit',
+    allowedDomainIds: [SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE],
+    requiredSupportStates: ['rendered-advisory'],
+    requiredSourceAuthorities: ['advisory'],
+    temporalScope: 'current',
+  };
+  const structuredCandidate = {
+    ...makeStructuredContractCandidate({
+      subject: { id: subjectId, type: 'project', label: 'lyra-prototype' },
+      objectText: 'copper rabbit',
+      rendered: true,
+      selected: true,
+    }),
+    candidateChannels: ['lexical', 'static-embedding'],
+  };
+  const result = buildCandidateSurvivalArchiveUnitCaseResult({
+    caseLike: {
+      id: 'semantic-claim-trace-current-mascot',
+      query: 'What is the coding mascot now?',
+      expected: {
+        subject: 'coding mascot',
+        relation: 'current mascot',
+        object: 'copper rabbit',
+      },
+      expectedClaim,
+      support: {
+        owner: 'archive-candidate',
+        authority: 'advisory',
+        supportState: 'rendered',
+      },
+    },
+    retrievalResult: {
+      semanticMemory: { ready: false },
+      retrieval: {
+        mode: 'keyword',
+        candidateTrace: [
+          structuredCandidate,
+          {
+            id: 'unstructured-copper-rabbit-note',
+            textPreview: 'Copper rabbit appeared in unrelated scratch text.',
+            raw: true,
+            ranked: true,
+            selected: false,
+            rendered: false,
+            rank: 2,
+            candidateChannels: ['lexical'],
+          },
+        ],
+      },
+    },
+  });
+  const byId = new Map(result.semanticClaimTrace.candidates.map((item) => [item.candidateId, item]));
+
+  assert.equal(result.semanticClaimTrace.schema, SEMANTIC_CLAIM_TRACE_SCHEMA);
+  assert.equal(result.semanticClaimTrace.summary.structuredClaimCandidateCount, 1);
+  assert.equal(result.semanticClaimTrace.summary.unstructuredAdvisoryCandidateCount, 1);
+  assert.equal(result.semanticClaimTrace.summary.expectedClaimCandidateCount, 1);
+  assert.equal(result.semanticClaimTrace.summary.promptTruthExpanded, false);
+  assert.equal(result.semanticClaimTrace.summary.toolEvidenceReceiptChanged, false);
+  assert.equal(result.traceSummary.semanticClaimTraceCandidateCount, 1);
+  assert.deepEqual(byId.get(structuredCandidate.id).candidateChannels, ['lexical', 'static-embedding']);
+  assert.equal(byId.get(structuredCandidate.id).claim.claimIdStable, true);
+  assert.equal(byId.get(structuredCandidate.id).claim.predicateId, SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT);
+  assert.equal(byId.get('unstructured-copper-rabbit-note').claimTraceStatus, 'unstructured-advisory');
+  assert.equal(byId.get('unstructured-copper-rabbit-note').claimMatch, 'unstructured-advisory');
+});
+
+test('claim trace exposes wrong-predicate and candidate-only static claim boundaries', () => {
+  const subjectId = buildSemanticEntityId({ entityType: 'project', entityKey: 'lyra-prototype' });
+  const expectedClaim = {
+    subjectId,
+    predicateId: SEMANTIC_PREDICATE_IDS.CURRENT_CODING_MASCOT,
+    objectText: 'copper rabbit',
+    allowedDomainIds: [SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE, SEMANTIC_DOMAIN_IDS.STATIC_CANDIDATE],
+    temporalScope: 'current',
+  };
+  const result = buildCandidateSurvivalArchiveUnitCaseResult({
+    caseLike: {
+      id: 'semantic-claim-trace-wrong-predicate',
+      query: 'What is the coding mascot now?',
+      expected: {
+        subject: 'coding mascot',
+        relation: 'current mascot',
+        object: 'copper rabbit',
+      },
+      expectedClaim,
+      support: {
+        owner: 'archive-candidate',
+        authority: 'candidate-only/advisory',
+        supportState: 'candidate-only',
+      },
+    },
+    retrievalResult: {
+      semanticMemory: { ready: false },
+      retrieval: {
+        mode: 'keyword',
+        candidateTrace: [
+          makeStructuredContractCandidate({
+            subject: { id: subjectId, type: 'project', label: 'lyra-prototype' },
+            predicateId: SEMANTIC_PREDICATE_IDS.SAME_PROJECT_THREAD,
+            objectText: 'copper rabbit',
+            rendered: false,
+            selected: false,
+          }),
+          {
+            ...makeStructuredContractCandidate({
+              subject: { id: subjectId, type: 'project', label: 'lyra-prototype' },
+              objectText: 'copper rabbit',
+              domainId: SEMANTIC_DOMAIN_IDS.STATIC_CANDIDATE,
+              sourceType: 'static-candidate',
+              sourceId: buildSemanticSourceId({
+                sourceType: 'static-candidate',
+                sourceId: 'static:copper-rabbit',
+              }),
+              sourceAuthority: 'canonical',
+              supportState: 'verified',
+              canonicality: 'canonical',
+              rendered: false,
+              selected: false,
+            }),
+            id: 'static-candidate-copper-rabbit',
+            candidateChannels: ['static-embedding'],
+          },
+        ],
+      },
+    },
+  });
+  const byMatch = new Map(result.semanticClaimTrace.candidates.map((item) => [item.claimMatch, item]));
+  const staticCandidate = result.semanticClaimTrace.candidates.find((item) => item.candidateId === 'static-candidate-copper-rabbit');
+
+  assert.equal(result.semanticClaimTrace.summary.rightObjectWrongPredicateCount, 1);
+  assert.equal(byMatch.get('right-object-wrong-predicate').claim.objectText, 'copper rabbit');
+  assert.equal(staticCandidate.claim.candidateOnly, true);
+  assert.equal(staticCandidate.claim.sourceAuthority, 'candidate-only');
+  assert.equal(staticCandidate.claim.supportState, 'candidate-only');
+  assert.equal(result.semanticClaimTrace.summary.candidateOnlyClaimCount, 1);
+  assert.equal(result.semanticClaimTrace.summary.truthProof, false);
+  assert.equal(result.semanticClaimTrace.summary.behaviorChanged, false);
 });
 
 test('link analysis classifies missing correction links in candidate-survival results', () => {
