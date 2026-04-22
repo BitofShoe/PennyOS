@@ -1,10 +1,12 @@
 const OPEN_LOOP_SCHEMA = 'penny-open-loop-state.v1';
 const OPEN_LOOP_PROMPT_BRIDGE_SCHEMA = 'penny-open-loop-prompt-bridge.v1';
+const PENNY_REFLECTION_OPEN_LOOP_BRIDGE_SCHEMA = 'penny-session-reflection-open-loop-bridge.v1';
 const {
   FRAME_BUDGET_SIDECAR_DEFAULT_BUDGETS_MS,
   FRAME_BUDGET_SIDECAR_SPEND_CLASSES,
   buildFrameBudgetSidecarReceipt,
 } = require('./penny-frame-budget');
+const { normalizeSessionReflection } = require('./penny-session-reflection');
 
 const OPEN_LOOP_STATUSES = Object.freeze({
   OPEN: 'open',
@@ -1337,6 +1339,284 @@ function applyOpenLoopDismissals(stateLike = {}, options = {}) {
   };
 }
 
+function findOpenLoopIndex(state = {}, loopId = '') {
+  const targetId = cleanString(loopId, 140);
+  if (!targetId || !Array.isArray(state.loops)) return -1;
+  return state.loops.findIndex((loop) => loop?.id === targetId);
+}
+
+function reflectionOpenLoopUpdateBasis(update = {}, evidenceRefs = []) {
+  const support = cleanToken(update.support);
+  if (support === 'explicit-user') return OPEN_LOOP_COMPLETION_BASES.EXPLICIT_USER_STATEMENT;
+  if (support === 'repo-source') return OPEN_LOOP_COMPLETION_BASES.SOURCE_RECEIPT;
+  if (support === 'artifact') {
+    const hasTestReceipt = normalizeSourceRefs(evidenceRefs).some((ref) => cleanToken(ref.type).includes('test'));
+    return hasTestReceipt ? OPEN_LOOP_COMPLETION_BASES.TEST_RECEIPT : OPEN_LOOP_COMPLETION_BASES.DETERMINISTIC_ARTIFACT;
+  }
+  return '';
+}
+
+function reflectionSourceId(reflection = {}, options = {}) {
+  return cleanString(
+    options.sourceReflectionId
+      || reflection.id
+      || reflection.reflectionId
+      || [reflection.sessionId, reflection.generatedAt].filter(Boolean).join(':')
+      || '',
+    180,
+  );
+}
+
+function reflectionSourceRef(sourceReflectionId = '') {
+  const id = cleanString(sourceReflectionId, 180);
+  return id
+    ? { type: 'session-reflection', id, note: 'open-loop update proposal' }
+    : null;
+}
+
+function buildReflectionOpenLoopPatch(update = {}, sourceRefs = []) {
+  const patch = { sourceRefs };
+  if (update.title) patch.title = update.title;
+  if (update.nextLikelyStep) patch.nextLikelyStep = update.nextLikelyStep;
+  if (update.priority) patch.priority = update.priority;
+  if (update.confidence && update.confidence !== 'unknown') patch.confidence = update.confidence;
+  return patch;
+}
+
+function buildReflectionCreatedLoop(update = {}, sourceRefs = []) {
+  const title = cleanString(update.title || String(update.loopId || '').replace(/[-_]+/g, ' '), 220);
+  const createAsDeferred = update.action === OPEN_LOOP_LIFECYCLE_ACTIONS.DEFER;
+  return {
+    id: update.loopId,
+    title,
+    status: createAsDeferred ? OPEN_LOOP_STATUSES.DEFERRED : OPEN_LOOP_STATUSES.OPEN,
+    priority: update.priority || (createAsDeferred ? 'low' : 'medium'),
+    confidence: update.confidence === 'unknown' && createAsDeferred ? 'low' : update.confidence,
+    nextLikelyStep: update.nextLikelyStep,
+    sourceRefs,
+  };
+}
+
+function buildReflectionOpenLoopResult({
+  update = {},
+  loop = null,
+  action = '',
+  basis = '',
+  sourceReflectionId = '',
+} = {}) {
+  return {
+    id: cleanString(update.id || '', 180),
+    loopId: cleanString(loop?.id || update.loopId || '', 140),
+    action: cleanString(action || update.action || '', 80),
+    status: cleanString(loop?.status || '', 80),
+    basis: cleanString(basis || '', 120),
+    sourceReflectionId: cleanString(sourceReflectionId, 180),
+    authority: OPEN_LOOP_AUTHORITY,
+    policyGated: true,
+    requiresReview: update.requiresReview === true,
+    memoryWrites: false,
+    explicitMemoryWrites: false,
+    canonicalMemoryWrites: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    hiddenChainOfThoughtStored: false,
+    runtimeVoiceChanged: false,
+  };
+}
+
+function buildReflectionOpenLoopHoldback(update = {}, reason = '') {
+  return {
+    id: cleanString(update.id || '', 180),
+    loopId: cleanString(update.loopId || '', 140),
+    action: cleanString(update.action || '', 80),
+    reason: cleanString(reason || 'held-for-review', 180),
+    authority: OPEN_LOOP_AUTHORITY,
+    policyGated: false,
+    requiresReview: true,
+    memoryWrites: false,
+    explicitMemoryWrites: false,
+    canonicalMemoryWrites: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    hiddenChainOfThoughtStored: false,
+    runtimeVoiceChanged: false,
+  };
+}
+
+function applySessionReflectionOpenLoopUpdates(stateLike = {}, reflectionInput = {}, options = {}) {
+  const normalized = normalizeOpenLoopState(stateLike);
+  const reflection = normalizeSessionReflection(reflectionInput, options);
+  const at = lifecycleTimestamp(options);
+  const sourceReflectionId = reflectionSourceId(reflection, options);
+  let nextState = {
+    ...normalized,
+    loops: normalized.loops.slice(),
+  };
+  const applied = [];
+  const heldBack = [];
+
+  for (const update of reflection.openLoopUpdates) {
+    const loopId = cleanString(update.loopId, 140);
+    const evidenceRefs = normalizeSourceRefs(update.sourceReceipts || update.sourceRefs || []);
+    const basis = reflectionOpenLoopUpdateBasis(update, evidenceRefs);
+    const sourceRefs = mergeSourceRefs(evidenceRefs, reflectionSourceRef(sourceReflectionId));
+
+    if (!loopId) {
+      heldBack.push(buildReflectionOpenLoopHoldback(update, 'missing-loop-id'));
+      continue;
+    }
+    if (!basis) {
+      heldBack.push(buildReflectionOpenLoopHoldback(update, 'reflection-update-needs-review-or-supported-basis'));
+      continue;
+    }
+    if (!evidenceRefs.length) {
+      heldBack.push(buildReflectionOpenLoopHoldback(update, 'reflection-update-missing-source-receipts'));
+      continue;
+    }
+
+    const index = findOpenLoopIndex(nextState, loopId);
+    const existingLoop = index >= 0 ? nextState.loops[index] : null;
+    const lifecycleOptions = {
+      ...options,
+      at,
+      basis,
+      sourceRefs,
+      reason: cleanString(options.reason || `session-reflection-${update.action}`, 180),
+    };
+
+    try {
+      if (update.action === OPEN_LOOP_LIFECYCLE_ACTIONS.CREATE) {
+        if (existingLoop) {
+          heldBack.push(buildReflectionOpenLoopHoldback(update, 'loop-already-exists'));
+          continue;
+        }
+        const created = createOpenLoop(buildReflectionCreatedLoop(update, sourceRefs), lifecycleOptions);
+        if (!created) {
+          heldBack.push(buildReflectionOpenLoopHoldback(update, 'invalid-open-loop-create'));
+          continue;
+        }
+        nextState.loops.push(created);
+        applied.push(buildReflectionOpenLoopResult({
+          update,
+          loop: created,
+          action: OPEN_LOOP_LIFECYCLE_ACTIONS.CREATE,
+          basis,
+          sourceReflectionId,
+        }));
+        continue;
+      }
+
+      if (!existingLoop) {
+        if (update.action === OPEN_LOOP_LIFECYCLE_ACTIONS.DEFER) {
+          const created = createOpenLoop(buildReflectionCreatedLoop(update, sourceRefs), lifecycleOptions);
+          if (!created) {
+            heldBack.push(buildReflectionOpenLoopHoldback(update, 'invalid-open-loop-defer-create'));
+            continue;
+          }
+          nextState.loops.push(created);
+          applied.push(buildReflectionOpenLoopResult({
+            update,
+            loop: created,
+            action: OPEN_LOOP_LIFECYCLE_ACTIONS.DEFER,
+            basis,
+            sourceReflectionId,
+          }));
+          continue;
+        }
+        heldBack.push(buildReflectionOpenLoopHoldback(update, 'loop-not-found'));
+        continue;
+      }
+
+      const currentStatus = classifyOpenLoopStatus(existingLoop, options.now || at);
+      if ([
+        OPEN_LOOP_STATUSES.COMPLETED,
+        OPEN_LOOP_STATUSES.DISMISSED,
+        OPEN_LOOP_STATUSES.EXPIRED,
+      ].includes(currentStatus)) {
+        heldBack.push(buildReflectionOpenLoopHoldback(update, `${currentStatus}-suppressed`));
+        continue;
+      }
+
+      let nextLoop = null;
+      if (update.action === OPEN_LOOP_LIFECYCLE_ACTIONS.UPDATE) {
+        nextLoop = updateOpenLoop(existingLoop, buildReflectionOpenLoopPatch(update, sourceRefs), lifecycleOptions);
+      } else if (update.action === OPEN_LOOP_LIFECYCLE_ACTIONS.COMPLETE) {
+        if (update.confidence === 'low') {
+          heldBack.push(buildReflectionOpenLoopHoldback(update, 'low-confidence-terminal-update-held'));
+          continue;
+        }
+        nextLoop = completeOpenLoop(existingLoop, lifecycleOptions);
+      } else if (update.action === OPEN_LOOP_LIFECYCLE_ACTIONS.DISMISS) {
+        if (update.confidence === 'low') {
+          heldBack.push(buildReflectionOpenLoopHoldback(update, 'low-confidence-terminal-update-held'));
+          continue;
+        }
+        nextLoop = dismissOpenLoop(existingLoop, lifecycleOptions);
+      } else if (update.action === OPEN_LOOP_LIFECYCLE_ACTIONS.DEFER) {
+        nextLoop = deferOpenLoop(existingLoop, {
+          ...lifecycleOptions,
+          nextLikelyStep: update.nextLikelyStep || existingLoop.nextLikelyStep,
+        });
+      }
+
+      if (!nextLoop) {
+        heldBack.push(buildReflectionOpenLoopHoldback(update, 'invalid-open-loop-update'));
+        continue;
+      }
+      nextState.loops[index] = nextLoop;
+      applied.push(buildReflectionOpenLoopResult({
+        update,
+        loop: nextLoop,
+        action: update.action,
+        basis,
+        sourceReflectionId,
+      }));
+    } catch (error) {
+      heldBack.push(buildReflectionOpenLoopHoldback(update, error?.message || 'invalid-open-loop-update'));
+    }
+  }
+
+  nextState = normalizeOpenLoopState({
+    ...nextState,
+    updatedAt: applied.length ? at : normalized.updatedAt,
+  });
+
+  const changedLoopIds = uniqueStrings(applied.map((item) => item.loopId), 30, 140);
+  return {
+    schema: PENNY_REFLECTION_OPEN_LOOP_BRIDGE_SCHEMA,
+    generatedAt: at,
+    sourceReflectionId,
+    reflectionSchema: reflection.schema,
+    authority: OPEN_LOOP_AUTHORITY,
+    policyGated: true,
+    reviewable: true,
+    state: nextState,
+    applied,
+    heldBack,
+    changedLoopIds,
+    summary: {
+      proposedUpdateCount: reflection.openLoopUpdates.length,
+      appliedCount: applied.length,
+      heldBackCount: heldBack.length,
+      changedLoopIds,
+    },
+    memoryWrites: false,
+    explicitMemoryWrites: false,
+    canonicalMemoryWrites: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    hiddenChainOfThoughtStored: false,
+    runtimeVoiceChanged: false,
+    autonomousActions: false,
+    diskWrites: false,
+    limits: [
+      'Reflection open-loop updates are advisory project/session state, not explicit memory.',
+      'Reflection summaries are not proof; unsupported updates remain held for review.',
+      'This bridge does not expand PromptTruth or toolEvidenceReceipt.',
+    ],
+  };
+}
+
 function summarizeOpenLoopState(state, { now = new Date() } = {}) {
   const normalized = normalizeOpenLoopState(state);
   const statusCounts = Object.fromEntries(Object.values(OPEN_LOOP_STATUSES).map((status) => [status, 0]));
@@ -1381,10 +1661,12 @@ function summarizeOpenLoopState(state, { now = new Date() } = {}) {
 module.exports = {
   OPEN_LOOP_SCHEMA,
   OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
+  PENNY_REFLECTION_OPEN_LOOP_BRIDGE_SCHEMA,
   OPEN_LOOP_STATUSES,
   OPEN_LOOP_COMPLETION_BASES,
   OPEN_LOOP_LIFECYCLE_ACTIONS,
   applyOpenLoopDismissals,
+  applySessionReflectionOpenLoopUpdates,
   buildLiveOpenLoopPromptBridge,
   buildOpenLoopPromptBridgeFixture,
   completeOpenLoop,

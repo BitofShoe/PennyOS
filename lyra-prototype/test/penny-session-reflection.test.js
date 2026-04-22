@@ -9,6 +9,7 @@ const {
   buildSessionReflectionPrepArtifact,
   normalizeDoNotSaveItem,
   normalizeMemorySuggestion,
+  normalizeOpenLoopUpdate,
   normalizeReflectionDecision,
   selectRecentReflectionTurns,
   normalizeSessionReflection,
@@ -237,6 +238,35 @@ test('decision normalization remains advisory unless explicit memory support is 
   assert.equal(sourceDecision.memoryAuthority, 'advisory');
   assert.equal(explicitDecision.memoryAuthority, 'explicit-candidate');
   assert.equal(explicitDecision.status, 'tentative');
+});
+
+test('open-loop update normalization keeps reflection proposals advisory and non-writing', () => {
+  const update = normalizeOpenLoopUpdate({
+    action: 'create',
+    loopId: 'reflection-open-loop-bridge',
+    title: 'Reflection open-loop bridge',
+    nextLikelyStep: 'Apply only source-backed advisory updates.',
+    support: 'source receipt',
+    confidence: 'high',
+    priority: 'high',
+    sourceReceipts: [
+      { type: 'doc', path: 'docs/plans/penny-post-tier1-bounded-aliveness-plans/02-session-reflection-memory-suggestions-plan.md' },
+    ],
+  });
+
+  assert.equal(update.action, 'create');
+  assert.equal(update.support, 'repo-source');
+  assert.equal(update.confidence, 'high');
+  assert.equal(update.requiresReview, true);
+  assert.equal(update.autoApplied, false);
+  assert.equal(update.memoryWrites, false);
+  assert.equal(update.explicitMemoryWrites, false);
+  assert.equal(update.canonicalMemoryWrites, false);
+  assert.equal(update.promptTruthExpanded, false);
+  assert.equal(update.toolEvidenceReceiptChanged, false);
+  assert.equal(update.hiddenChainOfThoughtStored, false);
+  assert.equal(update.runtimeVoiceChanged, false);
+  assert.equal(update.sourceReceipts[0].type, 'doc');
 });
 
 test('selects bounded visible turn summaries for after-turn reflection prep', () => {

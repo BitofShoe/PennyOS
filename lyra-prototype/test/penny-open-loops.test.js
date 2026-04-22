@@ -4,8 +4,12 @@ const assert = require('node:assert/strict');
 const {
   OPEN_LOOP_SCHEMA,
   OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
+  PENNY_REFLECTION_OPEN_LOOP_BRIDGE_SCHEMA,
+  OPEN_LOOP_COMPLETION_BASES,
+  OPEN_LOOP_LIFECYCLE_ACTIONS,
   OPEN_LOOP_STATUSES,
   applyOpenLoopDismissals,
+  applySessionReflectionOpenLoopUpdates,
   buildLiveOpenLoopPromptBridge,
   buildOpenLoopPromptBridgeFixture,
   classifyOpenLoopStatus,
@@ -18,6 +22,18 @@ const {
 } = require('../lib/penny-open-loops');
 
 const NOW = '2026-04-22T12:00:00.000Z';
+
+function assertReflectionBridgeNoMemoryWrites(bridge) {
+  assert.equal(bridge.memoryWrites, false);
+  assert.equal(bridge.explicitMemoryWrites, false);
+  assert.equal(bridge.canonicalMemoryWrites, false);
+  assert.equal(bridge.promptTruthExpanded, false);
+  assert.equal(bridge.toolEvidenceReceiptChanged, false);
+  assert.equal(bridge.hiddenChainOfThoughtStored, false);
+  assert.equal(bridge.runtimeVoiceChanged, false);
+  assert.equal(bridge.autonomousActions, false);
+  assert.equal(bridge.diskWrites, false);
+}
 
 test('normalizes required open-loop fields and safe defaults', () => {
   const loop = normalizeOpenLoop({
@@ -349,6 +365,135 @@ test('applies user dismissal controls to targeted open loops without store write
   assert.equal(dismissed.history.at(-1).action, 'dismiss');
   assert.equal(dismissed.history.at(-1).reason, 'user said not to remind them about that');
   assert.deepEqual(summary.surfaceableLoopIds, ['other-loop']);
+});
+
+test('reflection bridge creates source-backed advisory open loops without explicit memory writes', () => {
+  const bridge = applySessionReflectionOpenLoopUpdates({
+    loops: [],
+  }, {
+    generatedAt: NOW,
+    sessionId: 'session-r7-create',
+    openLoopUpdates: [
+      {
+        action: 'create',
+        loopId: 'session-reflection-open-loop-bridge',
+        title: 'Session reflection open-loop bridge',
+        nextLikelyStep: 'Apply only source-backed advisory updates.',
+        support: 'repo-source',
+        confidence: 'high',
+        priority: 'high',
+        sourceReceipts: [
+          { type: 'doc', path: 'docs/plans/penny-post-tier1-bounded-aliveness-plans/02-session-reflection-memory-suggestions-plan.md' },
+        ],
+      },
+    ],
+  }, {
+    now: NOW,
+    sourceReflectionId: 'r7-create-fixture',
+  });
+  const loop = bridge.state.loops[0];
+
+  assert.equal(bridge.schema, PENNY_REFLECTION_OPEN_LOOP_BRIDGE_SCHEMA);
+  assert.equal(bridge.summary.appliedCount, 1);
+  assert.deepEqual(bridge.changedLoopIds, ['session-reflection-open-loop-bridge']);
+  assert.equal(loop.status, OPEN_LOOP_STATUSES.OPEN);
+  assert.equal(loop.authority, 'advisory');
+  assert.equal(loop.nextLikelyStep, 'Apply only source-backed advisory updates.');
+  assert.equal(loop.history.at(-1).action, OPEN_LOOP_LIFECYCLE_ACTIONS.CREATE);
+  assert.equal(loop.history.at(-1).basis, OPEN_LOOP_COMPLETION_BASES.SOURCE_RECEIPT);
+  assert.deepEqual(loop.sourceRefs.map((ref) => ref.type), ['doc', 'session-reflection']);
+  assert.equal(bridge.applied[0].policyGated, true);
+  assert.equal(bridge.applied[0].requiresReview, true);
+  assertReflectionBridgeNoMemoryWrites(bridge);
+});
+
+test('reflection bridge completes loops only with supported completion evidence', () => {
+  const bridge = applySessionReflectionOpenLoopUpdates({
+    loops: [
+      {
+        id: 'r7-focused-tests',
+        title: 'R7 focused tests',
+        status: 'in-progress',
+      },
+      {
+        id: 'model-vibes-completion',
+        title: 'Model vibes completion',
+        status: 'in-progress',
+      },
+    ],
+  }, {
+    generatedAt: NOW,
+    sessionId: 'session-r7-complete',
+    openLoopUpdates: [
+      {
+        action: 'complete',
+        loopId: 'r7-focused-tests',
+        title: 'R7 focused tests',
+        support: 'artifact',
+        confidence: 'high',
+        sourceReceipts: [
+          { type: 'test', path: 'test/penny-open-loops.test.js' },
+        ],
+      },
+      {
+        action: 'complete',
+        loopId: 'model-vibes-completion',
+        title: 'Model vibes completion',
+        support: 'assistant-inference',
+        confidence: 'medium',
+      },
+    ],
+  }, {
+    now: NOW,
+    sourceReflectionId: 'r7-complete-fixture',
+  });
+  const completed = bridge.state.loops.find((loop) => loop.id === 'r7-focused-tests');
+  const held = bridge.state.loops.find((loop) => loop.id === 'model-vibes-completion');
+
+  assert.equal(bridge.summary.appliedCount, 1);
+  assert.equal(bridge.summary.heldBackCount, 1);
+  assert.equal(completed.status, OPEN_LOOP_STATUSES.COMPLETED);
+  assert.equal(completed.history.at(-1).action, OPEN_LOOP_LIFECYCLE_ACTIONS.COMPLETE);
+  assert.equal(completed.history.at(-1).basis, OPEN_LOOP_COMPLETION_BASES.TEST_RECEIPT);
+  assert.equal(held.status, OPEN_LOOP_STATUSES.IN_PROGRESS);
+  assert.deepEqual(bridge.heldBack.map((item) => ({ loopId: item.loopId, reason: item.reason })), [
+    { loopId: 'model-vibes-completion', reason: 'reflection-update-needs-review-or-supported-basis' },
+  ]);
+  assertReflectionBridgeNoMemoryWrites(bridge);
+});
+
+test('reflection bridge can park speculative source-backed threads as low-confidence deferred loops', () => {
+  const bridge = applySessionReflectionOpenLoopUpdates({}, {
+    generatedAt: NOW,
+    sessionId: 'session-r7-speculative',
+    openLoopUpdates: [
+      {
+        action: 'defer',
+        loopId: 'possible-compare-follow-up',
+        title: 'Possible compare follow-up',
+        nextLikelyStep: 'Revisit only if later evidence shows the compare is useful.',
+        support: 'artifact',
+        confidence: 'low',
+        sourceReceipts: [
+          { type: 'turn', id: 'turn-r7-speculative', label: 'speculative follow-up mention' },
+        ],
+      },
+    ],
+  }, {
+    now: NOW,
+    sourceReflectionId: 'r7-speculative-fixture',
+  });
+  const loop = bridge.state.loops[0];
+
+  assert.equal(bridge.summary.appliedCount, 1);
+  assert.equal(bridge.applied[0].action, OPEN_LOOP_LIFECYCLE_ACTIONS.DEFER);
+  assert.equal(bridge.applied[0].basis, OPEN_LOOP_COMPLETION_BASES.DETERMINISTIC_ARTIFACT);
+  assert.equal(loop.status, OPEN_LOOP_STATUSES.DEFERRED);
+  assert.equal(loop.confidence, 'low');
+  assert.equal(loop.priority, 'low');
+  assert.equal(loop.nextLikelyStep, 'Revisit only if later evidence shows the compare is useful.');
+  assert.equal(loop.history.at(-1).action, OPEN_LOOP_LIFECYCLE_ACTIONS.CREATE);
+  assertReflectionBridgeNoMemoryWrites(bridge);
 });
 
 test('maxLoops cap keeps extra relevant open loops out of the selected list', () => {

@@ -186,10 +186,18 @@ function normalizeDecisionSupport(value = '') {
   const aliases = {
     user: 'explicit-user',
     'user-stated': 'explicit-user',
+    'explicit-user-statement': 'explicit-user',
     explicit: 'explicit-user',
     source: 'repo-source',
+    'source-backed': 'repo-source',
+    'source-receipt': 'repo-source',
     docs: 'repo-source',
+    doc: 'repo-source',
     receipt: 'artifact',
+    test: 'artifact',
+    tests: 'artifact',
+    'test-receipt': 'artifact',
+    'deterministic-artifact': 'artifact',
     inference: 'assistant-inference',
     inferred: 'assistant-inference',
   };
@@ -469,14 +477,26 @@ function normalizeOpenLoopUpdate(input = {}, options = {}) {
   const raw = isPlainObject(input) ? input : {};
   const title = cleanString(raw.title || raw.text || raw.summary || '', 220);
   const action = normalizeOpenLoopAction(raw.action || raw.operation || raw.type);
+  const sourceReceipts = normalizeSourceReceipts(raw.sourceReceipts || raw.sourceRefs || raw.sources || []);
   return {
+    id: cleanString(raw.id || raw.updateId || slugify(`${action}-${raw.loopId || title}`, `open-loop-update-${Number(options.index || 0) + 1}`), 180),
     loopId: cleanString(raw.loopId || raw.id || slugify(title, `open-loop-${Number(options.index || 0) + 1}`), 180),
     action,
     title,
     nextLikelyStep: cleanString(raw.nextLikelyStep || raw.nextStep || raw.followUp || '', 500),
     support: normalizeDecisionSupport(raw.support || raw.supportState || raw.sourceType),
-    sourceReceipts: normalizeSourceReceipts(raw.sourceReceipts || raw.sourceRefs || raw.sources || []),
+    confidence: normalizeConfidence(raw.confidence),
+    priority: cleanToken(raw.priority || ''),
+    sourceReceipts,
     requiresReview: true,
+    autoApplied: false,
+    memoryWrites: false,
+    explicitMemoryWrites: false,
+    canonicalMemoryWrites: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    hiddenChainOfThoughtStored: false,
+    runtimeVoiceChanged: false,
   };
 }
 
@@ -974,6 +994,7 @@ module.exports = {
   SUPPORT_STATES,
   normalizeSessionReflection,
   normalizeReflectionDecision,
+  normalizeOpenLoopUpdate,
   normalizeMemorySuggestion,
   normalizeDoNotSaveItem,
   normalizeReflectionTurnSummary,
