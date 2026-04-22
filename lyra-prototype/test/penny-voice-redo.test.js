@@ -712,6 +712,7 @@ test('buildPressureWatchArtifact records measurement limits, model state, and ca
   assert.equal(pressureWatch.cases[0].modelState.resolvedModel, 'google/gemma-4-e4b');
   assert.equal(pressureWatch.cases[0].artifactPath, '/tmp/voice-redo-qa.json');
   assert.match(pressureWatch.cases[0].invalidOrDegradedReason, /degraded/);
+  assert.equal(pressureWatch.cases[0].alivenessGate.blocksAlivenessWin, false);
   assert.equal(pressureWatch.summary.environmentFailures, 1);
   assert.match(pressureWatch.notMeasured.join('\n'), /PromptTruth expansion/);
   assert.match(pressureWatch.limits.join('\n'), /Appropriate abstention/);
@@ -841,6 +842,7 @@ test('buildVoiceQaTrace emits a normalized trust summary for degraded voice reru
   assert.equal(trace.pressureWatch.schema, 'penny-pressure-watch-qa.v1');
   assert.equal(trace.pressureWatch.measurementMode, 'fixture-only');
   assert.equal(trace.pressureWatch.summary.truthFailures, 1);
+  assert.equal(trace.pressureWatch.cases[0].alivenessGate.blocksAlivenessWin, true);
   assert.match(trace.pressureWatch.invalidOrDegradedReason, /degraded readiness/);
   assert.equal(trace.runIdentity.readinessState, 'degraded');
   assert.match(trace.runIdentity.lanePolicy, /chat -> Q6/);

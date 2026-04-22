@@ -13,6 +13,7 @@ const {
   PRESSURE_KINDS,
   PRESSURE_OUTCOMES,
   PRESSURE_WATCH_LIMITS,
+  pressureOutcomeBlocksAliveness,
   summarizeAgentIntegrityArtifact,
   validateRuntimeArtifact,
 } = require('../lib/penny-qa-trust');
@@ -1724,6 +1725,11 @@ function buildPressureWatchCaseSummary(check = {}, result = null, artifactPath =
   const selectedLane = String(result?.localLane || artifact.scope?.selectedLane || artifact.trace?.laneChoice?.selectedLane || '').trim();
   const executionPath = String(artifact.executionPath || artifact.trace?.laneChoice?.executionPath || '').trim();
   const invalidOrDegradedReasons = pressureCaseInvalidOrDegradedReasons(result);
+  const alivenessGate = pressureOutcomeBlocksAliveness(check.outcome, {
+    pressureKind: check.pressureKind,
+    category: check.category,
+    passed: check.passed === true,
+  });
   return {
     name: String(check.name || '').trim(),
     resultName: String(check.resultName || result?.name || '').trim(),
@@ -1746,6 +1752,7 @@ function buildPressureWatchCaseSummary(check = {}, result = null, artifactPath =
     },
     artifactPath: String(artifactPath || '').trim(),
     invalidOrDegradedReason: invalidOrDegradedReasons.join('; '),
+    alivenessGate,
     artifactIntegrity: check.artifactIntegrity
       ? {
           passed: check.artifactIntegrity.passed === true,

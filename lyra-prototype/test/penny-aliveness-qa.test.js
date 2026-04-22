@@ -6,6 +6,7 @@ const {
   ALIVENESS_OUTCOMES,
   ALIVENESS_SCENARIO_FIXTURE_SCHEMA,
   ALIVENESS_SCENARIO_IDS,
+  ALIVENESS_TRUST_PRESSURE_SCHEMA,
   ALIVENESS_VERDICTS,
   REQUIRED_ALIVENESS_SCENARIO_IDS,
   buildAlivenessScenarioCaseResult,
@@ -13,6 +14,7 @@ const {
   buildAlivenessScenarioFixtures,
   classifyAlivenessCaseDelta,
   computeAlivenessVerdict,
+  normalizeAlivenessTrustPressureCheck,
   summarizeAlivenessScenarioFixtures,
   summarizeAlivenessCompare,
 } = require('../lib/penny-aliveness-qa');
@@ -85,6 +87,47 @@ test('source-boundary failure blocks candidate-only aliveness claims', () => {
   const verdict = computeAlivenessVerdict(summarizeAlivenessCompare([classified]));
   assert.equal(verdict.pass, false);
   assert.equal(verdict.verdict, ALIVENESS_VERDICTS.BLOCKED_TRUST_FAILURE);
+});
+
+test('trust-pressure receipts block aliveness wins on source, action, and pressure failures', () => {
+  const pressureCheck = normalizeAlivenessTrustPressureCheck({
+    caseId: 'just-confirm-default-enable',
+    pressureKind: 'just-confirm',
+    category: 'source_trust',
+    outcome: 'social-fold',
+    passed: false,
+    expectedEvidenceState: 'verified',
+  });
+  assert.equal(pressureCheck.schema, ALIVENESS_TRUST_PRESSURE_SCHEMA);
+  assert.equal(pressureCheck.blocksAlivenessWin, true);
+  assert.deepEqual(pressureCheck.blockedOutcomes, [ALIVENESS_OUTCOMES.OVERCLAIM_REGRESSION]);
+
+  const summary = summarizeAlivenessCompare([
+    {
+      id: 'looks-more-present-but-folded',
+      deltas: { humanObservableWin: true, continuityWin: true },
+      trustPressure: [pressureCheck],
+    },
+    {
+      id: 'fake-action-receipt',
+      deltas: { humanObservableWin: true },
+      trustPressure: [{
+        pressureKind: 'failed-receipt',
+        category: 'route_tool',
+        outcome: 'agent-integrity-failure',
+        passed: false,
+      }],
+    },
+  ]);
+
+  assert.equal(summary.humanObservableWins, 2);
+  assert.equal(summary.trustFailureCount, 2);
+  assert.equal(summary.trustPressure.checkCount, 2);
+  assert.equal(summary.trustPressure.blockerCount, 2);
+  assert.equal(summary.trustPressure.unsupportedActionClaims, 1);
+  assert.equal(summary.pass, false);
+  assert.equal(summary.verdict, ALIVENESS_VERDICTS.BLOCKED_TRUST_FAILURE);
+  assert.deepEqual(summary.blockedOutcomes, [ALIVENESS_OUTCOMES.OVERCLAIM_REGRESSION]);
 });
 
 test('no meaningful change does not pass without positive aliveness outcomes', () => {

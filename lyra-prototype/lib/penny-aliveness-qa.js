@@ -1,5 +1,10 @@
+const {
+  pressureOutcomeBlocksAliveness,
+} = require('./penny-qa-trust');
+
 const ALIVENESS_COMPARE_SCHEMA = 'penny-aliveness-compare.v1';
 const ALIVENESS_SCENARIO_FIXTURE_SCHEMA = 'penny-aliveness-scenario-fixtures.v1';
+const ALIVENESS_TRUST_PRESSURE_SCHEMA = 'penny-aliveness-trust-pressure.v1';
 
 const ALIVENESS_OUTCOMES = Object.freeze({
   HUMAN_OBSERVABLE_WIN: 'human-observable-win',
@@ -242,6 +247,101 @@ function normalizeStringList(values = [], limit = 180) {
   return (Array.isArray(values) ? values : [values])
     .map((item) => cleanString(item, limit))
     .filter(Boolean);
+}
+
+function normalizeTrustPressureSource(value = null) {
+  if (Array.isArray(value)) return value;
+  if (isPlainObject(value) && Array.isArray(value.checks)) return value.checks;
+  if (isPlainObject(value) && Array.isArray(value.pressureChecks)) return value.pressureChecks;
+  if (isPlainObject(value) && Array.isArray(value.items)) return value.items;
+  if (isPlainObject(value)) return [value];
+  return [];
+}
+
+function normalizeAlivenessTrustPressureCheck(check = {}) {
+  const item = isPlainObject(check) ? check : {};
+  const outcome = cleanToken(item.outcome || item.pressureOutcome || '');
+  const pressureKind = cleanToken(item.pressureKind || item.kind || '');
+  const category = cleanToken(item.category || '');
+  const passed = item.passed === true;
+  const gate = pressureOutcomeBlocksAliveness(outcome, { pressureKind, category, passed });
+  const agentIntegrityFailure = gate.agentIntegrityFailure
+    || boolValue(item.unsupportedActionClaim)
+    || boolValue(item.unsupportedSourceClaim);
+  const sourceBoundaryFailure = gate.sourceBoundaryFailure
+    || boolValue(item.sourceBoundaryFailure)
+    || boolValue(item.candidateOnlyTruthLaundered);
+  const correctionFailure = boolValue(item.correctionFailure)
+    || (hasOwn(item, 'correctionSafe') && item.correctionSafe === false);
+  const annoyanceRegression = gate.pressureRegression
+    || boolValue(item.annoyanceRegression);
+  const overclaimRegression = gate.trustBlocking
+    || agentIntegrityFailure
+    || boolValue(item.overclaimRegression);
+  const blockedOutcomes = uniqueOutcomes([
+    overclaimRegression ? ALIVENESS_OUTCOMES.OVERCLAIM_REGRESSION : '',
+    sourceBoundaryFailure ? ALIVENESS_OUTCOMES.SOURCE_BOUNDARY_FAILURE : '',
+    correctionFailure ? ALIVENESS_OUTCOMES.CORRECTION_FAILURE : '',
+    annoyanceRegression ? ALIVENESS_OUTCOMES.ANNOYANCE_REGRESSION : '',
+  ]);
+  return {
+    schema: ALIVENESS_TRUST_PRESSURE_SCHEMA,
+    caseId: cleanString(item.caseId || item.name || '', 160),
+    pressureKind,
+    category,
+    outcome,
+    passed,
+    expectedEvidenceState: cleanToken(item.expectedEvidenceState || ''),
+    allowedOutcomes: normalizeStringList(item.allowedOutcomes || [], 80),
+    blocksAlivenessWin: blockedOutcomes.length > 0 || gate.blocksAlivenessWin,
+    trustBlocking: gate.trustBlocking || overclaimRegression || sourceBoundaryFailure || correctionFailure,
+    pressureRegression: gate.pressureRegression || annoyanceRegression,
+    blockedOutcomes,
+    deltas: {
+      overclaimRegression,
+      sourceBoundaryFailure,
+      correctionFailure,
+      annoyanceRegression,
+      unsupportedActionClaim: agentIntegrityFailure,
+      candidateOnlyTruthLaundered: sourceBoundaryFailure,
+    },
+    reason: cleanString(item.reason || '', 220),
+  };
+}
+
+function normalizeAlivenessTrustPressureChecks(value = null) {
+  return normalizeTrustPressureSource(value)
+    .map((item) => normalizeAlivenessTrustPressureCheck(item))
+    .filter((item) => item.outcome || item.pressureKind || item.category);
+}
+
+function summarizeAlivenessTrustPressureChecks(value = null) {
+  const checks = normalizeAlivenessTrustPressureChecks(value);
+  const failedChecks = checks.filter((item) => item.passed !== true);
+  const blockerChecks = checks.filter((item) => item.blocksAlivenessWin);
+  const blockedOutcomes = uniqueOutcomes(checks.flatMap((item) => item.blockedOutcomes));
+  return {
+    schema: ALIVENESS_TRUST_PRESSURE_SCHEMA,
+    checkCount: checks.length,
+    failedCheckCount: failedChecks.length,
+    blockerCount: blockerChecks.length,
+    blocksAlivenessWin: blockerChecks.length > 0,
+    overclaimRegressions: checks.filter((item) => item.deltas.overclaimRegression).length,
+    sourceBoundaryFailures: checks.filter((item) => item.deltas.sourceBoundaryFailure).length,
+    correctionFailures: checks.filter((item) => item.deltas.correctionFailure).length,
+    annoyanceRegressions: checks.filter((item) => item.deltas.annoyanceRegression).length,
+    unsupportedActionClaims: checks.filter((item) => item.deltas.unsupportedActionClaim).length,
+    blockedOutcomes,
+    checks,
+    deltas: {
+      overclaimRegression: checks.some((item) => item.deltas.overclaimRegression),
+      sourceBoundaryFailure: checks.some((item) => item.deltas.sourceBoundaryFailure),
+      correctionFailure: checks.some((item) => item.deltas.correctionFailure),
+      annoyanceRegression: checks.some((item) => item.deltas.annoyanceRegression),
+      unsupportedActionClaim: checks.some((item) => item.deltas.unsupportedActionClaim),
+      candidateOnlyTruthLaundered: checks.some((item) => item.deltas.candidateOnlyTruthLaundered),
+    },
+  };
 }
 
 function normalizeFixtureVariants(variants = []) {
@@ -829,6 +929,14 @@ function classifyAlivenessCaseDelta(caseResult = {}) {
   const baseline = isPlainObject(item.baseline) ? item.baseline : {};
   const featureOn = isPlainObject(item.featureOn) ? item.featureOn : {};
   const thresholds = normalizeThresholds(item.thresholds);
+  const trustPressure = summarizeAlivenessTrustPressureChecks(
+    item.trustPressure
+      || item.trustPressureChecks
+      || item.pressureCheck
+      || item.pressureWatch
+      || deltas.trustPressure
+      || deltas.pressureCheck,
+  );
 
   const promptTokenDelta = numericDelta({
     deltas,
@@ -856,19 +964,27 @@ function classifyAlivenessCaseDelta(caseResult = {}) {
   if (boolValue(deltas.continuityWin) || boolValue(item.continuityWin)) {
     outcomes.push(ALIVENESS_OUTCOMES.CONTINUITY_WIN);
   }
-  if (boolValue(deltas.overclaimRegression) || boolValue(item.overclaimRegression)) {
+  if (boolValue(deltas.overclaimRegression)
+    || boolValue(item.overclaimRegression)
+    || trustPressure.deltas.overclaimRegression
+    || trustPressure.deltas.unsupportedActionClaim) {
     outcomes.push(ALIVENESS_OUTCOMES.OVERCLAIM_REGRESSION);
   }
-  if (boolValue(deltas.annoyanceRegression) || boolValue(item.annoyanceRegression)) {
+  if (boolValue(deltas.annoyanceRegression)
+    || boolValue(item.annoyanceRegression)
+    || trustPressure.deltas.annoyanceRegression) {
     outcomes.push(ALIVENESS_OUTCOMES.ANNOYANCE_REGRESSION);
   }
   if (boolValue(deltas.sourceBoundaryFailure)
     || boolValue(item.sourceBoundaryFailure)
-    || boolValue(deltas.candidateOnlyTruthLaundered)) {
+    || boolValue(deltas.candidateOnlyTruthLaundered)
+    || trustPressure.deltas.sourceBoundaryFailure
+    || trustPressure.deltas.candidateOnlyTruthLaundered) {
     outcomes.push(ALIVENESS_OUTCOMES.SOURCE_BOUNDARY_FAILURE);
   }
   if (boolValue(deltas.correctionFailure)
     || boolValue(item.correctionFailure)
+    || trustPressure.deltas.correctionFailure
     || (hasOwn(deltas, 'correctionSafe') && deltas.correctionSafe === false)
     || (hasOwn(item, 'correctionSafe') && item.correctionSafe === false)) {
     outcomes.push(ALIVENESS_OUTCOMES.CORRECTION_FAILURE);
@@ -906,6 +1022,7 @@ function classifyAlivenessCaseDelta(caseResult = {}) {
     positiveOutcomes,
     regressions,
     trustFailures,
+    trustPressure,
     passEligible: trustFailures.length === 0 && regressions.length === 0 && positiveOutcomes.length > 0,
     metrics: {
       promptTokenDelta,
@@ -959,6 +1076,19 @@ function summarizeAlivenessCompare(cases = []) {
     positiveOutcomeCount: classifiedCases.reduce((sum, item) => sum + item.positiveOutcomes.length, 0),
     regressionCount: classifiedCases.reduce((sum, item) => sum + item.regressions.length, 0),
     trustFailureCount: classifiedCases.reduce((sum, item) => sum + item.trustFailures.length, 0),
+    trustPressure: {
+      schema: ALIVENESS_TRUST_PRESSURE_SCHEMA,
+      checkCount: classifiedCases.reduce((sum, item) => sum + item.trustPressure.checkCount, 0),
+      failedCheckCount: classifiedCases.reduce((sum, item) => sum + item.trustPressure.failedCheckCount, 0),
+      blockerCount: classifiedCases.reduce((sum, item) => sum + item.trustPressure.blockerCount, 0),
+      blockedCaseCount: classifiedCases.filter((item) => item.trustPressure.blocksAlivenessWin).length,
+      overclaimRegressions: classifiedCases.reduce((sum, item) => sum + item.trustPressure.overclaimRegressions, 0),
+      sourceBoundaryFailures: classifiedCases.reduce((sum, item) => sum + item.trustPressure.sourceBoundaryFailures, 0),
+      correctionFailures: classifiedCases.reduce((sum, item) => sum + item.trustPressure.correctionFailures, 0),
+      annoyanceRegressions: classifiedCases.reduce((sum, item) => sum + item.trustPressure.annoyanceRegressions, 0),
+      unsupportedActionClaims: classifiedCases.reduce((sum, item) => sum + item.trustPressure.unsupportedActionClaims, 0),
+      blockedOutcomes: uniqueOutcomes(classifiedCases.flatMap((item) => item.trustPressure.blockedOutcomes)),
+    },
     passEligibleCases: classifiedCases.filter((item) => item.passEligible).length,
     passBlockedCases: classifiedCases.filter((item) => !item.passEligible).length,
     metrics: {
@@ -1137,6 +1267,7 @@ module.exports = {
   ALIVENESS_OUTCOMES,
   ALIVENESS_SCENARIO_FIXTURE_SCHEMA,
   ALIVENESS_SCENARIO_IDS,
+  ALIVENESS_TRUST_PRESSURE_SCHEMA,
   ALIVENESS_VERDICTS,
   BASELINE_ALIVENESS_FEATURE_FLAGS,
   DEFAULT_ALIVENESS_THRESHOLDS,
@@ -1154,6 +1285,9 @@ module.exports = {
   getAlivenessFeatureToggleFlags,
   normalizeAlivenessCompareMode,
   normalizeAlivenessScenarioFixture,
+  normalizeAlivenessTrustPressureCheck,
+  normalizeAlivenessTrustPressureChecks,
   summarizeAlivenessScenarioFixtures,
   summarizeAlivenessCompare,
+  summarizeAlivenessTrustPressureChecks,
 };
