@@ -7,16 +7,25 @@ const assert = require('node:assert/strict');
 const packageJson = require('../package.json');
 const {
   ALIVENESS_COMPARE_FIXTURE_ARTIFACT_KIND,
+  ALIVENESS_COMPARE_LIVE_ARTIFACT_KIND,
+  LIVE_ISOLATED_MODE,
+  analyzeLiveCaseResponse,
   buildAlivenessCompareFixtureArtifact,
+  buildAlivenessLiveCaseSpecs,
+  buildAlivenessLivePairSummary,
+  buildDisposableStatePaths,
   buildFixtureCompareCase,
+  buildMockAlivenessReply,
   parseAlivenessCompareArgs,
   parseArgValue,
+  seedDisposableState,
   writeAlivenessCompareFixtureArtifact,
 } = require('../scripts/eval-penny-aliveness-compare');
 const {
   ALIVENESS_COMPARE_MODES,
   ALIVENESS_COMPARE_SCHEMA,
   ALIVENESS_FEATURE_TOGGLE_MATRIX,
+  ALIVENESS_OUTCOMES,
   ALIVENESS_SCENARIO_IDS,
   ALIVENESS_VERDICTS,
   REQUIRED_ALIVENESS_COMPARE_MODES,
@@ -156,16 +165,116 @@ test('aliveness compare fixture args and npm script stay fixture-only', () => {
 
   assert.deepEqual(parseAlivenessCompareArgs(['--fixture', '--output', 'tmp/out.json']), {
     fixture: true,
+    liveIsolated: false,
     mode: 'fixture',
     outputPath: 'tmp/out.json',
   });
   assert.deepEqual(parseAlivenessCompareArgs(['--mode=fixture']), {
     fixture: true,
+    liveIsolated: false,
     mode: 'fixture',
     outputPath: parseAlivenessCompareArgs([]).outputPath,
   });
+  assert.equal(parseAlivenessCompareArgs(['--live-isolated']).fixture, false);
+  assert.equal(parseAlivenessCompareArgs(['--live-isolated']).liveIsolated, true);
+  assert.equal(parseAlivenessCompareArgs(['--mode=live-isolated']).mode, LIVE_ISOLATED_MODE);
+  assert.match(parseAlivenessCompareArgs(['--live-isolated']).outputPath, /aliveness-compare-live-isolated-/);
   assert.equal(
     packageJson.scripts['eval:aliveness:fixture'],
     'node scripts/eval-penny-aliveness-compare.js --fixture',
   );
+});
+
+test('aliveness live isolated specs expand A2 cases while preserving required scenario ids', () => {
+  const specs = buildAlivenessLiveCaseSpecs();
+  const scenarioIds = [...new Set(specs.map((item) => item.scenarioId))];
+  const turnStateVariants = specs.filter((item) => item.scenarioId === ALIVENESS_SCENARIO_IDS.TURN_STATE_STYLE_FIT);
+
+  assert.equal(specs.length, 9);
+  assert.deepEqual(scenarioIds, REQUIRED_ALIVENESS_SCENARIO_IDS);
+  assert.deepEqual(turnStateVariants.map((item) => item.variantId), ['long-detailed-plan', 'quick-patch']);
+  assert.equal(specs.find((item) => item.scenarioId === ALIVENESS_SCENARIO_IDS.OPEN_LOOP_RELEVANCE).featureMode, 'open-loop-on');
+});
+
+test('aliveness disposable state seeds every A5 state file under a temporary root', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-aliveness-disposable-'));
+  try {
+    const spec = buildAlivenessLiveCaseSpecs()
+      .find((item) => item.scenarioId === ALIVENESS_SCENARIO_IDS.BOUNDED_INITIATIVE_HIGH_CONFIDENCE);
+    const paths = buildDisposableStatePaths(dir, spec.id);
+    const receipt = seedDisposableState(paths, { ...spec, sessionId: 'a5-disposable-test' }, GENERATED_AT);
+    const openLoops = JSON.parse(fs.readFileSync(paths.openLoopFile, 'utf8'));
+    const memory = JSON.parse(fs.readFileSync(paths.memoryFile, 'utf8'));
+
+    assert.equal(receipt.schema, 'penny-aliveness-disposable-state.v1');
+    for (const [key, value] of Object.entries(paths)) {
+      if (key === 'root' || key === 'embeddingsFile' || key === 'staticEmbeddingsFile') continue;
+      assert.equal(fs.existsSync(value), true, `${key} should be seeded`);
+    }
+    assert.equal(memory.sessions['a5-disposable-test'].brainMode, 'local');
+    assert.ok(openLoops.loops.some((item) => item.id === 'focused-fixture-runner-next'));
+    assert.match(JSON.stringify(openLoops), /fixture writer skeleton/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('aliveness mock reply and analyzer reward rendered advisory continuity without authority overclaim', () => {
+  const spec = buildAlivenessLiveCaseSpecs()
+    .find((item) => item.scenarioId === ALIVENESS_SCENARIO_IDS.PROJECT_CONTINUITY_STATIC_IMPLEMENTATION);
+  const promptText = [
+    spec.prompt,
+    'Open loop candidate, advisory: Static embeddings live advisory is in progress.',
+    'Static implementation is paused before stale-correction guardrails.',
+  ].join('\n');
+  const reply = buildMockAlivenessReply({
+    messages: [{ role: 'user', content: promptText }],
+  });
+  const analysis = analyzeLiveCaseResponse(reply, spec, { scope: { selectedLane: 'chat' } }, {
+    promptText,
+    promptTokens: 42,
+  });
+
+  assert.match(reply, /static implementation thread/i);
+  assert.equal(analysis.humanEvidence, true);
+  assert.equal(analysis.continuityEvidence, true);
+  assert.equal(analysis.overclaiming, false);
+  assert.equal(analysis.promptTokenEstimate, 42);
+});
+
+test('aliveness live isolated summary invalidates cleanup failures and degraded readiness', () => {
+  const specs = buildAlivenessLiveCaseSpecs();
+  const makeSide = () => ({
+    ok: true,
+    cleanup: { ok: true },
+    serverStatus: { warmState: 'ready' },
+    artifactSummary: { warmState: 'ready' },
+    analysis: {},
+  });
+  const cases = specs.map((spec) => ({
+    id: spec.id,
+    scenarioId: spec.scenarioId,
+    baseline: makeSide(),
+    featureOn: makeSide(),
+    outcomes: spec.expectedOutcomes.includes(ALIVENESS_OUTCOMES.NO_MEANINGFUL_CHANGE)
+      ? [ALIVENESS_OUTCOMES.NO_MEANINGFUL_CHANGE]
+      : spec.expectedOutcomes,
+  }));
+
+  const clean = buildAlivenessLivePairSummary(cases);
+  assert.equal(clean.requiredCasesPresent, true);
+  assert.equal(clean.environment.valid, true);
+  assert.equal(clean.cleanup.allCleaned, true);
+
+  cases[0].featureOn.cleanup = { ok: false, root: '/tmp/nope', error: 'still exists' };
+  const cleanupFailed = buildAlivenessLivePairSummary(cases);
+  assert.equal(cleanupFailed.environment.valid, false);
+  assert.equal(cleanupFailed.trustVerdict, 'invalid');
+  assert.deepEqual(cleanupFailed.environment.invalidReasonCodes, ['cleanup-failed']);
+
+  cases[0].featureOn.cleanup = { ok: true };
+  cases[0].featureOn.serverStatus = { warmState: 'degraded' };
+  const degraded = buildAlivenessLivePairSummary(cases);
+  assert.equal(degraded.environment.valid, false);
+  assert.deepEqual(degraded.environment.invalidReasonCodes, ['degraded-readiness']);
 });
