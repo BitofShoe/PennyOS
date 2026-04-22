@@ -29,6 +29,10 @@ const {
   buildToolCostHintForToolName,
   normalizeToolCostHint,
 } = require('./penny-tool-registry');
+const {
+  buildTurnStateRetentionPolicy,
+  sanitizeTurnStatePromptTextForRetention,
+} = require('./penny-turn-state');
 
 const RUNTIME_ARTIFACT_VERSION = 'penny-runtime-artifact.v1';
 const TOOL_EVIDENCE_RECEIPT_SCHEMA = 'penny-tool-evidence-receipt.v1';
@@ -1061,6 +1065,9 @@ function normalizeTurnStatePromptBridge(value = {}, defaults = {}) {
   const fallbackPromptBridge = fallback.promptBridge && typeof fallback.promptBridge === 'object'
     ? fallback.promptBridge
     : {};
+  const rawPromptText = trimText(rawPromptBridge.promptText || fallbackPromptBridge.promptText || '', 700);
+  const retainedPromptText = sanitizeTurnStatePromptTextForRetention(rawPromptText);
+  const promptTextRedacted = !!rawPromptText && !retainedPromptText;
   const renderedCount = Math.max(0, Math.min(1, Number(
     raw.renderedCount
       ?? rawPromptBridge.renderedCount
@@ -1087,7 +1094,7 @@ function normalizeTurnStatePromptBridge(value = {}, defaults = {}) {
         persist: false,
         desiredDepth: trimText(rawSummary.desiredDepth || 'unknown', 60),
         responseMode: trimText(rawSummary.responseMode || 'unknown', 80),
-        activeProjectThread: trimText(rawSummary.activeProjectThread || '', 160),
+        activeProjectThread: sanitizeTurnStatePromptTextForRetention(trimText(rawSummary.activeProjectThread || '', 160)),
         explicitInstructionCount: Math.max(0, Number(rawSummary.explicitInstructionCount || 0)),
         activeConstraintCount: Math.max(0, Number(rawSummary.activeConstraintCount || 0)),
         riskFlagCount: Math.max(0, Number(rawSummary.riskFlagCount || 0)),
@@ -1097,6 +1104,17 @@ function normalizeTurnStatePromptBridge(value = {}, defaults = {}) {
         rejectedFieldCount: Math.max(0, Number(rawSummary.rejectedFieldCount || 0)),
       }
     : null;
+  const omittedFields = uniqueStrings(
+    Array.isArray(raw.omittedFields) ? raw.omittedFields : (fallback.omittedFields || []),
+    16,
+  );
+  const retentionPolicy = buildTurnStateRetentionPolicy({
+    promptText: retainedPromptText,
+    summary: turnStateSummary,
+    omittedFields,
+    promptTextRetained: !!retainedPromptText,
+    promptTextRedacted,
+  });
   return {
     schema: trimText(raw.schema || fallback.schema || 'penny-turn-state-prompt-bridge.v1', 120),
     enabled: raw.enabled === true || fallback.enabled === true,
@@ -1113,15 +1131,18 @@ function normalizeTurnStatePromptBridge(value = {}, defaults = {}) {
     toolEvidenceReceiptChanged: false,
     memoryWrites: false,
     autonomousActions: false,
-    sensitiveInferenceExcluded: raw.sensitiveInferenceExcluded !== false && fallback.sensitiveInferenceExcluded !== false,
+    sensitiveInferenceExcluded: retentionPolicy.sensitiveFieldsOmitted,
     renderedFields: uniqueStrings(Array.isArray(raw.renderedFields) ? raw.renderedFields : (fallback.renderedFields || []), 12, 80),
-    omittedFields: uniqueStrings(Array.isArray(raw.omittedFields) ? raw.omittedFields : (fallback.omittedFields || []), 16, 80),
+    omittedFields: retentionPolicy.omittedFields,
     promptBridge: {
       renderedCount,
-      promptText: trimText(rawPromptBridge.promptText || fallbackPromptBridge.promptText || '', 700),
-      wordCount: Math.max(0, Number(rawPromptBridge.wordCount ?? fallbackPromptBridge.wordCount ?? 0)),
+      promptText: retainedPromptText,
+      wordCount: retainedPromptText
+        ? Math.max(0, Number(rawPromptBridge.wordCount ?? fallbackPromptBridge.wordCount ?? 0))
+        : 0,
       maxTokens,
     },
+    retentionPolicy,
     turnStateSummary,
   };
 }

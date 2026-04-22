@@ -276,6 +276,10 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.modelAdvisory.turnStatePromptBridge.promptTruthExpanded, false);
   assert.equal(artifact.modelAdvisory.turnStatePromptBridge.promptTruthChannelAdded, false);
   assert.equal(artifact.modelAdvisory.turnStatePromptBridge.toolEvidenceReceiptChanged, false);
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.retentionPolicy.fullStateStored, false);
+  assert.equal(artifact.modelAdvisory.turnStatePromptBridge.retentionPolicy.summaryStored, true);
+  assert.ok(artifact.modelAdvisory.turnStatePromptBridge.retentionPolicy.omittedFields.includes('userIntent'));
+  assert.ok(artifact.modelAdvisory.turnStatePromptBridge.retentionPolicy.omittedFields.includes('energy.evidence'));
   assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'turnStatePromptBridge'), false);
   assert.equal(artifact.promptTruth.schema, 'penny-prompttruth.v1');
   assert.equal(artifact.modelAdvisory.promptTruth.schema, 'penny-prompttruth.v1');
@@ -294,6 +298,78 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.modelAdvisory.advisoryMerge.advisoryItems, 3);
   assert.equal(artifact.modelAdvisory.advisoryMerge.lossyItems, 0);
   assert.deepEqual(artifact.modelAdvisory.advisoryMerge.mergeBasis, []);
+});
+
+test('normalizeRuntimeArtifact redacts malformed turn-state bridge receipts before retention', () => {
+  const artifact = normalizeRuntimeArtifact({
+    modelAdvisory: {
+      turnStatePromptBridge: {
+        schema: 'penny-turn-state-prompt-bridge.v1',
+        enabled: true,
+        measurementMode: 'live-prompt',
+        turnStateMeasurementMode: 'ephemeral',
+        persist: true,
+        livePromptBridge: true,
+        liveChatTouched: true,
+        renderedCount: 1,
+        maxTokens: 80,
+        sensitiveInferenceExcluded: false,
+        turnState: {
+          userIntent: 'Diagnose the user from private inference.',
+          chainOfThought: 'secret notes',
+          energy: {
+            label: 'excited',
+            evidence: ['private tone explanation'],
+          },
+        },
+        promptBridge: {
+          renderedCount: 1,
+          promptText: 'Turn state, ephemeral (persist=false): hidden reasoning should not be retained.',
+          wordCount: 9,
+          maxTokens: 80,
+        },
+        turnStateSummary: {
+          schema: 'penny-turn-state.v1',
+          measurementMode: 'ephemeral',
+          persist: true,
+          userIntent: 'raw user intent should not persist',
+          desiredDepth: 'detailed',
+          responseMode: 'technical-roadmap',
+          energyLabel: 'excited',
+          activeProjectThread: 'private inference about the user',
+          explicitInstructionCount: 2,
+          activeConstraintCount: 1,
+          riskFlagCount: 1,
+          sourceCheckNeeded: true,
+          openLoopsTouchedCount: 0,
+          warningCount: 1,
+          rejectedFieldCount: 1,
+        },
+      },
+    },
+  });
+  const bridge = artifact.modelAdvisory.turnStatePromptBridge;
+  const serialized = JSON.stringify(bridge);
+
+  assert.equal(bridge.persist, false);
+  assert.equal(bridge.sensitiveInferenceExcluded, true);
+  assert.equal(bridge.promptBridge.promptText, '');
+  assert.equal(bridge.promptBridge.wordCount, 0);
+  assert.equal(bridge.turnStateSummary.persist, false);
+  assert.equal(bridge.turnStateSummary.userIntent, undefined);
+  assert.equal(bridge.turnStateSummary.energyLabel, undefined);
+  assert.equal(bridge.turnStateSummary.activeProjectThread, '');
+  assert.equal(bridge.retentionPolicy.fullStateStored, false);
+  assert.equal(bridge.retentionPolicy.promptTextStored, false);
+  assert.equal(bridge.retentionPolicy.promptTextRedacted, true);
+  assert.equal(bridge.retentionPolicy.summaryStored, true);
+  assert.ok(bridge.retentionPolicy.omittedFields.includes('turnState'));
+  assert.ok(bridge.retentionPolicy.omittedFields.includes('energy.evidence'));
+  assert.doesNotMatch(serialized, /Diagnose the user/i);
+  assert.doesNotMatch(serialized, /secret notes/i);
+  assert.doesNotMatch(serialized, /private tone explanation/i);
+  assert.doesNotMatch(serialized, /raw user intent/i);
+  assert.doesNotMatch(serialized, /hidden reasoning/i);
 });
 
 test('normalizeRuntimeArtifact preserves prompt truth schema during normalization', () => {

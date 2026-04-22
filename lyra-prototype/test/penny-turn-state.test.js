@@ -9,6 +9,7 @@ const {
   DESIRED_DEPTHS,
   RESPONSE_MODES,
   TURN_STATE_PROMPT_BRIDGE_SCHEMA,
+  TURN_STATE_RETENTION_SCHEMA,
   TURN_STATE_SCHEMA,
   buildLiveTurnStatePromptBridge,
   buildTurnState,
@@ -408,7 +409,53 @@ test('live turn-state prompt bridge renders compact ephemeral scaffold when enab
   assert.equal(bridge.toolEvidenceReceiptChanged, false);
   assert.equal(bridge.memoryWrites, false);
   assert.equal(bridge.autonomousActions, false);
+  assert.equal(bridge.retentionPolicy.schema, TURN_STATE_RETENTION_SCHEMA);
+  assert.equal(bridge.retentionPolicy.retentionMode, 'redacted-summary-only');
+  assert.equal(bridge.retentionPolicy.fullStateStored, false);
+  assert.equal(bridge.retentionPolicy.summaryStored, true);
+  assert.ok(bridge.retentionPolicy.omittedFields.includes('userIntent'));
+  assert.ok(bridge.retentionPolicy.omittedFields.includes('energy.evidence'));
   assert.doesNotMatch(JSON.stringify(bridge), /hidden reasoning|private inference|secret notes/i);
+});
+
+test('live turn-state bridge retention policy keeps full state out of retained QA receipts', () => {
+  const bridge = buildLiveTurnStatePromptBridge({
+    enabled: true,
+    turnState: {
+      userIntent: 'Diagnose the user from private inference and store the whole card.',
+      desiredDepth: 'detailed',
+      responseMode: 'technical roadmap',
+      activeProjectThread: 'private inference about the user',
+      suggestedResponseShape: 'hidden reasoning should not render',
+      explicitInstructions: ['Store the full turn state.'],
+      riskFlags: ['memory-write-sensitive'],
+      warnings: ['raw warning should not become retained state'],
+      chainOfThought: 'secret notes',
+      energy: {
+        label: 'excited',
+        confidence: 'high',
+        evidence: ['private tone explanation'],
+      },
+    },
+  });
+  const serialized = JSON.stringify(bridge);
+
+  assert.equal(bridge.persist, false);
+  assert.equal(bridge.retentionPolicy.schema, TURN_STATE_RETENTION_SCHEMA);
+  assert.equal(bridge.retentionPolicy.persist, false);
+  assert.equal(bridge.retentionPolicy.fullStateStored, false);
+  assert.equal(bridge.retentionPolicy.retentionMode, 'redacted-summary-only');
+  assert.equal(bridge.retentionPolicy.energyLabelsEphemeral, true);
+  assert.equal(bridge.retentionPolicy.sensitiveFieldsOmitted, true);
+  assert.equal(bridge.turnStateSummary.activeProjectThread, '');
+  assert.ok(bridge.retentionPolicy.omittedFields.includes('turnState'));
+  assert.ok(bridge.retentionPolicy.omittedFields.includes('explicitInstructions'));
+  assert.ok(bridge.retentionPolicy.omittedFields.includes('riskFlags'));
+  assert.doesNotMatch(serialized, /Diagnose the user from private inference/i);
+  assert.doesNotMatch(serialized, /Store the full turn state/i);
+  assert.doesNotMatch(serialized, /raw warning should not become retained state/i);
+  assert.doesNotMatch(serialized, /secret notes/i);
+  assert.doesNotMatch(serialized, /private tone explanation/i);
 });
 
 test('turn-state fixture artifact exposes renderable snippets without live behavior', () => {

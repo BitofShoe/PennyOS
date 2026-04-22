@@ -1,5 +1,6 @@
 const TURN_STATE_SCHEMA = 'penny-turn-state.v1';
 const TURN_STATE_PROMPT_BRIDGE_SCHEMA = 'penny-turn-state-prompt-bridge.v1';
+const TURN_STATE_RETENTION_SCHEMA = 'penny-turn-state-retention.v1';
 
 const MEASUREMENT_MODE = 'ephemeral';
 const DEFAULT_TURN_STATE_PROMPT_MAX_WORDS = 90;
@@ -168,6 +169,40 @@ const SENSITIVE_PROMPT_PATTERNS = [
   /\bmental state diagnosis\b/i,
 ];
 
+const TURN_STATE_PRIVATE_RETENTION_FIELDS = Object.freeze([
+  'turnState',
+  'state',
+  'userIntent',
+  'intent',
+  'energy',
+  'energy.evidence',
+  'explicitInstructions',
+  'instructions',
+  'riskFlags',
+  'warnings',
+  'rejectedFields',
+  'chainOfThought',
+  'hiddenReasoning',
+  'privateInference',
+  'psychologicalProfile',
+]);
+
+const TURN_STATE_RETAINED_SUMMARY_FIELDS = Object.freeze([
+  'schema',
+  'measurementMode',
+  'persist',
+  'desiredDepth',
+  'responseMode',
+  'activeProjectThread',
+  'explicitInstructionCount',
+  'activeConstraintCount',
+  'riskFlagCount',
+  'sourceCheckNeeded',
+  'openLoopsTouchedCount',
+  'warningCount',
+  'rejectedFieldCount',
+]);
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -231,6 +266,42 @@ function truncateWords(text = '', maxWords = DEFAULT_TURN_STATE_PROMPT_MAX_WORDS
 
 function containsSensitivePromptInference(text = '') {
   return SENSITIVE_PROMPT_PATTERNS.some((pattern) => pattern.test(String(text || '')));
+}
+
+function sanitizeTurnStatePromptTextForRetention(text = '') {
+  const cleaned = cleanString(text, 700);
+  if (!cleaned || containsSensitivePromptInference(cleaned)) return '';
+  return cleaned;
+}
+
+function buildTurnStateRetentionPolicy({
+  promptText = '',
+  summary = null,
+  omittedFields = [],
+  promptTextRetained = null,
+  promptTextRedacted = false,
+} = {}) {
+  const retainedPromptText = sanitizeTurnStatePromptTextForRetention(promptText);
+  const hasSummary = isPlainObject(summary);
+  const retainedFields = hasSummary ? Array.from(TURN_STATE_RETAINED_SUMMARY_FIELDS) : [];
+  const normalizedOmitted = uniqueStrings([
+    ...TURN_STATE_PRIVATE_RETENTION_FIELDS,
+    ...(Array.isArray(omittedFields) ? omittedFields : [omittedFields]),
+  ], 32, 100);
+
+  return {
+    schema: TURN_STATE_RETENTION_SCHEMA,
+    persist: false,
+    retentionMode: 'redacted-summary-only',
+    fullStateStored: false,
+    promptTextStored: promptTextRetained == null ? !!retainedPromptText : promptTextRetained === true,
+    promptTextRedacted: promptTextRedacted === true || (!!cleanString(promptText, 700) && !retainedPromptText),
+    summaryStored: hasSummary,
+    retainedSummaryFields: retainedFields,
+    omittedFields: normalizedOmitted,
+    sensitiveFieldsOmitted: true,
+    energyLabelsEphemeral: true,
+  };
 }
 
 function safePromptValue(value = '', limit = 160) {
@@ -838,6 +909,21 @@ function renderTurnStatePromptSnippet(stateLike = {}, {
   parts.push('Do not change runtime voice, memory authority, prompt limits, or persistence.');
 
   const promptText = truncateWords(parts.join(' '), maxWords);
+  const omittedFields = [
+    'userIntent',
+    'energy',
+    'energy.evidence',
+    'explicitInstructions',
+    'riskFlags',
+    'rejectedFields',
+    'warnings',
+  ];
+  const turnStateSummary = summarizeTurnStateForPrompt(state, activeProjectThread);
+  const retentionPolicy = buildTurnStateRetentionPolicy({
+    promptText,
+    summary: turnStateSummary,
+    omittedFields,
+  });
   return {
     schema: TURN_STATE_PROMPT_BRIDGE_SCHEMA,
     turnStateSchema: state.schema,
@@ -855,16 +941,9 @@ function renderTurnStatePromptSnippet(stateLike = {}, {
     wordCount: countWords(promptText),
     maxWords: clampInteger(maxWords, DEFAULT_TURN_STATE_PROMPT_MAX_WORDS, 20, 180),
     renderedFields: uniqueStrings(renderedFields, 12, 80),
-    omittedFields: [
-      'userIntent',
-      'energy',
-      'energy.evidence',
-      'explicitInstructions',
-      'riskFlags',
-      'rejectedFields',
-      'warnings',
-    ],
-    sensitiveInferenceExcluded: !containsSensitivePromptInference(promptText),
+    omittedFields,
+    sensitiveInferenceExcluded: retentionPolicy.sensitiveFieldsOmitted,
+    retentionPolicy,
     guardrails: [
       livePromptBridge === true
         ? 'Live prompt scaffold is enabled by flag only; no default behavior change.'
@@ -873,12 +952,21 @@ function renderTurnStatePromptSnippet(stateLike = {}, {
       'PromptTruth is not expanded and no new prompt-truth channel is added.',
       'No memory writes, autonomous actions, hidden reasoning, or sensitive private inference.',
     ],
-    turnStateSummary: summarizeTurnStateForPrompt(state, activeProjectThread),
+    turnStateSummary,
   };
 }
 
 function buildDisabledTurnStatePromptBridge(disabledReason = 'env-disabled', maxTokens = DEFAULT_TURN_STATE_PROMPT_MAX_WORDS) {
   const safeMaxTokens = clampInteger(maxTokens, DEFAULT_TURN_STATE_PROMPT_MAX_WORDS, 20, 180);
+  const omittedFields = [
+    'userIntent',
+    'energy',
+    'energy.evidence',
+    'explicitInstructions',
+    'riskFlags',
+    'rejectedFields',
+    'warnings',
+  ];
   return {
     schema: TURN_STATE_PROMPT_BRIDGE_SCHEMA,
     enabled: false,
@@ -897,21 +985,19 @@ function buildDisabledTurnStatePromptBridge(disabledReason = 'env-disabled', max
     autonomousActions: false,
     sensitiveInferenceExcluded: true,
     renderedFields: [],
-    omittedFields: [
-      'userIntent',
-      'energy',
-      'energy.evidence',
-      'explicitInstructions',
-      'riskFlags',
-      'rejectedFields',
-      'warnings',
-    ],
+    omittedFields,
     promptBridge: {
       renderedCount: 0,
       promptText: '',
       wordCount: 0,
       maxTokens: safeMaxTokens,
     },
+    retentionPolicy: buildTurnStateRetentionPolicy({
+      promptText: '',
+      summary: null,
+      omittedFields,
+      promptTextRetained: false,
+    }),
     turnStateSummary: null,
   };
 }
@@ -964,6 +1050,7 @@ function buildLiveTurnStatePromptBridge({
       wordCount: snippet.wordCount,
       maxTokens: safeMaxTokens,
     },
+    retentionPolicy: snippet.retentionPolicy,
     turnStateSummary: snippet.turnStateSummary,
   };
 }
@@ -973,11 +1060,15 @@ module.exports = {
   DESIRED_DEPTHS,
   RESPONSE_MODES,
   TURN_STATE_PROMPT_BRIDGE_SCHEMA,
+  TURN_STATE_RETENTION_SCHEMA,
   TURN_STATE_SCHEMA,
   buildLiveTurnStatePromptBridge,
+  buildTurnStateRetentionPolicy,
+  containsSensitivePromptInference,
   buildTurnState,
   extractTurnStateSignals,
   normalizeTurnState,
   renderTurnStatePromptSnippet,
+  sanitizeTurnStatePromptTextForRetention,
   summarizeTurnState,
 };

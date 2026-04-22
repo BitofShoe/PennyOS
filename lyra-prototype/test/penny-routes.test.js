@@ -551,13 +551,21 @@ test('chat route injects the turn-state prompt bridge only when the flag is enab
     assert.equal(bridge.promptTruthChannelAdded, false);
     assert.equal(bridge.toolEvidenceReceiptChanged, false);
     assert.equal(bridge.memoryWrites, false);
+    assert.equal(bridge.retentionPolicy.fullStateStored, false);
+    assert.equal(bridge.retentionPolicy.summaryStored, true);
+    assert.ok(bridge.retentionPolicy.omittedFields.includes('userIntent'));
+    assert.ok(bridge.retentionPolicy.omittedFields.includes('energy.evidence'));
     assert.equal(Object.prototype.hasOwnProperty.call(response.json.meta.artifact.promptTruth.channels, 'turnStatePromptBridge'), false);
 
     const storedMemory = await requestJson(
       `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=route-turn-state-live`,
     );
     assert.equal(storedMemory.statusCode, 200);
-    assert.equal(storedMemory.json.memory?.lastRoute?.artifact?.modelAdvisory?.turnStatePromptBridge?.renderedCount, 1);
+    const storedBridge = storedMemory.json.memory?.lastRoute?.artifact?.modelAdvisory?.turnStatePromptBridge;
+    assert.equal(storedBridge?.renderedCount, 1);
+    assert.equal(storedBridge?.retentionPolicy?.fullStateStored, false);
+    assert.equal(storedBridge?.turnStateSummary?.userIntent, undefined);
+    assert.doesNotMatch(JSON.stringify(storedBridge), /Long detailed answers are heaven/i);
   } finally {
     await new Promise((resolve) => started.close(() => resolve()));
     await mockLmStudio.close();
