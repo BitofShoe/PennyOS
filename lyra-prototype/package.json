@@ -35,6 +35,7 @@
     "eval:epistemic-compare": "node scripts/eval-penny-epistemic-compare.js",
     "eval:epistemic-compare:synthesis": "node scripts/eval-penny-epistemic-compare.js --primary-modes off,synthesis-only --diagnostics never",
     "eval:ledger-compare": "node scripts/eval-penny-ledger-compare.js",
+    "eval:static-embedding-live-compare": "node scripts/eval-penny-static-embedding-live-compare.js",
     "eval:runtime-fit": "node scripts/eval-penny-runtime-fit.js",
     "eval:runtime-fit:context-pressure": "node scripts/eval-penny-runtime-fit.js --context-pressure-fixture",
     "eval:runtime-fit:gemma-watch": "node scripts/eval-penny-runtime-fit.js --gemma-runtime-watch",

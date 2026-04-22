@@ -426,6 +426,14 @@ Metrics:
 - total latency delta;
 - prompt token delta.
 
+Slice S8 implementation note:
+
+- Added `npm run eval:static-embedding-live-compare` as a ledger-compare-style three-arm harness for `static-off`, `static-live-shadow`, and `static-live-advisory`.
+- The default run uses a disposable Penny server per case plus a mock LM Studio SSE backend, so first-token, total latency, PromptTruth, runtime artifact, static shadow/advisory, and cleanup receipts come from the real route surface without touching live memory or letting earlier QA turns pollute later cases.
+- The harness seeds bounded stale/current correction cases where the stale item is visible through ordinary archive summaries and the current item is available only through the live static sidecar, then reports human-observable wins, overclaim regressions, candidate-survival delta, correction failures, static-only rendered count, latency deltas, prompt-token delta, and a compact trust verdict.
+- The initial committed command run wrote `output/static-embedding-live-compare-mock-2026-04-22T02-16-04-589Z.json` and produced `pairedVerdict: "static-live-advisory"`, `totalDelta: 9`, `humanObservableWins: 3`, `overclaimRegressions: 0`, `correctionFailures: 0`, `candidateSurvivalDelta: 3`, `staticOnlyRenderedCount: 3`, `firstTokenLatencyDelta: 0`, `totalLatencyDelta: -10`, `promptTokenDelta: 0`, and `trustVerdict: "pass"` under the mock route backend.
+- The harness keeps static live mode opt-in, defaults the compare provider to Penny's deterministic local static provider for reproducible route evidence, cleans disposable memory/archive/embedding/static-cache stores, and does not change prompt limits, PromptTruth, `toolEvidenceReceipt`, runtime voice, or the committed default static mode.
+
 ### Slice S9 - Local dev enablement and docs
 
 Update high-level docs only after live behavior and canaries exist.
