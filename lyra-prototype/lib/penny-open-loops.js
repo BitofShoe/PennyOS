@@ -12,6 +12,21 @@ const OPEN_LOOP_STATUSES = Object.freeze({
 });
 
 const OPEN_LOOP_AUTHORITY = 'advisory';
+const OPEN_LOOP_LIFECYCLE_ACTIONS = Object.freeze({
+  CREATE: 'create',
+  UPDATE: 'update',
+  COMPLETE: 'complete',
+  DISMISS: 'dismiss',
+  DEFER: 'defer',
+  EXPIRE: 'expire',
+});
+const OPEN_LOOP_COMPLETION_BASES = Object.freeze({
+  EXPLICIT_USER_STATEMENT: 'explicit-user-statement',
+  DETERMINISTIC_ARTIFACT: 'deterministic-artifact',
+  TEST_RECEIPT: 'test-receipt',
+  SOURCE_RECEIPT: 'source-receipt',
+  MANUAL_COMMAND: 'manual-command',
+});
 
 const STATUS_VALUES = new Set(Object.values(OPEN_LOOP_STATUSES));
 const ACTIVE_STATUSES = new Set([
@@ -23,6 +38,8 @@ const ACTIVE_STATUSES = new Set([
 const PRIORITIES = new Set(['low', 'medium', 'high', 'critical']);
 const CONFIDENCE_VALUES = new Set(['low', 'medium', 'high', 'unknown']);
 const SURFACE_MODES = new Set(['relevant-only', 'manual-only', 'always', 'never']);
+const LIFECYCLE_ACTION_VALUES = new Set(Object.values(OPEN_LOOP_LIFECYCLE_ACTIONS));
+const COMPLETION_BASIS_VALUES = new Set(Object.values(OPEN_LOOP_COMPLETION_BASES));
 const RELEVANCE_STOPWORDS = new Set([
   'a', 'about', 'again', 'an', 'and', 'any', 'are', 'around', 'as', 'at',
   'be', 'been', 'but', 'by', 'can', 'check', 'continue', 'could', 'do',
@@ -75,6 +92,49 @@ function normalizeStatus(value = '') {
   };
   const normalized = aliases[status] || status;
   return STATUS_VALUES.has(normalized) ? normalized : '';
+}
+
+function normalizeLifecycleAction(value = '') {
+  const action = cleanToken(value);
+  const aliases = {
+    add: OPEN_LOOP_LIFECYCLE_ACTIONS.CREATE,
+    created: OPEN_LOOP_LIFECYCLE_ACTIONS.CREATE,
+    write: OPEN_LOOP_LIFECYCLE_ACTIONS.UPDATE,
+    updated: OPEN_LOOP_LIFECYCLE_ACTIONS.UPDATE,
+    completed: OPEN_LOOP_LIFECYCLE_ACTIONS.COMPLETE,
+    resolve: OPEN_LOOP_LIFECYCLE_ACTIONS.COMPLETE,
+    resolved: OPEN_LOOP_LIFECYCLE_ACTIONS.COMPLETE,
+    dismiss: OPEN_LOOP_LIFECYCLE_ACTIONS.DISMISS,
+    dismissed: OPEN_LOOP_LIFECYCLE_ACTIONS.DISMISS,
+    hide: OPEN_LOOP_LIFECYCLE_ACTIONS.DISMISS,
+    hidden: OPEN_LOOP_LIFECYCLE_ACTIONS.DISMISS,
+    deferred: OPEN_LOOP_LIFECYCLE_ACTIONS.DEFER,
+    park: OPEN_LOOP_LIFECYCLE_ACTIONS.DEFER,
+    parked: OPEN_LOOP_LIFECYCLE_ACTIONS.DEFER,
+    expired: OPEN_LOOP_LIFECYCLE_ACTIONS.EXPIRE,
+  };
+  const normalized = aliases[action] || action;
+  return LIFECYCLE_ACTION_VALUES.has(normalized) ? normalized : '';
+}
+
+function normalizeCompletionBasis(value = '') {
+  const basis = cleanToken(value);
+  const aliases = {
+    explicit: OPEN_LOOP_COMPLETION_BASES.EXPLICIT_USER_STATEMENT,
+    user: OPEN_LOOP_COMPLETION_BASES.EXPLICIT_USER_STATEMENT,
+    'user-statement': OPEN_LOOP_COMPLETION_BASES.EXPLICIT_USER_STATEMENT,
+    artifact: OPEN_LOOP_COMPLETION_BASES.DETERMINISTIC_ARTIFACT,
+    deterministic: OPEN_LOOP_COMPLETION_BASES.DETERMINISTIC_ARTIFACT,
+    'deterministic-receipt': OPEN_LOOP_COMPLETION_BASES.DETERMINISTIC_ARTIFACT,
+    test: OPEN_LOOP_COMPLETION_BASES.TEST_RECEIPT,
+    tests: OPEN_LOOP_COMPLETION_BASES.TEST_RECEIPT,
+    source: OPEN_LOOP_COMPLETION_BASES.SOURCE_RECEIPT,
+    'source-artifact': OPEN_LOOP_COMPLETION_BASES.SOURCE_RECEIPT,
+    manual: OPEN_LOOP_COMPLETION_BASES.MANUAL_COMMAND,
+    command: OPEN_LOOP_COMPLETION_BASES.MANUAL_COMMAND,
+  };
+  const normalized = aliases[basis] || basis;
+  return COMPLETION_BASIS_VALUES.has(normalized) ? normalized : '';
 }
 
 function normalizePriority(value = '') {
@@ -737,6 +797,91 @@ function normalizeSourceRefs(value = []) {
   return out.slice(0, 12);
 }
 
+function mergeSourceRefs(...refGroups) {
+  return normalizeSourceRefs(refGroups.flat(Infinity));
+}
+
+function normalizeOpenLoopHistoryEntry(entryLike = {}) {
+  const raw = isPlainObject(entryLike) ? entryLike : {};
+  const action = normalizeLifecycleAction(raw.action || raw.operation || raw.type);
+  const at = normalizeIso(raw.at || raw.timestamp || raw.updatedAt || raw.createdAt);
+  if (!action || !at) return null;
+  const status = normalizeStatus(raw.status);
+  const basis = normalizeCompletionBasis(raw.basis || raw.receiptBasis || raw.completionBasis);
+  const reason = cleanString(raw.reason || raw.note || raw.summary || '', 360);
+  const sourceRefs = normalizeSourceRefs(raw.sourceRefs || raw.sources || []);
+  return {
+    action,
+    at,
+    authority: OPEN_LOOP_AUTHORITY,
+    ...(status ? { status } : {}),
+    ...(basis ? { basis } : {}),
+    ...(reason ? { reason } : {}),
+    ...(sourceRefs.length ? { sourceRefs } : {}),
+  };
+}
+
+function normalizeOpenLoopHistory(value = []) {
+  const entries = Array.isArray(value) ? value : [value];
+  return entries
+    .map(normalizeOpenLoopHistoryEntry)
+    .filter(Boolean)
+    .slice(-30);
+}
+
+function lifecycleTimestamp({ now = new Date(), at = '' } = {}) {
+  return normalizeIso(at || now) || new Date(normalizeNowMs(now)).toISOString();
+}
+
+function buildLifecycleHistoryEntry({
+  action = '',
+  status = '',
+  basis = '',
+  reason = '',
+  sourceRefs = [],
+  now = new Date(),
+  at = '',
+} = {}) {
+  return normalizeOpenLoopHistoryEntry({
+    action,
+    status,
+    basis,
+    reason,
+    sourceRefs,
+    at: lifecycleTimestamp({ now, at }),
+  });
+}
+
+function appendOpenLoopHistory(loopLike = {}, entryLike = {}) {
+  const loop = normalizeOpenLoop(loopLike);
+  const entry = normalizeOpenLoopHistoryEntry(entryLike);
+  if (!loop || !entry) return loop;
+  return {
+    ...loop,
+    history: normalizeOpenLoopHistory([
+      ...(Array.isArray(loop.history) ? loop.history : []),
+      entry,
+    ]),
+  };
+}
+
+function assertNoTerminalStatusUpdate(updates = {}) {
+  const raw = isPlainObject(updates) ? updates : {};
+  const status = normalizeStatus(raw.status || '');
+  if (!status) return;
+  if ([
+    OPEN_LOOP_STATUSES.COMPLETED,
+    OPEN_LOOP_STATUSES.DISMISSED,
+    OPEN_LOOP_STATUSES.EXPIRED,
+  ].includes(status)) {
+    throw new TypeError('updateOpenLoop cannot set terminal lifecycle status; use completeOpenLoop, dismissOpenLoop, or expireOpenLoops.');
+  }
+}
+
+function buildLifecycleReason(options = {}, fallback = '') {
+  return cleanString(options.reason || options.note || fallback, 360);
+}
+
 function normalizeSurfacePolicy(surfacePolicy = {}, loopLike = {}) {
   const raw = isPlainObject(surfacePolicy) ? surfacePolicy : {};
   const fallback = isPlainObject(loopLike) ? loopLike : {};
@@ -770,6 +915,7 @@ function normalizeOpenLoop(loopLike = {}) {
     surfacePolicy: normalizeSurfacePolicy(raw.surfacePolicy, raw),
     dismissed,
     completedAt: completedAt || null,
+    history: normalizeOpenLoopHistory(raw.history || raw.lifecycleHistory || []),
   };
 }
 
@@ -823,6 +969,222 @@ function isSurfaceable(loop, now = new Date()) {
   return normalized.surfacePolicy.maxSurfaceCount > 0;
 }
 
+function createOpenLoop(loopLike = {}, options = {}) {
+  const at = lifecycleTimestamp(options);
+  const raw = isPlainObject(loopLike) ? loopLike : {};
+  const requestedStatus = normalizeStatus(raw.status || OPEN_LOOP_STATUSES.OPEN);
+  if ([
+    OPEN_LOOP_STATUSES.COMPLETED,
+    OPEN_LOOP_STATUSES.DISMISSED,
+    OPEN_LOOP_STATUSES.EXPIRED,
+  ].includes(requestedStatus)) {
+    throw new TypeError('createOpenLoop cannot create terminal lifecycle status; use completeOpenLoop, dismissOpenLoop, or expireOpenLoops.');
+  }
+  const loop = normalizeOpenLoop({
+    ...raw,
+    status: requestedStatus || OPEN_LOOP_STATUSES.OPEN,
+    lastTouchedAt: raw.lastTouchedAt || raw.updatedAt || raw.createdAt || at,
+    sourceRefs: mergeSourceRefs(raw.sourceRefs || raw.sources || [], options.sourceRefs || options.sources || []),
+  });
+  if (!loop) return null;
+  return appendOpenLoopHistory(loop, buildLifecycleHistoryEntry({
+    action: OPEN_LOOP_LIFECYCLE_ACTIONS.CREATE,
+    status: loop.status,
+    basis: options.basis || OPEN_LOOP_COMPLETION_BASES.MANUAL_COMMAND,
+    reason: buildLifecycleReason(options, 'created-open-loop'),
+    sourceRefs: mergeSourceRefs(options.sourceRefs || options.sources || [], loop.sourceRefs),
+    at,
+  }));
+}
+
+function updateOpenLoop(loopLike = {}, updates = {}, options = {}) {
+  assertNoTerminalStatusUpdate(updates);
+  const loop = normalizeOpenLoop(loopLike);
+  const rawUpdates = isPlainObject(updates) ? updates : {};
+  if (!loop) return null;
+  const at = lifecycleTimestamp(options);
+  const next = {
+    ...loop,
+    lastTouchedAt: at,
+  };
+  if (Object.prototype.hasOwnProperty.call(rawUpdates, 'title')) {
+    next.title = cleanString(rawUpdates.title, 220);
+  }
+  if (Object.prototype.hasOwnProperty.call(rawUpdates, 'summary')) {
+    next.title = cleanString(rawUpdates.summary, 220);
+  }
+  if (Object.prototype.hasOwnProperty.call(rawUpdates, 'status')) {
+    const status = normalizeStatus(rawUpdates.status);
+    if (status) next.status = status;
+  }
+  if (Object.prototype.hasOwnProperty.call(rawUpdates, 'priority')) {
+    next.priority = normalizePriority(rawUpdates.priority);
+  }
+  if (Object.prototype.hasOwnProperty.call(rawUpdates, 'confidence')) {
+    next.confidence = normalizeConfidence(rawUpdates.confidence);
+  }
+  if (Object.prototype.hasOwnProperty.call(rawUpdates, 'nextLikelyStep')
+    || Object.prototype.hasOwnProperty.call(rawUpdates, 'nextStep')) {
+    next.nextLikelyStep = cleanString(rawUpdates.nextLikelyStep || rawUpdates.nextStep || '', 500);
+  }
+  if (Object.prototype.hasOwnProperty.call(rawUpdates, 'surfacePolicy')
+    || Object.prototype.hasOwnProperty.call(rawUpdates, 'surfaceMode')
+    || Object.prototype.hasOwnProperty.call(rawUpdates, 'maxSurfaceCount')
+    || Object.prototype.hasOwnProperty.call(rawUpdates, 'expiresAt')) {
+    next.surfacePolicy = normalizeSurfacePolicy({
+      ...(loop.surfacePolicy || {}),
+      ...(isPlainObject(rawUpdates.surfacePolicy) ? rawUpdates.surfacePolicy : {}),
+      ...(Object.prototype.hasOwnProperty.call(rawUpdates, 'surfaceMode') ? { mode: rawUpdates.surfaceMode } : {}),
+      ...(Object.prototype.hasOwnProperty.call(rawUpdates, 'maxSurfaceCount') ? { maxSurfaceCount: rawUpdates.maxSurfaceCount } : {}),
+      ...(Object.prototype.hasOwnProperty.call(rawUpdates, 'expiresAt') ? { expiresAt: rawUpdates.expiresAt } : {}),
+    });
+  }
+  const sourceRefs = mergeSourceRefs(
+    loop.sourceRefs,
+    rawUpdates.sourceRefs || rawUpdates.sources || [],
+    options.sourceRefs || options.sources || [],
+  );
+  next.sourceRefs = sourceRefs;
+  const normalized = normalizeOpenLoop(next);
+  if (!normalized) return null;
+  return appendOpenLoopHistory(normalized, buildLifecycleHistoryEntry({
+    action: OPEN_LOOP_LIFECYCLE_ACTIONS.UPDATE,
+    status: normalized.status,
+    basis: options.basis || OPEN_LOOP_COMPLETION_BASES.MANUAL_COMMAND,
+    reason: buildLifecycleReason(options, 'updated-open-loop'),
+    sourceRefs: mergeSourceRefs(rawUpdates.sourceRefs || rawUpdates.sources || [], options.sourceRefs || options.sources || []),
+    at,
+  }));
+}
+
+function assertCompletionBasis(options = {}) {
+  const basis = normalizeCompletionBasis(options.basis || options.receiptBasis || options.completionBasis);
+  if (!basis) {
+    throw new TypeError('completeOpenLoop requires explicit user statement, deterministic artifact/test/source receipt, or manual command basis.');
+  }
+  return basis;
+}
+
+function completeOpenLoop(loopLike = {}, options = {}) {
+  const basis = assertCompletionBasis(options);
+  const loop = normalizeOpenLoop(loopLike);
+  if (!loop) return null;
+  const at = lifecycleTimestamp(options);
+  const completed = normalizeOpenLoop({
+    ...loop,
+    status: OPEN_LOOP_STATUSES.COMPLETED,
+    dismissed: false,
+    completedAt: at,
+    lastTouchedAt: at,
+    sourceRefs: mergeSourceRefs(loop.sourceRefs, options.sourceRefs || options.sources || []),
+  });
+  return appendOpenLoopHistory(completed, buildLifecycleHistoryEntry({
+    action: OPEN_LOOP_LIFECYCLE_ACTIONS.COMPLETE,
+    status: OPEN_LOOP_STATUSES.COMPLETED,
+    basis,
+    reason: buildLifecycleReason(options, 'completed-open-loop'),
+    sourceRefs: options.sourceRefs || options.sources || [],
+    at,
+  }));
+}
+
+function dismissOpenLoop(loopLike = {}, options = {}) {
+  const loop = normalizeOpenLoop(loopLike);
+  if (!loop) return null;
+  const at = lifecycleTimestamp(options);
+  const dismissed = normalizeOpenLoop({
+    ...loop,
+    status: OPEN_LOOP_STATUSES.DISMISSED,
+    dismissed: true,
+    completedAt: null,
+    lastTouchedAt: at,
+    sourceRefs: mergeSourceRefs(loop.sourceRefs, options.sourceRefs || options.sources || []),
+  });
+  return appendOpenLoopHistory(dismissed, buildLifecycleHistoryEntry({
+    action: OPEN_LOOP_LIFECYCLE_ACTIONS.DISMISS,
+    status: OPEN_LOOP_STATUSES.DISMISSED,
+    basis: options.basis || OPEN_LOOP_COMPLETION_BASES.MANUAL_COMMAND,
+    reason: buildLifecycleReason(options, 'dismissed-open-loop'),
+    sourceRefs: options.sourceRefs || options.sources || [],
+    at,
+  }));
+}
+
+function deferOpenLoop(loopLike = {}, options = {}) {
+  const loop = normalizeOpenLoop(loopLike);
+  if (!loop) return null;
+  const at = lifecycleTimestamp(options);
+  const currentStatus = classifyOpenLoopStatus(loop, options.now || at);
+  if ([
+    OPEN_LOOP_STATUSES.COMPLETED,
+    OPEN_LOOP_STATUSES.DISMISSED,
+    OPEN_LOOP_STATUSES.EXPIRED,
+  ].includes(currentStatus)) {
+    throw new TypeError('deferOpenLoop cannot reactivate completed, dismissed, or expired loops.');
+  }
+  const surfacePolicy = options.expiresAt
+    ? normalizeSurfacePolicy({ ...(loop.surfacePolicy || {}), expiresAt: options.expiresAt })
+    : loop.surfacePolicy;
+  const deferred = normalizeOpenLoop({
+    ...loop,
+    status: OPEN_LOOP_STATUSES.DEFERRED,
+    dismissed: false,
+    completedAt: null,
+    lastTouchedAt: at,
+    nextLikelyStep: Object.prototype.hasOwnProperty.call(options, 'nextLikelyStep') || Object.prototype.hasOwnProperty.call(options, 'nextStep')
+      ? cleanString(options.nextLikelyStep || options.nextStep || '', 500)
+      : loop.nextLikelyStep,
+    surfacePolicy,
+    sourceRefs: mergeSourceRefs(loop.sourceRefs, options.sourceRefs || options.sources || []),
+  });
+  return appendOpenLoopHistory(deferred, buildLifecycleHistoryEntry({
+    action: OPEN_LOOP_LIFECYCLE_ACTIONS.DEFER,
+    status: OPEN_LOOP_STATUSES.DEFERRED,
+    basis: options.basis || OPEN_LOOP_COMPLETION_BASES.MANUAL_COMMAND,
+    reason: buildLifecycleReason(options, 'deferred-open-loop'),
+    sourceRefs: options.sourceRefs || options.sources || [],
+    at,
+  }));
+}
+
+function expireOpenLoops(stateLike = {}, options = {}) {
+  const at = lifecycleTimestamp(options);
+  const normalized = normalizeOpenLoopState(stateLike);
+  const expiredLoopIds = [];
+  const loops = normalized.loops.map((loop) => {
+    if (loop.status === OPEN_LOOP_STATUSES.COMPLETED || loop.status === OPEN_LOOP_STATUSES.DISMISSED) {
+      return loop;
+    }
+    if (classifyOpenLoopStatus(loop, options.now || at) !== OPEN_LOOP_STATUSES.EXPIRED) {
+      return loop;
+    }
+    if (loop.status === OPEN_LOOP_STATUSES.EXPIRED) return loop;
+    expiredLoopIds.push(loop.id);
+    const expired = normalizeOpenLoop({
+      ...loop,
+      status: OPEN_LOOP_STATUSES.EXPIRED,
+      lastTouchedAt: at,
+    });
+    return appendOpenLoopHistory(expired, buildLifecycleHistoryEntry({
+      action: OPEN_LOOP_LIFECYCLE_ACTIONS.EXPIRE,
+      status: OPEN_LOOP_STATUSES.EXPIRED,
+      basis: OPEN_LOOP_COMPLETION_BASES.DETERMINISTIC_ARTIFACT,
+      reason: buildLifecycleReason(options, 'surface-policy-expired'),
+      sourceRefs: options.sourceRefs || options.sources || [],
+      at,
+    }));
+  });
+
+  return {
+    state: {
+      schema: OPEN_LOOP_SCHEMA,
+      updatedAt: expiredLoopIds.length ? at : normalized.updatedAt,
+      loops,
+    },
+    expiredLoopIds,
+  };
+}
+
 function summarizeOpenLoopState(state, { now = new Date() } = {}) {
   const normalized = normalizeOpenLoopState(state);
   const statusCounts = Object.fromEntries(Object.values(OPEN_LOOP_STATUSES).map((status) => [status, 0]));
@@ -868,8 +1230,15 @@ module.exports = {
   OPEN_LOOP_SCHEMA,
   OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
   OPEN_LOOP_STATUSES,
+  OPEN_LOOP_COMPLETION_BASES,
+  OPEN_LOOP_LIFECYCLE_ACTIONS,
   buildLiveOpenLoopPromptBridge,
   buildOpenLoopPromptBridgeFixture,
+  completeOpenLoop,
+  createOpenLoop,
+  deferOpenLoop,
+  dismissOpenLoop,
+  expireOpenLoops,
   formatOpenLoopPromptBridgeSnippet,
   mergeOpenLoopPromptBridgeIntoArchiveContext,
   normalizeOpenLoop,
@@ -877,4 +1246,5 @@ module.exports = {
   summarizeOpenLoopState,
   classifyOpenLoopStatus,
   selectRelevantOpenLoops,
+  updateOpenLoop,
 };

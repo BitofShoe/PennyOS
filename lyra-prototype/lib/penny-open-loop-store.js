@@ -4,8 +4,14 @@ const nodePath = require('node:path');
 const { writeJsonFileAtomicSync } = require('./penny-atomic-json');
 const {
   OPEN_LOOP_SCHEMA,
+  completeOpenLoop: completeOpenLoopEntry,
+  createOpenLoop: createOpenLoopEntry,
+  deferOpenLoop: deferOpenLoopEntry,
+  dismissOpenLoop: dismissOpenLoopEntry,
+  expireOpenLoops: expireOpenLoopEntries,
   normalizeOpenLoopState,
   summarizeOpenLoopState,
+  updateOpenLoop: updateOpenLoopEntry,
 } = require('./penny-open-loops');
 
 const DEFAULT_OPEN_LOOP_FILE = 'data/penny-open-loops.json';
@@ -88,9 +94,14 @@ function buildOpenLoopStoreArtifact({
   filePath = '',
   at = '',
   loopCount = 0,
+  loopId = '',
+  changedLoopIds = [],
   error = null,
 } = {}) {
   const normalizedError = normalizeError(error);
+  const changedIds = Array.isArray(changedLoopIds)
+    ? changedLoopIds.map((id) => cleanText(id, 140)).filter(Boolean).slice(0, 20)
+    : [];
   return {
     schema: OPEN_LOOP_STORE_ARTIFACT_SCHEMA,
     operation: cleanText(operation, 80) || 'read',
@@ -100,6 +111,8 @@ function buildOpenLoopStoreArtifact({
     filePath: cleanText(filePath, 1000),
     at: cleanText(at, 80),
     loopCount: Math.max(0, Math.round(Number(loopCount) || 0)),
+    ...(cleanText(loopId, 140) ? { loopId: cleanText(loopId, 140) } : {}),
+    ...(changedIds.length ? { changedLoopIds: changedIds } : {}),
     ...(normalizedError ? { error: normalizedError } : {}),
   };
 }
@@ -187,7 +200,7 @@ function createOpenLoopStoreApi({
     }
   }
 
-  function writeOpenLoopState(stateLike = {}) {
+  function persistOpenLoopState(stateLike = {}, { operation = 'write', status = 'ok', loopId = '', changedLoopIds = [] } = {}) {
     const state = normalizeOpenLoopState(stateLike);
     state.updatedAt = nowIso(nowMs);
     writeJsonFileAtomicSync({
@@ -199,11 +212,229 @@ function createOpenLoopStoreApi({
     return {
       state,
       artifact: artifact({
-        operation: 'write',
-        status: 'ok',
+        operation,
+        status,
         ok: true,
+        loopId,
+        changedLoopIds,
         loopCount: state.loops.length,
       }),
+    };
+  }
+
+  function writeOpenLoopState(stateLike = {}) {
+    return persistOpenLoopState(stateLike, { operation: 'write', status: 'ok' });
+  }
+
+  function readWritableOpenLoopState(operation = 'lifecycle') {
+    const read = readOpenLoopState();
+    if (read.artifact.ok !== true) {
+      return {
+        ...read,
+        blockedArtifact: artifact({
+          operation,
+          status: 'read-failed',
+          ok: false,
+          fallbackUsed: read.artifact.fallbackUsed,
+          loopCount: read.state.loops.length,
+          error: read.artifact.error,
+        }),
+      };
+    }
+    return read;
+  }
+
+  function findLoopIndex(state = {}, loopId = '') {
+    const targetId = cleanText(loopId, 140);
+    if (!targetId || !Array.isArray(state.loops)) return -1;
+    return state.loops.findIndex((loop) => loop?.id === targetId);
+  }
+
+  function invalidLifecycleResult({ operation = 'lifecycle', status = 'invalid-loop', state = null, loopId = '', error = null } = {}) {
+    const normalized = normalizeOpenLoopState(state || buildEmptyOpenLoopState());
+    return {
+      state: normalized,
+      loop: null,
+      artifact: artifact({
+        operation,
+        status,
+        ok: false,
+        loopId,
+        loopCount: normalized.loops.length,
+        error,
+      }),
+    };
+  }
+
+  function createOpenLoop(loopLike = {}, options = {}) {
+    const read = readWritableOpenLoopState('create');
+    if (read.blockedArtifact) return { state: read.state, loop: null, artifact: read.blockedArtifact };
+    let loop = null;
+    try {
+      loop = createOpenLoopEntry(loopLike, { ...options, now: nowIso(nowMs) });
+    } catch (error) {
+      return invalidLifecycleResult({
+        operation: 'create',
+        status: 'invalid-lifecycle-update',
+        state: read.state,
+        loopId: loopLike?.id || loopLike?.loopId || '',
+        error,
+      });
+    }
+    if (!loop) {
+      return invalidLifecycleResult({
+        operation: 'create',
+        status: 'invalid-loop',
+        state: read.state,
+        loopId: loopLike?.id || loopLike?.loopId || '',
+      });
+    }
+    if (findLoopIndex(read.state, loop.id) >= 0) {
+      return invalidLifecycleResult({
+        operation: 'create',
+        status: 'loop-already-exists',
+        state: read.state,
+        loopId: loop.id,
+      });
+    }
+    const nextState = { ...read.state, loops: [...read.state.loops, loop] };
+    const written = persistOpenLoopState(nextState, {
+      operation: 'create',
+      status: 'ok',
+      loopId: loop.id,
+      changedLoopIds: [loop.id],
+    });
+    return { ...written, loop };
+  }
+
+  function updateOpenLoop(loopId = '', updates = {}, options = {}) {
+    const read = readWritableOpenLoopState('update');
+    if (read.blockedArtifact) return { state: read.state, loop: null, artifact: read.blockedArtifact };
+    const index = findLoopIndex(read.state, loopId || updates?.id || updates?.loopId || '');
+    if (index < 0) {
+      return invalidLifecycleResult({
+        operation: 'update',
+        status: 'loop-not-found',
+        state: read.state,
+        loopId: loopId || updates?.id || updates?.loopId || '',
+      });
+    }
+    let loop = null;
+    try {
+      loop = updateOpenLoopEntry(read.state.loops[index], updates, { ...options, now: nowIso(nowMs) });
+    } catch (error) {
+      return invalidLifecycleResult({
+        operation: 'update',
+        status: 'invalid-lifecycle-update',
+        state: read.state,
+        loopId: read.state.loops[index].id,
+        error,
+      });
+    }
+    if (!loop) {
+      return invalidLifecycleResult({
+        operation: 'update',
+        status: 'invalid-loop',
+        state: read.state,
+        loopId: read.state.loops[index].id,
+      });
+    }
+    const loops = read.state.loops.slice();
+    loops[index] = loop;
+    const written = persistOpenLoopState({ ...read.state, loops }, {
+      operation: 'update',
+      status: 'ok',
+      loopId: loop.id,
+      changedLoopIds: [loop.id],
+    });
+    return { ...written, loop };
+  }
+
+  function transitionOpenLoop(operation = 'lifecycle', loopId = '', transition, options = {}) {
+    const read = readWritableOpenLoopState(operation);
+    if (read.blockedArtifact) return { state: read.state, loop: null, artifact: read.blockedArtifact };
+    const index = findLoopIndex(read.state, loopId);
+    if (index < 0) {
+      return invalidLifecycleResult({
+        operation,
+        status: 'loop-not-found',
+        state: read.state,
+        loopId,
+      });
+    }
+    let loop = null;
+    try {
+      loop = transition(read.state.loops[index], { ...options, now: nowIso(nowMs) });
+    } catch (error) {
+      return invalidLifecycleResult({
+        operation,
+        status: operation === 'complete' ? 'completion-basis-required' : 'invalid-lifecycle-update',
+        state: read.state,
+        loopId: read.state.loops[index].id,
+        error,
+      });
+    }
+    if (!loop) {
+      return invalidLifecycleResult({
+        operation,
+        status: 'invalid-loop',
+        state: read.state,
+        loopId: read.state.loops[index].id,
+      });
+    }
+    const loops = read.state.loops.slice();
+    loops[index] = loop;
+    const written = persistOpenLoopState({ ...read.state, loops }, {
+      operation,
+      status: 'ok',
+      loopId: loop.id,
+      changedLoopIds: [loop.id],
+    });
+    return { ...written, loop };
+  }
+
+  function completeOpenLoop(loopId = '', options = {}) {
+    return transitionOpenLoop('complete', loopId, completeOpenLoopEntry, options);
+  }
+
+  function dismissOpenLoop(loopId = '', options = {}) {
+    return transitionOpenLoop('dismiss', loopId, dismissOpenLoopEntry, options);
+  }
+
+  function deferOpenLoop(loopId = '', options = {}) {
+    return transitionOpenLoop('defer', loopId, deferOpenLoopEntry, options);
+  }
+
+  function expireOpenLoops(options = {}) {
+    const read = readWritableOpenLoopState('expire');
+    if (read.blockedArtifact) {
+      return {
+        state: read.state,
+        expiredLoopIds: [],
+        artifact: read.blockedArtifact,
+      };
+    }
+    const result = expireOpenLoopEntries(read.state, { ...options, now: options.now || nowIso(nowMs) });
+    if (!result.expiredLoopIds.length) {
+      return {
+        state: result.state,
+        expiredLoopIds: [],
+        artifact: artifact({
+          operation: 'expire',
+          status: 'no-expired-loops',
+          ok: true,
+          loopCount: result.state.loops.length,
+        }),
+      };
+    }
+    const written = persistOpenLoopState(result.state, {
+      operation: 'expire',
+      status: 'ok',
+      changedLoopIds: result.expiredLoopIds,
+    });
+    return {
+      ...written,
+      expiredLoopIds: result.expiredLoopIds,
     };
   }
 
@@ -217,8 +448,14 @@ function createOpenLoopStoreApi({
 
   return {
     openLoopFile,
+    completeOpenLoop,
+    createOpenLoop,
+    deferOpenLoop,
+    dismissOpenLoop,
     ensureOpenLoopFile,
+    expireOpenLoops,
     readOpenLoopState,
+    updateOpenLoop,
     writeOpenLoopState,
     summarizeStoredOpenLoops,
   };
