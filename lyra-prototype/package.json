@@ -26,6 +26,7 @@
     "qa:memory:candidate-survival": "node scripts/qa-penny-memory.js --candidate-survival-archive-unit",
     "qa:memory:candidate-survival-fixture": "node scripts/qa-penny-memory.js --candidate-survival-fixture",
     "qa:memory:links": "node scripts/qa-penny-memory-links.js --fixture",
+    "qa:semantic:source-audit": "node scripts/qa-penny-semantic-source-audit.js --fixture",
     "qa:session-reflection": "node scripts/qa-penny-session-reflection.js --fixture",
     "qa:memory:semantic": "node scripts/qa-penny-memory.js --segment semantic-archive",
     "qa:memory:chapter": "node scripts/qa-penny-memory.js --segment chapter-fallback",
