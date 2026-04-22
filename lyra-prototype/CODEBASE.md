@@ -407,7 +407,8 @@ Likely modules you will touch:
 - turn-state prompt bridge receipt normalization in `lib/penny-runtime-artifacts.js`; it stores only a redacted summary and retention policy, not the full turn-state card or raw private inference
 - research-ledger identity/settled-state rules in `lib/penny-research-ledger.js`
 - local semantic identifier contracts in `lib/penny-semantic-ids.js`; these mint opaque `penny:*` IDs for later claims, links, traces, vector sources, and rendered-context receipts without making the IDs fetchable, authoritative, canonical, or prompt-visible by themselves
-- local semantic claim contracts in `lib/penny-semantic-claims.js`; these normalize, validate, and summarize source-attributed claims without making candidate-only/static/archive assertions canonical or wiring them into PromptTruth, `toolEvidenceReceipt`, runtime ranking, memory promotion, or prompt rendering
+- local semantic domain contracts in `lib/penny-semantic-domains.js`; these register explicit-memory, archive, research-ledger, static-candidate, open-loop, tool-evidence, document-extraction, repo-current-law, runtime-artifact, and fixture authority defaults without making unknown domains trusted, letting tool evidence become PromptTruth, or turning repo-current-law into personal-memory authority
+- local semantic claim contracts in `lib/penny-semantic-claims.js`; these normalize, validate, and summarize source-attributed claims against registered authority domains without making candidate-only/static/archive assertions canonical or wiring them into PromptTruth, `toolEvidenceReceipt`, runtime ranking, memory promotion, or prompt rendering
 - route assembly in `lib/penny-route-handlers.js`
 - combined inspector construction in `server.js` / `lib/penny-runtime-artifacts.js`
 - QA trace/trust helpers in `lib/penny-qa-trace.js` and `lib/penny-qa-trust.js`

@@ -1,7 +1,6 @@
 const {
   SEMANTIC_ID_KINDS,
   buildSemanticClaimId,
-  buildSemanticDomainId,
   buildSemanticEntityId,
   buildSemanticSourceId,
   validateSemanticId,
@@ -9,6 +8,22 @@ const {
 const {
   normalizeSemanticPredicate,
 } = require('./penny-semantic-predicates');
+const {
+  SEMANTIC_DOMAIN_IDS: DOMAIN_IDS,
+  domainAllowsClaimSubjectType,
+  domainCanBeCanonical,
+  domainCanRenderToPrompt,
+  domainDefaultAuthority,
+  domainDefaultCanonicality,
+  domainDefaultConfidence,
+  domainDefaultSupportState,
+  domainDefaultTemporalScope,
+  domainIdForSourceType: defaultDomainForSourceType,
+  domainIsCandidateOnly,
+  normalizeSemanticDomainId: normalizeDomainId,
+  sourceTypeForDomain,
+  validateSemanticDomainId,
+} = require('./penny-semantic-domains');
 
 const PENNY_SEMANTIC_CLAIM_SCHEMA = 'penny-semantic-claim.v1';
 
@@ -45,28 +60,6 @@ const SUPPORT_STATE_VALUES = new Set(Object.values(SEMANTIC_CLAIM_SUPPORT_STATES
 const CANONICALITY_VALUES = new Set(Object.values(SEMANTIC_CLAIM_CANONICALITY));
 const TEMPORAL_SCOPE_VALUES = new Set(Object.values(SEMANTIC_CLAIM_TEMPORAL_SCOPES));
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}T/;
-
-const DOMAIN_IDS = Object.freeze({
-  EXPLICIT_MEMORY: 'penny:domain:explicit-memory',
-  SESSION_ARCHIVE: 'penny:domain:session-archive',
-  GLOBAL_ARCHIVE: 'penny:domain:global-archive',
-  STATIC_CANDIDATE: 'penny:domain:static-candidate',
-  RESEARCH_LEDGER: 'penny:domain:research-ledger',
-  OPEN_LOOP: 'penny:domain:open-loop',
-  TOOL_EVIDENCE: 'penny:domain:tool-evidence',
-  REPO_CURRENT_LAW: 'penny:domain:repo-current-law',
-  RUNTIME_ARTIFACT: 'penny:domain:runtime-artifact',
-  FIXTURE: 'penny:domain:fixture',
-});
-
-const CANONICAL_DOMAIN_IDS = new Set([
-  DOMAIN_IDS.EXPLICIT_MEMORY,
-  DOMAIN_IDS.REPO_CURRENT_LAW,
-]);
-
-const CANDIDATE_ONLY_DOMAIN_IDS = new Set([
-  DOMAIN_IDS.STATIC_CANDIDATE,
-]);
 
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date);
@@ -126,51 +119,6 @@ function hasStableSourceRef(source = {}) {
   );
 }
 
-function normalizeDomainId(value = '') {
-  const id = cleanText(value, 500);
-  if (!id) return '';
-  if (validateSemanticId(id, SEMANTIC_ID_KINDS.DOMAIN).valid) return id;
-  return buildSemanticDomainId(id);
-}
-
-function defaultDomainForSourceType(sourceType = '') {
-  const type = slugSegment(sourceType, '');
-  if (!type) return DOMAIN_IDS.FIXTURE;
-  if (type === 'explicit-memory' || type === 'memory') return DOMAIN_IDS.EXPLICIT_MEMORY;
-  if (type === 'static-candidate' || type === 'static-embedding-candidate') return DOMAIN_IDS.STATIC_CANDIDATE;
-  if (type === 'archive-episode' || type === 'session-archive' || type === 'session-summary') return DOMAIN_IDS.SESSION_ARCHIVE;
-  if (type === 'global-archive' || type === 'archive-summary' || type === 'archive-pattern') return DOMAIN_IDS.GLOBAL_ARCHIVE;
-  if (type === 'research-ledger' || type === 'research-topic') return DOMAIN_IDS.RESEARCH_LEDGER;
-  if (type === 'open-loop') return DOMAIN_IDS.OPEN_LOOP;
-  if (type === 'tool-evidence') return DOMAIN_IDS.TOOL_EVIDENCE;
-  if (type === 'repo-current-law') return DOMAIN_IDS.REPO_CURRENT_LAW;
-  if (type === 'runtime-artifact') return DOMAIN_IDS.RUNTIME_ARTIFACT;
-  if (type === 'fixture' || type === 'fixture-only') return DOMAIN_IDS.FIXTURE;
-  return buildSemanticDomainId(type);
-}
-
-function sourceTypeForDomain(domainId = '') {
-  if (domainId === DOMAIN_IDS.EXPLICIT_MEMORY) return 'explicit-memory';
-  if (domainId === DOMAIN_IDS.STATIC_CANDIDATE) return 'static-candidate';
-  if (domainId === DOMAIN_IDS.SESSION_ARCHIVE) return 'archive-episode';
-  if (domainId === DOMAIN_IDS.GLOBAL_ARCHIVE) return 'global-archive';
-  if (domainId === DOMAIN_IDS.RESEARCH_LEDGER) return 'research-ledger';
-  if (domainId === DOMAIN_IDS.OPEN_LOOP) return 'open-loop';
-  if (domainId === DOMAIN_IDS.TOOL_EVIDENCE) return 'tool-evidence';
-  if (domainId === DOMAIN_IDS.REPO_CURRENT_LAW) return 'repo-current-law';
-  if (domainId === DOMAIN_IDS.RUNTIME_ARTIFACT) return 'runtime-artifact';
-  if (domainId === DOMAIN_IDS.FIXTURE) return 'fixture';
-  return slugSegment(domainId.replace(/^penny:domain:/, ''), 'source');
-}
-
-function domainIsCandidateOnly(domainId = '') {
-  return CANDIDATE_ONLY_DOMAIN_IDS.has(domainId);
-}
-
-function domainCanBeCanonical(domainId = '') {
-  return CANONICAL_DOMAIN_IDS.has(domainId);
-}
-
 function normalizeSubject(rawSubject = {}) {
   const subject = isPlainObject(rawSubject) ? rawSubject : {};
   const type = slugSegment(subject.type || subject.subjectType || 'entity', 'entity');
@@ -222,14 +170,7 @@ function normalizeSource(rawSource = {}, domainId = '') {
 
 function normalizeTemporal(rawTemporal = {}, source = {}, domainId = '') {
   const temporal = isPlainObject(rawTemporal) ? rawTemporal : {};
-  let fallback = SEMANTIC_CLAIM_TEMPORAL_SCOPES.UNKNOWN;
-  if (domainId === DOMAIN_IDS.EXPLICIT_MEMORY || domainId === DOMAIN_IDS.REPO_CURRENT_LAW) {
-    fallback = SEMANTIC_CLAIM_TEMPORAL_SCOPES.CURRENT;
-  } else if (domainId === DOMAIN_IDS.SESSION_ARCHIVE || domainId === DOMAIN_IDS.GLOBAL_ARCHIVE) {
-    fallback = SEMANTIC_CLAIM_TEMPORAL_SCOPES.HISTORICAL;
-  } else if (domainId === DOMAIN_IDS.FIXTURE) {
-    fallback = SEMANTIC_CLAIM_TEMPORAL_SCOPES.EPHEMERAL;
-  }
+  const fallback = domainDefaultTemporalScope(domainId) || SEMANTIC_CLAIM_TEMPORAL_SCOPES.UNKNOWN;
   return {
     temporalScope: normalizeEnum(temporal.temporalScope || temporal.scope, TEMPORAL_SCOPE_VALUES, fallback),
     observedAt: cleanIsoDate(temporal.observedAt || source.observedAt),
@@ -240,26 +181,16 @@ function normalizeTemporal(rawTemporal = {}, source = {}, domainId = '') {
 
 function normalizeAuthority(rawAuthority = {}, domainId = '', source = {}) {
   const authority = isPlainObject(rawAuthority) ? rawAuthority : {};
-  let fallbackSourceAuthority = SEMANTIC_CLAIM_SOURCE_AUTHORITIES.ADVISORY;
-  let fallbackSupportState = SEMANTIC_CLAIM_SUPPORT_STATES.RENDERED_ADVISORY;
-  let fallbackCanonicality = SEMANTIC_CLAIM_CANONICALITY.ADVISORY;
-  let fallbackConfidence = 'medium';
+  let fallbackSourceAuthority = domainDefaultAuthority(domainId) || SEMANTIC_CLAIM_SOURCE_AUTHORITIES.ADVISORY;
+  let fallbackSupportState = domainDefaultSupportState(domainId) || SEMANTIC_CLAIM_SUPPORT_STATES.RENDERED_ADVISORY;
+  let fallbackCanonicality = domainDefaultCanonicality(domainId) || SEMANTIC_CLAIM_CANONICALITY.ADVISORY;
+  let fallbackConfidence = domainDefaultConfidence(domainId) || 'medium';
 
-  if (source.fixtureOnly || domainId === DOMAIN_IDS.FIXTURE) {
+  if (source.fixtureOnly) {
     fallbackSourceAuthority = SEMANTIC_CLAIM_SOURCE_AUTHORITIES.FIXTURE_ONLY;
     fallbackSupportState = SEMANTIC_CLAIM_SUPPORT_STATES.FIXTURE_ONLY;
     fallbackCanonicality = SEMANTIC_CLAIM_CANONICALITY.NOT_CANONICAL;
     fallbackConfidence = 'low';
-  } else if (domainIsCandidateOnly(domainId)) {
-    fallbackSourceAuthority = SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANDIDATE_ONLY;
-    fallbackSupportState = SEMANTIC_CLAIM_SUPPORT_STATES.CANDIDATE_ONLY;
-    fallbackCanonicality = SEMANTIC_CLAIM_CANONICALITY.NOT_CANONICAL;
-    fallbackConfidence = 'low';
-  } else if (domainId === DOMAIN_IDS.EXPLICIT_MEMORY || domainId === DOMAIN_IDS.REPO_CURRENT_LAW) {
-    fallbackSourceAuthority = SEMANTIC_CLAIM_SOURCE_AUTHORITIES.CANONICAL;
-    fallbackSupportState = SEMANTIC_CLAIM_SUPPORT_STATES.VERIFIED;
-    fallbackCanonicality = SEMANTIC_CLAIM_CANONICALITY.CANONICAL;
-    fallbackConfidence = 'high';
   }
 
   let sourceAuthority = normalizeEnum(
@@ -383,9 +314,12 @@ function validateSemanticClaim(claimLike = {}) {
   if (!rawIsNormalizedClaim && !isPlainObject(raw.source)) validation.errors.push('missing source');
   if (claim.schema !== PENNY_SEMANTIC_CLAIM_SCHEMA) validation.errors.push('invalid semantic claim schema');
   if (!validateSemanticId(claim.claimId, SEMANTIC_ID_KINDS.CLAIM).valid) validation.errors.push('missing or invalid claimId');
-  if (!validateSemanticId(claim.domainId, SEMANTIC_ID_KINDS.DOMAIN).valid) validation.errors.push('missing or invalid domainId');
+  if (!validateSemanticDomainId(claim.domainId).valid) validation.errors.push('missing or unregistered domainId');
   if (!validateSemanticId(claim.subject.id, SEMANTIC_ID_KINDS.ENTITY).valid) validation.errors.push('missing or invalid subject.id');
   if (!claim.subject.type) validation.errors.push('missing subject.type');
+  if (!domainAllowsClaimSubjectType(claim.domainId, claim.subject.type)) {
+    validation.errors.push('subject.type is not allowed for domain');
+  }
   if (!claim.predicate || !claim.predicate.id) validation.errors.push('missing or unregistered predicate.id');
   if (!claim.object.type) validation.errors.push('missing object.type');
   if (!claim.object.id && !claim.object.text) validation.errors.push('missing object.id or object.text');
@@ -452,6 +386,7 @@ function claimCanBeTreatedAsCanonical(claimLike = {}) {
     : normalizeSemanticClaim(claimLike);
   if (!claim) return false;
   return domainCanBeCanonical(claim.domainId)
+    && domainAllowsClaimSubjectType(claim.domainId, claim.subject.type)
     && !claimIsCandidateOnly(claim)
     && !claimIsStale(claim)
     && claim.source.fixtureOnly !== true
@@ -467,6 +402,7 @@ function claimCanBeRendered(claimLike = {}) {
     : normalizeSemanticClaim(claimLike);
   if (!claim) return false;
   if (claim.source.fixtureOnly || !claim.source.sourceId || claimIsStale(claim) || claimIsCandidateOnly(claim)) return false;
+  if (!domainCanRenderToPrompt(claim.domainId)) return false;
   return claim.authority.supportState === SEMANTIC_CLAIM_SUPPORT_STATES.VERIFIED
     || claim.authority.supportState === SEMANTIC_CLAIM_SUPPORT_STATES.RENDERED_ADVISORY;
 }
