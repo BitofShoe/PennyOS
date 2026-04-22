@@ -81,6 +81,64 @@ const ALIVENESS_SCENARIO_IDS = Object.freeze({
 
 const REQUIRED_ALIVENESS_SCENARIO_IDS = Object.freeze(Object.values(ALIVENESS_SCENARIO_IDS));
 
+const ALIVENESS_COMPARE_MODES = Object.freeze({
+  BASELINE: 'baseline',
+  STATIC_LIVE_SHADOW: 'static-live-shadow',
+  STATIC_LIVE_ADVISORY: 'static-live-advisory',
+  TURN_STATE_ON: 'turn-state-on',
+  OPEN_LOOP_ON: 'open-loop-on',
+  INITIATIVE_ON: 'initiative-on',
+  BOUNDED_ALIVENESS_ON: 'bounded-aliveness-on',
+});
+
+const REQUIRED_ALIVENESS_COMPARE_MODES = Object.freeze(Object.values(ALIVENESS_COMPARE_MODES));
+
+const BASELINE_ALIVENESS_FEATURE_FLAGS = Object.freeze({
+  PENNY_STATIC_EMBED_MODE: 'off',
+  PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED: '0',
+  PENNY_ENABLE_TURN_STATE_PROMPT: '0',
+  PENNY_TURN_STATE_MAX_TOKENS: '120',
+  PENNY_ENABLE_OPEN_LOOP_PROMPT: '0',
+  PENNY_OPEN_LOOP_MAX_RENDERED: '1',
+  PENNY_OPEN_LOOP_MAX_TOKENS: '90',
+  PENNY_ENABLE_BOUNDED_INITIATIVE: '0',
+  PENNY_INITIATIVE_MAX_PER_TURN: '1',
+  PENNY_INITIATIVE_COOLDOWN_TURNS: '3',
+});
+
+const ALIVENESS_FEATURE_TOGGLE_MATRIX = Object.freeze({
+  [ALIVENESS_COMPARE_MODES.BASELINE]: BASELINE_ALIVENESS_FEATURE_FLAGS,
+  [ALIVENESS_COMPARE_MODES.STATIC_LIVE_SHADOW]: Object.freeze({
+    ...BASELINE_ALIVENESS_FEATURE_FLAGS,
+    PENNY_STATIC_EMBED_MODE: 'live-shadow',
+  }),
+  [ALIVENESS_COMPARE_MODES.STATIC_LIVE_ADVISORY]: Object.freeze({
+    ...BASELINE_ALIVENESS_FEATURE_FLAGS,
+    PENNY_STATIC_EMBED_MODE: 'live-advisory',
+    PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED: '1',
+  }),
+  [ALIVENESS_COMPARE_MODES.TURN_STATE_ON]: Object.freeze({
+    ...BASELINE_ALIVENESS_FEATURE_FLAGS,
+    PENNY_ENABLE_TURN_STATE_PROMPT: '1',
+  }),
+  [ALIVENESS_COMPARE_MODES.OPEN_LOOP_ON]: Object.freeze({
+    ...BASELINE_ALIVENESS_FEATURE_FLAGS,
+    PENNY_ENABLE_OPEN_LOOP_PROMPT: '1',
+  }),
+  [ALIVENESS_COMPARE_MODES.INITIATIVE_ON]: Object.freeze({
+    ...BASELINE_ALIVENESS_FEATURE_FLAGS,
+    PENNY_ENABLE_BOUNDED_INITIATIVE: '1',
+  }),
+  [ALIVENESS_COMPARE_MODES.BOUNDED_ALIVENESS_ON]: Object.freeze({
+    ...BASELINE_ALIVENESS_FEATURE_FLAGS,
+    PENNY_STATIC_EMBED_MODE: 'live-advisory',
+    PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED: '1',
+    PENNY_ENABLE_TURN_STATE_PROMPT: '1',
+    PENNY_ENABLE_OPEN_LOOP_PROMPT: '1',
+    PENNY_ENABLE_BOUNDED_INITIATIVE: '1',
+  }),
+});
+
 const OUTCOME_VALUES = new Set(Object.values(ALIVENESS_OUTCOMES));
 const POSITIVE_OUTCOME_SET = new Set(POSITIVE_OUTCOMES);
 const TRUST_BLOCKING_OUTCOME_SET = new Set(TRUST_BLOCKING_OUTCOMES);
@@ -99,6 +157,31 @@ function cleanString(value = '', limit = 240) {
 
 function cleanToken(value = '') {
   return cleanString(value, 120).toLowerCase().replace(/[_\s]+/g, '-');
+}
+
+function cloneFeatureFlags(flags = {}) {
+  return Object.fromEntries(Object.entries(flags).map(([key, value]) => [key, String(value)]));
+}
+
+function normalizeAlivenessCompareMode(value = '') {
+  const mode = cleanToken(value || ALIVENESS_COMPARE_MODES.BASELINE);
+  return REQUIRED_ALIVENESS_COMPARE_MODES.includes(mode)
+    ? mode
+    : ALIVENESS_COMPARE_MODES.BASELINE;
+}
+
+function getAlivenessFeatureToggleFlags(mode = ALIVENESS_COMPARE_MODES.BASELINE) {
+  return cloneFeatureFlags(ALIVENESS_FEATURE_TOGGLE_MATRIX[normalizeAlivenessCompareMode(mode)]);
+}
+
+function buildAlivenessFeatureToggleMatrix(modes = REQUIRED_ALIVENESS_COMPARE_MODES) {
+  const requestedModes = Array.isArray(modes) && modes.length ? modes : REQUIRED_ALIVENESS_COMPARE_MODES;
+  const matrix = {};
+  for (const rawMode of requestedModes) {
+    const mode = normalizeAlivenessCompareMode(rawMode);
+    matrix[mode] = getAlivenessFeatureToggleFlags(mode);
+  }
+  return matrix;
 }
 
 function normalizeOutcome(value = '') {
@@ -1048,21 +1131,28 @@ function computeAlivenessVerdict(summaryLike = {}, thresholdsLike = {}) {
 }
 
 module.exports = {
+  ALIVENESS_COMPARE_MODES,
   ALIVENESS_COMPARE_SCHEMA,
+  ALIVENESS_FEATURE_TOGGLE_MATRIX,
   ALIVENESS_OUTCOMES,
   ALIVENESS_SCENARIO_FIXTURE_SCHEMA,
   ALIVENESS_SCENARIO_IDS,
   ALIVENESS_VERDICTS,
+  BASELINE_ALIVENESS_FEATURE_FLAGS,
   DEFAULT_ALIVENESS_THRESHOLDS,
   POSITIVE_OUTCOMES,
+  REQUIRED_ALIVENESS_COMPARE_MODES,
   REQUIRED_ALIVENESS_SCENARIO_IDS,
   REGRESSION_OUTCOMES,
   TRUST_BLOCKING_OUTCOMES,
+  buildAlivenessFeatureToggleMatrix,
   buildAlivenessScenarioCaseResult,
   buildAlivenessScenarioFixtureArtifact,
   buildAlivenessScenarioFixtures,
   classifyAlivenessCaseDelta,
   computeAlivenessVerdict,
+  getAlivenessFeatureToggleFlags,
+  normalizeAlivenessCompareMode,
   normalizeAlivenessScenarioFixture,
   summarizeAlivenessScenarioFixtures,
   summarizeAlivenessCompare,

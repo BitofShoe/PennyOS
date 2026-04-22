@@ -5,10 +5,13 @@ const {
   ALIVENESS_COMPARE_SCHEMA,
   ALIVENESS_OUTCOMES,
   ALIVENESS_SCENARIO_FIXTURE_SCHEMA,
+  REQUIRED_ALIVENESS_COMPARE_MODES,
   REQUIRED_ALIVENESS_SCENARIO_IDS,
+  buildAlivenessFeatureToggleMatrix,
   buildAlivenessScenarioCaseResult,
   buildAlivenessScenarioFixtures,
   classifyAlivenessCaseDelta,
+  getAlivenessFeatureToggleFlags,
   summarizeAlivenessScenarioFixtures,
   summarizeAlivenessCompare,
 } = require('../lib/penny-aliveness-qa');
@@ -79,22 +82,31 @@ function notRunSide(expectation = {}) {
   };
 }
 
+function notRunCompareSide(expectation = {}, mode = 'baseline') {
+  return {
+    ...notRunSide(expectation),
+    featureMode: mode,
+    env: getAlivenessFeatureToggleFlags(mode),
+  };
+}
+
 function buildFixtureCompareCase(fixture = {}) {
   const expectedResult = buildAlivenessScenarioCaseResult(fixture, { outcomeSet: 'expected' });
   const classified = classifyAlivenessCaseDelta(expectedResult);
+  const featureMode = fixture.featureMode || 'bounded-aliveness-on';
   return {
     id: fixture.id,
     title: fixture.title,
     category: fixture.category,
-    featureMode: fixture.featureMode,
+    featureMode,
     prompt: fixture.prompt,
     variants: fixture.variants || [],
     measurementMode: 'fixture',
     liveModelCalls: false,
     serverSpawned: false,
     lmStudioCalls: false,
-    baseline: notRunSide(fixture.baseline),
-    featureOn: notRunSide(fixture.featureOn),
+    baseline: notRunCompareSide(fixture.baseline, 'baseline'),
+    featureOn: notRunCompareSide(fixture.featureOn, featureMode),
     expectedOutcomes: fixture.expectedOutcomes || [],
     blockedOutcomes: fixture.blockedOutcomes || [],
     guardrails: fixture.guardrails || [],
@@ -124,16 +136,14 @@ function buildAlivenessCompareFixtureArtifact({
   const compareCases = fixtureCases.map((fixture) => buildFixtureCompareCase(fixture));
   const compareSummary = summarizeAlivenessCompare(compareCases);
   const fixtureSummary = summarizeAlivenessScenarioFixtures(fixtureCases);
-  const featureModes = ['baseline']
-    .concat(fixtureSummary.featureModes || [])
-    .filter(Boolean);
 
   return {
     schema: ALIVENESS_COMPARE_SCHEMA,
     fixtureSchema: ALIVENESS_SCENARIO_FIXTURE_SCHEMA,
     artifactKind: ALIVENESS_COMPARE_FIXTURE_ARTIFACT_KIND,
     generatedAt,
-    modes: [...new Set(featureModes)],
+    modes: REQUIRED_ALIVENESS_COMPARE_MODES,
+    featureToggleMatrix: buildAlivenessFeatureToggleMatrix(),
     measurementMode: 'fixture',
     runnerMode: 'fixture-only',
     liveModelCalls: false,
@@ -155,6 +165,8 @@ function buildAlivenessCompareFixtureArtifact({
       duplicateCaseIds: fixtureSummary.duplicateCaseIds,
       fixtureCaseCount: fixtureSummary.caseCount,
       allFixtureOnly: fixtureSummary.allFixtureOnly,
+      featureToggleModeCount: REQUIRED_ALIVENESS_COMPARE_MODES.length,
+      baselineDefaultsOff: true,
       runtimeMetricsMeasured: false,
       serverSpawned: false,
       lmStudioCalls: false,
@@ -214,6 +226,8 @@ module.exports = {
   ALIVENESS_COMPARE_FIXTURE_ARTIFACT_KIND,
   buildAlivenessCompareFixtureArtifact,
   buildFixtureCompareCase,
+  buildAlivenessFeatureToggleMatrix,
+  getAlivenessFeatureToggleFlags,
   hasArgFlag,
   main,
   parseAlivenessCompareArgs,

@@ -13,6 +13,7 @@ $pidFile = Join-Path $root '.lyra-server.pid'
 $stdoutLog = Join-Path $root 'lyra-server.out.log'
 $stderrLog = Join-Path $root 'lyra-server.err.log'
 $metaFile = Join-Path $root '.lyra-server.meta.json'
+$localEnvFile = Join-Path $root '.lyra-local-env.ps1'
 $prepareScript = Join-Path $root 'scripts\penny-lmstudio-prepare.js'
 $readyUrl = "http://127.0.0.1:$Port/api/penny/status"
 $nodeCommand = Get-Command 'node.exe' -ErrorAction SilentlyContinue
@@ -20,6 +21,11 @@ $nodeExe = if ($nodeCommand) { $nodeCommand.Source } else { Join-Path $env:Progr
 
 if (-not (Test-Path $nodeExe)) {
   throw "Could not find node.exe. Install Node.js or add node.exe to PATH."
+}
+
+if (Test-Path $localEnvFile) {
+  Write-Host "Loading Penny local environment overlay from $localEnvFile"
+  . $localEnvFile
 }
 
 function Wait-PennyReady {
