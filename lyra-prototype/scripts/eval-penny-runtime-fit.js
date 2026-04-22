@@ -18,6 +18,11 @@ const {
   buildLmStudioChatSamplingWatch,
   normalizeLmStudioTransportForWatch,
 } = require('../lib/penny-lmstudio-transports');
+const {
+  createFrameBudgetReceipt,
+  normalizeFrameBudgetReceipt,
+  summarizeFrameBudget,
+} = require('../lib/penny-frame-budget');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
@@ -238,6 +243,171 @@ function latencyMsFromSeconds(seconds) {
   return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : null;
 }
 
+function numericOrNull(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function sumCounts(items = [], pathParts = []) {
+  return (Array.isArray(items) ? items : []).reduce((sum, item) => {
+    let cursor = item;
+    for (const part of pathParts) cursor = cursor?.[part];
+    const value = numericOrNull(cursor);
+    return sum + (value === null ? 0 : Math.floor(value));
+  }, 0);
+}
+
+function maxNumber(items = [], pathParts = []) {
+  const values = (Array.isArray(items) ? items : [])
+    .map((item) => {
+      let cursor = item;
+      for (const part of pathParts) cursor = cursor?.[part];
+      return numericOrNull(cursor);
+    })
+    .filter((value) => value !== null);
+  return values.length ? Math.max(...values) : null;
+}
+
+function buildRuntimeFitFrameBudgetFromMetrics(metrics = {}, {
+  measurementMode = 'runtime-fit',
+  turnId = '',
+} = {}) {
+  const inherited = metrics?.frameBudget
+    ? normalizeFrameBudgetReceipt(metrics.frameBudget)
+    : null;
+  const inheritedWork = inherited?.workDone || {};
+  const inheritedTimings = inherited?.timings || {};
+  const staticCandidates = Number(inheritedWork.staticCandidatesInspected || 0);
+  const selectedCount = Number(metrics.selectedMemoryCount || 0);
+  const renderedCount = Number(metrics.renderedMemoryCount || 0);
+  const estimatedRequestTokens = numericOrNull(metrics.estimatedRequestMessageTokens);
+  const estimatedPromptTokens = numericOrNull(metrics.estimatedPromptTokens ?? metrics.estimatedRequestMessageTokens);
+  return createFrameBudgetReceipt({
+    ...(inherited || {}),
+    turnId: turnId || metrics.label || inherited?.turnId || '',
+    lane: metrics.lane || inherited?.lane || 'unknown',
+    mode: metrics.executionPath || inherited?.mode || measurementMode,
+    measurementMode,
+    timings: {
+      ...inheritedTimings,
+      lmStudioFirstTokenMs: metrics.firstTokenLatencyMs ?? inheritedTimings.lmStudioFirstTokenMs,
+      totalTurnMs: metrics.totalLatencyMs ?? inheritedTimings.totalTurnMs,
+    },
+    workDone: {
+      ...inheritedWork,
+      rawCandidatesInspected: Math.max(
+        Number(inheritedWork.rawCandidatesInspected || 0),
+        selectedCount + staticCandidates,
+      ),
+      candidatesSelected: Math.max(Number(inheritedWork.candidatesSelected || 0), selectedCount),
+      candidatesRendered: Math.max(Number(inheritedWork.candidatesRendered || 0), renderedCount),
+      estimatedRequestMessageTokens: estimatedRequestTokens ?? inheritedWork.estimatedRequestMessageTokens,
+      estimatedPromptTokens: estimatedPromptTokens ?? inheritedWork.estimatedPromptTokens,
+    },
+  });
+}
+
+function buildRuntimeFitTurnMetrics({
+  label = '',
+  prompt = '',
+  answerText = '',
+  artifact = null,
+  totalLatencyMs = null,
+} = {}) {
+  const metrics = extractRuntimeContextMetrics({
+    label,
+    prompt,
+    answerText,
+    artifact,
+    totalLatencyMs,
+  });
+  return {
+    ...metrics,
+    frameBudget: buildRuntimeFitFrameBudgetFromMetrics({
+      ...metrics,
+      frameBudget: artifact?.frameBudget || null,
+    }, {
+      measurementMode: artifact ? 'runtime-fit' : 'fixture-only',
+      turnId: label,
+    }),
+  };
+}
+
+function frameBudgetReceiptsFromScenarioSummary(summary = {}) {
+  const turnMetrics = summary?.turnMetrics && typeof summary.turnMetrics === 'object'
+    ? Object.values(summary.turnMetrics)
+    : [];
+  return turnMetrics
+    .map((metrics) => metrics?.frameBudget)
+    .filter(Boolean)
+    .map(normalizeFrameBudgetReceipt);
+}
+
+function buildAggregateFrameBudgetReceipt({
+  generatedAt = new Date().toISOString(),
+  measurementMode = 'runtime-fit',
+  turnId = 'runtime-fit',
+  receipts = [],
+  promptTokenDelta = 0,
+} = {}) {
+  const normalizedReceipts = (Array.isArray(receipts) ? receipts : [])
+    .filter(Boolean)
+    .map(normalizeFrameBudgetReceipt);
+  return createFrameBudgetReceipt({
+    generatedAt,
+    turnId,
+    lane: 'mixed',
+    mode: measurementMode,
+    measurementMode,
+    timings: {
+      lmStudioFirstTokenMs: maxNumber(normalizedReceipts, ['timings', 'lmStudioFirstTokenMs']),
+      totalPrePromptMs: maxNumber(normalizedReceipts, ['timings', 'totalPrePromptMs']),
+      totalTurnMs: maxNumber(normalizedReceipts, ['timings', 'totalTurnMs']),
+      lmStudioTotalMs: maxNumber(normalizedReceipts, ['timings', 'lmStudioTotalMs']),
+      modelRoundTripMs: maxNumber(normalizedReceipts, ['timings', 'modelRoundTripMs']),
+    },
+    workDone: {
+      rawCandidatesInspected: sumCounts(normalizedReceipts, ['workDone', 'rawCandidatesInspected']),
+      staticCandidatesInspected: sumCounts(normalizedReceipts, ['workDone', 'staticCandidatesInspected']),
+      candidatesSelected: sumCounts(normalizedReceipts, ['workDone', 'candidatesSelected']),
+      candidatesRendered: sumCounts(normalizedReceipts, ['workDone', 'candidatesRendered']),
+      staticOnlyRendered: sumCounts(normalizedReceipts, ['workDone', 'staticOnlyRendered']),
+      estimatedRequestMessageTokens: maxNumber(normalizedReceipts, ['workDone', 'estimatedRequestMessageTokens']),
+      estimatedPromptTokens: maxNumber(normalizedReceipts, ['workDone', 'estimatedPromptTokens']),
+    },
+    quality: {
+      promptTokenDelta,
+    },
+  });
+}
+
+function buildContextPressureFrameBudget(report = {}) {
+  const variants = Array.isArray(report.contextVariants) ? report.contextVariants : [];
+  const comparisons = Array.isArray(report.comparisons) ? report.comparisons : [];
+  const maxPromptDelta = comparisons.reduce((max, item) => {
+    const value = Number(item?.estimatedPromptTokenDelta || 0);
+    return Number.isFinite(value) ? Math.max(max, value) : max;
+  }, 0);
+  return createFrameBudgetReceipt({
+    generatedAt: report.generatedAt || new Date().toISOString(),
+    turnId: 'runtime-fit-context-pressure-fixture',
+    lane: 'chat',
+    mode: 'context-pressure',
+    measurementMode: 'fixture-only',
+    workDone: {
+      rawCandidatesInspected: sumCounts(variants, ['selectedMemoryCount']),
+      candidatesSelected: sumCounts(variants, ['selectedMemoryCount']),
+      candidatesRendered: sumCounts(variants, ['renderedMemoryCount']),
+      estimatedPromptTokens: maxNumber(variants, ['estimatedPromptTokens']),
+      estimatedRequestMessageTokens: maxNumber(variants, ['estimatedPromptTokens']),
+    },
+    quality: {
+      candidateSurvival: report.candidateSurvivalCorrelation?.candidateSurvival?.selectionVerdict || 'not-run',
+      promptTokenDelta: maxPromptDelta,
+    },
+  });
+}
+
 function execFileText(command, args, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     execFile(command, args, {
@@ -433,6 +603,37 @@ function normalizeScenarioSummary(result = {}) {
   const steady = result.turns?.casualSteady || {};
   const memory = result.turns?.memoryHeavy || {};
   const tool = result.turns?.toolHeavy || {};
+  const turnMetrics = {
+    casualFirst: buildRuntimeFitTurnMetrics({
+      label: 'casualFirst',
+      prompt: casual.promptText || '',
+      answerText: casual.text || '',
+      artifact: casual.artifact || casual.meta?.artifact || null,
+      totalLatencyMs: latencyMsFromSeconds(casual.seconds),
+    }),
+    casualSteady: buildRuntimeFitTurnMetrics({
+      label: 'casualSteady',
+      prompt: steady.promptText || '',
+      answerText: steady.text || '',
+      artifact: steady.artifact || steady.meta?.artifact || null,
+      totalLatencyMs: latencyMsFromSeconds(steady.seconds),
+    }),
+    memoryHeavy: buildRuntimeFitTurnMetrics({
+      label: 'memoryHeavy',
+      prompt: memory.promptText || '',
+      answerText: memory.text || '',
+      artifact: memory.artifact || memory.meta?.artifact || null,
+      totalLatencyMs: latencyMsFromSeconds(memory.seconds),
+    }),
+    toolHeavy: buildRuntimeFitTurnMetrics({
+      label: 'toolHeavy',
+      prompt: tool.promptText || '',
+      answerText: tool.text || '',
+      artifact: tool.artifact || tool.meta?.artifact || null,
+      totalLatencyMs: latencyMsFromSeconds(tool.seconds),
+    }),
+  };
+  const frameBudgetReceipts = frameBudgetReceiptsFromScenarioSummary({ turnMetrics });
   return {
     firstTurnSeconds: casual.seconds || null,
     firstTokenMs: casual.meta?.performance?.firstToken?.durationMs ?? casual.artifact?.performance?.firstToken?.durationMs ?? null,
@@ -443,36 +644,14 @@ function normalizeScenarioSummary(result = {}) {
     readiness: result.status?.readiness || null,
     semanticReady: result.status?.readiness?.embeddingReady === true,
     fallbackActive: result.status?.readiness?.fallbackActive === true,
-    turnMetrics: {
-      casualFirst: extractRuntimeContextMetrics({
-        label: 'casualFirst',
-        prompt: casual.promptText || '',
-        answerText: casual.text || '',
-        artifact: casual.artifact || casual.meta?.artifact || null,
-        totalLatencyMs: latencyMsFromSeconds(casual.seconds),
-      }),
-      casualSteady: extractRuntimeContextMetrics({
-        label: 'casualSteady',
-        prompt: steady.promptText || '',
-        answerText: steady.text || '',
-        artifact: steady.artifact || steady.meta?.artifact || null,
-        totalLatencyMs: latencyMsFromSeconds(steady.seconds),
-      }),
-      memoryHeavy: extractRuntimeContextMetrics({
-        label: 'memoryHeavy',
-        prompt: memory.promptText || '',
-        answerText: memory.text || '',
-        artifact: memory.artifact || memory.meta?.artifact || null,
-        totalLatencyMs: latencyMsFromSeconds(memory.seconds),
-      }),
-      toolHeavy: extractRuntimeContextMetrics({
-        label: 'toolHeavy',
-        prompt: tool.promptText || '',
-        answerText: tool.text || '',
-        artifact: tool.artifact || tool.meta?.artifact || null,
-        totalLatencyMs: latencyMsFromSeconds(tool.seconds),
-      }),
-    },
+    turnMetrics,
+    frameBudget: buildAggregateFrameBudgetReceipt({
+      generatedAt: result.finishedAt || new Date().toISOString(),
+      measurementMode: 'runtime-fit',
+      turnId: result.slug || 'runtime-fit-scenario',
+      receipts: frameBudgetReceipts,
+    }),
+    frameBudgetSummary: summarizeFrameBudget(frameBudgetReceipts),
   };
 }
 
@@ -521,6 +700,7 @@ function buildMarkdownSummary(report) {
     `- Tool model: ${report.defaults.toolModel}`,
     `- Embed model: ${report.defaults.embedModel}`,
     `- Base URL: ${report.baseUrl}`,
+    `- Frame budget: ${report.frameBudget?.schema || 'n/a'} (${report.frameBudget?.measurementMode || 'n/a'})`,
     '',
     '## Scenarios',
     '',
@@ -536,6 +716,7 @@ function buildMarkdownSummary(report) {
     lines.push(`- Memory-heavy turn: ${scenario.summary.memoryTurnSeconds ?? 'n/a'}s`);
     lines.push(`- Tool-heavy turn: ${scenario.summary.toolTurnSeconds ?? 'n/a'}s`);
     lines.push(`- First token: ${scenario.summary.firstTokenMs ?? 'n/a'}ms`);
+    lines.push(`- Frame budget: ${scenario.summary.frameBudget?.measurementMode || 'n/a'}, ${scenario.summary.frameBudget?.workDone?.candidatesRendered ?? 0} rendered / ${scenario.summary.frameBudget?.workDone?.candidatesSelected ?? 0} selected candidate(s)`);
     lines.push(`- Memory-heavy rendered context: ${scenario.summary.turnMetrics?.memoryHeavy?.renderedMemoryCount ?? 'n/a'} rendered / ${scenario.summary.turnMetrics?.memoryHeavy?.selectedMemoryCount ?? 'n/a'} selected item(s)`);
     lines.push(`- Memory-heavy estimated request-message tokens: ${scenario.summary.turnMetrics?.memoryHeavy?.estimatedRequestMessageTokens ?? scenario.summary.turnMetrics?.memoryHeavy?.estimatedPromptTokens ?? 'n/a'}`);
     lines.push(`- Warm state: ${scenario.summary.readiness?.warmState || 'unknown'}`);
@@ -546,6 +727,7 @@ function buildMarkdownSummary(report) {
     lines.push('');
     lines.push(`- Schema: ${report.contextPressureFixture.schema}`);
     lines.push(`- Mode: ${report.contextPressureFixture.measurementMode || 'fixture-only'}`);
+    lines.push(`- Frame budget: ${report.contextPressureFixture.frameBudget?.measurementMode || 'n/a'}, ${report.contextPressureFixture.frameBudget?.workDone?.candidatesRendered ?? 0} rendered candidate(s)`);
     lines.push(`- Live model calls: ${report.contextPressureFixture.liveModelCalls === true ? 'yes' : 'no'}`);
     lines.push(`- Live answer drift measured: ${report.contextPressureFixture.liveAnswerDriftMeasured === true ? 'yes' : 'no'}`);
     lines.push(`- Variants: ${report.contextPressureFixture.contextVariants.map((item) => item.level).join(', ')}`);
@@ -712,6 +894,7 @@ async function main() {
         embedModel: EMBED_MODEL,
       },
     });
+    report.frameBudget = buildContextPressureFrameBudget(report);
     report.gemmaRuntimeWatch = buildGemmaRuntimeWatchForRuntimeFit({
       generatedAt,
       measurementMode: 'fixture-only',
@@ -731,6 +914,18 @@ async function main() {
   }
   const generatedAt = new Date().toISOString();
   const baselineStatus = results[0]?.startup?.lmStudio || results[0]?.status || {};
+  const frameBudgetReceipts = results.flatMap((result) => (
+    frameBudgetReceiptsFromScenarioSummary(result.summary)
+  ));
+  const contextPressureFixture = buildContextPressureQaArtifact({
+    generatedAt,
+    defaults: {
+      chatModel: CHAT_MODEL,
+      toolModel: TOOL_MODEL,
+      embedModel: EMBED_MODEL,
+    },
+  });
+  contextPressureFixture.frameBudget = buildContextPressureFrameBudget(contextPressureFixture);
   const report = {
     generatedAt,
     baseUrl: BASE_URL,
@@ -743,14 +938,14 @@ async function main() {
       shortContextLength: SHORT_CONTEXT_LENGTH,
     },
     scenarios: results,
-    contextPressureFixture: buildContextPressureQaArtifact({
+    frameBudget: buildAggregateFrameBudgetReceipt({
       generatedAt,
-      defaults: {
-        chatModel: CHAT_MODEL,
-        toolModel: TOOL_MODEL,
-        embedModel: EMBED_MODEL,
-      },
+      measurementMode: 'runtime-fit',
+      turnId: 'runtime-fit-report',
+      receipts: frameBudgetReceipts,
     }),
+    frameBudgetSummary: summarizeFrameBudget(frameBudgetReceipts),
+    contextPressureFixture,
     gemmaRuntimeWatch: buildGemmaRuntimeWatchForRuntimeFit({
       generatedAt,
       measurementMode: 'runtime-fit',
@@ -785,6 +980,8 @@ module.exports = {
   parseRuntimeFitArgs,
   buildRecommendations,
   buildMarkdownSummary,
+  buildContextPressureFrameBudget,
+  buildRuntimeFitFrameBudgetFromMetrics,
   buildGemmaRuntimeWatchForRuntimeFit,
   buildGemmaRuntimeWatchRunnerArtifact,
   runGemmaRuntimeWatchRunner,

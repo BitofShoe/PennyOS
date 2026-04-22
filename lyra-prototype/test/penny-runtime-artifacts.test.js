@@ -283,6 +283,11 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'turnStatePromptBridge'), false);
   assert.equal(artifact.promptTruth.schema, 'penny-prompttruth.v1');
   assert.equal(artifact.modelAdvisory.promptTruth.schema, 'penny-prompttruth.v1');
+  assert.equal(artifact.frameBudget.schema, 'penny-frame-budget.v1');
+  assert.equal(artifact.frameBudget.measurementMode, 'runtime-artifact');
+  assert.equal(artifact.frameBudget.workDone.candidatesSelected, 5);
+  assert.equal(artifact.frameBudget.workDone.candidatesRendered, 5);
+  assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'frameBudget'), false);
   assert.equal(artifact.promptTruth.channels.sessionArchive.renderedCount, 1);
   assert.equal(artifact.promptTruth.channels.researchLedger.renderedCount, 1);
   assert.equal(artifact.researchLedgerRendered, true);
@@ -370,6 +375,54 @@ test('normalizeRuntimeArtifact redacts malformed turn-state bridge receipts befo
   assert.doesNotMatch(serialized, /private tone explanation/i);
   assert.doesNotMatch(serialized, /raw user intent/i);
   assert.doesNotMatch(serialized, /hidden reasoning/i);
+});
+
+test('buildRuntimeArtifact derives frame budget receipt from existing performance and prompt truth only', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'frame-budget-demo',
+    requestedMode: 'local',
+    selectedLane: 'chat',
+    backend: 'local-lmstudio',
+    executionPath: 'llm-chat',
+    performance: {
+      request: { durationMs: 1200, available: true },
+      promptAssembly: { durationMs: 25, available: true },
+      archiveRetrieval: { durationMs: 40, available: true },
+      firstToken: { durationMs: 300, available: true },
+      modelRoundTrip: { durationMs: 900, available: true },
+    },
+    promptTruth: {
+      channels: {
+        stableFacts: { candidateCount: 1, renderedCount: 1 },
+        sessionArchive: { candidateCount: 2, renderedCount: 1 },
+        globalArchive: { candidateCount: 1, renderedCount: 0 },
+      },
+    },
+    retrieval: {
+      staticEmbeddingShadow: {
+        mode: 'live-advisory',
+        queryMs: 3.5,
+        candidateCount: 2,
+        staticOnlyRenderedCap: 1,
+      },
+    },
+  });
+
+  assert.equal(artifact.frameBudget.measurementMode, 'runtime-artifact');
+  assert.equal(artifact.frameBudget.timings.promptBuildMs, 25);
+  assert.equal(artifact.frameBudget.timings.archiveRetrievalMs, 40);
+  assert.equal(artifact.frameBudget.timings.staticMemoryQueryMs, 3.5);
+  assert.equal(artifact.frameBudget.timings.totalPrePromptMs, 68.5);
+  assert.equal(artifact.frameBudget.timings.lmStudioFirstTokenMs, 300);
+  assert.equal(artifact.frameBudget.timings.lmStudioTotalMs, 900);
+  assert.equal(artifact.frameBudget.timings.totalTurnMs, 1200);
+  assert.equal(artifact.frameBudget.workDone.rawCandidatesInspected, 6);
+  assert.equal(artifact.frameBudget.workDone.staticCandidatesInspected, 2);
+  assert.equal(artifact.frameBudget.workDone.candidatesSelected, 4);
+  assert.equal(artifact.frameBudget.workDone.candidatesRendered, 2);
+  assert.equal(artifact.frameBudget.targets.maxStaticOnlyRendered, 1);
+  assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'frameBudget'), false);
+  assert.equal(artifact.toolEvidenceReceipt, null);
 });
 
 test('normalizeRuntimeArtifact preserves prompt truth schema during normalization', () => {

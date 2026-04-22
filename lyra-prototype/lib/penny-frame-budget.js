@@ -38,11 +38,13 @@ const FRAME_BUDGET_TIMING_KEYS = Object.freeze([
   'staticMemoryQueryMs',
   'openLoopQueryMs',
   'exactAnchorMs',
+  'archiveRetrievalMs',
   'candidateMergeMs',
   'authorityGateMs',
   'promptBuildMs',
   'lmStudioFirstTokenMs',
   'lmStudioTotalMs',
+  'modelRoundTripMs',
   'artifactWriteMs',
   'totalPrePromptMs',
   'totalTurnMs',
@@ -59,6 +61,8 @@ const FRAME_BUDGET_WORK_KEYS = Object.freeze([
   'staleCandidatesBlocked',
   'sourceChecksRun',
   'backgroundJobsQueued',
+  'estimatedPromptTokens',
+  'estimatedRequestMessageTokens',
 ]);
 
 const CANDIDATE_SURVIVAL_STATUSES = new Set([
@@ -171,6 +175,7 @@ function normalizeFrameBudgetReceipt(receiptLike = {}) {
     turnId: cleanString(raw.turnId || ''),
     lane: cleanToken(raw.lane || 'unknown', 'unknown'),
     mode: cleanToken(raw.mode || 'baseline', 'baseline'),
+    measurementMode: cleanToken(raw.measurementMode || raw.mode || 'baseline', 'baseline'),
     targets: normalizeKeyedNumbers(raw.targets, FRAME_BUDGET_TARGET_KEYS),
     timings: normalizeKeyedNumbers(raw.timings, FRAME_BUDGET_TIMING_KEYS),
     workDone: normalizeKeyedNumbers(raw.workDone, FRAME_BUDGET_WORK_KEYS, { count: true }),

@@ -33,6 +33,10 @@ const {
   buildTurnStateRetentionPolicy,
   sanitizeTurnStatePromptTextForRetention,
 } = require('./penny-turn-state');
+const {
+  createFrameBudgetReceipt,
+  normalizeFrameBudgetReceipt,
+} = require('./penny-frame-budget');
 
 const RUNTIME_ARTIFACT_VERSION = 'penny-runtime-artifact.v1';
 const TOOL_EVIDENCE_RECEIPT_SCHEMA = 'penny-tool-evidence-receipt.v1';
@@ -1409,6 +1413,96 @@ function promptTruthAdvisoryCandidateCount(promptTruth = null) {
     .reduce((sum, channel) => sum + promptTruthCandidateCount(promptTruth, channel), 0);
 }
 
+function promptTruthTotalCandidateCount(promptTruth = null) {
+  return ['stableFacts', ...advisoryPromptTruthChannels()]
+    .reduce((sum, channel) => sum + promptTruthCandidateCount(promptTruth, channel), 0);
+}
+
+function promptTruthTotalRenderedCount(promptTruth = null) {
+  return ['stableFacts', ...advisoryPromptTruthChannels()]
+    .reduce((sum, channel) => sum + promptTruthRenderedCount(promptTruth, channel), 0);
+}
+
+function nullableDurationMs(stage = {}) {
+  const value = normalizeNullableNumber(stage?.durationMs);
+  return value !== null && value >= 0 ? value : null;
+}
+
+function sumNullableDurations(values = []) {
+  let total = 0;
+  let sawValue = false;
+  for (const value of values) {
+    const parsed = normalizeNullableNumber(value);
+    if (parsed === null || parsed < 0) continue;
+    total += parsed;
+    sawValue = true;
+  }
+  return sawValue ? total : null;
+}
+
+function staticOnlyRenderedCount(staticEmbeddingShadow = null) {
+  if (!staticEmbeddingShadow || typeof staticEmbeddingShadow !== 'object') return 0;
+  return (Array.isArray(staticEmbeddingShadow.topCandidates) ? staticEmbeddingShadow.topCandidates : [])
+    .filter((candidate) => (
+      candidate?.rendered === true
+      || candidate?.policy?.rendered === true
+    ))
+    .filter((candidate) => (
+      Array.isArray(candidate?.candidateChannels)
+        ? candidate.candidateChannels.includes('static-embedding')
+        : true
+    ))
+    .length;
+}
+
+function buildFrameBudgetForRuntimeArtifact({
+  generatedAt = '',
+  turnId = '',
+  selectedLane = '',
+  executionPath = '',
+  performance = null,
+  promptTruth = null,
+  staticEmbeddingShadow = null,
+} = {}) {
+  const safePerformance = performance && typeof performance === 'object' ? performance : {};
+  const promptBuildMs = nullableDurationMs(safePerformance.promptAssembly);
+  const archiveRetrievalMs = nullableDurationMs(safePerformance.archiveRetrieval);
+  const staticMemoryQueryMs = normalizeNullableNumber(staticEmbeddingShadow?.queryMs);
+  const modelRoundTripMs = nullableDurationMs(safePerformance.modelRoundTrip);
+  const firstTokenMs = nullableDurationMs(safePerformance.firstToken);
+  const totalTurnMs = nullableDurationMs(safePerformance.request);
+  const staticCandidateCount = normalizeNonNegativeNumber(staticEmbeddingShadow?.candidateCount, 0);
+  const selectedCount = promptTruthTotalCandidateCount(promptTruth);
+  const renderedCount = promptTruthTotalRenderedCount(promptTruth);
+  return createFrameBudgetReceipt({
+    generatedAt,
+    turnId,
+    lane: selectedLane || 'unknown',
+    mode: executionPath || 'runtime-artifact',
+    measurementMode: 'runtime-artifact',
+    targets: {
+      maxStaticOnlyRendered: staticEmbeddingShadow?.staticOnlyRenderedCap ?? null,
+    },
+    timings: {
+      staticMemoryQueryMs,
+      archiveRetrievalMs,
+      promptBuildMs,
+      lmStudioFirstTokenMs: firstTokenMs,
+      lmStudioTotalMs: modelRoundTripMs,
+      modelRoundTripMs,
+      totalPrePromptMs: sumNullableDurations([archiveRetrievalMs, staticMemoryQueryMs, promptBuildMs]),
+      totalTurnMs,
+    },
+    workDone: {
+      rawCandidatesInspected: selectedCount + staticCandidateCount,
+      staticCandidatesInspected: staticCandidateCount,
+      candidatesSelected: selectedCount,
+      candidatesRendered: renderedCount,
+      staticOnlyRendered: staticOnlyRenderedCount(staticEmbeddingShadow),
+    },
+  });
+}
+
 function promptTruthHeldBackChannels(promptTruth = null) {
   return advisoryPromptTruthChannels()
     .map((channel) => ({
@@ -2140,6 +2234,7 @@ function buildRuntimeArtifact({
   readiness = null,
   promptComposition = null,
   promptTruth = null,
+  frameBudget = null,
   initiativePromptBridge = null,
   turnStatePromptBridge = null,
   latencyBudget = null,
@@ -2170,6 +2265,15 @@ function buildRuntimeArtifact({
     toolRecords,
   });
   const toolCostSummary = buildToolCostSummary(toolRecords);
+  const normalizedFrameBudget = normalizeFrameBudgetReceipt(frameBudget || buildFrameBudgetForRuntimeArtifact({
+    generatedAt: safeUsedAt,
+    turnId: sessionId,
+    selectedLane,
+    executionPath: normalizedExecutionPath,
+    performance,
+    promptTruth: normalizedPromptTruth,
+    staticEmbeddingShadow,
+  }));
   const effectiveResearchLedgerRendered = deriveResearchLedgerRendered(
     normalizedPromptTruth,
     preferRenderedCompatibilityBoolean(
@@ -2366,6 +2470,7 @@ function buildRuntimeArtifact({
     reasonCodes,
     epistemics: normalizedEpistemics,
     synthesis: normalizedSynthesis,
+    frameBudget: normalizedFrameBudget,
     performance,
     readiness,
     modelAdvisory: {
@@ -2412,6 +2517,9 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   const version = String(raw.version || fallback.version || RUNTIME_ARTIFACT_VERSION).trim() || RUNTIME_ARTIFACT_VERSION;
   const kind = String(raw.kind || fallback.kind || 'chat-turn').trim() || 'chat-turn';
   const promptTruth = normalizePromptTruth(raw.promptTruth || fallback.promptTruth);
+  const frameBudget = raw.frameBudget || fallback.frameBudget
+    ? normalizeFrameBudgetReceipt(raw.frameBudget || fallback.frameBudget)
+    : null;
   const executionPath = normalizeExecutionPath(
     raw.executionPath || fallback.executionPath,
     kind === 'shadow-turn' ? 'shadow' : (kind === 'tool-turn' ? 'deterministic-tool' : 'llm-chat'),
@@ -2505,6 +2613,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
     reasonCodes: uniqueStrings(Array.isArray(raw.reasonCodes) ? raw.reasonCodes : fallback.reasonCodes || [], 12),
     epistemics,
     synthesis,
+    frameBudget,
     performance,
     readiness,
     modelAdvisory: {

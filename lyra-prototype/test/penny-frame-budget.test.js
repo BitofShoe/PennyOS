@@ -20,9 +20,11 @@ test('creates a frame budget receipt schema with deterministic defaults', () => 
   assert.equal(receipt.generatedAt, null);
   assert.equal(receipt.lane, 'unknown');
   assert.equal(receipt.mode, 'baseline');
+  assert.equal(receipt.measurementMode, 'baseline');
   assert.equal(receipt.targets.firstTokenMs, null);
   assert.equal(receipt.timings.totalPrePromptMs, null);
   assert.equal(receipt.workDone.rawCandidatesInspected, 0);
+  assert.equal(receipt.workDone.estimatedPromptTokens, 0);
   assert.equal(receipt.quality.candidateSurvival, 'not-run');
   assert.equal(receipt.quality.promptTokenDelta, 0);
   assert.deepEqual(receipt.budgetEvents, []);
@@ -44,7 +46,9 @@ test('normalizes null, unknown, and negative timing fields to null', () => {
       staticMemoryQueryMs: '12.5',
       openLoopQueryMs: null,
       promptBuildMs: -5,
+      archiveRetrievalMs: '15',
       lmStudioFirstTokenMs: '901',
+      modelRoundTripMs: '1200',
     },
   });
 
@@ -56,8 +60,10 @@ test('normalizes null, unknown, and negative timing fields to null', () => {
   assert.equal(receipt.timings.turnStateMs, null);
   assert.equal(receipt.timings.staticMemoryQueryMs, 12.5);
   assert.equal(receipt.timings.openLoopQueryMs, null);
+  assert.equal(receipt.timings.archiveRetrievalMs, 15);
   assert.equal(receipt.timings.promptBuildMs, null);
   assert.equal(receipt.timings.lmStudioFirstTokenMs, 901);
+  assert.equal(receipt.timings.modelRoundTripMs, 1200);
 });
 
 test('add helpers return normalized copies without mutating the original receipt', () => {
@@ -154,6 +160,7 @@ test('summarizes multiple frame budget receipts', () => {
       rawCandidatesInspected: 7,
       candidatesSelected: 2,
       candidatesRendered: 1,
+      estimatedPromptTokens: 90,
     },
     timings: {
       lmStudioFirstTokenMs: 900,
@@ -174,6 +181,7 @@ test('summarizes multiple frame budget receipts', () => {
     workDone: {
       rawCandidatesInspected: 4,
       candidatesSelected: 1,
+      estimatedPromptTokens: 120,
     },
     quality: {
       promptTokenDelta: 42,
@@ -197,6 +205,7 @@ test('summarizes multiple frame budget receipts', () => {
   assert.equal(summary.eventStatusCounts.missed, 1);
   assert.equal(summary.workDoneTotals.rawCandidatesInspected, 11);
   assert.equal(summary.workDoneTotals.candidatesSelected, 3);
+  assert.equal(summary.workDoneTotals.estimatedPromptTokens, 210);
   assert.equal(summary.maxPromptTokenDelta, 42);
   assert.equal(summary.maxFirstTokenMs, 1250);
   assert.equal(summary.maxTotalPrePromptMs, 140);

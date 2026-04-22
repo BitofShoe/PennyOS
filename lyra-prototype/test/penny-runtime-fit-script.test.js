@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   buildGemmaRuntimeWatchRunnerArtifact,
+  buildContextPressureFrameBudget,
   buildScenarioEnv,
   buildScenarioPaths,
   buildMarkdownSummary,
@@ -76,6 +77,16 @@ test('normalizeScenarioSummary includes prompt-context pressure metrics for runt
   assert.equal(summary.turnMetrics.memoryHeavy.lane, 'chat');
   assert.equal(summary.turnMetrics.memoryHeavy.modelIdentity, 'q6');
   assert.equal(summary.turnMetrics.memoryHeavy.semanticReadiness.ready, true);
+  assert.equal(summary.turnMetrics.memoryHeavy.frameBudget.schema, 'penny-frame-budget.v1');
+  assert.equal(summary.turnMetrics.memoryHeavy.frameBudget.measurementMode, 'runtime-fit');
+  assert.equal(summary.turnMetrics.memoryHeavy.frameBudget.timings.lmStudioFirstTokenMs, 450);
+  assert.equal(summary.turnMetrics.memoryHeavy.frameBudget.timings.totalTurnMs, 3000);
+  assert.equal(summary.turnMetrics.memoryHeavy.frameBudget.workDone.candidatesSelected, 4);
+  assert.equal(summary.turnMetrics.memoryHeavy.frameBudget.workDone.candidatesRendered, 2);
+  assert.equal(summary.turnMetrics.memoryHeavy.frameBudget.workDone.estimatedRequestMessageTokens > 0, true);
+  assert.equal(summary.frameBudget.schema, 'penny-frame-budget.v1');
+  assert.equal(summary.frameBudget.measurementMode, 'runtime-fit');
+  assert.equal(summary.frameBudgetSummary.schema, 'penny-frame-budget-summary.v1');
 });
 
 test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary', () => {
@@ -144,6 +155,34 @@ test('buildMarkdownSummary exposes the Slice 4 context-pressure fixture summary'
   assert.match(markdown, /Candidate-survival correlation: fixture-only, selection=not-run, rendered delta=0, estimated token delta=0, drift=not-run/);
   assert.match(markdown, /Memory-heavy rendered context: 2 rendered \/ 3 selected/);
   assert.match(markdown, /Memory-heavy estimated request-message tokens: 42/);
+});
+
+test('buildContextPressureFrameBudget keeps fixture-only latency fields null while counting rendered context', () => {
+  const frameBudget = buildContextPressureFrameBudget({
+    generatedAt: '2026-04-22T12:00:00.000Z',
+    contextVariants: [
+      { level: 'short', selectedMemoryCount: 1, renderedMemoryCount: 1, estimatedPromptTokens: 20 },
+      { level: 'medium', selectedMemoryCount: 3, renderedMemoryCount: 3, estimatedPromptTokens: 70 },
+      { level: 'long', selectedMemoryCount: 7, renderedMemoryCount: 7, estimatedPromptTokens: 150 },
+    ],
+    comparisons: [
+      { estimatedPromptTokenDelta: 50 },
+      { estimatedPromptTokenDelta: 80 },
+    ],
+    candidateSurvivalCorrelation: {
+      candidateSurvival: { selectionVerdict: 'not-run' },
+    },
+  });
+
+  assert.equal(frameBudget.schema, 'penny-frame-budget.v1');
+  assert.equal(frameBudget.measurementMode, 'fixture-only');
+  assert.equal(frameBudget.timings.lmStudioFirstTokenMs, null);
+  assert.equal(frameBudget.timings.totalTurnMs, null);
+  assert.equal(frameBudget.workDone.rawCandidatesInspected, 11);
+  assert.equal(frameBudget.workDone.candidatesRendered, 11);
+  assert.equal(frameBudget.workDone.estimatedPromptTokens, 150);
+  assert.equal(frameBudget.quality.candidateSurvival, 'not-run');
+  assert.equal(frameBudget.quality.promptTokenDelta, 80);
 });
 
 test('runtime-fit disposable environment isolates the memory ledger file', () => {
