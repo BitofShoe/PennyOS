@@ -3,6 +3,7 @@ const path = require('path');
 
 const PENNY_SESSION_REFLECTION_SCHEMA = 'penny-session-reflection.v1';
 const PENNY_SESSION_REFLECTION_PREP_SCHEMA = 'penny-session-reflection-prep.v1';
+const PENNY_SESSION_REFLECTION_PROMPT_BRIDGE_SCHEMA = 'penny-session-reflection-prompt-bridge.v1';
 const SESSION_REFLECTION_PREP_JOB_KIND = 'session-reflection-prep';
 
 const MEASUREMENT_MODES = new Set(['artifact-only', 'after-turn', 'end-session', 'eval']);
@@ -28,6 +29,40 @@ const DO_NOT_SAVE_REASONS = new Set([
   'inferred-emotion',
   'insufficient-support',
   'speculative',
+]);
+const SESSION_REFLECTION_PROMPT_BRIDGE_MODES = Object.freeze({
+  BASELINE: 'baseline',
+  OFF: 'reflection-summary-off',
+  COMPACT: 'reflection-summary-on-compact',
+  VERBOSE: 'reflection-summary-on-verbose',
+});
+const SESSION_REFLECTION_PROMPT_BRIDGE_MODE_VALUES = new Set(Object.values(SESSION_REFLECTION_PROMPT_BRIDGE_MODES));
+const DEFAULT_SESSION_REFLECTION_PROMPT_BRIDGE_WORDS = 90;
+const SESSION_REFLECTION_RELEVANCE_STOPWORDS = new Set([
+  'about',
+  'again',
+  'already',
+  'before',
+  'could',
+  'for',
+  'from',
+  'have',
+  'here',
+  'just',
+  'keep',
+  'like',
+  'make',
+  'next',
+  'only',
+  'please',
+  'should',
+  'that',
+  'this',
+  'what',
+  'where',
+  'with',
+  'would',
+  'your',
 ]);
 
 const SUPPORT_STATES = Object.freeze({
@@ -67,6 +102,14 @@ const DEFAULT_REFLECTION_PREP_LIMITS = Object.freeze([
   'Prepared reflection artifacts are draft review material, not truth proof.',
   'Background reflection prep must not write explicit memory or promotion queues.',
   'Background reflection prep must not expand PromptTruth or toolEvidenceReceipt.',
+  'Hidden chain-of-thought and runtime voice are not stored or changed.',
+]);
+
+const DEFAULT_REFLECTION_PROMPT_BRIDGE_LIMITS = Object.freeze([
+  'Session reflection prompt bridge output is compare-only in this slice.',
+  'Reflection summaries are advisory and reviewable, not truth proof.',
+  'Memory suggestions remain review-gated and are not saved or auto-promoted.',
+  'This bridge does not add a PromptTruth channel or merge toolEvidenceReceipt.',
   'Hidden chain-of-thought and runtime voice are not stored or changed.',
 ]);
 
@@ -171,6 +214,13 @@ function normalizeConfidence(value = '') {
 function normalizeMeasurementMode(value = '') {
   const mode = cleanToken(value);
   return MEASUREMENT_MODES.has(mode) ? mode : 'artifact-only';
+}
+
+function normalizeSessionReflectionPromptBridgeMode(value = '') {
+  const mode = cleanToken(value || SESSION_REFLECTION_PROMPT_BRIDGE_MODES.OFF);
+  return SESSION_REFLECTION_PROMPT_BRIDGE_MODE_VALUES.has(mode)
+    ? mode
+    : SESSION_REFLECTION_PROMPT_BRIDGE_MODES.OFF;
 }
 
 function normalizeDecisionStatus(value = '') {
@@ -576,6 +626,239 @@ function normalizeDoNotSaveItem(input = {}, options = {}) {
     text,
     reason,
     sourceReceipts: normalizeSourceReceipts(raw.sourceReceipts || raw.sourceRefs || raw.sources || []),
+  };
+}
+
+function countWords(value = '') {
+  return (String(value || '').match(/\S+/g) || []).length;
+}
+
+function clipWords(value = '', maxWords = DEFAULT_SESSION_REFLECTION_PROMPT_BRIDGE_WORDS) {
+  const words = String(value || '').replace(/\s+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  const cap = clampInteger(maxWords, DEFAULT_SESSION_REFLECTION_PROMPT_BRIDGE_WORDS, 20, 260);
+  if (words.length <= cap) return words.join(' ');
+  return `${words.slice(0, cap).join(' ')}...`;
+}
+
+function keywordSet(value = '') {
+  const text = String(value || '').toLowerCase();
+  const tokens = text.match(/[a-z0-9][a-z0-9-]*/g) || [];
+  return new Set(tokens.filter((token) => (
+    (token.length >= 3 || /\d/.test(token))
+    && !SESSION_REFLECTION_RELEVANCE_STOPWORDS.has(token)
+  )));
+}
+
+function keywordOverlapScore(left = '', right = '') {
+  const leftSet = keywordSet(left);
+  if (!leftSet.size) return 0;
+  const rightSet = keywordSet(right);
+  let score = 0;
+  for (const token of leftSet) {
+    if (rightSet.has(token)) score += 1;
+  }
+  return score;
+}
+
+function reflectionRelevanceCorpus(reflection = {}) {
+  return [
+    reflection.sessionId,
+    reflection.summary?.short,
+    reflection.summary?.detailed,
+    ...(reflection.decisions || []).flatMap((item) => [item.id, item.text]),
+    ...(reflection.openLoopUpdates || []).flatMap((item) => [
+      item.id,
+      item.loopId,
+      item.title,
+      item.nextLikelyStep,
+    ]),
+    ...(reflection.memorySuggestions || []).flatMap((item) => [item.id, item.text, item.kind]),
+  ].filter(Boolean).join('\n');
+}
+
+function isSessionReflectionRelevant(reflection = {}, userText = '') {
+  const text = cleanString(userText, 1200);
+  if (!text) return false;
+  return keywordOverlapScore(text, reflectionRelevanceCorpus(reflection)) > 0;
+}
+
+function sourceBackedOpenLoopUpdates(reflection = {}) {
+  const allowedSupports = new Set(['explicit-user', 'repo-source', 'artifact']);
+  return (reflection.openLoopUpdates || [])
+    .filter((item) => {
+      if (!item || item.autoApplied === true) return false;
+      if (allowedSupports.has(item.support)) return true;
+      return Array.isArray(item.sourceReceipts) && item.sourceReceipts.length > 0;
+    });
+}
+
+function selectSessionReflectionOpenLoopUpdate(reflection = {}, userText = '') {
+  const updates = sourceBackedOpenLoopUpdates(reflection);
+  if (!updates.length) return null;
+  const scored = updates.map((item, index) => ({
+    item,
+    index,
+    score: keywordOverlapScore(
+      userText,
+      [item.id, item.loopId, item.title, item.nextLikelyStep].filter(Boolean).join('\n'),
+    ),
+  }));
+  scored.sort((left, right) => (right.score - left.score) || (left.index - right.index));
+  return scored[0].item;
+}
+
+function summarizePromptBridgeMemorySuggestionPolicy(reflectionSummary = {}) {
+  return {
+    pendingReviewCount: reflectionSummary.memorySuggestionCount,
+    doNotSaveCount: reflectionSummary.doNotSaveCount,
+    allRequireApproval: reflectionSummary.allMemorySuggestionsRequireApproval,
+    autoPromotedCount: reflectionSummary.autoPromotedSuggestionCount,
+    supportStates: { ...(reflectionSummary.supportStates || {}) },
+    sensitivityCounts: { ...(reflectionSummary.sensitivityCounts || {}) },
+    requiresApproval: true,
+    autoPromoted: false,
+  };
+}
+
+function buildCompactSessionReflectionPromptLines({
+  reflection,
+  reflectionSummary,
+  openLoopUpdate,
+} = {}) {
+  const lines = [];
+  if (reflection.summary.short) {
+    lines.push(`Session reflection, advisory: ${reflection.summary.short}`);
+  }
+  if (openLoopUpdate) {
+    const nextStep = openLoopUpdate.nextLikelyStep
+      ? ` Next likely step: ${openLoopUpdate.nextLikelyStep}`
+      : '';
+    lines.push(`Reflection open-loop cue, advisory: ${openLoopUpdate.title || openLoopUpdate.loopId}.${nextStep}`);
+  }
+  if (reflectionSummary.memorySuggestionCount > 0 || reflectionSummary.doNotSaveCount > 0) {
+    lines.push(
+      `Memory suggestion boundary: ${reflectionSummary.memorySuggestionCount} pending review, ${reflectionSummary.doNotSaveCount} do-not-save; none are saved memory, requiresApproval=true, autoPromoted=false.`,
+    );
+  } else {
+    lines.push('Memory suggestion boundary: no pending reflection memory suggestions; nothing was saved.');
+  }
+  lines.push('Guardrail: treat this as reviewable synthesis only, not PromptTruth, tool evidence, or canonical memory.');
+  return lines;
+}
+
+function buildVerboseSessionReflectionPromptLines({
+  reflection,
+  reflectionSummary,
+  openLoopUpdate,
+} = {}) {
+  const lines = buildCompactSessionReflectionPromptLines({
+    reflection,
+    reflectionSummary,
+    openLoopUpdate,
+  });
+  if (reflection.summary.detailed) {
+    lines.push(`Detailed reflection note, still advisory: ${reflection.summary.detailed}`);
+  }
+  const decisions = (reflection.decisions || []).slice(0, 2);
+  decisions.forEach((item) => {
+    lines.push(`Decision candidate (${item.support || 'unknown'} support): ${item.text}`);
+  });
+  const updates = sourceBackedOpenLoopUpdates(reflection).slice(0, 2);
+  updates.forEach((item) => {
+    if (openLoopUpdate && item.id === openLoopUpdate.id) return;
+    const nextStep = item.nextLikelyStep ? ` Next likely step: ${item.nextLikelyStep}` : '';
+    lines.push(`Additional open-loop cue, advisory: ${item.title || item.loopId}.${nextStep}`);
+  });
+  (reflection.memorySuggestions || []).slice(0, 2).forEach((item) => {
+    lines.push(
+      `Pending memory suggestion for review only: ${item.text} [supportState=${item.supportState}; sensitivity=${item.sensitivity}; requiresApproval=${item.requiresApproval}; autoPromoted=${item.autoPromoted}]`,
+    );
+  });
+  return lines;
+}
+
+function buildSessionReflectionPromptBridge(options = {}) {
+  const raw = isPlainObject(options) ? options : {};
+  const mode = normalizeSessionReflectionPromptBridgeMode(raw.mode || raw.bridgeMode);
+  const enabled = raw.enabled === true
+    && (mode === SESSION_REFLECTION_PROMPT_BRIDGE_MODES.COMPACT
+      || mode === SESSION_REFLECTION_PROMPT_BRIDGE_MODES.VERBOSE);
+  const reflection = normalizeSessionReflection(raw.reflection || {});
+  const reflectionSummary = summarizeSessionReflection(reflection);
+  const userText = cleanString(raw.userText || raw.prompt || '', 1200);
+  const relevant = enabled ? isSessionReflectionRelevant(reflection, userText) : false;
+  const openLoopUpdate = relevant ? selectSessionReflectionOpenLoopUpdate(reflection, userText) : null;
+  const maxWords = clampInteger(
+    raw.maxWords ?? raw.maxTokens,
+    mode === SESSION_REFLECTION_PROMPT_BRIDGE_MODES.VERBOSE ? 180 : DEFAULT_SESSION_REFLECTION_PROMPT_BRIDGE_WORDS,
+    20,
+    260,
+  );
+  const lines = enabled && relevant
+    ? (mode === SESSION_REFLECTION_PROMPT_BRIDGE_MODES.VERBOSE
+      ? buildVerboseSessionReflectionPromptLines({ reflection, reflectionSummary, openLoopUpdate })
+      : buildCompactSessionReflectionPromptLines({ reflection, reflectionSummary, openLoopUpdate }))
+    : [];
+  const promptText = clipWords(lines.join(' '), maxWords);
+  const renderedCount = promptText ? 1 : 0;
+  const snippet = renderedCount > 0
+    ? {
+      id: `${mode}:${reflection.sessionId || 'session-reflection'}`,
+      mode,
+      wordCount: countWords(promptText),
+      text: promptText,
+    }
+    : null;
+  const memorySuggestionPolicy = summarizePromptBridgeMemorySuggestionPolicy(reflectionSummary);
+  const memorySuggestions = (reflection.memorySuggestions || []).map((item) => ({
+    id: item.id,
+    kind: item.kind,
+    supportState: item.supportState,
+    supportLevel: item.supportLevel,
+    sensitivity: item.sensitivity,
+    requiresApproval: item.requiresApproval,
+    autoPromoted: item.autoPromoted,
+  }));
+
+  return {
+    schema: PENNY_SESSION_REFLECTION_PROMPT_BRIDGE_SCHEMA,
+    generatedAt: normalizeIso(raw.generatedAt || raw.now || '', reflection.generatedAt || normalizeNowIso(new Date())),
+    measurementMode: cleanString(raw.measurementMode || 'fixture-compare', 80),
+    mode,
+    enabled,
+    disabledReason: enabled
+      ? (relevant ? '' : 'not-relevant')
+      : (mode === SESSION_REFLECTION_PROMPT_BRIDGE_MODES.BASELINE ? 'baseline-no-reflection-bridge' : 'disabled'),
+    relevant,
+    livePromptBridge: false,
+    liveChatTouched: false,
+    promptTruthExpanded: false,
+    promptTruthChannelAdded: false,
+    toolEvidenceReceiptChanged: false,
+    memoryWrites: false,
+    explicitMemoryWrites: false,
+    canonicalMemoryWrites: false,
+    hiddenChainOfThoughtStored: false,
+    runtimeVoiceChanged: false,
+    autonomousActions: false,
+    reflectionSummary,
+    selectedOpenLoopUpdateIds: openLoopUpdate ? [openLoopUpdate.id] : [],
+    memorySuggestionPolicy,
+    memorySuggestions,
+    promptBridge: {
+      renderedCount,
+      promptText,
+      snippets: snippet ? [snippet] : [],
+      memorySuggestionTextRendered: mode === SESSION_REFLECTION_PROMPT_BRIDGE_MODES.VERBOSE && renderedCount > 0,
+      compact: mode === SESSION_REFLECTION_PROMPT_BRIDGE_MODES.COMPACT,
+      verbose: mode === SESSION_REFLECTION_PROMPT_BRIDGE_MODES.VERBOSE,
+      maxWords,
+      wordCount: countWords(promptText),
+    },
+    limits: uniqueStrings([
+      ...DEFAULT_REFLECTION_PROMPT_BRIDGE_LIMITS,
+      ...(listValue(raw.limits || [])),
+    ], 20, 260),
   };
 }
 
@@ -989,10 +1272,14 @@ function validateSessionReflection(reflection = {}) {
 module.exports = {
   PENNY_SESSION_REFLECTION_SCHEMA,
   PENNY_SESSION_REFLECTION_PREP_SCHEMA,
+  PENNY_SESSION_REFLECTION_PROMPT_BRIDGE_SCHEMA,
   SESSION_REFLECTION_PREP_JOB_KIND,
   SESSION_REFLECTION_PREP_STATUSES,
+  SESSION_REFLECTION_PROMPT_BRIDGE_MODES,
   SUPPORT_STATES,
+  buildSessionReflectionPromptBridge,
   normalizeSessionReflection,
+  normalizeSessionReflectionPromptBridgeMode,
   normalizeReflectionDecision,
   normalizeOpenLoopUpdate,
   normalizeMemorySuggestion,
