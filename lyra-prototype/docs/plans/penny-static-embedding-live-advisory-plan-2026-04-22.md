@@ -6,6 +6,8 @@
 > Use this for: the static-embedding live sidecar run, provider decisions, mode ladder, guardrails, and next-slice handoff
 > Do not use this for: default embedding-provider law, PromptTruth expansion, canonical memory authority, or proof that live-advisory is the normal repo default
 
+> Tier 1 note: [penny-static-embedding-live-reflex-plan-2026-04-22.md](./penny-static-embedding-live-reflex-plan-2026-04-22.md) records the newer Tier 1 Plan 1 Slice S1 provider posture. This older/current plan called that decision Slice S0 and used Slice S1 for the provider seam. Future agents should verify the checked-out tree before reimplementing any numbered static-reflex slice.
+
 ## Guiding Light
 
 Static embeddings should become Penny's fast memory reflex, not Penny's memory judge.
