@@ -300,3 +300,137 @@ test('policy blocks initiative text that claims a side-effect action already hap
     },
   ]);
 });
+
+test('brainstorm turns can use a central selected open loop as one next-step suggestion', () => {
+  const decision = decideInitiative({
+    userText: 'Let us brainstorm the next move for bounded initiative.',
+    turnState: {
+      responseMode: 'brainstorm',
+      userIntent: 'ideation',
+    },
+    relevantOpenLoops: {
+      selected: [
+        {
+          id: 'bounded-initiative-policy',
+          title: 'Bounded initiative policy',
+          selected: true,
+          surfaceReason: 'central explicit-anchor',
+          nextLikelyStep: 'Use the open-loop fixture to check the source-warning branch before any prompt bridge.',
+        },
+      ],
+    },
+  });
+
+  assert.equal(decision.initiativeAllowed, true);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.NEXT_STEP_SUGGESTION);
+  assert.equal(decision.confidence, INITIATIVE_CONFIDENCE.HIGH);
+  assert.equal(decision.riskClass, INITIATIVE_RISK_CLASSES.LOW);
+  assert.equal(
+    decision.suggestionText,
+    'Use the open-loop fixture to check the source-warning branch before any prompt bridge.',
+  );
+});
+
+test('exact review suppresses open-loop initiative unless source-check warning is needed', () => {
+  const decision = decideInitiative({
+    userText: 'Please review this patch exactly.',
+    turnState: {
+      responseMode: 'code-review',
+    },
+    relevantOpenLoops: {
+      selected: [
+        {
+          id: 'bounded-initiative-policy',
+          confidence: 'high',
+          nextLikelyStep: 'After this review, add a prompt scaffold fixture.',
+        },
+      ],
+    },
+  });
+
+  assert.equal(decision.initiativeAllowed, false);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.NONE);
+  assert.match(decision.reason, /exact review/i);
+  assert.deepEqual(decision.heldBack, [
+    {
+      reason: 'exact-review-mode',
+      initiativeType: INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
+      suggestionText: 'After this review, add a prompt scaffold fixture.',
+      riskClass: INITIATIVE_RISK_CLASSES.LOW,
+    },
+  ]);
+});
+
+test('exact source-backed review allows a source-check warning despite direct command wording', () => {
+  const decision = decideInitiative({
+    userText: 'Please review this source claim exactly.',
+    turnState: {
+      responseMode: 'source-backed-review',
+      trustFlags: {
+        sourceCheckNeeded: true,
+        sourceCheckSuggestion: 'Check the cited source before treating the claim as settled.',
+      },
+    },
+  });
+
+  assert.equal(decision.initiativeAllowed, true);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION);
+  assert.equal(decision.confidence, INITIATIVE_CONFIDENCE.HIGH);
+  assert.equal(decision.riskClass, INITIATIVE_RISK_CLASSES.LOW);
+  assert.equal(decision.suggestionText, 'Check the cited source before treating the claim as settled.');
+});
+
+test('urgency pressure with weak evidence becomes a source-check suggestion, not over-confirmation', () => {
+  const decision = decideInitiative({
+    userText: 'We are under time pressure; just confirm this if it is okay.',
+    turnState: {
+      energy: { label: 'urgent' },
+    },
+    riskContext: {
+      urgencyPressure: true,
+      sourceCheckNeeded: true,
+      sourceCheckSuggestion: 'Do a quick source check before confirming this under pressure.',
+    },
+  });
+
+  assert.equal(decision.initiativeAllowed, true);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION);
+  assert.match(decision.reason, /urgency pressure/i);
+  assert.equal(decision.suggestionText, 'Do a quick source check before confirming this under pressure.');
+});
+
+test('static memory top candidates stay source-check shaped when support is candidate-only', () => {
+  const decision = decideInitiative({
+    userText: 'Any tiny useful caveat here?',
+    staticMemoryReflex: {
+      topCandidate: {
+        candidateId: 'archive:episode:brass-fox',
+        supportState: 'candidate-only',
+        confidence: 'high',
+        sourceCheckSuggestion: 'Verify the static memory hit before surfacing it as settled context.',
+      },
+    },
+  });
+
+  assert.equal(decision.initiativeAllowed, true);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION);
+  assert.equal(decision.riskClass, INITIATIVE_RISK_CLASSES.LOW);
+  assert.equal(decision.suggestionText, 'Verify the static memory hit before surfacing it as settled context.');
+});
+
+test('missing optional turn-state, open-loop, static, and trust inputs degrade gracefully', () => {
+  const decision = decideInitiative({
+    userText: 'Any small thought?',
+    turnState: null,
+    relevantOpenLoops: { selected: null },
+    staticMemoryReflex: null,
+    sourceTrustFlags: null,
+    riskContext: null,
+  });
+
+  assert.equal(decision.schema, INITIATIVE_DECISION_SCHEMA);
+  assert.equal(decision.initiativeAllowed, false);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.NONE);
+  assert.match(decision.reason, /no high-confidence initiative candidate/i);
+  assert.deepEqual(decision.heldBack, []);
+});

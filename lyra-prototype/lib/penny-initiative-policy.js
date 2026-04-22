@@ -48,6 +48,32 @@ const DIRECT_COMMAND_INTENTS = new Set([
   'run-tests',
 ]);
 
+const BRAINSTORM_TOKENS = new Set([
+  'brainstorm',
+  'brainstorming',
+  'ideation',
+  'explore',
+  'exploratory',
+]);
+
+const EXACT_REVIEW_TOKENS = new Set([
+  'exact-review',
+  'source-backed-review',
+  'code-review',
+  'review',
+  'audit',
+]);
+
+const URGENCY_TOKENS = new Set([
+  'urgent',
+  'urgency',
+  'rushed',
+  'rush',
+  'time-pressure',
+  'high-pressure',
+  'deadline',
+]);
+
 const INITIATIVE_STOP_PATTERNS = [
   /\b(?:stop|quit|disable|pause|suppress)\b.{0,60}\b(?:suggest|suggesting|suggestion|initiative|proactive|nudge|nudges|remind|reminders|next steps?)\b/i,
   /\b(?:do not|don't|dont|no more)\b.{0,60}\b(?:suggest|suggesting|suggestion|initiative|proactive|nudge|nudges|remind|reminders|next steps?)\b/i,
@@ -83,6 +109,20 @@ const SIDE_EFFECT_DONE_PATTERNS = [
 const UNAPPROVED_MEMORY_WRITE_PATTERNS = [
   /\b(?:i(?:'ll| will)|i am going to|i'm going to|let me|penny will|she will)\s+(?:remember|save|store|record)\b/i,
   /\b(?:saved|stored|recorded|remembered)\s+(?:that|this)\s+(?:for|in)\s+(?:memory|later)\b/i,
+];
+
+const EXACT_REVIEW_PATTERNS = [
+  /\bexact\s+review\b/i,
+  /\bsource[-\s]?backed\s+review\b/i,
+  /\bcareful\s+review\b/i,
+  /\bstrict\s+review\b/i,
+];
+
+const URGENCY_PATTERNS = [
+  /\burgent(?:ly)?\b/i,
+  /\btime[-\s]?pressure\b/i,
+  /\bunder\s+pressure\b/i,
+  /\bdeadline\b/i,
 ];
 
 function isPlainObject(value) {
@@ -226,6 +266,7 @@ function listValue(value = []) {
 function rawOpenLoopList(value = []) {
   if (Array.isArray(value)) return value;
   if (!isPlainObject(value)) return [];
+  if (isPlainObject(value.selected)) return [value.selected];
   if (Array.isArray(value.selected)) return value.selected;
   if (Array.isArray(value.loops)) return value.loops;
   if (Array.isArray(value.openLoops)) return value.openLoops;
@@ -240,6 +281,164 @@ function rawRetrievalSignalList(value = []) {
   if (Array.isArray(value.candidates)) return value.candidates;
   if (Array.isArray(value.items)) return value.items;
   return [];
+}
+
+function rawStaticMemoryCandidateList(value = null) {
+  if (!isPlainObject(value)) return [];
+  const candidates = [];
+  if (isPlainObject(value.topCandidate)) candidates.push(value.topCandidate);
+  if (isPlainObject(value.topStaticCandidate)) candidates.push(value.topStaticCandidate);
+  if (Array.isArray(value.topCandidates)) candidates.push(...value.topCandidates);
+  if (Array.isArray(value.candidates)) candidates.push(...value.candidates);
+  if (Array.isArray(value.selected)) candidates.push(...value.selected);
+  return candidates;
+}
+
+function tokenMatchesAny(value = '', matches = new Set()) {
+  const token = cleanToken(value);
+  if (!token) return false;
+  if (matches.has(token)) return true;
+  const parts = new Set(token.split('-').filter(Boolean));
+  return [...matches].some((match) => parts.has(match));
+}
+
+function turnStateEnergyLabel(turnState = {}) {
+  if (!isPlainObject(turnState)) return '';
+  const energy = turnState.energy;
+  if (isPlainObject(energy)) {
+    return cleanToken(energy.label || energy.mode || energy.state || '');
+  }
+  return cleanToken(energy || turnState.energyLabel || '');
+}
+
+function objectHasAnyFlag(raw = {}, names = []) {
+  if (!isPlainObject(raw)) return false;
+  if (hasAnyFlag(raw, names)) return true;
+  return [
+    raw.sourceState,
+    raw.sourceFlags,
+    raw.trustState,
+    raw.trustFlags,
+    raw.source,
+    raw.trust,
+  ].some((nested) => isPlainObject(nested) && hasAnyFlag(nested, names));
+}
+
+function objectStringValue(raw = {}, names = []) {
+  if (!isPlainObject(raw)) return '';
+  for (const name of names) {
+    const value = cleanString(raw[name] || '', 260);
+    if (value) return value;
+  }
+  for (const nested of [
+    raw.sourceState,
+    raw.sourceFlags,
+    raw.trustState,
+    raw.trustFlags,
+    raw.source,
+    raw.trust,
+  ]) {
+    if (!isPlainObject(nested)) continue;
+    for (const name of names) {
+      const value = cleanString(nested[name] || '', 260);
+      if (value) return value;
+    }
+  }
+  return '';
+}
+
+function isBrainstormMode({ userText = '', turnState = {} } = {}) {
+  if (isPlainObject(turnState)) {
+    const responseMode = turnState.responseMode || turnState.mode || turnState.suggestedResponseMode || '';
+    const userIntent = turnState.userIntent || turnState.intent || '';
+    if (tokenMatchesAny(responseMode, BRAINSTORM_TOKENS)
+      || tokenMatchesAny(userIntent, BRAINSTORM_TOKENS)) {
+      return true;
+    }
+  }
+  return /\bbrainstorm(?:ing)?\b/i.test(userText);
+}
+
+function isExactReviewMode({ userText = '', turnState = {} } = {}) {
+  if (isPlainObject(turnState)) {
+    const responseMode = turnState.responseMode || turnState.mode || turnState.suggestedResponseMode || '';
+    const userIntent = turnState.userIntent || turnState.intent || '';
+    if (tokenMatchesAny(responseMode, EXACT_REVIEW_TOKENS)
+      || tokenMatchesAny(userIntent, EXACT_REVIEW_TOKENS)) {
+      return true;
+    }
+  }
+  return EXACT_REVIEW_PATTERNS.some((pattern) => pattern.test(userText));
+}
+
+function hasUrgencyPressure({
+  userText = '',
+  turnState = {},
+  riskContext = null,
+  toolState = null,
+} = {}) {
+  if (objectHasAnyFlag(turnState, ['urgencyPressure', 'underUrgencyPressure', 'timePressure'])) return true;
+  if (objectHasAnyFlag(riskContext, ['urgencyPressure', 'underUrgencyPressure', 'timePressure'])) return true;
+  if (objectHasAnyFlag(toolState, ['urgencyPressure', 'underUrgencyPressure', 'timePressure'])) return true;
+  if (tokenMatchesAny(turnStateEnergyLabel(turnState), URGENCY_TOKENS)) return true;
+  return URGENCY_PATTERNS.some((pattern) => pattern.test(userText));
+}
+
+function sourceCheckNeeded({
+  turnState = {},
+  riskContext = null,
+  toolState = null,
+  sourceTrustFlags = null,
+} = {}) {
+  const names = [
+    'sourceCheckNeeded',
+    'needsSourceCheck',
+    'sourceUnverified',
+    'unverifiedSource',
+    'candidateOnlySupport',
+    'weakEvidence',
+    'needsVerification',
+  ];
+  return objectHasAnyFlag(turnState, names)
+    || objectHasAnyFlag(riskContext, names)
+    || objectHasAnyFlag(toolState, names)
+    || objectHasAnyFlag(sourceTrustFlags, names);
+}
+
+function sourceCheckSuggestionText({
+  turnState = {},
+  riskContext = null,
+  toolState = null,
+  sourceTrustFlags = null,
+  staticMemoryReflex = null,
+} = {}) {
+  const names = [
+    'sourceCheckSuggestion',
+    'verificationSuggestion',
+    'warningText',
+    'suggestionText',
+  ];
+  return objectStringValue(turnState, names)
+    || objectStringValue(riskContext, names)
+    || objectStringValue(toolState, names)
+    || objectStringValue(sourceTrustFlags, names)
+    || objectStringValue(staticMemoryReflex, names)
+    || 'Do one quick source check before treating this as settled.';
+}
+
+function collectTurnSignals({
+  userText = '',
+  turnState = {},
+  riskContext = null,
+  toolState = null,
+  sourceTrustFlags = null,
+} = {}) {
+  return {
+    brainstormMode: isBrainstormMode({ userText, turnState }),
+    exactReviewMode: isExactReviewMode({ userText, turnState }),
+    urgencyPressure: hasUrgencyPressure({ userText, turnState, riskContext, toolState }),
+    sourceCheckNeeded: sourceCheckNeeded({ turnState, riskContext, toolState, sourceTrustFlags }),
+  };
 }
 
 function buildHeldBack(reason, extras = {}) {
@@ -501,11 +700,93 @@ function normalizeCandidate(raw = {}) {
   };
 }
 
+function buildSourceCheckCandidate({
+  turnState = {},
+  riskContext = null,
+  toolState = null,
+  sourceTrustFlags = null,
+  staticMemoryReflex = null,
+  turnSignals = {},
+} = {}) {
+  if (!turnSignals.sourceCheckNeeded) return null;
+  return {
+    initiativeType: INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION,
+    suggestionText: sourceCheckSuggestionText({
+      turnState,
+      riskContext,
+      toolState,
+      sourceTrustFlags,
+      staticMemoryReflex,
+    }),
+    confidence: INITIATIVE_CONFIDENCE.HIGH,
+    riskClass: INITIATIVE_RISK_CLASSES.LOW,
+    reason: turnSignals.urgencyPressure
+      ? 'urgency pressure needs a source-check warning'
+      : 'source/trust flags indicate verification is needed',
+    source: '',
+    id: '',
+    requiresUserApproval: true,
+    autoWrite: false,
+    userRequestedDomain: false,
+  };
+}
+
+function normalizeStaticMemoryCandidate(raw = {}) {
+  if (!isPlainObject(raw)) return null;
+  const supportState = cleanToken(raw.supportState || raw.support || raw.truthState || '');
+  const candidateOnly = raw.candidateOnlySupport === true
+    || raw.unverifiedSource === true
+    || ['candidate', 'candidate-only', 'unverified', 'weak-evidence'].includes(supportState);
+  if (candidateOnly) {
+    return normalizeCandidate({
+      initiativeType: INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION,
+      confidence: raw.confidence || raw.relevanceConfidence || INITIATIVE_CONFIDENCE.HIGH,
+      suggestionText: raw.sourceCheckSuggestion
+        || raw.verificationSuggestion
+        || 'Verify the top static memory candidate before treating it as settled.',
+      reason: raw.reason || 'static memory top candidate is candidate-only support',
+      riskClass: INITIATIVE_RISK_CLASSES.LOW,
+      source: raw.source || raw.sourceLabel || raw.path || '',
+      id: raw.id || raw.candidateId || '',
+    });
+  }
+
+  const explicitSuggestion = raw.initiativeSuggestion
+    || raw.nextStepSuggestion
+    || raw.sourceCheckSuggestion
+    || raw.suggestionText
+    || raw.suggestion
+    || raw.nextLikelyStep
+    || raw.nextStep
+    || '';
+  if (!explicitSuggestion) return null;
+  return normalizeCandidate({
+    ...raw,
+    suggestionText: explicitSuggestion,
+    reason: raw.reason || 'static memory top candidate supplied an explicit initiative cue',
+  });
+}
+
 function findInitiativeCandidate({
   turnState = {},
   relevantOpenLoops = [],
   retrievalSignals = [],
+  staticMemoryReflex = null,
+  sourceTrustFlags = null,
+  riskContext = null,
+  toolState = null,
+  turnSignals = {},
 } = {}) {
+  const sourceCheckCandidate = buildSourceCheckCandidate({
+    turnState,
+    riskContext,
+    toolState,
+    sourceTrustFlags,
+    staticMemoryReflex,
+    turnSignals,
+  });
+  if (sourceCheckCandidate) return sourceCheckCandidate;
+
   if (isPlainObject(turnState)) {
     const turnCandidate = normalizeCandidate({
       ...turnState,
@@ -516,11 +797,28 @@ function findInitiativeCandidate({
   }
 
   for (const loop of rawOpenLoopList(relevantOpenLoops)) {
+    if (!isPlainObject(loop)) continue;
+    const surfaceReason = cleanString(loop.surfaceReason || loop.reason || '', 220);
+    const centralLoop = loop.selected === true
+      || loop.central === true
+      || /\b(?:central|explicit-anchor|directly-relevant)\b/i.test(surfaceReason);
     const candidate = normalizeCandidate({
       ...loop,
       initiativeType: loop.initiativeType || INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
-      reason: loop.reason || 'current project has one high-confidence next step',
+      confidence: loop.confidence
+        || loop.relevanceConfidence
+        || (turnSignals.brainstormMode && centralLoop ? INITIATIVE_CONFIDENCE.HIGH : ''),
+      reason: loop.reason
+        || surfaceReason
+        || (turnSignals.brainstormMode && centralLoop
+          ? 'brainstorm turn has one central open loop'
+          : 'current project has one high-confidence next step'),
     });
+    if (candidate) return candidate;
+  }
+
+  for (const staticCandidate of rawStaticMemoryCandidateList(staticMemoryReflex)) {
+    const candidate = normalizeStaticMemoryCandidate(staticCandidate);
     if (candidate) return candidate;
   }
 
@@ -555,25 +853,26 @@ function decideInitiative({
   turnState = {},
   relevantOpenLoops = [],
   retrievalSignals = [],
+  staticMemoryReflex = null,
+  sourceTrustFlags = null,
   toolState = null,
   userPreferences = {},
   recentInitiatives = [],
   riskContext = null,
 } = {}) {
   const cleanUserText = cleanString(userText, 2000);
-  void toolState;
+  const turnSignals = collectTurnSignals({
+    userText: cleanUserText,
+    turnState,
+    riskContext,
+    toolState,
+    sourceTrustFlags,
+  });
 
   if (preferencesDisableInitiative(userPreferences) || hasInitiativeOptOutText(cleanUserText)) {
     return baseDecision({
       reason: 'initiative disabled by user preference',
       heldBack: [buildHeldBack('user-opt-out', { initiativeType: INITIATIVE_TYPES.NONE })],
-    });
-  }
-
-  if (isDirectCommand({ userText: cleanUserText, turnState })) {
-    return baseDecision({
-      reason: 'direct command should not get extra initiative',
-      heldBack: [buildHeldBack('direct-command', { initiativeType: INITIATIVE_TYPES.NONE })],
     });
   }
 
@@ -584,7 +883,48 @@ function decideInitiative({
     });
   }
 
-  const candidate = findInitiativeCandidate({ turnState, relevantOpenLoops, retrievalSignals });
+  const directCommand = isDirectCommand({ userText: cleanUserText, turnState });
+  const candidate = findInitiativeCandidate({
+    turnState,
+    relevantOpenLoops,
+    retrievalSignals,
+    staticMemoryReflex,
+    sourceTrustFlags,
+    riskContext,
+    toolState,
+    turnSignals,
+  });
+
+  if (
+    turnSignals.exactReviewMode
+    && candidate
+    && candidate.initiativeType !== INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION
+  ) {
+    return baseDecision({
+      reason: 'exact review suppresses extra initiative unless a source-check warning is needed',
+      riskClass: candidate.riskClass,
+      heldBack: [
+        buildHeldBack('exact-review-mode', {
+          initiativeType: candidate.initiativeType,
+          suggestionText: candidate.suggestionText,
+          riskClass: candidate.riskClass,
+        }),
+      ],
+    });
+  }
+
+  if (
+    directCommand
+    && (!candidate
+      || candidate.initiativeType !== INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION
+      || (!turnSignals.exactReviewMode && !turnSignals.urgencyPressure))
+  ) {
+    return baseDecision({
+      reason: 'direct command should not get extra initiative',
+      heldBack: [buildHeldBack('direct-command', { initiativeType: INITIATIVE_TYPES.NONE })],
+    });
+  }
+
   if (!candidate) {
     return baseDecision({
       reason: 'no high-confidence initiative candidate',
