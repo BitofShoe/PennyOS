@@ -374,6 +374,8 @@ The April 21 pressure/Gemma/tool-cost follow-through is artifact and QA coverage
 
 The bounded aliveness compare harness interprets "more alive" as a measured outcome, not a vibe. Positive outcomes are human-observable wins and continuity wins. Blocking outcomes include overclaim, stale-correction failure, source-boundary failure, candidate-only truth laundering, unsupported action/source claims, recurring annoyance, prompt bloat, latency regression, invalid environment, or failed disposable cleanup. A fixture artifact can support live-shadow review; a live-isolated mock-route artifact can support live-advisory review; default enablement remains a separate adoption stage that needs repeated real compare passes, completed manual review, user controls, and current docs.
 
+The Penny Frame Budget Principle is current architecture discipline for these follow-through slices: every turn has a runtime/context frame budget, and Penny should spend it first on relevance, source authority, and candidate selection before rendering more context. Faster runtime should make Penny more selective and more situated, not merely more verbose or more stuffed with memory. This applies to static live memory reflex, open-loop tracking, turn-state cards, initiative policy, session reflection, dynamic memory linking, and aliveness/frame-budget compares, without expanding PromptTruth, merging `toolEvidenceReceipt`, changing runtime voice, raising default prompt/rendered-memory limits, treating frame-budget artifacts as answer-quality proof, or broadening `server.js`.
+
 ### 9. Mood / vessel presentation
 
 The visible Penny vessel is driven by reply mood tags such as:
