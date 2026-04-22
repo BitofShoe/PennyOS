@@ -374,6 +374,7 @@ function createPennyRouteHandlers(deps = {}) {
     readiness = null,
     promptComposition = null,
     promptTruth = null,
+    initiativePromptBridge = null,
     latencyBudget = null,
     researchLedgerRendered = false,
     researchLedgerPromptInjected = false,
@@ -418,6 +419,7 @@ function createPennyRouteHandlers(deps = {}) {
         readiness,
         promptComposition,
         promptTruth,
+        initiativePromptBridge,
         latencyBudget,
         researchLedgerRendered,
         researchLedgerPromptInjected,
@@ -774,6 +776,7 @@ function createPennyRouteHandlers(deps = {}) {
           sessionId,
           memories,
           userText,
+          messages,
           lane: 'shadow',
           attachmentType: fileAttachment ? 'file' : 'none',
         });
@@ -812,6 +815,7 @@ function createPennyRouteHandlers(deps = {}) {
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
             promptTruth: runtimeMemoryContext.promptTruth,
+            initiativePromptBridge: runtimeMemoryContext.initiativePromptBridge,
             latencyBudget: runtimeMemoryContext.latencyBudget,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
@@ -837,6 +841,7 @@ function createPennyRouteHandlers(deps = {}) {
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
             promptTruth: runtimeMemoryContext.promptTruth,
+            initiativePromptBridge: runtimeMemoryContext.initiativePromptBridge,
             latencyBudget: runtimeMemoryContext.latencyBudget,
           });
           sendJson(res, 200, {
@@ -889,6 +894,7 @@ function createPennyRouteHandlers(deps = {}) {
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
             promptTruth: runtimeMemoryContext.promptTruth,
+            initiativePromptBridge: runtimeMemoryContext.initiativePromptBridge,
             latencyBudget: runtimeMemoryContext.latencyBudget,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
@@ -913,6 +919,7 @@ function createPennyRouteHandlers(deps = {}) {
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
             promptTruth: runtimeMemoryContext.promptTruth,
+            initiativePromptBridge: runtimeMemoryContext.initiativePromptBridge,
             latencyBudget: runtimeMemoryContext.latencyBudget,
           });
           sendJson(res, 200, {
@@ -965,6 +972,7 @@ function createPennyRouteHandlers(deps = {}) {
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
             promptTruth: runtimeMemoryContext.promptTruth,
+            initiativePromptBridge: runtimeMemoryContext.initiativePromptBridge,
             latencyBudget: runtimeMemoryContext.latencyBudget,
             routePath: '/api/penny/chat/shadow',
             archiveEligible: true,
@@ -991,6 +999,7 @@ function createPennyRouteHandlers(deps = {}) {
             synthesis,
             promptComposition: runtimeMemoryContext.promptComposition,
             promptTruth: runtimeMemoryContext.promptTruth,
+            initiativePromptBridge: runtimeMemoryContext.initiativePromptBridge,
             latencyBudget: runtimeMemoryContext.latencyBudget,
           });
           sendJson(res, 200, {
@@ -1106,6 +1115,7 @@ function createPennyRouteHandlers(deps = {}) {
         sessionId,
         memories,
         userText,
+        messages,
         lane: requestedMode === 'shadow' ? 'shadow' : laneSelection.localLane,
         attachmentType: image ? 'image' : (fileAttachment ? 'file' : 'none'),
       });
@@ -1349,6 +1359,7 @@ function createPennyRouteHandlers(deps = {}) {
             readiness,
             promptComposition: runtimeMemoryContext.promptComposition,
             promptTruth: runtimeMemoryContext.promptTruth,
+            initiativePromptBridge: runtimeMemoryContext.initiativePromptBridge,
             latencyBudget: runtimeMemoryContext.latencyBudget,
             researchLedgerRendered,
             researchLedgerPromptInjected: researchLedgerRendered,
@@ -1395,6 +1406,7 @@ function createPennyRouteHandlers(deps = {}) {
             readiness,
             promptComposition: runtimeMemoryContext.promptComposition,
             promptTruth: runtimeMemoryContext.promptTruth,
+            initiativePromptBridge: runtimeMemoryContext.initiativePromptBridge,
             latencyBudget: runtimeMemoryContext.latencyBudget,
             researchLedgerRendered,
             researchLedgerPromptInjected: researchLedgerRendered,
@@ -1655,6 +1667,7 @@ function createPennyRouteHandlers(deps = {}) {
         readiness,
         promptComposition: runtimeMemoryContext.promptComposition,
         promptTruth: runtimeMemoryContext.promptTruth,
+        initiativePromptBridge: runtimeMemoryContext.initiativePromptBridge,
         latencyBudget: runtimeMemoryContext.latencyBudget,
         researchLedgerRendered,
         researchLedgerPromptInjected: researchLedgerRendered,
@@ -1702,6 +1715,7 @@ function createPennyRouteHandlers(deps = {}) {
         readiness,
         promptComposition: runtimeMemoryContext.promptComposition,
         promptTruth: runtimeMemoryContext.promptTruth,
+        initiativePromptBridge: runtimeMemoryContext.initiativePromptBridge,
         latencyBudget: runtimeMemoryContext.latencyBudget,
         researchLedgerRendered,
         researchLedgerPromptInjected: researchLedgerRendered,

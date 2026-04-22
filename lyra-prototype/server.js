@@ -33,7 +33,13 @@ const {
 const {
   buildLiveOpenLoopPromptBridge,
   mergeOpenLoopPromptBridgeIntoArchiveContext,
+  normalizeOpenLoop,
+  selectRelevantOpenLoops,
 } = require('./lib/penny-open-loops');
+const {
+  buildLiveInitiativePromptBridge,
+  extractRecentInitiativesFromMessages,
+} = require('./lib/penny-initiative-policy');
 const {
   buildPromptStack,
 } = require('./lib/penny-prompt-stack');
@@ -192,6 +198,9 @@ const PENNY_STATIC_EMBED_CACHE_FILE = process.env.PENNY_STATIC_EMBED_CACHE_FILE
 const PENNY_ENABLE_OPEN_LOOP_PROMPT = isEnabledEnv(process.env.PENNY_ENABLE_OPEN_LOOP_PROMPT);
 const PENNY_OPEN_LOOP_MAX_RENDERED = boundedEnvInteger(process.env.PENNY_OPEN_LOOP_MAX_RENDERED, 1, 0, 1);
 const PENNY_OPEN_LOOP_MAX_TOKENS = boundedEnvInteger(process.env.PENNY_OPEN_LOOP_MAX_TOKENS, 120, 40, 120);
+const PENNY_ENABLE_BOUNDED_INITIATIVE = isEnabledEnv(process.env.PENNY_ENABLE_BOUNDED_INITIATIVE);
+const PENNY_INITIATIVE_MAX_PER_TURN = boundedEnvInteger(process.env.PENNY_INITIATIVE_MAX_PER_TURN, 1, 0, 1);
+const PENNY_INITIATIVE_COOLDOWN_TURNS = boundedEnvInteger(process.env.PENNY_INITIATIVE_COOLDOWN_TURNS, 3, 0, 20);
 const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 /** Full request budget for /chat/completions and /responses (prompt eval + generation). Large quants (e.g. 30B+) and multi-step local tool turns can legitimately take a long time; LM Studio logs "Client disconnected" if this fires first. Override with PENNY_LMSTUDIO_TIMEOUT_MS (ms). */
@@ -449,10 +458,53 @@ function staticCandidatesForOpenLoopBridge(retrieval = null) {
   }
   return [];
 }
+function sourceLabelForInitiativeLoop(loop = {}) {
+  const refs = Array.isArray(loop?.sourceRefs) ? loop.sourceRefs : [];
+  const ref = refs.find((item) => item && typeof item === 'object') || null;
+  if (!ref) return 'penny-open-loop-state';
+  return String(ref.path || ref.url || ref.id || ref.label || ref.note || 'penny-open-loop-state').trim()
+    || 'penny-open-loop-state';
+}
+function openLoopCandidatesForInitiative({
+  state = null,
+  userText = '',
+  staticCandidates = [],
+  now = new Date(),
+} = {}) {
+  const loops = Array.isArray(state?.loops) ? state.loops : [];
+  if (!loops.length) return [];
+  const selection = selectRelevantOpenLoops({
+    loops,
+    userText,
+    staticCandidates,
+    maxLoops: 1,
+    now,
+  });
+  const loopsById = new Map();
+  for (const rawLoop of loops) {
+    const loop = normalizeOpenLoop(rawLoop);
+    if (loop && !loopsById.has(loop.id)) loopsById.set(loop.id, loop);
+  }
+  return selection.selected
+    .map((selectedLoop) => {
+      const loop = loopsById.get(selectedLoop.id);
+      if (!loop || !loop.nextLikelyStep) return null;
+      return {
+        ...loop,
+        selected: true,
+        surfaceReason: selectedLoop.surfaceReason || 'selected-open-loop',
+        confidence: selectedLoop.confidence || loop.confidence || 'medium',
+        source: sourceLabelForInitiativeLoop(loop),
+        id: loop.id,
+      };
+    })
+    .filter(Boolean);
+}
 async function buildRuntimeMemoryContext({
   sessionId = 'default',
   memories = {},
   userText = '',
+  messages = [],
   lane = 'chat',
   attachmentType = 'none',
   latencyBudget = null,
@@ -497,9 +549,9 @@ async function buildRuntimeMemoryContext({
     userText,
     budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
   );
-  const shouldReadOpenLoopState = PENNY_ENABLE_OPEN_LOOP_PROMPT
-    && PENNY_OPEN_LOOP_MAX_RENDERED > 0
-    && !suppressOpenLoopForCanon;
+  const shouldReadOpenLoopState = !suppressOpenLoopForCanon
+    && ((PENNY_ENABLE_OPEN_LOOP_PROMPT && PENNY_OPEN_LOOP_MAX_RENDERED > 0)
+      || (PENNY_ENABLE_BOUNDED_INITIATIVE && PENNY_INITIATIVE_MAX_PER_TURN > 0));
   const openLoopRead = shouldReadOpenLoopState
     ? openLoopStoreApi.readOpenLoopState({ createIfMissing: false })
     : null;
@@ -522,6 +574,26 @@ async function buildRuntimeMemoryContext({
     archiveContext: archive.archiveContext,
     bridge: openLoopPromptBridge,
   });
+  const initiativePromptBridge = buildLiveInitiativePromptBridge({
+    enabled: PENNY_ENABLE_BOUNDED_INITIATIVE && !suppressOpenLoopForCanon,
+    disabledReason: !PENNY_ENABLE_BOUNDED_INITIATIVE
+      ? 'env-disabled'
+      : (suppressOpenLoopForCanon ? 'canon-priority-suppression' : ''),
+    userText,
+    relevantOpenLoops: openLoopCandidatesForInitiative({
+      state: openLoopRead?.state || null,
+      userText,
+      staticCandidates: staticCandidatesForOpenLoopBridge(retrieval),
+      now: new Date(),
+    }),
+    userPreferences: memories,
+    recentInitiatives: extractRecentInitiativesFromMessages(messages, {
+      cooldownTurns: PENNY_INITIATIVE_COOLDOWN_TURNS,
+    }),
+    maxPerTurn: PENNY_INITIATIVE_MAX_PER_TURN,
+    cooldownTurns: PENNY_INITIATIVE_COOLDOWN_TURNS,
+    now: new Date(),
+  });
   const epistemics = buildEpistemicCaution({
     enabled: PENNY_ENABLE_EPISTEMIC_CAUTION,
     userText,
@@ -540,6 +612,7 @@ async function buildRuntimeMemoryContext({
   const enrichedMemories = enrichMemoriesForPromptApi({
     ...memories,
     memoryBookContext: memoryBooks,
+    initiativePromptBridge,
     openLoopPromptBridge,
   }, promptArchiveContext, {
     epistemicCaution: epistemics,
@@ -575,6 +648,7 @@ async function buildRuntimeMemoryContext({
     synthesis,
     promptComposition,
     openLoopPromptBridge,
+    initiativePromptBridge,
     latencyBudget: budget,
   };
 }

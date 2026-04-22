@@ -154,6 +154,30 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
         },
       },
     },
+    initiativePromptBridge: {
+      schema: 'penny-initiative-prompt-bridge.v1',
+      enabled: true,
+      livePromptBridge: true,
+      liveChatTouched: true,
+      maxPerTurn: 1,
+      cooldownTurns: 3,
+      promptTruthExpanded: false,
+      promptTruthChannelAdded: false,
+      memoryWrites: false,
+      autonomousActions: false,
+      selected: [
+        {
+          initiativeType: 'next-step-suggestion',
+          candidateId: 'bounded-initiative-policy',
+          sourceLabel: 'docs/penny-tier1-aliveness-plans/03-bounded-initiative-policy-plan.md',
+          confidence: 'high',
+          riskClass: 'low',
+        },
+      ],
+      promptBridge: {
+        renderedCount: 1,
+      },
+    },
     latencyBudget: {
       latencyClass: 'memory-heavy-recall',
       policyMode: 'recall-heavy',
@@ -196,6 +220,13 @@ test('buildRuntimeArtifact records a compact retrieval trace for inspector and Q
   assert.equal(artifact.trace.evidenceAccepted.length > 0, true);
   assert.equal(artifact.modelAdvisory.promptComposition.lane, 'chat');
   assert.equal(artifact.modelAdvisory.promptComposition.slots[2].state, 'held-back');
+  assert.equal(artifact.modelAdvisory.initiativePromptBridge.schema, 'penny-initiative-prompt-bridge.v1');
+  assert.equal(artifact.modelAdvisory.initiativePromptBridge.livePromptBridge, true);
+  assert.equal(artifact.modelAdvisory.initiativePromptBridge.renderedCount, 1);
+  assert.deepEqual(artifact.modelAdvisory.initiativePromptBridge.selected.map((item) => item.candidateId), ['bounded-initiative-policy']);
+  assert.equal(artifact.modelAdvisory.initiativePromptBridge.promptTruthExpanded, false);
+  assert.equal(artifact.modelAdvisory.initiativePromptBridge.promptTruthChannelAdded, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(artifact.promptTruth.channels, 'initiativePromptBridge'), false);
   assert.equal(artifact.promptTruth.schema, 'penny-prompttruth.v1');
   assert.equal(artifact.modelAdvisory.promptTruth.schema, 'penny-prompttruth.v1');
   assert.equal(artifact.promptTruth.channels.sessionArchive.renderedCount, 1);

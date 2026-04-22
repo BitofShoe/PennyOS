@@ -363,6 +363,9 @@ function buildPromptMemoryContext(
   const researchLedgerContext = memories?.researchLedgerContext && typeof memories.researchLedgerContext === 'object'
     ? memories.researchLedgerContext
     : null;
+  const initiativePromptBridge = memories?.initiativePromptBridge && typeof memories.initiativePromptBridge === 'object'
+    ? memories.initiativePromptBridge
+    : null;
   const researchLedgerContextAvailable = !!(researchLedgerContext && typeof researchLedgerContext === 'object');
   const researchLedgerPromptEnabled = memories?.researchLedgerPromptEnabled !== false;
   const retrievalHints = [];
@@ -442,18 +445,25 @@ function buildPromptMemoryContext(
   const ongoingInvestigations = researchLedgerPromptEnabled
     ? researchLedgerEntries.map((item) => item.text)
     : [];
+  const initiativeLines = initiativePromptBridge?.enabled === true
+    && Number(initiativePromptBridge?.promptBridge?.renderedCount || 0) > 0
+    && initiativePromptBridge?.promptBridge?.promptText
+    ? [normalizeText(initiativePromptBridge.promptBridge.promptText)]
+    : [];
 
   const stableFactsSection = formatPromptSection('Wake state - stable facts', stableFacts);
   const sessionContextSection = formatPromptSection('Wake state - active session context', sessionContext);
   const contradictionSection = formatPromptSection('Wake state - contradictions/open questions', contradictionAndLoopLines);
   const investigationsSection = formatPromptSection('Wake state - ongoing investigations (advisory)', ongoingInvestigations);
   const retrievalHintsSection = formatPromptSection('Wake state - retrieval hints (advisory)', retrievalHints);
+  const initiativeSection = formatPromptSection('Wake state - optional initiative (advisory)', initiativeLines);
 
   if (stableFactsSection) sections.push(stableFactsSection);
   if (!suppressArchiveForDirectAuthority && sessionContextSection) sections.push(sessionContextSection);
   if (contradictionSection) sections.push(contradictionSection);
   if (!suppressArchiveForDirectAuthority && investigationsSection) sections.push(investigationsSection);
   if (!suppressArchiveForDirectAuthority && retrievalHintsSection) sections.push(retrievalHintsSection);
+  if (!suppressArchiveForDirectAuthority && initiativeSection) sections.push(initiativeSection);
 
   const sessionArchiveHeldBackReason = suppressArchiveForDirectAuthority && sessionContextEntries.length
     ? PROMPT_TRUTH_HOLDBACK_REASONS.CANON_PRIORITY

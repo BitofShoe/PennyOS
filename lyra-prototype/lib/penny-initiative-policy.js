@@ -1,5 +1,6 @@
 const INITIATIVE_DECISION_SCHEMA = 'penny-initiative-decision.v1';
 const INITIATIVE_PROMPT_SCAFFOLD_SCHEMA = 'penny-initiative-prompt-scaffold.v1';
+const INITIATIVE_PROMPT_BRIDGE_SCHEMA = 'penny-initiative-prompt-bridge.v1';
 
 const INITIATIVE_TYPES = Object.freeze({
   NONE: 'none',
@@ -227,6 +228,22 @@ function normalizeBoolean(value) {
   if (['true', 'yes', 'on', 'enabled'].includes(token)) return true;
   if (['false', 'no', 'off', 'disabled'].includes(token)) return false;
   return null;
+}
+
+function clampInteger(value, fallback = 1, min = 0, max = 20) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
+}
+
+function normalizeIso(value = '') {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? value.toISOString() : '';
+  }
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : '';
 }
 
 function hasInitiativeOptOutText(userText = '') {
@@ -845,14 +862,16 @@ function findInitiativeCandidate({
   return null;
 }
 
-function recentInitiativeStillApplies(candidate = {}, recent = []) {
+function recentInitiativeStillApplies(candidate = {}, recent = [], cooldownTurns = 3) {
+  const cooldownLimit = clampInteger(cooldownTurns, 3, 0, 20);
+  if (cooldownLimit <= 0) return false;
   const candidateType = normalizeInitiativeType(candidate.initiativeType, INITIATIVE_TYPES.NONE);
   const candidateText = cleanString(candidate.suggestionText || '', 260).toLowerCase();
   for (const item of listValue(recent)) {
     if (!isPlainObject(item)) continue;
     const turnsAgo = Number(item.turnsAgo ?? item.ageTurns ?? item.turnOffset);
     const hasTurnDistance = Number.isFinite(turnsAgo);
-    const isRecent = hasTurnDistance ? turnsAgo <= 3 : true;
+    const isRecent = hasTurnDistance ? turnsAgo <= cooldownLimit : true;
     if (!isRecent) continue;
 
     const recentType = normalizeInitiativeType(item.initiativeType || item.type || '', INITIATIVE_TYPES.NONE);
@@ -874,6 +893,7 @@ function decideInitiative({
   userPreferences = {},
   recentInitiatives = [],
   riskContext = null,
+  cooldownTurns = 3,
 } = {}) {
   const cleanUserText = cleanString(userText, 2000);
   const turnSignals = collectTurnSignals({
@@ -961,7 +981,7 @@ function decideInitiative({
     });
   }
 
-  if (recentInitiativeStillApplies(candidate, recentInitiatives)) {
+  if (recentInitiativeStillApplies(candidate, recentInitiatives, cooldownTurns)) {
     return baseDecision({
       reason: 'recent initiative cooldown suppresses repeated suggestion',
       riskClass: candidate.riskClass,
@@ -994,6 +1014,48 @@ function decideInitiative({
     forbiddenActions: FORBIDDEN_ACTIONS.slice(),
     heldBack: [],
   };
+}
+
+function inferInitiativeTypeFromAssistantText(text = '') {
+  const source = cleanString(text, 2000).toLowerCase();
+  if (!source) return INITIATIVE_TYPES.NONE;
+  if (/\b(?:tiny|small|optional|one)\b.{0,40}\b(?:next[-\s]?step|suggestion|nudge)\b/i.test(source)) {
+    return INITIATIVE_TYPES.NEXT_STEP_SUGGESTION;
+  }
+  if (/\bsource[-\s]?check\b|\bverify\b.{0,40}\bbefore\b/i.test(source)) {
+    return INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION;
+  }
+  if (/\bwant me to remember\b|\bshould i remember\b/i.test(source)) {
+    return INITIATIVE_TYPES.MEMORY_SUGGESTION;
+  }
+  if (/\bopen loop\b|\bremind(?:er)?\b.{0,40}\b(?:thread|loop|next step)\b/i.test(source)) {
+    return INITIATIVE_TYPES.OPEN_LOOP_REMINDER;
+  }
+  return INITIATIVE_TYPES.NONE;
+}
+
+function extractRecentInitiativesFromMessages(messages = [], { cooldownTurns = 3 } = {}) {
+  const cooldownLimit = clampInteger(cooldownTurns, 3, 0, 20);
+  if (cooldownLimit <= 0) return [];
+  const out = [];
+  let userTurnsSeen = 0;
+  for (const msg of [...(Array.isArray(messages) ? messages : [])].reverse()) {
+    const role = String(msg?.role || '').trim().toLowerCase();
+    if (role === 'user') {
+      userTurnsSeen += 1;
+      if (userTurnsSeen > cooldownLimit) break;
+      continue;
+    }
+    if (role !== 'assistant') continue;
+    const initiativeType = inferInitiativeTypeFromAssistantText(msg?.content || msg?.text || '');
+    if (initiativeType === INITIATIVE_TYPES.NONE) continue;
+    out.push({
+      initiativeType,
+      suggestionText: cleanString(msg?.content || msg?.text || '', 260),
+      turnsAgo: userTurnsSeen,
+    });
+  }
+  return out;
 }
 
 function initiativeScaffoldLabel(initiativeType = INITIATIVE_TYPES.NONE) {
@@ -1105,13 +1167,119 @@ function buildInitiativePromptScaffold({
   };
 }
 
+function buildLiveInitiativePromptBridge({
+  enabled = false,
+  disabledReason = '',
+  userText = '',
+  turnState = {},
+  relevantOpenLoops = [],
+  retrievalSignals = [],
+  staticMemoryReflex = null,
+  sourceTrustFlags = null,
+  toolState = null,
+  userPreferences = {},
+  recentInitiatives = [],
+  riskContext = null,
+  maxPerTurn = 1,
+  cooldownTurns = 3,
+  now = new Date(),
+} = {}) {
+  const maxSuggestions = clampInteger(maxPerTurn, 1, 0, 1);
+  const cooldownLimit = clampInteger(cooldownTurns, 3, 0, 20);
+  const liveEnabled = enabled === true && maxSuggestions > 0;
+  const decision = liveEnabled
+    ? decideInitiative({
+        userText,
+        turnState,
+        relevantOpenLoops,
+        retrievalSignals,
+        staticMemoryReflex,
+        sourceTrustFlags,
+        toolState,
+        userPreferences,
+        recentInitiatives,
+        riskContext,
+        cooldownTurns: cooldownLimit,
+      })
+    : baseDecision({
+        reason: disabledReason || (maxSuggestions <= 0 ? 'max-per-turn-0' : 'bounded initiative disabled'),
+        heldBack: [buildHeldBack(maxSuggestions <= 0 ? 'max-per-turn-0' : (disabledReason || 'env-disabled'), {
+          initiativeType: INITIATIVE_TYPES.NONE,
+        })],
+      });
+  const scaffold = buildInitiativePromptScaffold({ decision });
+  const rendered = liveEnabled && scaffold.rendered === true;
+  const selected = rendered
+    ? [{
+        initiativeType: scaffold.initiativeType,
+        suggestionText: cleanString(decision.suggestionText || '', 260),
+        sourceLabel: scaffold.sourceLabel || '',
+        candidateId: cleanString(decision.candidateId || '', 120),
+        riskClass: cleanString(decision.riskClass || '', 80),
+        confidence: cleanString(decision.confidence || '', 80),
+      }]
+    : [];
+  const heldBack = rendered
+    ? []
+    : (Array.isArray(scaffold.heldBack) && scaffold.heldBack.length
+      ? scaffold.heldBack
+      : (Array.isArray(decision.heldBack) ? decision.heldBack : []));
+
+  return {
+    schema: INITIATIVE_PROMPT_BRIDGE_SCHEMA,
+    scaffoldSchema: INITIATIVE_PROMPT_SCAFFOLD_SCHEMA,
+    generatedAt: normalizeIso(now) || new Date().toISOString(),
+    enabled: liveEnabled,
+    disabledReason: liveEnabled ? '' : cleanString(disabledReason || (maxSuggestions <= 0 ? 'max-per-turn-0' : 'env-disabled'), 160),
+    livePromptBridge: rendered,
+    liveChatTouched: rendered,
+    promptTruthExpanded: false,
+    promptTruthChannelAdded: false,
+    toolEvidenceReceiptChanged: false,
+    memoryWrites: false,
+    autonomousActions: false,
+    memoryWriteAllowed: false,
+    actionAllowed: false,
+    maxPerTurn: maxSuggestions,
+    cooldownTurns: cooldownLimit,
+    decision,
+    scaffold: {
+      ...scaffold,
+      livePromptBridge: rendered,
+      liveChatTouched: rendered,
+    },
+    selected,
+    heldBack,
+    promptBridge: {
+      renderedCount: rendered ? 1 : 0,
+      promptText: rendered ? scaffold.promptText : '',
+      snippets: rendered
+        ? [{
+            initiativeType: scaffold.initiativeType,
+            sourceLabel: scaffold.sourceLabel || '',
+            wordCount: scaffold.wordCount || 0,
+            text: scaffold.promptText,
+          }]
+        : [],
+    },
+    limits: [
+      'Bounded initiative is suggest-only and capped at one prompt snippet.',
+      'This bridge does not take actions, write memory, or expand PromptTruth.',
+      'Source-check suggestions must not claim verification that did not happen.',
+    ],
+  };
+}
+
 module.exports = {
   FORBIDDEN_ACTIONS,
   INITIATIVE_CONFIDENCE,
   INITIATIVE_DECISION_SCHEMA,
+  INITIATIVE_PROMPT_BRIDGE_SCHEMA,
   INITIATIVE_PROMPT_SCAFFOLD_SCHEMA,
   INITIATIVE_RISK_CLASSES,
   INITIATIVE_TYPES,
+  buildLiveInitiativePromptBridge,
   buildInitiativePromptScaffold,
   decideInitiative,
+  extractRecentInitiativesFromMessages,
 };

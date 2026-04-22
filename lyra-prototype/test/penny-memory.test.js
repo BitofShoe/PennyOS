@@ -646,3 +646,27 @@ test('formatPromptMemories renders live open-loop bridge snippets without adding
   assert.equal(promptTruth.channels.globalArchive.renderedCount, 0);
   assert.equal(promptTruth.channels.researchLedger.renderedCount, 0);
 });
+
+test('formatPromptMemories renders live initiative bridge snippets without adding a PromptTruth channel', () => {
+  const now = Date.UTC(2026, 3, 22);
+  const memories = {
+    initiativePromptBridge: {
+      enabled: true,
+      promptBridge: {
+        renderedCount: 1,
+        promptText: 'Optional initiative, max one sentence: Suggest as an ignorable next-step suggestion, grounded in docs/penny-tier1-aliveness-plans/03-bounded-initiative-policy-plan.md: Test the correction guardrail before enabling live-advisory; do not take action; do not save memory; make it easy to ignore.',
+      },
+    },
+  };
+  const out = formatPromptMemories(memories, 'What is one small next move?', 3, '- Nothing yet.', now);
+  const promptTruth = buildPromptTruth(memories, 'What is one small next move?', 3, '- Nothing yet.', now);
+
+  assert.match(out, /Wake state - optional initiative \(advisory\):/);
+  assert.match(out, /Optional initiative, max one sentence:/);
+  assert.match(out, /do not take action/);
+  assert.equal(Object.prototype.hasOwnProperty.call(promptTruth.channels, 'initiative'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(promptTruth.channels, 'boundedInitiative'), false);
+  assert.equal(promptTruth.channels.sessionArchive.renderedCount, 0);
+  assert.equal(promptTruth.channels.globalArchive.renderedCount, 0);
+  assert.equal(promptTruth.channels.researchLedger.renderedCount, 0);
+});

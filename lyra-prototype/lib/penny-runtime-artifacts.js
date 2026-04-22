@@ -999,6 +999,61 @@ function normalizePromptComposition(value = {}, defaults = {}) {
   );
 }
 
+function normalizeInitiativePromptBridge(value = {}, defaults = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const rawPromptBridge = raw.promptBridge && typeof raw.promptBridge === 'object' ? raw.promptBridge : {};
+  const fallbackPromptBridge = fallback.promptBridge && typeof fallback.promptBridge === 'object'
+    ? fallback.promptBridge
+    : {};
+  const rawScaffold = raw.scaffold && typeof raw.scaffold === 'object' ? raw.scaffold : {};
+  const fallbackScaffold = fallback.scaffold && typeof fallback.scaffold === 'object' ? fallback.scaffold : {};
+  const rawSelected = Array.isArray(raw.selected) ? raw.selected : (Array.isArray(fallback.selected) ? fallback.selected : []);
+  const rawHeldBack = Array.isArray(raw.heldBack) ? raw.heldBack : (Array.isArray(fallback.heldBack) ? fallback.heldBack : []);
+  const renderedCount = Math.max(0, Number(
+    raw.renderedCount
+      ?? rawPromptBridge.renderedCount
+      ?? rawScaffold.renderedCount
+      ?? fallback.renderedCount
+      ?? fallbackPromptBridge.renderedCount
+      ?? fallbackScaffold.renderedCount
+      ?? 0,
+  ));
+  const selected = rawSelected
+    .map((item) => ({
+      initiativeType: trimText(item?.initiativeType || '', 80),
+      candidateId: trimText(item?.candidateId || item?.id || '', 120),
+      sourceLabel: trimText(item?.sourceLabel || item?.source || '', 160),
+      confidence: trimText(item?.confidence || '', 60),
+      riskClass: trimText(item?.riskClass || '', 60),
+    }))
+    .filter((item) => item.initiativeType || item.candidateId || item.sourceLabel)
+    .slice(0, 1);
+  return {
+    schema: trimText(raw.schema || fallback.schema || 'penny-initiative-prompt-bridge.v1', 120),
+    enabled: raw.enabled === true || fallback.enabled === true,
+    disabledReason: trimText(raw.disabledReason || fallback.disabledReason || '', 160),
+    livePromptBridge: raw.livePromptBridge === true || fallback.livePromptBridge === true,
+    liveChatTouched: raw.liveChatTouched === true || fallback.liveChatTouched === true,
+    renderedCount,
+    maxPerTurn: Math.max(0, Math.min(1, Number(raw.maxPerTurn ?? fallback.maxPerTurn ?? 1))),
+    cooldownTurns: Math.max(0, Math.min(20, Number(raw.cooldownTurns ?? fallback.cooldownTurns ?? 3))),
+    promptTruthExpanded: false,
+    promptTruthChannelAdded: false,
+    toolEvidenceReceiptChanged: false,
+    memoryWrites: false,
+    autonomousActions: false,
+    selected,
+    heldBack: rawHeldBack
+      .map((item) => ({
+        reason: trimText(item?.reason || '', 120),
+        initiativeType: trimText(item?.initiativeType || '', 80),
+      }))
+      .filter((item) => item.reason || item.initiativeType)
+      .slice(0, 8),
+  };
+}
+
 function normalizeApproximatePath(value = {}, defaults = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
@@ -1992,6 +2047,7 @@ function buildRuntimeArtifact({
   readiness = null,
   promptComposition = null,
   promptTruth = null,
+  initiativePromptBridge = null,
   latencyBudget = null,
   researchLedgerRendered = false,
   researchLedgerPromptInjected = false,
@@ -2224,6 +2280,7 @@ function buildRuntimeArtifact({
       authorityPressure,
       promptComposition: normalizePromptComposition(promptComposition),
       promptTruth: normalizedPromptTruth,
+      initiativePromptBridge: normalizeInitiativePromptBridge(initiativePromptBridge),
       reasoningPolicy,
       approximatePath,
       advisoryMerge,
@@ -2283,6 +2340,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
   const epistemics = normalizeEpistemicCaution(raw.epistemics || fallback.epistemics);
   const synthesis = normalizeArchiveSynthesis(raw.synthesis || fallback.synthesis);
   const reasoningPolicy = normalizeReasoningPolicy(advisoryRaw.reasoningPolicy, fallback.modelAdvisory?.reasoningPolicy);
+  const initiativePromptBridge = normalizeInitiativePromptBridge(advisoryRaw.initiativePromptBridge, fallback.modelAdvisory?.initiativePromptBridge);
   return {
     version,
     kind,
@@ -2359,6 +2417,7 @@ function normalizeRuntimeArtifact(value = {}, defaults = {}) {
       authorityPressure: normalizeAuthorityPressure(advisoryRaw.authorityPressure, fallback.modelAdvisory?.authorityPressure),
       promptComposition: normalizePromptComposition(advisoryRaw.promptComposition, fallback.modelAdvisory?.promptComposition),
       promptTruth,
+      initiativePromptBridge,
       reasoningPolicy,
       approximatePath: normalizeApproximatePath(advisoryRaw.approximatePath, fallback.modelAdvisory?.approximatePath),
       advisoryMerge: normalizeAdvisoryMergeSummary(advisoryRaw.advisoryMerge, fallback.modelAdvisory?.advisoryMerge),
@@ -2434,6 +2493,7 @@ function normalizeLastRouteInfo(value) {
       readiness,
       promptComposition: value.promptComposition || null,
       promptTruth,
+      initiativePromptBridge: value.initiativePromptBridge || null,
       latencyBudget: value.latencyBudget || null,
       researchLedgerRendered,
       researchLedgerPromptInjected: researchLedgerRendered,
@@ -2507,6 +2567,7 @@ function buildLastRouteInfo({
   readiness = null,
   promptComposition = null,
   promptTruth = null,
+  initiativePromptBridge = null,
   latencyBudget = null,
   researchLedgerRendered = false,
   researchLedgerPromptInjected = false,
@@ -2548,6 +2609,7 @@ function buildLastRouteInfo({
     readiness,
     promptComposition,
     promptTruth,
+    initiativePromptBridge,
     latencyBudget,
     researchLedgerRendered,
     researchLedgerPromptInjected,
@@ -2590,6 +2652,7 @@ function buildLastRouteInfo({
       readiness,
       promptComposition,
       promptTruth,
+      initiativePromptBridge,
       latencyBudget,
       researchLedgerRendered,
       researchLedgerPromptInjected,

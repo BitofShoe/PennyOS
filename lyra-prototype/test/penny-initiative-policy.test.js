@@ -8,11 +8,14 @@ const {
   FORBIDDEN_ACTIONS,
   INITIATIVE_CONFIDENCE,
   INITIATIVE_DECISION_SCHEMA,
+  INITIATIVE_PROMPT_BRIDGE_SCHEMA,
   INITIATIVE_PROMPT_SCAFFOLD_SCHEMA,
   INITIATIVE_RISK_CLASSES,
   INITIATIVE_TYPES,
+  buildLiveInitiativePromptBridge,
   buildInitiativePromptScaffold,
   decideInitiative,
+  extractRecentInitiativesFromMessages,
 } = require('../lib/penny-initiative-policy');
 const {
   INITIATIVE_FIXTURE_SCHEMA,
@@ -579,4 +582,130 @@ test('bounded initiative fixture helpers keep cases and writer deterministic', (
   assert.equal(parseArgValue('output', ['--output', 'tmp/out.json']), 'tmp/out.json');
   assert.equal(parseArgValue('output', ['--output=tmp/out.json']), 'tmp/out.json');
   assert.equal(parseArgValue('output', ['--other', 'tmp/out.json']), '');
+});
+
+test('live initiative bridge stays off by default and leaves prompt truth alone', () => {
+  const bridge = buildLiveInitiativePromptBridge({
+    enabled: false,
+    disabledReason: 'env-disabled',
+    userText: 'What is one small next move?',
+    relevantOpenLoops: [
+      {
+        id: 'bounded-initiative-policy',
+        selected: true,
+        confidence: 'high',
+        nextLikelyStep: 'Run the focused initiative policy test.',
+      },
+    ],
+  });
+
+  assert.equal(bridge.schema, INITIATIVE_PROMPT_BRIDGE_SCHEMA);
+  assert.equal(bridge.enabled, false);
+  assert.equal(bridge.disabledReason, 'env-disabled');
+  assert.equal(bridge.livePromptBridge, false);
+  assert.equal(bridge.liveChatTouched, false);
+  assert.equal(bridge.promptTruthExpanded, false);
+  assert.equal(bridge.promptTruthChannelAdded, false);
+  assert.equal(bridge.toolEvidenceReceiptChanged, false);
+  assert.equal(bridge.memoryWrites, false);
+  assert.equal(bridge.autonomousActions, false);
+  assert.equal(bridge.promptBridge.renderedCount, 0);
+  assert.equal(bridge.promptBridge.promptText, '');
+});
+
+test('live initiative bridge renders one source-aware suggest-only snippet when enabled', () => {
+  const bridge = buildLiveInitiativePromptBridge({
+    enabled: true,
+    maxPerTurn: 1,
+    cooldownTurns: 3,
+    userText: 'What is one small next move for bounded initiative?',
+    relevantOpenLoops: [
+      {
+        id: 'bounded-initiative-policy',
+        selected: true,
+        confidence: 'high',
+        surfaceReason: 'explicit-anchor',
+        nextLikelyStep: 'Test the correction guardrail before enabling live-advisory.',
+        source: 'docs/penny-tier1-aliveness-plans/03-bounded-initiative-policy-plan.md',
+      },
+      {
+        id: 'adjacent-plan',
+        selected: true,
+        confidence: 'high',
+        nextLikelyStep: 'Also import a second unrelated plan.',
+      },
+    ],
+    now: '2026-04-22T12:00:00.000Z',
+  });
+
+  assert.equal(bridge.enabled, true);
+  assert.equal(bridge.livePromptBridge, true);
+  assert.equal(bridge.liveChatTouched, true);
+  assert.equal(bridge.maxPerTurn, 1);
+  assert.equal(bridge.cooldownTurns, 3);
+  assert.equal(bridge.promptBridge.renderedCount, 1);
+  assert.equal(bridge.promptBridge.snippets.length, 1);
+  assert.equal(bridge.selected.length, 1);
+  assert.equal(bridge.selected[0].candidateId, 'bounded-initiative-policy');
+  assert.match(bridge.promptBridge.promptText, /Optional initiative, max one sentence:/);
+  assert.match(bridge.promptBridge.promptText, /grounded in docs\/penny-tier1-aliveness-plans\/03-bounded-initiative-policy-plan\.md/);
+  assert.match(bridge.promptBridge.promptText, /Test the correction guardrail before enabling live-advisory/);
+  assert.match(bridge.promptBridge.promptText, /do not take action/);
+  assert.match(bridge.promptBridge.promptText, /do not save memory/);
+  assert.equal(bridge.promptTruthExpanded, false);
+  assert.equal(bridge.promptTruthChannelAdded, false);
+  assert.equal(bridge.memoryWrites, false);
+  assert.equal(bridge.autonomousActions, false);
+});
+
+test('live initiative bridge respects opt-out, direct commands, cap zero, and cooldown messages', () => {
+  const candidate = {
+    id: 'bounded-initiative-policy',
+    selected: true,
+    confidence: 'high',
+    nextLikelyStep: 'Run the focused initiative policy test.',
+  };
+
+  const optOut = buildLiveInitiativePromptBridge({
+    enabled: true,
+    userText: 'Stop suggesting next steps for now.',
+    relevantOpenLoops: [candidate],
+  });
+  assert.equal(optOut.livePromptBridge, false);
+  assert.equal(optOut.decision.heldBack[0].reason, 'user-opt-out');
+
+  const directCommand = buildLiveInitiativePromptBridge({
+    enabled: true,
+    userText: 'Please implement Slice I5 and commit when done.',
+    relevantOpenLoops: [candidate],
+  });
+  assert.equal(directCommand.livePromptBridge, false);
+  assert.equal(directCommand.decision.heldBack[0].reason, 'direct-command');
+
+  const capped = buildLiveInitiativePromptBridge({
+    enabled: true,
+    maxPerTurn: 0,
+    userText: 'What is one small next move?',
+    relevantOpenLoops: [candidate],
+  });
+  assert.equal(capped.enabled, false);
+  assert.equal(capped.disabledReason, 'max-per-turn-0');
+  assert.equal(capped.promptBridge.renderedCount, 0);
+
+  const recentInitiatives = extractRecentInitiativesFromMessages([
+    { role: 'assistant', content: 'One tiny next-step suggestion: run the focused initiative policy test.' },
+    { role: 'user', content: 'Okay, what now?' },
+  ], { cooldownTurns: 3 });
+  assert.equal(recentInitiatives.length, 1);
+  assert.equal(recentInitiatives[0].initiativeType, INITIATIVE_TYPES.NEXT_STEP_SUGGESTION);
+
+  const cooledDown = buildLiveInitiativePromptBridge({
+    enabled: true,
+    userText: 'What is one small next move?',
+    relevantOpenLoops: [candidate],
+    recentInitiatives,
+    cooldownTurns: 3,
+  });
+  assert.equal(cooledDown.livePromptBridge, false);
+  assert.equal(cooledDown.decision.heldBack[0].reason, 'recent-initiative-cooldown');
 });
