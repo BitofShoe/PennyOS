@@ -38,6 +38,16 @@ const TIMEOUT_MS = Number(process.env.PENNY_ALIVENESS_COMPARE_TIMEOUT_MS || 1200
 const STARTUP_TIMEOUT_MS = Number(process.env.PENNY_ALIVENESS_COMPARE_STARTUP_TIMEOUT_MS || 120000);
 const STATIC_READY_TIMEOUT_MS = Number(process.env.PENNY_ALIVENESS_COMPARE_STATIC_READY_TIMEOUT_MS || 120000);
 const HUMAN_OBSERVABLE_DELTA = Number(process.env.PENNY_ALIVENESS_COMPARE_OBSERVABLE_DELTA || 1);
+const DEFAULT_MAX_PROMPT_TOKEN_DELTA = 600;
+const DEFAULT_MAX_FIRST_TOKEN_LATENCY_DELTA_MS = 1000;
+const DEFAULT_MAX_TOTAL_LATENCY_DELTA_MS = 2000;
+const PROMPT_TRUTH_CHANNEL_KEYS = Object.freeze([
+  'stableFacts',
+  'memoryBooks',
+  'sessionArchive',
+  'globalArchive',
+  'researchLedger',
+]);
 const CASE_PROMPT_SUFFIX = ' Keep it short, grounded, and honest about what you can actually see.';
 
 function parseArgValue(name, argv = process.argv.slice(2)) {
@@ -77,6 +87,51 @@ function ensureDir(dirPath) {
 function round(value, digits = 2) {
   const factor = 10 ** digits;
   return Math.round(Number(value || 0) * factor) / factor;
+}
+
+function finiteNumberOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function nonNegativeNumber(value, fallback = 0) {
+  const number = finiteNumberOrNull(value);
+  return number === null ? fallback : Math.max(0, number);
+}
+
+function nonNegativeInteger(value, fallback = 0) {
+  return Math.round(nonNegativeNumber(value, fallback));
+}
+
+function normalizeLatencyMs(value) {
+  const number = finiteNumberOrNull(value);
+  return number === null || number < 0 ? null : Math.round(number);
+}
+
+function boundedNumberEnv(env = process.env, key = '', fallback = null) {
+  const number = finiteNumberOrNull(env[key]);
+  return number === null ? fallback : Math.max(0, Math.round(number));
+}
+
+function buildAlivenessRuntimeMetricThresholds(env = process.env) {
+  return {
+    maxPromptTokenDelta: boundedNumberEnv(
+      env,
+      'PENNY_ALIVENESS_COMPARE_MAX_PROMPT_TOKEN_DELTA',
+      DEFAULT_MAX_PROMPT_TOKEN_DELTA,
+    ),
+    maxFirstTokenLatencyDeltaMs: boundedNumberEnv(
+      env,
+      'PENNY_ALIVENESS_COMPARE_MAX_FIRST_TOKEN_LATENCY_DELTA_MS',
+      DEFAULT_MAX_FIRST_TOKEN_LATENCY_DELTA_MS,
+    ),
+    maxTotalLatencyDeltaMs: boundedNumberEnv(
+      env,
+      'PENNY_ALIVENESS_COMPARE_MAX_TOTAL_LATENCY_DELTA_MS',
+      DEFAULT_MAX_TOTAL_LATENCY_DELTA_MS,
+    ),
+  };
 }
 
 function sleep(ms) {
@@ -140,16 +195,49 @@ function outcomeDeltas(outcomes = []) {
   };
 }
 
+function notRunRuntimeMetrics() {
+  return {
+    measurementMode: 'not-run',
+    status: 'not-run',
+    estimatedPromptTokens: null,
+    estimatedPromptTokensScope: 'not-run',
+    selectedMemoryCount: null,
+    renderedMemoryCount: null,
+    staticCandidateCount: null,
+    staticOnlyCandidateCount: null,
+    openLoopRenderedCount: null,
+    initiativeRendered: null,
+    initiativeRenderedCount: null,
+    turnStateRendered: null,
+    turnStateRenderedCount: null,
+    firstTokenLatencyMs: null,
+    totalLatencyMs: null,
+    routeRequestLatencyMs: null,
+    modelRoundTripLatencyMs: null,
+    archiveRetrievalLatencyMs: null,
+    promptAssemblyLatencyMs: null,
+    runtimeMetricsMeasured: false,
+  };
+}
+
 function notRunSide(expectation = {}) {
+  const runtimeMetrics = notRunRuntimeMetrics();
   return {
     ...expectation,
     responseStatus: 'not-run',
     liveModelCalls: false,
-    estimatedPromptTokens: null,
-    firstTokenLatencyMs: null,
-    totalLatencyMs: null,
-    renderedMemoryCount: null,
-    selectedMemoryCount: null,
+    estimatedPromptTokens: runtimeMetrics.estimatedPromptTokens,
+    estimatedPromptTokensScope: runtimeMetrics.estimatedPromptTokensScope,
+    firstTokenLatencyMs: runtimeMetrics.firstTokenLatencyMs,
+    totalLatencyMs: runtimeMetrics.totalLatencyMs,
+    renderedMemoryCount: runtimeMetrics.renderedMemoryCount,
+    selectedMemoryCount: runtimeMetrics.selectedMemoryCount,
+    staticCandidateCount: runtimeMetrics.staticCandidateCount,
+    staticOnlyCandidateCount: runtimeMetrics.staticOnlyCandidateCount,
+    openLoopRenderedCount: runtimeMetrics.openLoopRenderedCount,
+    initiativeRendered: runtimeMetrics.initiativeRendered,
+    turnStateRendered: runtimeMetrics.turnStateRendered,
+    runtimeMetrics,
   };
 }
 
@@ -193,6 +281,11 @@ function buildFixtureCompareCase(fixture = {}) {
       promptTokenDelta: classified.metrics.promptTokenDelta,
       firstTokenLatencyDeltaMs: classified.metrics.firstTokenLatencyDeltaMs,
       totalLatencyDeltaMs: classified.metrics.totalLatencyDeltaMs,
+      selectedMemoryDelta: null,
+      renderedMemoryDelta: null,
+      staticCandidateDelta: null,
+      openLoopRenderedDelta: null,
+      initiativeRenderedDelta: null,
       runtimeMetricsMeasured: false,
       status: 'not-run',
     },
@@ -239,6 +332,13 @@ function buildAlivenessCompareFixtureArtifact({
       featureToggleModeCount: REQUIRED_ALIVENESS_COMPARE_MODES.length,
       baselineDefaultsOff: true,
       runtimeMetricsMeasured: false,
+      runtimeMetrics: {
+        schema: 'penny-aliveness-runtime-metrics.v1',
+        measurementMode: 'fixture',
+        status: 'not-run',
+        measuredCaseCount: 0,
+        thresholds: buildAlivenessRuntimeMetricThresholds(),
+      },
       serverSpawned: false,
       lmStudioCalls: false,
       fixtureSummary,
@@ -248,11 +348,18 @@ function buildAlivenessCompareFixtureArtifact({
       measurementStatus: 'not-run',
       liveLatencyMeasured: false,
       livePromptTokensMeasured: false,
+      runtime: {
+        schema: 'penny-aliveness-runtime-metrics.v1',
+        measurementMode: 'fixture',
+        status: 'not-run',
+        measuredCaseCount: 0,
+        thresholds: buildAlivenessRuntimeMetricThresholds(),
+      },
     },
     limits: [
       'Fixture-only aliveness compare skeleton; no server spawn and no LM Studio calls.',
       'Cases are A2 scenario fixtures adapted into compare-case records.',
-      'Runtime latency and prompt-token metrics are null/not-run until a later live isolated slice.',
+      'Live latency and prompt/context metrics stay null/not-run in fixture mode.',
       'PromptTruth and toolEvidenceReceipt stay unchanged.',
       'Fixture wins do not justify default feature enablement.',
     ],
@@ -846,6 +953,89 @@ function performanceDuration(artifact = {}, key = '') {
   return Number.isFinite(duration) ? duration : null;
 }
 
+function promptTruthCounts(artifact = null) {
+  const promptTruth = artifact?.promptTruth && typeof artifact.promptTruth === 'object'
+    ? artifact.promptTruth
+    : (artifact?.modelAdvisory?.promptTruth && typeof artifact.modelAdvisory.promptTruth === 'object'
+      ? artifact.modelAdvisory.promptTruth
+      : {});
+  const channels = promptTruth?.channels && typeof promptTruth.channels === 'object'
+    ? promptTruth.channels
+    : {};
+  const byChannel = {};
+  let selectedMemoryCount = 0;
+  let renderedMemoryCount = 0;
+  for (const channel of PROMPT_TRUTH_CHANNEL_KEYS) {
+    const value = channels[channel] && typeof channels[channel] === 'object' ? channels[channel] : {};
+    const candidateCount = nonNegativeInteger(value.candidateCount, 0);
+    const renderedCount = nonNegativeInteger(value.renderedCount, 0);
+    byChannel[channel] = {
+      state: String(value.state || '').trim() || 'unknown',
+      candidateCount,
+      renderedCount,
+    };
+    selectedMemoryCount += candidateCount;
+    renderedMemoryCount += renderedCount;
+  }
+  return { selectedMemoryCount, renderedMemoryCount, byChannel };
+}
+
+function renderedOpenLoopCount(artifact = null) {
+  const openQuestions = Array.isArray(artifact?.trace?.openQuestions)
+    ? artifact.trace.openQuestions
+    : (Array.isArray(artifact?.provenance?.openQuestions) ? artifact.provenance.openQuestions : []);
+  return openQuestions.filter((item) => item && typeof item === 'object').length;
+}
+
+function extractAlivenessRuntimeMetrics({
+  artifact = null,
+  promptLog = {},
+  seconds = null,
+} = {}) {
+  if (!artifact || typeof artifact !== 'object') return notRunRuntimeMetrics();
+  const promptText = String(promptLog.promptText || promptLog.promptPreview || '');
+  const promptTokens = nonNegativeInteger(promptLog.promptTokens, 0) || estimatePromptTokens(promptText);
+  const truthCounts = promptTruthCounts(artifact);
+  const initiativeRenderedCount = nonNegativeInteger(
+    artifact?.modelAdvisory?.initiativePromptBridge?.renderedCount,
+    0,
+  );
+  const turnStateRenderedCount = nonNegativeInteger(
+    artifact?.modelAdvisory?.turnStatePromptBridge?.renderedCount,
+    0,
+  );
+  const totalLatencyMs = normalizeLatencyMs(
+    artifact?.performance?.request?.durationMs
+      ?? performanceDuration(artifact, 'modelRoundTrip')
+      ?? (seconds === null || seconds === undefined ? null : Number(seconds) * 1000),
+  );
+  return {
+    measurementMode: 'runtime-artifact',
+    status: 'measured',
+    estimatedPromptTokens: promptTokens,
+    estimatedPromptTokensScope: promptLog.promptTokens
+      ? 'mock-lmstudio-request-messages'
+      : 'request-message-text-estimate',
+    selectedMemoryCount: truthCounts.selectedMemoryCount,
+    renderedMemoryCount: truthCounts.renderedMemoryCount,
+    promptTruth: truthCounts,
+    staticCandidateCount: nonNegativeInteger(artifact?.staticEmbeddingShadow?.candidateCount, 0),
+    staticOnlyCandidateCount: nonNegativeInteger(artifact?.staticEmbeddingShadow?.staticOnlyCandidateCount, 0),
+    openLoopRenderedCount: renderedOpenLoopCount(artifact),
+    initiativeRendered: initiativeRenderedCount > 0,
+    initiativeRenderedCount,
+    turnStateRendered: turnStateRenderedCount > 0,
+    turnStateRenderedCount,
+    firstTokenLatencyMs: normalizeLatencyMs(artifact?.performance?.firstToken?.durationMs),
+    totalLatencyMs,
+    routeRequestLatencyMs: normalizeLatencyMs(artifact?.performance?.request?.durationMs),
+    modelRoundTripLatencyMs: normalizeLatencyMs(artifact?.performance?.modelRoundTrip?.durationMs),
+    archiveRetrievalLatencyMs: normalizeLatencyMs(artifact?.performance?.archiveRetrieval?.durationMs),
+    promptAssemblyLatencyMs: normalizeLatencyMs(artifact?.performance?.promptAssembly?.durationMs),
+    runtimeMetricsMeasured: true,
+  };
+}
+
 function analyzeLiveCaseResponse(text = '', spec = {}, artifact = null, promptLog = {}) {
   const lower = String(text || '').toLowerCase();
   const promptText = String(promptLog?.promptText || promptLog?.promptPreview || '');
@@ -921,15 +1111,24 @@ function analyzeLiveCaseResponse(text = '', spec = {}, artifact = null, promptLo
 }
 
 function compactRuntimeArtifactSummary(artifact = null, promptLog = {}) {
+  const runtimeMetrics = extractAlivenessRuntimeMetrics({ artifact, promptLog });
   return {
     selectedLane: String(artifact?.scope?.selectedLane || '').trim(),
     warmState: String(artifact?.readiness?.warmState || '').trim(),
     executionPath: String(artifact?.executionPath || '').trim(),
-    firstTokenMs: performanceDuration(artifact, 'firstToken'),
-    totalModelMs: performanceDuration(artifact, 'modelRoundTrip'),
-    promptTokenEstimate: Number(promptLog.promptTokens || 0),
+    firstTokenMs: runtimeMetrics.firstTokenLatencyMs,
+    totalModelMs: runtimeMetrics.modelRoundTripLatencyMs,
+    requestMs: runtimeMetrics.routeRequestLatencyMs,
+    promptTokenEstimate: runtimeMetrics.estimatedPromptTokens,
+    selectedMemoryCount: runtimeMetrics.selectedMemoryCount,
+    renderedMemoryCount: runtimeMetrics.renderedMemoryCount,
+    staticCandidateCount: runtimeMetrics.staticCandidateCount,
+    openLoopRenderedCount: runtimeMetrics.openLoopRenderedCount,
+    initiativeRendered: runtimeMetrics.initiativeRendered,
+    turnStateRendered: runtimeMetrics.turnStateRendered,
     promptPreview: trimText(promptLog.promptPreview || '', 700),
     featureBridge: promptLog.featureBridge || {},
+    runtimeMetrics,
   };
 }
 
@@ -967,6 +1166,11 @@ async function sendLiveChat(baseUrl, spec, lmStudio) {
       || {};
     const text = String(payload?.text || '').trim();
     const analysis = analyzeLiveCaseResponse(text, spec, artifact, promptLog);
+    const runtimeMetrics = extractAlivenessRuntimeMetrics({
+      artifact,
+      promptLog,
+      seconds: round((Date.now() - startedAt) / 1000, 2),
+    });
     return {
       ok: response.statusCode === 200 && artifactValidation.ok,
       responseStatus: response.statusCode === 200 ? 'ok' : `http-${response.statusCode}`,
@@ -975,6 +1179,7 @@ async function sendLiveChat(baseUrl, spec, lmStudio) {
       artifact,
       artifactValidation,
       artifactSummary: compactRuntimeArtifactSummary(artifact, promptLog),
+      runtimeMetrics,
       analysis,
       score: analysis.score,
       error: response.statusCode === 200 ? artifactValidation.error : String(payload?.error || `HTTP ${response.statusCode}`).trim(),
@@ -988,6 +1193,7 @@ async function sendLiveChat(baseUrl, spec, lmStudio) {
       artifact: null,
       artifactValidation: { ok: false, error: String(error?.message || error) },
       artifactSummary: compactRuntimeArtifactSummary(null, {}),
+      runtimeMetrics: notRunRuntimeMetrics(),
       analysis: analyzeLiveCaseResponse('', spec, null, {}),
       score: 0,
       error: String(error?.message || error),
@@ -1040,6 +1246,34 @@ function cleanupDisposableRoot(root = '') {
   return cleanup;
 }
 
+function numericMetricDelta(left = {}, right = {}, key = '') {
+  const before = finiteNumberOrNull(left?.[key]);
+  const after = finiteNumberOrNull(right?.[key]);
+  if (before === null || after === null) return null;
+  return round(after - before);
+}
+
+function booleanMetricDelta(left = {}, right = {}, key = '') {
+  if (left?.[key] === null || left?.[key] === undefined || right?.[key] === null || right?.[key] === undefined) {
+    return null;
+  }
+  return (right[key] === true ? 1 : 0) - (left[key] === true ? 1 : 0);
+}
+
+function buildRuntimeMetricDeltas(baseline = {}, featureOn = {}) {
+  return {
+    promptTokenDelta: numericMetricDelta(baseline, featureOn, 'estimatedPromptTokens'),
+    firstTokenLatencyDeltaMs: numericMetricDelta(baseline, featureOn, 'firstTokenLatencyMs'),
+    totalLatencyDeltaMs: numericMetricDelta(baseline, featureOn, 'totalLatencyMs'),
+    selectedMemoryDelta: numericMetricDelta(baseline, featureOn, 'selectedMemoryCount'),
+    renderedMemoryDelta: numericMetricDelta(baseline, featureOn, 'renderedMemoryCount'),
+    staticCandidateDelta: numericMetricDelta(baseline, featureOn, 'staticCandidateCount'),
+    openLoopRenderedDelta: numericMetricDelta(baseline, featureOn, 'openLoopRenderedCount'),
+    initiativeRenderedDelta: booleanMetricDelta(baseline, featureOn, 'initiativeRendered'),
+    turnStateRenderedDelta: booleanMetricDelta(baseline, featureOn, 'turnStateRendered'),
+  };
+}
+
 async function runCaseInMode(spec, modeConfig, lmStudio) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `penny-aliveness-${modeConfig.key}-${spec.id}-`));
   const paths = buildDisposableStatePaths(root, spec.id);
@@ -1066,6 +1300,7 @@ async function runCaseInMode(spec, modeConfig, lmStudio) {
       artifact: null,
       artifactValidation: { ok: false, error: startupError },
       artifactSummary: compactRuntimeArtifactSummary(null, {}),
+      runtimeMetrics: notRunRuntimeMetrics(),
       analysis: analyzeLiveCaseResponse('', spec, null, {}),
       score: 0,
       error: startupError,
@@ -1093,6 +1328,13 @@ async function runCaseInMode(spec, modeConfig, lmStudio) {
 }
 
 function compactLiveSide(side = {}) {
+  const runtimeMetrics = side.runtimeMetrics && side.runtimeMetrics.runtimeMetricsMeasured === true
+    ? side.runtimeMetrics
+    : extractAlivenessRuntimeMetrics({
+        artifact: side.artifact,
+        promptLog: {},
+        seconds: side.seconds,
+      });
   return {
     featureMode: side.mode || '',
     env: side.env || {},
@@ -1103,9 +1345,17 @@ function compactLiveSide(side = {}) {
     text: side.text || '',
     score: Number(side.score || 0),
     error: side.error || '',
-    estimatedPromptTokens: Number(side.analysis?.promptTokenEstimate || side.artifactSummary?.promptTokenEstimate || 0),
-    firstTokenLatencyMs: side.artifactSummary?.firstTokenMs,
-    totalLatencyMs: side.seconds == null ? null : round(Number(side.seconds || 0) * 1000),
+    estimatedPromptTokens: runtimeMetrics.estimatedPromptTokens,
+    estimatedPromptTokensScope: runtimeMetrics.estimatedPromptTokensScope,
+    firstTokenLatencyMs: runtimeMetrics.firstTokenLatencyMs,
+    totalLatencyMs: runtimeMetrics.totalLatencyMs,
+    renderedMemoryCount: runtimeMetrics.renderedMemoryCount,
+    selectedMemoryCount: runtimeMetrics.selectedMemoryCount,
+    staticCandidateCount: runtimeMetrics.staticCandidateCount,
+    openLoopRenderedCount: runtimeMetrics.openLoopRenderedCount,
+    initiativeRendered: runtimeMetrics.initiativeRendered,
+    turnStateRendered: runtimeMetrics.turnStateRendered,
+    runtimeMetrics,
     analysis: side.analysis || {},
     artifactSummary: side.artifactSummary || {},
     artifactValidation: side.artifactValidation || {},
@@ -1121,6 +1371,8 @@ function buildLiveCompareCase(spec = {}, baselineSide = {}, featureSide = {}) {
   const baseline = compactLiveSide(baselineSide);
   const featureOn = compactLiveSide(featureSide);
   const expected = new Set(spec.expectedOutcomes || []);
+  const runtimeMetricDeltas = buildRuntimeMetricDeltas(baseline.runtimeMetrics, featureOn.runtimeMetrics);
+  const runtimeMetricThresholds = buildAlivenessRuntimeMetricThresholds();
   const deltas = {
     humanObservableWin: expected.has(ALIVENESS_OUTCOMES.HUMAN_OBSERVABLE_WIN)
       && (featureOn.analysis?.humanEvidence === true || (Number(featureOn.score || 0) - Number(baseline.score || 0)) >= HUMAN_OBSERVABLE_DELTA),
@@ -1131,11 +1383,15 @@ function buildLiveCompareCase(spec = {}, baselineSide = {}, featureSide = {}) {
     sourceBoundaryFailure: featureOn.analysis?.sourceBoundaryFailure === true,
     correctionFailure: featureOn.analysis?.correctionFailure === true,
     promptBloatRegression: featureOn.analysis?.promptBloatRisk === true,
-    promptTokenDelta: featureOn.estimatedPromptTokens - baseline.estimatedPromptTokens,
-    firstTokenLatencyDeltaMs: null,
-    totalLatencyDeltaMs: featureOn.totalLatencyMs == null || baseline.totalLatencyMs == null
-      ? null
-      : round(featureOn.totalLatencyMs - baseline.totalLatencyMs),
+    promptTokenDelta: runtimeMetricDeltas.promptTokenDelta,
+    firstTokenLatencyDeltaMs: runtimeMetricDeltas.firstTokenLatencyDeltaMs,
+    totalLatencyDeltaMs: runtimeMetricDeltas.totalLatencyDeltaMs,
+    selectedMemoryDelta: runtimeMetricDeltas.selectedMemoryDelta,
+    renderedMemoryDelta: runtimeMetricDeltas.renderedMemoryDelta,
+    staticCandidateDelta: runtimeMetricDeltas.staticCandidateDelta,
+    openLoopRenderedDelta: runtimeMetricDeltas.openLoopRenderedDelta,
+    initiativeRenderedDelta: runtimeMetricDeltas.initiativeRenderedDelta,
+    turnStateRenderedDelta: runtimeMetricDeltas.turnStateRenderedDelta,
   };
   const classified = classifyAlivenessCaseDelta({
     id: spec.id,
@@ -1143,6 +1399,7 @@ function buildLiveCompareCase(spec = {}, baselineSide = {}, featureSide = {}) {
     baseline,
     featureOn,
     deltas,
+    thresholds: runtimeMetricThresholds,
   });
   return {
     id: spec.id,
@@ -1160,6 +1417,7 @@ function buildLiveCompareCase(spec = {}, baselineSide = {}, featureSide = {}) {
     featureOn,
     expectedOutcomes: spec.expectedOutcomes || [],
     blockedOutcomes: spec.blockedOutcomes || [],
+    thresholds: runtimeMetricThresholds,
     outcomes: classified.outcomes,
     primaryOutcome: classified.primaryOutcome,
     passEligible: classified.passEligible,
@@ -1171,6 +1429,13 @@ function buildLiveCompareCase(spec = {}, baselineSide = {}, featureSide = {}) {
       promptTokenDelta: classified.metrics.promptTokenDelta,
       firstTokenLatencyDeltaMs: classified.metrics.firstTokenLatencyDeltaMs,
       totalLatencyDeltaMs: classified.metrics.totalLatencyDeltaMs,
+      selectedMemoryDelta: runtimeMetricDeltas.selectedMemoryDelta,
+      renderedMemoryDelta: runtimeMetricDeltas.renderedMemoryDelta,
+      staticCandidateDelta: runtimeMetricDeltas.staticCandidateDelta,
+      openLoopRenderedDelta: runtimeMetricDeltas.openLoopRenderedDelta,
+      initiativeRenderedDelta: runtimeMetricDeltas.initiativeRenderedDelta,
+      turnStateRenderedDelta: runtimeMetricDeltas.turnStateRenderedDelta,
+      thresholds: runtimeMetricThresholds,
       runtimeMetricsMeasured: true,
       status: 'measured',
     },
@@ -1194,8 +1459,90 @@ function sideReadinessDegraded(side = {}) {
     || side?.runtimeArtifact?.readiness?.warmState === 'degraded';
 }
 
+function summarizeMetricValues(values = []) {
+  const numbers = values.map(finiteNumberOrNull).filter((value) => value !== null);
+  if (!numbers.length) return { count: 0, min: null, max: null, total: null, average: null };
+  const total = numbers.reduce((sum, value) => sum + value, 0);
+  return {
+    count: numbers.length,
+    min: Math.min(...numbers),
+    max: Math.max(...numbers),
+    total: round(total),
+    average: round(total / numbers.length),
+  };
+}
+
+function summarizeBooleanValues(values = []) {
+  const known = values.filter((value) => value === true || value === false);
+  const trueCount = known.filter((value) => value === true).length;
+  return {
+    count: known.length,
+    trueCount,
+    falseCount: known.length - trueCount,
+  };
+}
+
+function collectSideRuntimeMetrics(cases = [], sideKey = 'baseline') {
+  return (Array.isArray(cases) ? cases : [])
+    .map((item) => item?.[sideKey]?.runtimeMetrics || null)
+    .filter(Boolean);
+}
+
+function summarizeRuntimeMetricSide(cases = [], sideKey = 'baseline') {
+  const metrics = collectSideRuntimeMetrics(cases, sideKey);
+  return {
+    side: sideKey,
+    measuredCount: metrics.filter((item) => item.runtimeMetricsMeasured === true).length,
+    estimatedPromptTokens: summarizeMetricValues(metrics.map((item) => item.estimatedPromptTokens)),
+    firstTokenLatencyMs: summarizeMetricValues(metrics.map((item) => item.firstTokenLatencyMs)),
+    totalLatencyMs: summarizeMetricValues(metrics.map((item) => item.totalLatencyMs)),
+    selectedMemoryCount: summarizeMetricValues(metrics.map((item) => item.selectedMemoryCount)),
+    renderedMemoryCount: summarizeMetricValues(metrics.map((item) => item.renderedMemoryCount)),
+    staticCandidateCount: summarizeMetricValues(metrics.map((item) => item.staticCandidateCount)),
+    openLoopRenderedCount: summarizeMetricValues(metrics.map((item) => item.openLoopRenderedCount)),
+    initiativeRendered: summarizeBooleanValues(metrics.map((item) => item.initiativeRendered)),
+    turnStateRendered: summarizeBooleanValues(metrics.map((item) => item.turnStateRendered)),
+  };
+}
+
+function summarizeRuntimeMetricDeltas(cases = []) {
+  const values = Array.isArray(cases) ? cases : [];
+  const deltas = values.map((item) => ({
+    ...buildRuntimeMetricDeltas(item?.baseline?.runtimeMetrics, item?.featureOn?.runtimeMetrics),
+    ...(item?.metrics && typeof item.metrics === 'object' ? item.metrics : {}),
+  }));
+  return {
+    promptTokenDelta: summarizeMetricValues(deltas.map((item) => item.promptTokenDelta)),
+    firstTokenLatencyDeltaMs: summarizeMetricValues(deltas.map((item) => item.firstTokenLatencyDeltaMs)),
+    totalLatencyDeltaMs: summarizeMetricValues(deltas.map((item) => item.totalLatencyDeltaMs)),
+    selectedMemoryDelta: summarizeMetricValues(deltas.map((item) => item.selectedMemoryDelta)),
+    renderedMemoryDelta: summarizeMetricValues(deltas.map((item) => item.renderedMemoryDelta)),
+    staticCandidateDelta: summarizeMetricValues(deltas.map((item) => item.staticCandidateDelta)),
+    openLoopRenderedDelta: summarizeMetricValues(deltas.map((item) => item.openLoopRenderedDelta)),
+    initiativeRenderedDelta: summarizeMetricValues(deltas.map((item) => item.initiativeRenderedDelta)),
+    turnStateRenderedDelta: summarizeMetricValues(deltas.map((item) => item.turnStateRenderedDelta)),
+  };
+}
+
+function summarizeAlivenessRuntimeMetrics(cases = []) {
+  const measuredCases = (Array.isArray(cases) ? cases : [])
+    .filter((item) => item?.baseline?.runtimeMetrics?.runtimeMetricsMeasured === true
+      && item?.featureOn?.runtimeMetrics?.runtimeMetricsMeasured === true);
+  return {
+    schema: 'penny-aliveness-runtime-metrics.v1',
+    measurementMode: LIVE_ISOLATED_MODE,
+    status: measuredCases.length ? 'measured' : 'not-run',
+    measuredCaseCount: measuredCases.length,
+    thresholds: buildAlivenessRuntimeMetricThresholds(),
+    baseline: summarizeRuntimeMetricSide(cases, 'baseline'),
+    featureOn: summarizeRuntimeMetricSide(cases, 'featureOn'),
+    deltas: summarizeRuntimeMetricDeltas(cases),
+  };
+}
+
 function buildAlivenessLivePairSummary(cases = []) {
   const compareSummary = summarizeAlivenessCompare(cases);
+  const runtimeMetrics = summarizeAlivenessRuntimeMetrics(cases);
   const scenarioIds = [...new Set(cases.map((item) => item.scenarioId).filter(Boolean))];
   const missingRequiredCaseIds = REQUIRED_ALIVENESS_SCENARIO_IDS.filter((id) => !scenarioIds.includes(id));
   const cleanupFailures = cases.flatMap((item) => [item.baseline?.cleanup, item.featureOn?.cleanup])
@@ -1219,7 +1566,8 @@ function buildAlivenessLivePairSummary(cases = []) {
     liveModelCallBackend: 'mock-lmstudio',
     realUserModelCalls: false,
     serverSpawned: true,
-    runtimeMetricsMeasured: true,
+    runtimeMetricsMeasured: runtimeMetrics.status === 'measured',
+    runtimeMetrics,
     cleanup: {
       allCleaned: cleanupFailures.length === 0,
       failureCount: cleanupFailures.length,
@@ -1305,13 +1653,16 @@ async function runAlivenessLiveIsolatedCompare({
       metrics: {
         ...summary.metrics,
         measurementStatus: summary.environment.valid ? 'measured' : 'invalid',
-        liveLatencyMeasured: true,
-        livePromptTokensMeasured: true,
+        liveLatencyMeasured: summary.runtimeMetrics?.status === 'measured',
+        livePromptTokensMeasured: summary.runtimeMetrics?.status === 'measured',
+        liveContextMetricsMeasured: summary.runtimeMetrics?.status === 'measured',
+        runtime: summary.runtimeMetrics,
       },
       limits: [
-        'A5 live-isolated mode spawns disposable Penny servers and a mock LM Studio backend.',
+        'A6 live-isolated mode records latency plus prompt/context deltas from disposable Penny servers and a mock LM Studio backend.',
         'No real local Penny memory, archive, embedding, ledger, open-loop, initiative, or books state is touched.',
         'Runtime artifacts are captured from the real /api/penny/chat route for each baseline/feature pair.',
+        'Large prompt or latency deltas become blocking regressions through explicit harness thresholds.',
         'PromptTruth and toolEvidenceReceipt stay unchanged.',
         'A passing isolated compare is evidence for opt-in review, not default feature enablement.',
       ],
@@ -1370,11 +1721,14 @@ module.exports = {
   buildAlivenessCompareFixtureArtifact,
   buildAlivenessLiveCaseSpecs,
   buildAlivenessLivePairSummary,
+  buildAlivenessRuntimeMetricThresholds,
   buildDisposableStatePaths,
   buildFixtureCompareCase,
   buildAlivenessFeatureToggleMatrix,
   buildMockAlivenessReply,
   buildOpenLoopStateFixture,
+  buildRuntimeMetricDeltas,
+  extractAlivenessRuntimeMetrics,
   getAlivenessFeatureToggleFlags,
   hasArgFlag,
   main,

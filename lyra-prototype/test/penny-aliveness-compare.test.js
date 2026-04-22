@@ -13,9 +13,12 @@ const {
   buildAlivenessCompareFixtureArtifact,
   buildAlivenessLiveCaseSpecs,
   buildAlivenessLivePairSummary,
+  buildAlivenessRuntimeMetricThresholds,
   buildDisposableStatePaths,
   buildFixtureCompareCase,
   buildMockAlivenessReply,
+  buildRuntimeMetricDeltas,
+  extractAlivenessRuntimeMetrics,
   parseAlivenessCompareArgs,
   parseArgValue,
   seedDisposableState,
@@ -69,6 +72,8 @@ test('aliveness compare fixture runner exposes A2 cases with schema and metrics'
   assert.equal(artifact.summary.continuityWins, 2);
   assert.equal(artifact.summary.trustFailureCount, 0);
   assert.equal(artifact.metrics.measurementStatus, 'not-run');
+  assert.equal(artifact.metrics.runtime.status, 'not-run');
+  assert.equal(artifact.metrics.runtime.measuredCaseCount, 0);
   assert.equal(artifact.metrics.promptTokenDelta.count, 0);
   assert.equal(artifact.metrics.firstTokenLatencyDeltaMs.max, null);
   assert.equal(artifact.metrics.totalLatencyDeltaMs.total, null);
@@ -128,12 +133,17 @@ test('aliveness compare fixture cases are not-run placeholders, not live respons
   assert.equal(directCommand.lmStudioCalls, false);
   assert.equal(directCommand.baseline.responseStatus, 'not-run');
   assert.equal(directCommand.featureOn.responseStatus, 'not-run');
+  assert.equal(directCommand.baseline.staticCandidateCount, null);
+  assert.equal(directCommand.featureOn.openLoopRenderedCount, null);
+  assert.equal(directCommand.featureOn.initiativeRendered, null);
+  assert.equal(directCommand.featureOn.runtimeMetrics.status, 'not-run');
   assert.equal(directCommand.baseline.featureMode, 'baseline');
   assert.equal(directCommand.featureOn.featureMode, 'initiative-on');
   assert.equal(directCommand.featureOn.env.PENNY_ENABLE_BOUNDED_INITIATIVE, '1');
   assert.equal(directCommand.featureOn.env.PENNY_ENABLE_OPEN_LOOP_PROMPT, '0');
   assert.equal(directCommand.metrics.status, 'not-run');
   assert.equal(directCommand.metrics.runtimeMetricsMeasured, false);
+  assert.equal(directCommand.metrics.renderedMemoryDelta, null);
   assert.equal(directCommand.deltas.annoyanceRegression, false);
 
   assert.equal(continuity.deltas.humanObservableWin, true);
@@ -242,20 +252,119 @@ test('aliveness mock reply and analyzer reward rendered advisory continuity with
   assert.equal(analysis.promptTokenEstimate, 42);
 });
 
+test('aliveness runtime metrics extract latency, prompt, and context counters from route artifacts', () => {
+  const artifact = {
+    promptTruth: {
+      channels: {
+        stableFacts: { candidateCount: 1, renderedCount: 1, state: 'rendered' },
+        memoryBooks: { candidateCount: 0, renderedCount: 0, state: 'no_candidate' },
+        sessionArchive: { candidateCount: 2, renderedCount: 1, state: 'rendered' },
+        globalArchive: { candidateCount: 3, renderedCount: 2, state: 'rendered' },
+        researchLedger: { candidateCount: 1, renderedCount: 0, state: 'held_back' },
+      },
+    },
+    performance: {
+      request: { durationMs: 456 },
+      firstToken: { durationMs: 123, available: true },
+      modelRoundTrip: { durationMs: 234 },
+      archiveRetrieval: { durationMs: 45 },
+      promptAssembly: { durationMs: 12 },
+    },
+    staticEmbeddingShadow: {
+      candidateCount: 4,
+      staticOnlyCandidateCount: 2,
+    },
+    trace: {
+      openQuestions: [{ label: 'open loop' }],
+    },
+    modelAdvisory: {
+      initiativePromptBridge: { renderedCount: 1 },
+      turnStatePromptBridge: { renderedCount: 1 },
+    },
+  };
+
+  const metrics = extractAlivenessRuntimeMetrics({
+    artifact,
+    promptLog: { promptTokens: 321, promptText: 'hello from the route prompt' },
+    seconds: 0.9,
+  });
+
+  assert.equal(metrics.status, 'measured');
+  assert.equal(metrics.estimatedPromptTokens, 321);
+  assert.equal(metrics.estimatedPromptTokensScope, 'mock-lmstudio-request-messages');
+  assert.equal(metrics.selectedMemoryCount, 7);
+  assert.equal(metrics.renderedMemoryCount, 4);
+  assert.equal(metrics.staticCandidateCount, 4);
+  assert.equal(metrics.staticOnlyCandidateCount, 2);
+  assert.equal(metrics.openLoopRenderedCount, 1);
+  assert.equal(metrics.initiativeRendered, true);
+  assert.equal(metrics.turnStateRendered, true);
+  assert.equal(metrics.firstTokenLatencyMs, 123);
+  assert.equal(metrics.totalLatencyMs, 456);
+  assert.equal(metrics.modelRoundTripLatencyMs, 234);
+
+  const deltas = buildRuntimeMetricDeltas({
+    estimatedPromptTokens: 300,
+    firstTokenLatencyMs: 100,
+    totalLatencyMs: 400,
+    selectedMemoryCount: 5,
+    renderedMemoryCount: 3,
+    staticCandidateCount: 0,
+    openLoopRenderedCount: 0,
+    initiativeRendered: false,
+    turnStateRendered: false,
+  }, metrics);
+
+  assert.deepEqual(deltas, {
+    promptTokenDelta: 21,
+    firstTokenLatencyDeltaMs: 23,
+    totalLatencyDeltaMs: 56,
+    selectedMemoryDelta: 2,
+    renderedMemoryDelta: 1,
+    staticCandidateDelta: 4,
+    openLoopRenderedDelta: 1,
+    initiativeRenderedDelta: 1,
+    turnStateRenderedDelta: 1,
+  });
+
+  const thresholds = buildAlivenessRuntimeMetricThresholds({
+    PENNY_ALIVENESS_COMPARE_MAX_PROMPT_TOKEN_DELTA: '25',
+    PENNY_ALIVENESS_COMPARE_MAX_FIRST_TOKEN_LATENCY_DELTA_MS: '50',
+    PENNY_ALIVENESS_COMPARE_MAX_TOTAL_LATENCY_DELTA_MS: '75',
+  });
+  assert.deepEqual(thresholds, {
+    maxPromptTokenDelta: 25,
+    maxFirstTokenLatencyDeltaMs: 50,
+    maxTotalLatencyDeltaMs: 75,
+  });
+});
+
 test('aliveness live isolated summary invalidates cleanup failures and degraded readiness', () => {
   const specs = buildAlivenessLiveCaseSpecs();
-  const makeSide = () => ({
+  const makeSide = (index = 0, side = 'baseline') => ({
     ok: true,
     cleanup: { ok: true },
     serverStatus: { warmState: 'ready' },
     artifactSummary: { warmState: 'ready' },
+    runtimeMetrics: {
+      runtimeMetricsMeasured: true,
+      estimatedPromptTokens: side === 'feature' ? 110 + index : 100 + index,
+      firstTokenLatencyMs: 10,
+      totalLatencyMs: side === 'feature' ? 220 : 200,
+      selectedMemoryCount: side === 'feature' ? 2 : 1,
+      renderedMemoryCount: side === 'feature' ? 1 : 0,
+      staticCandidateCount: side === 'feature' ? 1 : 0,
+      openLoopRenderedCount: side === 'feature' ? 1 : 0,
+      initiativeRendered: side === 'feature',
+      turnStateRendered: side === 'feature',
+    },
     analysis: {},
   });
-  const cases = specs.map((spec) => ({
+  const cases = specs.map((spec, index) => ({
     id: spec.id,
     scenarioId: spec.scenarioId,
-    baseline: makeSide(),
-    featureOn: makeSide(),
+    baseline: makeSide(index, 'baseline'),
+    featureOn: makeSide(index, 'feature'),
     outcomes: spec.expectedOutcomes.includes(ALIVENESS_OUTCOMES.NO_MEANINGFUL_CHANGE)
       ? [ALIVENESS_OUTCOMES.NO_MEANINGFUL_CHANGE]
       : spec.expectedOutcomes,
@@ -265,6 +374,12 @@ test('aliveness live isolated summary invalidates cleanup failures and degraded 
   assert.equal(clean.requiredCasesPresent, true);
   assert.equal(clean.environment.valid, true);
   assert.equal(clean.cleanup.allCleaned, true);
+  assert.equal(clean.runtimeMetrics.status, 'measured');
+  assert.equal(clean.runtimeMetrics.measuredCaseCount, specs.length);
+  assert.equal(clean.runtimeMetrics.featureOn.staticCandidateCount.max, 1);
+  assert.equal(clean.runtimeMetrics.deltas.promptTokenDelta.count, specs.length);
+  assert.equal(clean.runtimeMetrics.deltas.renderedMemoryDelta.max, 1);
+  assert.equal(clean.runtimeMetrics.featureOn.initiativeRendered.trueCount, specs.length);
 
   cases[0].featureOn.cleanup = { ok: false, root: '/tmp/nope', error: 'still exists' };
   const cleanupFailed = buildAlivenessLivePairSummary(cases);
