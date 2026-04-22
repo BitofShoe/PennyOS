@@ -193,6 +193,7 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(artifact.serverSpawned, false);
     assert.equal(artifact.apiChatCalls, false);
     assert.equal(artifact.includeCandidateTrace, true);
+    assert.equal(artifact.includeCandidateTraceLinks, true);
     assert.equal(artifact.files.ledgerFile.startsWith(tmpDir), true);
     assert.equal(artifact.files.openLoopFile.startsWith(tmpDir), true);
     assert.equal(artifact.files.shadowEmbeddingsFile.startsWith(tmpDir), true);
@@ -202,6 +203,11 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
     assert.equal(artifact.summary.byFailureMode['low-rank'], 1);
     assert.equal(artifact.summary.byFailureMode['forbidden-rendered'], 0);
     assert.equal(artifact.summary.byFailureMode['missing-from-raw'], 1);
+    assert.equal(artifact.linkAnalysisSummary.truthProof, false);
+    assert.equal(artifact.linkAnalysisSummary.scoringActive, false);
+    assert.equal(artifact.linkAnalysisSummary.candidateOnlyVerifiedSupportCount, 0);
+    assert.equal(artifact.linkAnalysisSummary.byFailureMode['weak-link'] >= 1, true);
+    assert.equal(artifact.linkAnalysisSummary.byFailureMode['missing-link'] >= 1, true);
     assert.equal(artifact.rerankerShadow.provider, 'fixture-reranker');
     assert.equal(artifact.rerankerShadow.measurementMode, 'shadow-fixture');
     assert.deepEqual(artifact.rerankerShadow.improvedCases, ['archive-reranker-low-rank-shadow']);
@@ -304,6 +310,20 @@ test('candidate-survival archive-unit mode writes an artifact and cleans disposa
       assert.equal(correctionCase.survival.expectedObjectRendered, true);
       assert.equal(correctionCase.survival.bestRank <= correctionCase.retrievalExpectation.survivalAtK, true);
       assert.equal(correctionCase.failureMode, 'no-failure');
+      assert.equal(correctionCase.archiveUnit.includeCandidateTraceLinks, true);
+      assert.equal(
+        ['weak-link', 'missing-link'].includes(correctionCase.linkAnalysis.linkFailureMode),
+        true,
+      );
+      assert.equal(['neutral', 'not-run'].includes(correctionCase.linkAnalysis.verdict), true);
+      assert.equal(correctionCase.linkAnalysis.candidateOnlyVerifiedSupport, false);
+      assert.equal(correctionCase.linkAnalysis.truthProof, false);
+      if (correctionCase.linkAnalysis.linkFailureMode === 'weak-link') {
+        assert.equal(
+          correctionCase.linkAnalysis.staleCandidateLinks.some((link) => link.relation === 'stale-prior-of'),
+          true,
+        );
+      }
       assert.equal(correctionCase.forbiddenSurvival.forbiddenSelected, false);
       assert.equal(correctionCase.forbiddenSurvival.forbiddenRendered, false);
       assert.equal(

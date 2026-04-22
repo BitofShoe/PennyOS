@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 
 const {
   CANDIDATE_FAILURE_MODES,
+  CANDIDATE_LINK_FAILURE_MODES,
+  CANDIDATE_LINK_VERDICTS,
   CANDIDATE_SURVIVAL_OUTCOMES,
   CANDIDATE_SURVIVAL_QA_SCHEMA,
   applyPromptTruthToCandidateTrace,
@@ -642,6 +644,218 @@ test('candidate-survival trace normalization preserves advisory memory link meta
   assert.equal(result.topCandidates[0].memoryLinks.behaviorChanged, false);
   assert.equal(result.topCandidates[0].memoryLinks.relationSummary.currentCorrectionFor, 1);
   assert.equal(result.topCandidates[0].memoryLinks.relationSummary.stalePriorOf, 1);
+});
+
+test('link analysis classifies missing correction links in candidate-survival results', () => {
+  const result = buildCandidateSurvivalArchiveUnitCaseResult({
+    caseLike: {
+      id: 'archive-coding-mascot-correction',
+      query: 'What is the coding mascot now?',
+      expected: {
+        subject: 'coding mascot',
+        relation: 'current correction',
+        object: 'copper rabbit',
+      },
+      forbidden: [{ id: 'archive:brass-fox', object: 'brass fox', reason: 'Stale prior.' }],
+      support: {
+        owner: 'archive-candidate',
+        authority: 'advisory',
+        supportState: 'ranked-not-selected',
+      },
+    },
+    retrievalResult: {
+      semanticMemory: { ready: false },
+      retrieval: {
+        mode: 'keyword',
+        candidateTrace: [
+          {
+            id: 'archive:brass-fox',
+            textPreview: 'The coding mascot is a brass fox.',
+            raw: true,
+            ranked: true,
+            selected: true,
+            rendered: false,
+            rank: 1,
+            score: 7,
+          },
+          {
+            id: 'memory:copper-rabbit',
+            textPreview: 'Correction: the coding mascot is a copper rabbit now.',
+            raw: true,
+            ranked: true,
+            selected: false,
+            rendered: false,
+            rank: 3,
+            score: 5,
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.failureMode, CANDIDATE_FAILURE_MODES.WRONG_AUTHORITY_SELECTED);
+  assert.equal(result.linkAnalysis.linkFailureMode, CANDIDATE_LINK_FAILURE_MODES.MISSING_LINK);
+  assert.equal(result.linkAnalysis.verdict, CANDIDATE_LINK_VERDICTS.NOT_RUN);
+  assert.deepEqual(result.linkAnalysis.expectedCandidateLinks, []);
+  assert.equal(result.linkAnalysis.truthProof, false);
+  assert.equal(result.linkAnalysis.behaviorChanged, false);
+});
+
+test('link analysis records stale-prior links and helpful shadow rank movement', () => {
+  const correctionLinks = [
+    {
+      id: 'current-correction',
+      sourceId: 'memory:copper-rabbit',
+      targetId: 'archive:brass-fox',
+      relation: 'current-correction-for',
+      support: { state: 'explicit' },
+      authorityEffect: 'current-truth-boost',
+    },
+    {
+      id: 'stale-prior',
+      sourceId: 'archive:brass-fox',
+      targetId: 'memory:copper-rabbit',
+      relation: 'stale-prior-of',
+      support: { state: 'explicit' },
+      authorityEffect: 'do-not-render-as-current',
+    },
+  ];
+  const result = buildCandidateSurvivalArchiveUnitCaseResult({
+    caseLike: {
+      id: 'archive-coding-mascot-correction',
+      query: 'What is the coding mascot now?',
+      expected: {
+        subject: 'coding mascot',
+        relation: 'current correction',
+        object: 'copper rabbit',
+      },
+      forbidden: [{ id: 'archive:brass-fox', object: 'brass fox', reason: 'Stale prior.' }],
+      support: {
+        owner: 'archive-candidate',
+        authority: 'advisory',
+        supportState: 'ranked-not-selected',
+      },
+    },
+    retrievalResult: {
+      semanticMemory: { ready: false },
+      retrieval: {
+        mode: 'keyword',
+        candidateTrace: [
+          {
+            id: 'archive:brass-fox',
+            textPreview: 'The coding mascot is a brass fox.',
+            raw: true,
+            ranked: true,
+            selected: true,
+            rendered: false,
+            rank: 1,
+            score: 7,
+            activeScore: 7,
+            memoryLinks: { links: correctionLinks },
+          },
+          {
+            id: 'memory:filler',
+            textPreview: 'A nearby project mascot note mentioned a blue owl.',
+            raw: true,
+            ranked: true,
+            selected: false,
+            rendered: false,
+            rank: 2,
+            score: 6,
+            activeScore: 6,
+          },
+          {
+            id: 'memory:copper-rabbit',
+            textPreview: 'Correction: the coding mascot is a copper rabbit now.',
+            raw: true,
+            ranked: true,
+            selected: false,
+            rendered: false,
+            rank: 3,
+            score: 5,
+            activeScore: 5,
+            memoryLinks: { links: correctionLinks },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.linkAnalysis.linkFailureMode, CANDIDATE_LINK_FAILURE_MODES.LINK_WOULD_HELP);
+  assert.equal(result.linkAnalysis.verdict, CANDIDATE_LINK_VERDICTS.HELPS);
+  assert.equal(result.linkAnalysis.shadowRankDelta, 2);
+  assert.equal(
+    result.linkAnalysis.staleCandidateLinks.some((link) => link.relation === 'stale-prior-of'),
+    true,
+  );
+  assert.equal(result.linkAnalysis.expectedLinkShadow.wouldChangeRank, true);
+  assert.equal(result.linkAnalysis.expectedLinkShadow.active, false);
+  assert.equal(result.linkAnalysis.expectedLinkShadow.behaviorChanged, false);
+});
+
+test('candidate-only correction links stay weak and never become verified support', () => {
+  const candidateOnlyLinks = [
+    {
+      id: 'candidate-only-current',
+      sourceId: 'memory:copper-rabbit',
+      targetId: 'archive:brass-fox',
+      relation: 'current-correction-for',
+      support: { state: 'semantic-candidate' },
+      authorityEffect: 'current-truth-boost',
+    },
+  ];
+  const result = buildCandidateSurvivalArchiveUnitCaseResult({
+    caseLike: {
+      id: 'archive-coding-mascot-correction',
+      query: 'What is the coding mascot now?',
+      expected: {
+        subject: 'coding mascot',
+        relation: 'current correction',
+        object: 'copper rabbit',
+      },
+      forbidden: [{ id: 'archive:brass-fox', object: 'brass fox', reason: 'Stale prior.' }],
+      support: {
+        owner: 'archive-candidate',
+        authority: 'candidate-only/advisory',
+        supportState: 'candidate-only',
+      },
+    },
+    retrievalResult: {
+      semanticMemory: { ready: false },
+      retrieval: {
+        mode: 'keyword',
+        candidateTrace: [
+          {
+            id: 'archive:brass-fox',
+            textPreview: 'The coding mascot is a brass fox.',
+            raw: true,
+            ranked: true,
+            selected: true,
+            rank: 1,
+            score: 7,
+            memoryLinks: { links: candidateOnlyLinks },
+          },
+          {
+            id: 'memory:copper-rabbit',
+            textPreview: 'Correction candidate: the coding mascot is a copper rabbit now.',
+            raw: true,
+            ranked: true,
+            selected: false,
+            rank: 2,
+            score: 5,
+            memoryLinks: { links: candidateOnlyLinks },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.linkAnalysis.linkFailureMode, CANDIDATE_LINK_FAILURE_MODES.WEAK_LINK);
+  assert.equal(result.linkAnalysis.verdict, CANDIDATE_LINK_VERDICTS.NEUTRAL);
+  assert.equal(result.linkAnalysis.candidateOnlyVerifiedSupport, false);
+  assert.equal(result.linkAnalysis.candidateOnlyLinkCount > 0, true);
+  assert.equal(result.linkAnalysis.expectedCandidateLinks[0].supportState, 'semantic-candidate');
+  assert.notEqual(result.linkAnalysis.expectedCandidateLinks[0].authorityEffect, 'current-truth-boost');
 });
 
 test('archive-unit case result uses required survival and trace summary shape', () => {

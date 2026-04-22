@@ -1,8 +1,14 @@
 const CANDIDATE_SURVIVAL_QA_SCHEMA = 'penny-candidate-survival-memory-qa.v1';
 
 const {
+  MEMORY_LINK_AUTHORITY_EFFECTS,
+  MEMORY_LINK_RELATIONS,
+  MEMORY_LINK_SUPPORT_STATES,
   buildMemoryLinkTraceForItem,
 } = require('./penny-memory-links');
+const {
+  scoreMemoryLinkShadowForCandidates,
+} = require('./penny-memory-link-policy');
 
 const CANDIDATE_SURVIVAL_OUTCOMES = Object.freeze({
   RENDERED: 'rendered',
@@ -76,6 +82,50 @@ const CANDIDATE_FAILURE_MODE_DEFINITIONS = Object.freeze({
     recommendedInspection: 'Inspect canonical explicit memory or the owning subsystem instead of archive retrieval.',
   }),
 });
+
+const CANDIDATE_LINK_FAILURE_MODES = Object.freeze({
+  NONE: 'none',
+  MISSING_LINK: 'missing-link',
+  WRONG_LINK: 'wrong-link',
+  WEAK_LINK: 'weak-link',
+  LINK_IGNORED: 'link-ignored',
+  LINK_WOULD_HELP: 'link-would-help',
+});
+
+const CANDIDATE_LINK_VERDICTS = Object.freeze({
+  NOT_RUN: 'not-run',
+  HELPS: 'helps',
+  HURTS: 'hurts',
+  NEUTRAL: 'neutral',
+});
+
+const CORRECTION_LINK_RELATIONS = new Set([
+  MEMORY_LINK_RELATIONS.CORRECTION_OF,
+  MEMORY_LINK_RELATIONS.STALE_PRIOR_OF,
+  MEMORY_LINK_RELATIONS.CURRENT_CORRECTION_FOR,
+  MEMORY_LINK_RELATIONS.CONTRADICTS,
+]);
+
+const STRONG_CORRECTION_AUTHORITY_EFFECTS = new Set([
+  MEMORY_LINK_AUTHORITY_EFFECTS.CURRENT_TRUTH_BOOST,
+  MEMORY_LINK_AUTHORITY_EFFECTS.STALE_CURRENT_PENALTY,
+  MEMORY_LINK_AUTHORITY_EFFECTS.DO_NOT_RENDER_AS_CURRENT,
+]);
+
+const CANDIDATE_ONLY_LINK_SUPPORT_STATES = new Set([
+  MEMORY_LINK_SUPPORT_STATES.SEMANTIC_CANDIDATE,
+  'candidate',
+  'candidate-only',
+  'static',
+  'static-candidate',
+]);
+
+const LINK_ANALYSIS_LIMITS = Object.freeze([
+  'Memory links are retrieval/navigation hints, not proof that either side is true.',
+  'Link-aware candidate survival is retrieval-path evidence, not answer-quality proof.',
+  'Link analysis does not activate archive scoring or prompt rendering changes.',
+  'Candidate-only, static, and semantic links cannot become verified support.',
+]);
 
 const CANDIDATE_SURVIVAL_FIXTURE_CASES = Object.freeze([
   {
@@ -1655,6 +1705,319 @@ function buildRerankerShadowComparison(normalizedCase = {}, traceLike = [], rera
   });
 }
 
+function memoryLinkTraceLinks(memoryLinks = null) {
+  if (!memoryLinks || typeof memoryLinks !== 'object') return [];
+  return [
+    ...asArray(memoryLinks.incoming),
+    ...asArray(memoryLinks.outgoing),
+    ...asArray(memoryLinks.links),
+  ].filter((link) => link && typeof link === 'object');
+}
+
+function summarizeMemoryLinkForCandidateAnalysis(link = {}) {
+  const relation = normalizeKey(link.relation || '');
+  const supportState = normalizeKey(link.supportState || link.support?.state || '');
+  const authorityEffect = normalizeKey(link.authorityEffect || link.effect || '');
+  return compactObject({
+    id: trimText(link.id || '', 160),
+    sourceId: trimText(link.sourceId || '', 160),
+    targetId: trimText(link.targetId || '', 160),
+    relation,
+    direction: normalizeKey(link.direction || ''),
+    supportState,
+    authorityEffect,
+    advisoryOnly: true,
+    truthProof: false,
+    canonicalMemoryWrite: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+  });
+}
+
+function summarizeMemoryLinksForCandidateAnalysis(memoryLinks = null, limit = 8) {
+  const seen = new Set();
+  const links = [];
+  for (const link of memoryLinkTraceLinks(memoryLinks)) {
+    const summary = summarizeMemoryLinkForCandidateAnalysis(link);
+    if (!summary.relation) continue;
+    const key = [
+      summary.id,
+      summary.sourceId,
+      summary.targetId,
+      summary.relation,
+      summary.direction,
+    ].filter(Boolean).join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    links.push(summary);
+    if (links.length >= limit) break;
+  }
+  return links;
+}
+
+function linkIsCorrectionShaped(link = {}) {
+  return CORRECTION_LINK_RELATIONS.has(normalizeKey(link.relation || ''));
+}
+
+function linkHasStrongCorrectionAuthority(link = {}) {
+  const supportState = normalizeKey(link.supportState || '');
+  const authorityEffect = normalizeKey(link.authorityEffect || '');
+  return supportState === MEMORY_LINK_SUPPORT_STATES.EXPLICIT
+    && STRONG_CORRECTION_AUTHORITY_EFFECTS.has(authorityEffect);
+}
+
+function linkIsCandidateOnlySupport(link = {}) {
+  return CANDIDATE_ONLY_LINK_SUPPORT_STATES.has(normalizeKey(link.supportState || ''));
+}
+
+function caseNeedsCorrectionLinkAnalysis(normalizedCase = {}) {
+  const text = normalizeKey([
+    normalizedCase.id,
+    normalizedCase.query,
+    normalizedCase.expected?.relation,
+    normalizedCase.retrievalExpectation?.note,
+    ...asArray(normalizedCase.notes),
+    ...asArray(normalizedCase.forbidden).map((item) => item?.reason || item?.object || ''),
+  ].filter(Boolean).join(' '));
+  return Boolean(
+    normalizedCase.forbidden?.length
+      && (
+        text.includes('correction')
+        || text.includes('stale')
+        || text.includes('superseded')
+        || text.includes('false-premise')
+        || text.includes('current')
+        || text.includes('now')
+      ),
+  );
+}
+
+function traceItemKey(item = {}) {
+  return normalizeKey(item?.id || item?.sourceId || '');
+}
+
+function findScoredShadowForCandidate(scored = [], candidate = null) {
+  if (!candidate) return null;
+  const keys = new Set(candidateIdentityKeys(candidate));
+  const candidateKey = traceItemKey(candidate);
+  if (candidateKey) keys.add(candidateKey);
+  return asArray(scored).find((item) => {
+    const source = item?.candidate || {};
+    const sourceKeys = new Set(candidateIdentityKeys(source));
+    const sourceKey = traceItemKey(source);
+    if (sourceKey) sourceKeys.add(sourceKey);
+    return [...keys].some((key) => sourceKeys.has(key));
+  }) || null;
+}
+
+function linkShadowHelpsExpected(shadow = null) {
+  if (!shadow || typeof shadow !== 'object') return false;
+  const score = Number(shadow.score);
+  const rankDelta = shadow.rankDelta === null || shadow.rankDelta === undefined
+    ? null
+    : Number(shadow.rankDelta);
+  if (Number.isFinite(rankDelta) && rankDelta > 0) return true;
+  return Number.isFinite(score) && score > 0;
+}
+
+function linkShadowPenalizesStale(shadow = null) {
+  if (!shadow || typeof shadow !== 'object') return false;
+  const score = Number(shadow.score);
+  const rankDelta = shadow.rankDelta === null || shadow.rankDelta === undefined
+    ? null
+    : Number(shadow.rankDelta);
+  if (Number.isFinite(rankDelta) && rankDelta < 0) return true;
+  return Number.isFinite(score) && score < 0;
+}
+
+function linkShadowHurtsExpected(shadow = null) {
+  if (!shadow || typeof shadow !== 'object') return false;
+  const score = Number(shadow.score);
+  const rankDelta = shadow.rankDelta === null || shadow.rankDelta === undefined
+    ? null
+    : Number(shadow.rankDelta);
+  if (Number.isFinite(rankDelta) && rankDelta < 0) return true;
+  return Number.isFinite(score) && score < 0;
+}
+
+function linkShadowHelpsStale(shadow = null) {
+  if (!shadow || typeof shadow !== 'object') return false;
+  const score = Number(shadow.score);
+  const rankDelta = shadow.rankDelta === null || shadow.rankDelta === undefined
+    ? null
+    : Number(shadow.rankDelta);
+  if (Number.isFinite(rankDelta) && rankDelta > 0) return true;
+  return Number.isFinite(score) && score > 0;
+}
+
+function chooseLinkShadowRankDelta(expectedShadow = null, staleShadow = null) {
+  const expectedRankDelta = expectedShadow?.rankDelta === null || expectedShadow?.rankDelta === undefined
+    ? null
+    : Number(expectedShadow.rankDelta);
+  if (Number.isFinite(expectedRankDelta)) return expectedRankDelta;
+  const staleRankDelta = staleShadow?.rankDelta === null || staleShadow?.rankDelta === undefined
+    ? null
+    : Number(staleShadow.rankDelta);
+  return Number.isFinite(staleRankDelta) ? staleRankDelta : null;
+}
+
+function retrievalFailureModeNeedsLinkHelp(failureMode = '') {
+  const normalized = normalizeFailureMode(failureMode, '');
+  return Boolean(normalized && ![
+    CANDIDATE_FAILURE_MODES.NO_FAILURE,
+    CANDIDATE_FAILURE_MODES.NOT_APPLICABLE,
+    CANDIDATE_FAILURE_MODES.ANSWER_LAYER_FAILURE,
+  ].includes(normalized));
+}
+
+function buildCandidateLinkAnalysis({
+  normalizedCase = {},
+  traceLike = [],
+  classification = null,
+  failureClassification = null,
+} = {}) {
+  const trace = normalizeTraceArray(traceLike);
+  void classification;
+  const expectedCandidate = findBestTraceMatch(trace, (item) => matchCandidateAgainstOracle(item, normalizedCase.expected));
+  const staleCandidate = findBestTraceMatch(trace, (item) => matchCandidateAgainstForbidden(item, normalizedCase.forbidden));
+  const expectedCandidateLinks = summarizeMemoryLinksForCandidateAnalysis(expectedCandidate?.memoryLinks);
+  const staleCandidateLinks = summarizeMemoryLinksForCandidateAnalysis(staleCandidate?.memoryLinks);
+  const relevantLinks = [...expectedCandidateLinks, ...staleCandidateLinks];
+  const hasRelevantLinks = relevantLinks.length > 0;
+  const correctionLinks = relevantLinks.filter(linkIsCorrectionShaped);
+  const hasAnyTraceLinks = trace.some((item) => item.memoryLinks);
+  const correctionSensitive = caseNeedsCorrectionLinkAnalysis(normalizedCase);
+  const scored = scoreMemoryLinkShadowForCandidates(trace.map((item) => ({
+    ...item,
+    rank: item.rank,
+    activeRank: item.rank,
+    activeScore: Number.isFinite(Number(item.activeScore))
+      ? Number(item.activeScore)
+      : (Number.isFinite(Number(item.score)) ? Number(item.score) : 0),
+    memoryLinks: item.memoryLinks || [],
+  })));
+  const expectedShadow = hasRelevantLinks
+    ? (findScoredShadowForCandidate(scored, expectedCandidate)?.linkShadowScore || null)
+    : null;
+  const staleShadow = hasRelevantLinks
+    ? (findScoredShadowForCandidate(scored, staleCandidate)?.linkShadowScore || null)
+    : null;
+  const expectedHelpful = linkShadowHelpsExpected(expectedShadow);
+  const staleHelpful = linkShadowPenalizesStale(staleShadow);
+  const expectedHurt = linkShadowHurtsExpected(expectedShadow);
+  const staleHurt = linkShadowHelpsStale(staleShadow);
+  const helpfulShadow = expectedHelpful || staleHelpful;
+  const harmfulShadow = expectedHurt || staleHurt;
+  const failureMode = failureClassification?.failureMode || '';
+  const failureNeedsLinkHelp = retrievalFailureModeNeedsLinkHelp(failureMode);
+  const correctionLinkRelevant = correctionSensitive && failureMode !== CANDIDATE_FAILURE_MODES.NOT_APPLICABLE;
+  let linkFailureMode = CANDIDATE_LINK_FAILURE_MODES.NONE;
+  let verdict = hasAnyTraceLinks ? CANDIDATE_LINK_VERDICTS.NEUTRAL : CANDIDATE_LINK_VERDICTS.NOT_RUN;
+
+  if (correctionLinkRelevant && !correctionLinks.length) {
+    linkFailureMode = CANDIDATE_LINK_FAILURE_MODES.MISSING_LINK;
+    verdict = CANDIDATE_LINK_VERDICTS.NOT_RUN;
+  } else if (correctionLinkRelevant && harmfulShadow) {
+    linkFailureMode = CANDIDATE_LINK_FAILURE_MODES.WRONG_LINK;
+    verdict = CANDIDATE_LINK_VERDICTS.HURTS;
+  } else if (helpfulShadow && failureNeedsLinkHelp) {
+    linkFailureMode = CANDIDATE_LINK_FAILURE_MODES.LINK_WOULD_HELP;
+    verdict = CANDIDATE_LINK_VERDICTS.HELPS;
+  } else if (correctionLinkRelevant && correctionLinks.length && !correctionLinks.some(linkHasStrongCorrectionAuthority)) {
+    linkFailureMode = CANDIDATE_LINK_FAILURE_MODES.WEAK_LINK;
+    verdict = helpfulShadow ? CANDIDATE_LINK_VERDICTS.HELPS : CANDIDATE_LINK_VERDICTS.NEUTRAL;
+  } else if (helpfulShadow) {
+    verdict = CANDIDATE_LINK_VERDICTS.HELPS;
+  } else if (failureNeedsLinkHelp && correctionLinks.length) {
+    linkFailureMode = CANDIDATE_LINK_FAILURE_MODES.LINK_IGNORED;
+    verdict = CANDIDATE_LINK_VERDICTS.NEUTRAL;
+  }
+
+  return {
+    expectedCandidateLinks,
+    staleCandidateLinks,
+    linkFailureMode,
+    shadowRankDelta: chooseLinkShadowRankDelta(expectedShadow, staleShadow),
+    verdict,
+    candidateOnlyVerifiedSupport: false,
+    expectedLinkShadow: expectedShadow
+      ? compactObject({
+          active: expectedShadow.active === true,
+          behaviorChanged: expectedShadow.behaviorChanged === true,
+          score: Number.isFinite(Number(expectedShadow.score)) ? Number(expectedShadow.score) : null,
+          activeRank: expectedShadow.activeRank ?? null,
+          shadowRank: expectedShadow.shadowRank ?? null,
+          rankDelta: expectedShadow.rankDelta ?? null,
+          wouldChangeRank: expectedShadow.wouldChangeRank === true,
+          reasons: uniqueStrings(expectedShadow.reasons || [], 8),
+        })
+      : null,
+    staleLinkShadow: staleShadow
+      ? compactObject({
+          active: staleShadow.active === true,
+          behaviorChanged: staleShadow.behaviorChanged === true,
+          score: Number.isFinite(Number(staleShadow.score)) ? Number(staleShadow.score) : null,
+          activeRank: staleShadow.activeRank ?? null,
+          shadowRank: staleShadow.shadowRank ?? null,
+          rankDelta: staleShadow.rankDelta ?? null,
+          wouldChangeRank: staleShadow.wouldChangeRank === true,
+          reasons: uniqueStrings(staleShadow.reasons || [], 8),
+        })
+      : null,
+    candidateOnlyLinkCount: relevantLinks.filter(linkIsCandidateOnlySupport).length,
+    advisoryOnly: true,
+    truthProof: false,
+    behaviorChanged: false,
+    scoringActive: false,
+    promptTruthExpanded: false,
+    toolEvidenceReceiptChanged: false,
+    limits: LINK_ANALYSIS_LIMITS,
+  };
+}
+
+function buildCandidateLinkAnalysisSummary(cases = []) {
+  const byFailureMode = Object.fromEntries(Object.values(CANDIDATE_LINK_FAILURE_MODES).map((mode) => [mode, 0]));
+  const byVerdict = Object.fromEntries(Object.values(CANDIDATE_LINK_VERDICTS).map((verdict) => [verdict, 0]));
+  const caseIdsByFailureMode = Object.fromEntries(Object.values(CANDIDATE_LINK_FAILURE_MODES).map((mode) => [mode, []]));
+  const caseIdsByVerdict = Object.fromEntries(Object.values(CANDIDATE_LINK_VERDICTS).map((verdict) => [verdict, []]));
+  let expectedCandidateLinkCount = 0;
+  let staleCandidateLinkCount = 0;
+  let candidateOnlyVerifiedSupportCount = 0;
+
+  for (const item of asArray(cases)) {
+    const analysis = item?.linkAnalysis && typeof item.linkAnalysis === 'object'
+      ? item.linkAnalysis
+      : {};
+    const failureMode = Object.values(CANDIDATE_LINK_FAILURE_MODES).includes(analysis.linkFailureMode)
+      ? analysis.linkFailureMode
+      : CANDIDATE_LINK_FAILURE_MODES.NONE;
+    const verdict = Object.values(CANDIDATE_LINK_VERDICTS).includes(analysis.verdict)
+      ? analysis.verdict
+      : CANDIDATE_LINK_VERDICTS.NOT_RUN;
+    byFailureMode[failureMode] += 1;
+    byVerdict[verdict] += 1;
+    if (item?.id) caseIdsByFailureMode[failureMode].push(item.id);
+    if (item?.id) caseIdsByVerdict[verdict].push(item.id);
+    expectedCandidateLinkCount += asArray(analysis.expectedCandidateLinks).length;
+    staleCandidateLinkCount += asArray(analysis.staleCandidateLinks).length;
+    if (analysis.candidateOnlyVerifiedSupport === true) candidateOnlyVerifiedSupportCount += 1;
+  }
+
+  return {
+    totalCases: asArray(cases).filter((item) => item && typeof item === 'object').length,
+    byFailureMode,
+    caseIdsByFailureMode,
+    byVerdict,
+    caseIdsByVerdict,
+    expectedCandidateLinkCount,
+    staleCandidateLinkCount,
+    candidateOnlyVerifiedSupportCount,
+    behaviorChanged: false,
+    scoringActive: false,
+    truthProof: false,
+  };
+}
+
 function buildProfileSnapshot(normalizedCase = {}, traceLike = []) {
   const trace = normalizeTraceArray(traceLike);
   const expectedMatches = trace.filter((item) => matchCandidateAgainstOracle(item, normalizedCase.expected));
@@ -2299,6 +2662,12 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
     : {};
   const shadowComparison = buildHybridShadowComparison(normalizedCase, trace);
   const rerankerShadowComparison = buildRerankerShadowComparison(normalizedCase, trace, retrieval.rerankShadow);
+  const linkAnalysis = buildCandidateLinkAnalysis({
+    normalizedCase,
+    traceLike: trace,
+    classification,
+    failureClassification,
+  });
   return {
     id: normalizedCase.id,
     query: normalizedCase.query,
@@ -2310,6 +2679,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
       measurementMode: 'archive-unit',
       liveModelCalls: false,
       includeCandidateTrace: true,
+      includeCandidateTraceLinks: true,
       semanticReady: semanticMemory.ready === true || retrieval.semanticReady === true || archiveContext.semanticReady === true,
       retrievalMode: String(retrieval.mode || archiveContext.mode || '').trim() || 'keyword',
       scoringProfile: String(retrieval.scoringProfile || archiveContext.scoringProfile || '').trim() || 'baseline',
@@ -2323,6 +2693,7 @@ function buildCandidateSurvivalArchiveUnitCaseResult({
     failureModeReason: failureClassification.failureModeReason,
     recommendedInspection: failureClassification.recommendedInspection,
     forbiddenSurvival: buildForbiddenSurvival(normalizedCase, trace),
+    linkAnalysis,
     ...(profileComparison ? { profileComparison } : {}),
     ...(shadowComparison ? { shadowComparison } : {}),
     ...(rerankerShadowComparison ? { rerankerShadowComparison } : {}),
@@ -2359,12 +2730,14 @@ function buildCandidateSurvivalArchiveUnitArtifact({
     serverSpawned: false,
     apiChatCalls: false,
     includeCandidateTrace: true,
+    includeCandidateTraceLinks: true,
     candidateTraceLimit,
     files: { ...filePaths },
     failureModeDefinitions: buildFailureModeDefinitionList(),
     cases: normalizedCases,
     cleanup,
     summary: summarizeCandidateSurvivalCases(normalizedCases),
+    linkAnalysisSummary: buildCandidateLinkAnalysisSummary(normalizedCases),
     rerankerShadow: buildRerankerShadowArtifactSummary(normalizedCases),
     ...(embeddingProviderComparison && typeof embeddingProviderComparison === 'object'
       ? { embeddingProviderComparison }
@@ -2380,6 +2753,8 @@ function buildCandidateSurvivalArchiveUnitArtifact({
       'Explicit memory remains canonical; archive/session/global/research memories remain advisory.',
       'Semantic candidates are discovery machinery, not truth authority.',
       'Source-sensitive retrieval expectations do not make candidate-only hits verified answer support.',
+      'Dynamic memory link analysis is advisory retrieval/navigation evidence only.',
+      'Candidate-only/static/semantic links do not become verified support.',
       'PromptTruth remains prompt-time and memory/research-focused.',
       'Default prompt/rendered memory limits are unchanged.',
     ],
@@ -2410,6 +2785,7 @@ function buildCandidateSurvivalQaFixture({
     failureModeDefinitions: buildFailureModeDefinitionList(),
     cases: casesWithFailureModes,
     summary: summarizeCandidateSurvivalCases(casesWithFailureModes),
+    linkAnalysisSummary: buildCandidateLinkAnalysisSummary(casesWithFailureModes),
     rerankerShadow: buildRerankerShadowArtifactSummary(casesWithFailureModes),
     candidateSurvivalCorrelation: buildCandidateSurvivalCorrelationSummary({
       generatedAt,
@@ -2421,6 +2797,7 @@ function buildCandidateSurvivalQaFixture({
       'Source-sensitive retrieval expectations are separate from answer-quality outcome buckets.',
       'PromptTruth remains prompt-context receipt only.',
       'Semantic candidates remain discovery-only unless rendered or canonized elsewhere.',
+      'Dynamic memory links are retrieval/navigation hints, not proof.',
       'This artifact does not change default rendered context limits.',
     ],
   };
@@ -2432,9 +2809,13 @@ module.exports = {
   CANDIDATE_SURVIVAL_OUTCOME_DEFINITIONS,
   CANDIDATE_FAILURE_MODES,
   CANDIDATE_FAILURE_MODE_DEFINITIONS,
+  CANDIDATE_LINK_FAILURE_MODES,
+  CANDIDATE_LINK_VERDICTS,
   CANDIDATE_SURVIVAL_FIXTURE_CASES,
   CANDIDATE_SURVIVAL_ARCHIVE_UNIT_TRACE_LIMIT,
   applyPromptTruthToCandidateTrace,
+  buildCandidateLinkAnalysis,
+  buildCandidateLinkAnalysisSummary,
   buildCandidateSurvivalArchiveUnitArtifact,
   buildCandidateSurvivalArchiveUnitCaseResult,
   buildCandidateSurvivalCorrelationSummary,
