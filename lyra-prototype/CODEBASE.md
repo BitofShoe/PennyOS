@@ -203,6 +203,8 @@ Fixture-only open-loop prompt bridge artifact for selected vs held-back advisory
 Disposable mock-route compare harness for open-loop-off vs open-loop-on, with continuity, annoyance, overclaim, adjacent-topic bleed, and prompt-token metrics.
 - [scripts/eval-penny-aliveness-compare.js](./scripts/eval-penny-aliveness-compare.js)
 Bounded aliveness compare harness. Fixture mode adapts A2 scenarios without server/model calls; live-isolated mode runs paired baseline vs feature-on route prompts through disposable Penny servers and a mock LM Studio backend, recording runtime metrics, trust-pressure gates, manual-review fields, adoption thresholds, and disposable cleanup status.
+- [scripts/eval-penny-frame-budget.js](./scripts/eval-penny-frame-budget.js)
+Fixture-only frame-budget compare harness for baseline, static-live-shadow, static-live-advisory, static+open-loops, and bounded-aliveness modes. It records runtime-shape metrics, candidate/render counts, prompt-token deltas, expected wins/regressions, and nullable live latency without spawning a server or proving answer quality.
 - [scripts/eval-penny-initiative-fixture.js](./scripts/eval-penny-initiative-fixture.js)
 Fixture-only bounded initiative artifact for allowed vs held-back suggestions, pressure/annoyance cases, source-aware prompt scaffolds, and max-one rendering.
 - [scripts/eval-penny-runtime-fit.js](./scripts/eval-penny-runtime-fit.js)
@@ -295,6 +297,8 @@ Current modules worth knowing:
 - [lib/penny-open-loop-extraction.js](./lib/penny-open-loop-extraction.js)
 - [lib/penny-initiative-policy.js](./lib/penny-initiative-policy.js)
 - [lib/penny-turn-state.js](./lib/penny-turn-state.js)
+- [lib/penny-frame-budget.js](./lib/penny-frame-budget.js)
+- [lib/penny-background-frame.js](./lib/penny-background-frame.js)
 - [lib/penny-tool-intents.js](./lib/penny-tool-intents.js)
 - [lib/penny-local-lanes.js](./lib/penny-local-lanes.js)
 - [lib/penny-lmstudio-status.js](./lib/penny-lmstudio-status.js)
@@ -365,6 +369,8 @@ Likely modules you will touch:
 - advisory open-loop continuity in `lib/penny-open-loops.js`, `lib/penny-open-loop-store.js`, and `lib/penny-open-loop-extraction.js`; the live bridge is off by default, bounded to one relevant advisory snippet when opted in, and must not become explicit memory or autonomous task execution
 - bounded initiative policy in `lib/penny-initiative-policy.js`; the live bridge is off by default via `PENNY_ENABLE_BOUNDED_INITIATIVE`, capped at one optional suggestion, cooldown-aware, user-dismissible, and must not write memory, take side effects, or claim unchecked source support
 - ephemeral turn-state response shaping in `lib/penny-turn-state.js`; the live prompt bridge is off by default via `PENNY_ENABLE_TURN_STATE_PROMPT`, capped by `PENNY_TURN_STATE_MAX_TOKENS`, and must stay current-turn-only, sanitized, non-persistent, non-CoT, and non-authoritative
+- frame-budget receipts and scheduling in `lib/penny-frame-budget.js`; these artifacts describe runtime shape, deadline behavior, and candidate selection/rendering pressure without becoming PromptTruth, tool evidence, answer-quality proof, or permission to raise limits
+- bounded background frame work in `lib/penny-background-frame.js`; queued work must stay local-only, bounded, dedupable/skippable, and unable to claim completion unless it actually ran
 - prompt composition and transport shaping in `server.js`
 - prompt-builder regressions in `test/penny-prompt-builders.test.js`
 - lane selection in `lib/penny-local-lanes.js`
@@ -453,6 +459,8 @@ Ephemeral turn-state work is opt-in at the live prompt bridge. The schema, signa
 Bounded aliveness compare work is the current adoption evidence layer for the combined static-live, turn-state, open-loop, and bounded-initiative stack. `npm run eval:aliveness:fixture` is fixture-only and can recommend only live-shadow review. `node scripts/eval-penny-aliveness-compare.js --live-isolated` spawns disposable Penny servers and a mock LM Studio backend, then writes `penny-aliveness-compare.v1` artifacts with human-observable wins, continuity wins, trust-pressure blockers, prompt/latency deltas, rendered advisory counts, manual-review fields, `decisionThresholds`, and `adoptionChecklist`. Live-isolated state is disposable: memory, archive, embeddings, static embedding cache, research ledger, open-loop state, initiative-session state, and memory books are isolated per side and cleanup failure invalidates the run. Passing live-isolated evidence can make local live-advisory review eligible; it is not default enablement.
 
 Penny Frame Budget Principle: every turn has a runtime/context frame budget. Spend it first on relevance, source authority, and candidate selection before spending it on more rendered context. Faster runtime should make Penny more selective and more situated, not merely more verbose or more stuffed with memory. Apply this to static live memory reflex, open-loop tracking, turn-state cards, initiative policy, session reflection, dynamic memory linking, and aliveness/frame-budget compares. Do not use it to expand PromptTruth, merge `toolEvidenceReceipt` into PromptTruth, change runtime voice, raise default prompt/rendered-memory limits, treat frame-budget artifacts as answer-quality proof, or grow `server.js`.
+
+The frame-budget owners are now real code, but still deliberately bounded: `lib/penny-frame-budget.js` owns `penny-frame-budget.v1`, sidecar schedules, sidecar receipts, candidate-merge budget plans, health summaries, and compare-mode aliases; `lib/penny-background-frame.js` owns local-only bounded background jobs. Runtime/eval artifacts may show sidecar deadlines, degraded or missed work, candidate counts, selected/rendered counts, prompt-token deltas, and latency fields when measured. Missed optional work should degrade or skip before prompt/rendered-memory limits change.
 
 Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, `lib/penny-qa-trace.js`, and their tests cover social pressure, companion-feedback bias, remote/source pressure, and agent-integrity receipt canaries. Gemma runtime watch lives in `lib/penny-gemma-runtime-watch.js` plus status/preflight/runtime-fit artifacts. Tool output-cost descriptors live in `lib/penny-tool-registry.js` and optional sibling runtime artifact cost summaries. None of those status surfaces change runtime voice, expand `promptTruth`, switch default embeddings, enable default thinking, raise default context, or import external dependencies.
 

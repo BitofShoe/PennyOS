@@ -2,7 +2,7 @@
 
 > Category: Implementation plan
 > Authority: Draft master plan
-> Status: Revised status plan as of 2026-04-21
+> Status: Revised status plan as of 2026-04-22
 > Use this for: choosing bounded follow-up slices from the April 20-21 external research notes, including the H-Neurons reference audit, LLM geometry/runtime lessons, and pressure/persuasion pass.
 > Do not use this for: current runtime law, proof that a slice shipped, or license to merge/replace the source research docs.
 
@@ -116,6 +116,19 @@ This master plan predates the later "Sharper Candidate Selection / Candidate Sur
 - QA-only shadow comparison landed narrowly: baseline-vs-`hybrid-v1` profile comparison and fixture reranker-shadow summaries are artifact-only, while static embedding shadow comparison is gated by `-- --shadow-embed-provider=static` or `PENNY_EMBED_SHADOW_PROVIDER=static`. None of this changes the default embedding provider or rendered-memory limits.
 - Live answer drift remains deferred. No live short/medium/long answer-quality drift run is claimed here; candidate survival remains retrieval-path evidence, not answer-quality evidence.
 - Slice 14 is docs/operator interpretation only. It should not change scoring logic, PromptTruth, toolEvidenceReceipt, runtime voice, provider defaults, or prompt/rendered memory limits.
+
+## Frame Budget Runtime Follow-through Status
+
+This master plan also predates the post-Tier 1 frame-budget runtime train. Treat this section as a status overlay; current code, tests, and generated artifacts remain stronger than this prose.
+
+- Frame-budget current law is now documented in the high-level docs and the post-Tier 1 frame-budget plan: runtime should spend first on relevance, source authority, and candidate selection before rendering more context.
+- `lib/penny-frame-budget.js` landed `penny-frame-budget.v1` receipts, sidecar receipts, deadline-aware sidecar schedules, candidate-merge budget plans, health summaries, and compare-mode aliases.
+- Existing runtime/eval artifacts can derive `frameBudget` from performance, prompt-truth counts, static/open-loop/turn-state sidecar facts, and runtime-fit data without creating a PromptTruth channel or merging `toolEvidenceReceipt`.
+- Live static memory, open-loop relevance, and turn-state sidecars can report frame-budget sidecar receipts. Missed or degraded sidecars are runtime-shape facts, not answer-quality proof.
+- Archive candidate merge can adapt under tight budgets by skipping optional static expansion or degrading candidate merge instead of raising prompt/rendered-memory limits.
+- `lib/penny-background-frame.js` landed a local-only bounded background queue for static-index update, open-loop refresh, session-reflection prep, memory-link refresh, pulse-card prep, and artifact-summary jobs. Jobs can be skipped, deduped, missed, or failed, and only actually run jobs may claim completion.
+- `npm run eval:frame-budget` landed as a fixture-only compare harness for `baseline`, `static-live-shadow`, `static-live-advisory`, `static+open-loops`, and `bounded-aliveness`. It records budget shape, candidate/render counts, prompt-token deltas, expected wins/regressions, and null/not-run live latency.
+- Still deferred: live frame-budget latency/quality measurement, default enablement changes, runtime voice changes, PromptTruth expansion, `toolEvidenceReceipt` merge or authority change, prompt/rendered-memory limit increases, autonomous background side effects, and any broad `server.js` growth.
 
 ## Slice 1 - Docs / Skills Task-Fit Hardening
 
