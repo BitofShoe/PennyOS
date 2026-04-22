@@ -227,6 +227,7 @@ test('extractTurnStateSignals keeps ambiguous tone unknown', () => {
 
   assert.equal(state.desiredDepth, DESIRED_DEPTHS.UNKNOWN);
   assert.equal(state.responseMode, RESPONSE_MODES.UNKNOWN);
+  assert.deepEqual(state.activeConstraints, []);
   assert.deepEqual(state.energy, {
     label: 'unknown',
     confidence: 'unknown',
@@ -243,4 +244,36 @@ test('extractTurnStateSignals captures explicit no-proactive constraint without 
   assert.ok(state.explicitInstructions.some((item) => /don't be proactive/i.test(item)));
   assert.ok(state.activeConstraints.some((item) => /don't be proactive/i.test(item)));
   assert.ok(state.riskFlags.includes('user-proactive-opt-out'));
+});
+
+test('extractTurnStateSignals injects static embedding candidate authority constraints', () => {
+  const state = extractTurnStateSignals({
+    userText: 'Can static embeddings help the live static memory reflex without changing PromptTruth?',
+  });
+
+  assert.ok(state.activeConstraints.some((item) => /static embeddings are candidate discovery only/i.test(item)));
+  assert.ok(state.activeConstraints.some((item) => /advisory context/i.test(item)));
+  assert.ok(state.activeConstraints.some((item) => /PromptTruth stays limited/i.test(item)));
+  assert.equal(state.activeConstraints.every((item) => /^current law: /.test(item)), true);
+  assert.equal(state.persist, false);
+});
+
+test('extractTurnStateSignals injects explicit-memory authority for memory questions', () => {
+  const state = extractTurnStateSignals({
+    userText: 'What should Penny remember from archive memory, and can semantic recall update explicit memory?',
+  });
+
+  assert.ok(state.activeConstraints.some((item) => /Explicit memory is canonical/i.test(item)));
+  assert.ok(state.activeConstraints.some((item) => /Archive, research-ledger, semantic, static, and open-loop signals are advisory/i.test(item)));
+  assert.ok(state.riskFlags.includes('memory-write-sensitive'));
+});
+
+test('extractTurnStateSignals injects receipt requirements for tool and action questions', () => {
+  const state = extractTurnStateSignals({
+    userText: 'Run npm test, edit the helper if needed, and commit the slice when done.',
+  });
+
+  assert.ok(state.activeConstraints.some((item) => /completion claims require successful deterministic in-turn receipts/i.test(item)));
+  assert.ok(state.activeConstraints.some((item) => /toolEvidenceReceipt stays a sibling runtime artifact/i.test(item)));
+  assert.equal(state.responseMode, RESPONSE_MODES.TECHNICAL_ROADMAP);
 });

@@ -122,6 +122,38 @@ const SOURCE_REQUEST_PATTERNS = [
   /\bcurrent (law|rules?|guidance|status|price|schedule|version)\b/i,
 ];
 
+const CURRENT_LAW_CONSTRAINTS = Object.freeze({
+  EXPLICIT_MEMORY_CANONICAL: 'Explicit memory is canonical; advisory recall must not be treated as stronger truth.',
+  ADVISORY_CONTEXT: 'Archive, research-ledger, semantic, static, and open-loop signals are advisory context, not proof by confidence.',
+  PROMPTTRUTH_UNCHANGED: 'PromptTruth stays limited to prompt-time rendered/candidate memory and research context; do not add new channels here.',
+  TOOL_EVIDENCE_SIBLING: 'toolEvidenceReceipt stays a sibling runtime artifact; do not merge it into PromptTruth.',
+  STATIC_CANDIDATE_ONLY: 'Static embeddings are candidate discovery only; candidate hits are not truth, memory writes, or prompt-limit permission.',
+  OPEN_LOOPS_ADVISORY: 'Open loops are advisory, dismissible continuity; they are not explicit memory or autonomous task permission.',
+  DETERMINISTIC_EXTRACTION_NO_AUTO_MEMORY: 'Deterministic extraction/source receipts do not create automatic memory writes or promotion.',
+  TOOL_ACTION_RECEIPTS: 'Tool/action completion claims require successful deterministic in-turn receipts before being stated as done.',
+});
+
+const AUTHORITY_TOPIC_PATTERNS = Object.freeze({
+  memory: [
+    /\b(explicit memory|canonical memory|memory authority|remember|recall|archive memory|research ledger|semantic memory|memory writes?)\b/i,
+  ],
+  static: [
+    /\b(static embeddings?|static memory reflex|static candidates?|PENNY_STATIC_EMBED_MODE|live-advisory|live-shadow)\b/i,
+  ],
+  promptTruth: [
+    /\b(prompttruth|prompt truth|prompt[- ]?time|prompt bridge|rendered context|rendered memory|candidate context)\b/i,
+  ],
+  toolAction: [
+    /\b(toolEvidenceReceipt|tool evidence|receipt|deterministic receipt|run tests?|npm test|commit|push|edit files?|write files?|delete files?|shell command|git|deploy|publish|post|tweet|email|action claim)\b/i,
+  ],
+  openLoop: [
+    /\b(open[- ]loops?|open loop tracker|unresolved threads?|follow[- ]?ups?|continuity thread)\b/i,
+  ],
+  extraction: [
+    /\b(deterministic extraction|extract(?:ion)?|ocr|pdf|document extraction|spreadsheet|table extraction|invoice|tax form|numeric fields?)\b/i,
+  ],
+});
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -485,7 +517,7 @@ function inferRiskFlags(text = '', sourceCheckNeeded = false) {
   if (/\b(don't be proactive|do not be proactive|no proactive|stop suggesting|just answer)\b/i.test(text)) {
     flags.push('user-proactive-opt-out');
   }
-  if (/\b(remember this|save this to memory|write memory|store this)\b/i.test(text)) {
+  if (/\b(remember this|save this to memory|write memory|store this|update explicit memory|add .* to memory|save .* explicit memory)\b/i.test(text)) {
     flags.push('memory-write-sensitive');
   }
   if (/\b(send|email|tweet|post|publish|delete|remove|reset --hard|rm -rf)\b/i.test(text)) {
@@ -523,6 +555,62 @@ function arrayFromContext(context = {}, ...keys) {
   return [];
 }
 
+function authorityContextText(rawInput = {}, context = {}) {
+  const values = [
+    ...arrayFromContext(rawInput, 'authorityTopics', 'currentLawTopics', 'topics', 'subsystems'),
+    ...arrayFromContext(context, 'authorityTopics', 'currentLawTopics', 'topics', 'subsystems'),
+  ];
+  return uniqueStrings(values.map((item) => {
+    if (typeof item === 'string') return item;
+    if (!isPlainObject(item)) return '';
+    return item.id || item.key || item.label || item.title || item.name || item.type || '';
+  }), 20, 120).join(' ');
+}
+
+function currentLawConstraint(text = '') {
+  return {
+    sourceLabel: 'current law',
+    text,
+  };
+}
+
+function inferCurrentLawConstraints(text = '', rawInput = {}, context = {}) {
+  const authorityText = `${cleanString(text, 4000)} ${authorityContextText(rawInput, context)}`;
+  const constraints = [];
+  const add = (constraint) => {
+    if (constraint) constraints.push(currentLawConstraint(constraint));
+  };
+
+  const memoryRelated = matchesAny(authorityText, AUTHORITY_TOPIC_PATTERNS.memory);
+  const staticRelated = matchesAny(authorityText, AUTHORITY_TOPIC_PATTERNS.static);
+  const openLoopRelated = matchesAny(authorityText, AUTHORITY_TOPIC_PATTERNS.openLoop);
+
+  if (memoryRelated) {
+    add(CURRENT_LAW_CONSTRAINTS.EXPLICIT_MEMORY_CANONICAL);
+    add(CURRENT_LAW_CONSTRAINTS.ADVISORY_CONTEXT);
+  }
+  if (staticRelated) {
+    add(CURRENT_LAW_CONSTRAINTS.STATIC_CANDIDATE_ONLY);
+    add(CURRENT_LAW_CONSTRAINTS.ADVISORY_CONTEXT);
+  }
+  if (openLoopRelated) {
+    add(CURRENT_LAW_CONSTRAINTS.OPEN_LOOPS_ADVISORY);
+    add(CURRENT_LAW_CONSTRAINTS.ADVISORY_CONTEXT);
+  }
+  if (matchesAny(authorityText, AUTHORITY_TOPIC_PATTERNS.promptTruth)) {
+    add(CURRENT_LAW_CONSTRAINTS.PROMPTTRUTH_UNCHANGED);
+  }
+  if (matchesAny(authorityText, AUTHORITY_TOPIC_PATTERNS.toolAction)) {
+    add(CURRENT_LAW_CONSTRAINTS.TOOL_ACTION_RECEIPTS);
+    add(CURRENT_LAW_CONSTRAINTS.TOOL_EVIDENCE_SIBLING);
+  }
+  if (matchesAny(authorityText, AUTHORITY_TOPIC_PATTERNS.extraction)) {
+    add(CURRENT_LAW_CONSTRAINTS.DETERMINISTIC_EXTRACTION_NO_AUTO_MEMORY);
+  }
+
+  return normalizeConstraints(constraints);
+}
+
 function extractTurnStateSignals(input = {}) {
   const rawInput = isPlainObject(input) ? input : { userText: input };
   const context = isPlainObject(rawInput.context) ? rawInput.context : {};
@@ -543,6 +631,7 @@ function extractTurnStateSignals(input = {}) {
       ...arrayFromContext(rawInput, 'activeConstraints', 'constraints'),
       ...arrayFromContext(context, 'activeConstraints', 'constraints'),
       ...inferActiveConstraints(text, explicitInstructions),
+      ...inferCurrentLawConstraints(text, rawInput, context),
     ],
     riskFlags: [
       ...arrayFromContext(rawInput, 'riskFlags', 'risks'),
