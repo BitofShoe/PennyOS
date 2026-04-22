@@ -1,6 +1,7 @@
 const INITIATIVE_DECISION_SCHEMA = 'penny-initiative-decision.v1';
 const INITIATIVE_PROMPT_SCAFFOLD_SCHEMA = 'penny-initiative-prompt-scaffold.v1';
 const INITIATIVE_PROMPT_BRIDGE_SCHEMA = 'penny-initiative-prompt-bridge.v1';
+const INITIATIVE_USER_CONTROLS_SCHEMA = 'penny-initiative-user-controls.v1';
 
 const INITIATIVE_TYPES = Object.freeze({
   NONE: 'none',
@@ -76,10 +77,32 @@ const URGENCY_TOKENS = new Set([
   'deadline',
 ]);
 
-const INITIATIVE_STOP_PATTERNS = [
-  /\b(?:stop|quit|disable|pause|suppress)\b.{0,60}\b(?:suggest|suggesting|suggestion|initiative|proactive|nudge|nudges|remind|reminders|next steps?)\b/i,
-  /\b(?:do not|don't|dont|no more)\b.{0,60}\b(?:suggest|suggesting|suggestion|initiative|proactive|nudge|nudges|remind|reminders|next steps?)\b/i,
-  /\bturn\s+off\b.{0,60}\b(?:suggest|suggesting|suggestion|initiative|proactive|nudge|nudges|remind|reminders|next steps?)\b/i,
+const INITIATIVE_GLOBAL_OPT_OUT_PATTERNS = [
+  /\b(?:stop|quit|disable|pause|suppress)\b.{0,60}\b(?:suggest|suggesting|suggestions|initiative|proactive|nudge|nudges|next steps?)\b/i,
+  /\b(?:do not|don't|dont|no more)\b.{0,60}\b(?:suggest|suggesting|suggestions|initiative|proactive|nudge|nudges|next steps?)\b/i,
+  /\bturn\s+off\b.{0,60}\b(?:suggest|suggesting|suggestions|initiative|proactive|nudge|nudges|reminders|next steps?)\b/i,
+  /\b(?:stop|disable|pause|no more)\b.{0,60}\b(?:all\s+)?(?:reminders|proactive reminders)\b/i,
+];
+
+const INITIATIVE_OPT_IN_PATTERNS = [
+  /\b(?:you can|feel free to|it's okay to|it is okay to|okay to|go ahead and)\b.{0,80}\b(?:be proactive|take initiative|suggest|suggestions?|nudge|nudges|remind|reminders|next steps?)\b/i,
+  /\b(?:be proactive|take initiative|suggest next steps?|nudge me|remind me)\b.{0,80}\b(?:here|on this|for this|when relevant|if relevant|in this thread)\b/i,
+];
+
+const INITIATIVE_THREAD_WATCH_PATTERNS = [
+  /\bkeep\s+an\s+eye\s+on\b.{0,60}\b(?:this|the)\s+(?:thread|project|topic|loop|slice)\b/i,
+  /\bfollow\b.{0,40}\b(?:this|the)\s+(?:thread|project|topic|loop|slice)\b/i,
+];
+
+const INITIATIVE_DISMISSAL_PATTERNS = [
+  /\b(?:do not|don't|dont|stop)\b.{0,50}\bremind(?:ing)?\s+me\b.{0,60}\b(?:about|of)?\s*(?:that|this|it)\b/i,
+  /\b(?:do not|don't|dont|stop)\b.{0,50}\b(?:bring|surface|mention|nudge)\b.{0,60}\b(?:that|this|it)\b/i,
+  /\b(?:dismiss|drop|hide|park)\b.{0,50}\b(?:that|this|the)?\s*(?:reminder|open loop|loop|thread|topic|slice)\b/i,
+];
+
+const INITIATIVE_DURABLE_SCOPE_PATTERNS = [
+  /\b(?:from now on|going forward|in general|always|by default)\b/i,
+  /\bfor\s+(?:this|the)\s+(?:project|thread|topic|slice)\b/i,
 ];
 
 const DIRECT_COMMAND_PATTERNS = [
@@ -246,12 +269,30 @@ function normalizeIso(value = '') {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : '';
 }
 
-function hasInitiativeOptOutText(userText = '') {
-  return INITIATIVE_STOP_PATTERNS.some((pattern) => pattern.test(userText));
+function hasGlobalInitiativeOptOutText(userText = '') {
+  return INITIATIVE_GLOBAL_OPT_OUT_PATTERNS.some((pattern) => pattern.test(userText));
 }
 
-function preferencesDisableInitiative(userPreferences = {}) {
-  if (!isPlainObject(userPreferences)) return false;
+function hasInitiativeOptInText(userText = '') {
+  return INITIATIVE_OPT_IN_PATTERNS.some((pattern) => pattern.test(userText));
+}
+
+function hasThreadWatchText(userText = '') {
+  return INITIATIVE_THREAD_WATCH_PATTERNS.some((pattern) => pattern.test(userText));
+}
+
+function hasReminderDismissalText(userText = '') {
+  return INITIATIVE_DISMISSAL_PATTERNS.some((pattern) => pattern.test(userText));
+}
+
+function hasDurableScopeText(userText = '') {
+  return INITIATIVE_DURABLE_SCOPE_PATTERNS.some((pattern) => pattern.test(userText));
+}
+
+function initiativePreferenceSetting(userPreferences = {}) {
+  if (!isPlainObject(userPreferences)) {
+    return { value: null, source: '' };
+  }
   const explicitEnabled = normalizeBoolean(
     userPreferences.initiativeEnabled
       ?? userPreferences.allowInitiative
@@ -259,10 +300,24 @@ function preferencesDisableInitiative(userPreferences = {}) {
       ?? userPreferences.proactiveSuggestions
       ?? userPreferences.suggestions,
   );
-  return explicitEnabled === false
-    || userPreferences.disableInitiative === true
+  if (explicitEnabled !== null) {
+    return { value: explicitEnabled, source: 'user-preferences' };
+  }
+  if (
+    userPreferences.disableInitiative === true
     || userPreferences.stopSuggesting === true
-    || userPreferences.stopSuggestions === true;
+    || userPreferences.stopSuggestions === true
+  ) {
+    return { value: false, source: 'user-preferences' };
+  }
+  if (
+    userPreferences.enableInitiative === true
+    || userPreferences.allowProactive === true
+    || userPreferences.proactiveHere === true
+  ) {
+    return { value: true, source: 'user-preferences' };
+  }
+  return { value: null, source: '' };
 }
 
 function isDirectCommand({ userText = '', turnState = {} } = {}) {
@@ -322,6 +377,145 @@ function rawStaticMemoryCandidateList(value = null) {
   if (Array.isArray(value.candidates)) candidates.push(...value.candidates);
   if (Array.isArray(value.selected)) candidates.push(...value.selected);
   return candidates;
+}
+
+function normalizeControlPhrase(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function uniqueControlIds(values = []) {
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    const id = cleanString(value, 140);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+function controlLoopId(raw = {}) {
+  if (!isPlainObject(raw)) return '';
+  return cleanString(raw.id || raw.openLoopId || raw.loopId || raw.candidateId || '', 140);
+}
+
+function controlLoopTitle(raw = {}) {
+  if (!isPlainObject(raw)) return '';
+  return cleanString(raw.title || raw.summary || raw.label || '', 220);
+}
+
+function userTextMentionsControlLoop(userText = '', rawLoop = {}) {
+  const text = normalizeControlPhrase(userText);
+  if (!text || !isPlainObject(rawLoop)) return false;
+  const phrases = [
+    controlLoopId(rawLoop),
+    controlLoopId(rawLoop).replace(/[-_]+/g, ' '),
+    controlLoopTitle(rawLoop),
+  ]
+    .map(normalizeControlPhrase)
+    .filter((phrase) => phrase && phrase.length >= 3);
+  return phrases.some((phrase) => ` ${text} `.includes(` ${phrase} `));
+}
+
+function inferControlLoopTargets({
+  userText = '',
+  relevantOpenLoops = [],
+  dismissalRequested = false,
+} = {}) {
+  const loops = rawOpenLoopList(relevantOpenLoops)
+    .filter(isPlainObject)
+    .filter((loop) => controlLoopId(loop));
+  if (!loops.length) return [];
+  const explicitTargets = loops
+    .filter((loop) => userTextMentionsControlLoop(userText, loop))
+    .map(controlLoopId);
+  if (explicitTargets.length) return uniqueControlIds(explicitTargets);
+  if (dismissalRequested
+    && loops.length === 1
+    && /\b(?:that|this|it)\b/i.test(userText)) {
+    return [controlLoopId(loops[0])];
+  }
+  return [];
+}
+
+function extractInitiativeUserControls({
+  userText = '',
+  userPreferences = {},
+  relevantOpenLoops = [],
+} = {}) {
+  const cleanUserText = cleanString(userText, 2000);
+  const dismissalRequested = hasReminderDismissalText(cleanUserText);
+  const threadWatchRequested = hasThreadWatchText(cleanUserText);
+  const optOutRequested = hasGlobalInitiativeOptOutText(cleanUserText) && !dismissalRequested;
+  const optInRequested = hasInitiativeOptInText(cleanUserText) || threadWatchRequested;
+  const durableScopeRequested = hasDurableScopeText(cleanUserText);
+  const preference = initiativePreferenceSetting(userPreferences);
+  const dismissedOpenLoopIds = inferControlLoopTargets({
+    userText: cleanUserText,
+    relevantOpenLoops,
+    dismissalRequested,
+  });
+  const reasons = [];
+  let initiativePreference = 'unchanged';
+  let preferenceScope = 'none';
+  let source = 'none';
+  let allowInitiativeThisTurn = false;
+  let durablePreferenceRequested = false;
+
+  if (preference.value === false) {
+    initiativePreference = 'disabled';
+    preferenceScope = 'stored';
+    source = preference.source || 'user-preferences';
+    durablePreferenceRequested = true;
+    reasons.push('stored-opt-out');
+  } else if (preference.value === true) {
+    initiativePreference = 'enabled';
+    preferenceScope = 'stored';
+    source = preference.source || 'user-preferences';
+    reasons.push('stored-opt-in');
+  }
+
+  if (optOutRequested) {
+    initiativePreference = 'disabled';
+    preferenceScope = durableScopeRequested ? 'global' : 'session';
+    source = 'user-text';
+    durablePreferenceRequested = durableScopeRequested;
+    allowInitiativeThisTurn = false;
+    reasons.push('explicit-opt-out');
+  } else if (optInRequested) {
+    initiativePreference = 'enabled';
+    preferenceScope = threadWatchRequested
+      ? 'thread'
+      : (durableScopeRequested ? 'global' : 'current-turn');
+    source = 'user-text';
+    durablePreferenceRequested = durableScopeRequested || threadWatchRequested;
+    allowInitiativeThisTurn = true;
+    reasons.push(threadWatchRequested ? 'thread-watch-consent' : 'explicit-opt-in');
+  }
+
+  if (dismissalRequested) reasons.push('dismissal-request');
+
+  return {
+    schema: INITIATIVE_USER_CONTROLS_SCHEMA,
+    initiativePreference,
+    preferenceScope,
+    source,
+    explicitUserControl: optOutRequested || optInRequested || dismissalRequested,
+    allowInitiativeThisTurn,
+    durablePreferenceRequested,
+    dismissalRequested,
+    dismissedOpenLoopIds,
+    threadWatchRequested,
+    keepEyeOnThread: threadWatchRequested,
+    reasons,
+    memoryWrites: false,
+    autonomousActions: false,
+  };
 }
 
 function tokenMatchesAny(value = '', matches = new Set()) {
@@ -478,7 +672,12 @@ function buildHeldBack(reason, extras = {}) {
   };
 }
 
-function baseDecision({ reason = 'no initiative candidate', heldBack = [], riskClass = null } = {}) {
+function baseDecision({
+  reason = 'no initiative candidate',
+  heldBack = [],
+  riskClass = null,
+  userControls = null,
+} = {}) {
   return {
     schema: INITIATIVE_DECISION_SCHEMA,
     initiativeAllowed: false,
@@ -495,6 +694,7 @@ function baseDecision({ reason = 'no initiative candidate', heldBack = [], riskC
     candidateId: '',
     forbiddenActions: FORBIDDEN_ACTIONS.slice(),
     heldBack,
+    ...(userControls ? { userControls } : {}),
   };
 }
 
@@ -896,6 +1096,11 @@ function decideInitiative({
   cooldownTurns = 3,
 } = {}) {
   const cleanUserText = cleanString(userText, 2000);
+  const userControls = extractInitiativeUserControls({
+    userText: cleanUserText,
+    userPreferences,
+    relevantOpenLoops,
+  });
   const turnSignals = collectTurnSignals({
     userText: cleanUserText,
     turnState,
@@ -904,10 +1109,11 @@ function decideInitiative({
     sourceTrustFlags,
   });
 
-  if (preferencesDisableInitiative(userPreferences) || hasInitiativeOptOutText(cleanUserText)) {
+  if (userControls.initiativePreference === 'disabled') {
     return baseDecision({
       reason: 'initiative disabled by user preference',
       heldBack: [buildHeldBack('user-opt-out', { initiativeType: INITIATIVE_TYPES.NONE })],
+      userControls,
     });
   }
 
@@ -915,6 +1121,7 @@ function decideInitiative({
     return baseDecision({
       reason: 'sensitive topic requires explicit user direction',
       heldBack: [buildHeldBack('sensitive-topic', { initiativeType: INITIATIVE_TYPES.NONE })],
+      userControls,
     });
   }
 
@@ -930,10 +1137,27 @@ function decideInitiative({
     turnSignals,
   });
 
+  if (userControls.dismissalRequested && userControls.allowInitiativeThisTurn !== true) {
+    return baseDecision({
+      reason: 'user dismissed reminder or open-loop initiative',
+      riskClass: candidate?.riskClass || null,
+      heldBack: [
+        buildHeldBack('user-dismissed-reminder', {
+          initiativeType: candidate?.initiativeType || INITIATIVE_TYPES.NONE,
+          suggestionText: candidate?.suggestionText || '',
+          candidateId: candidate?.id || '',
+          dismissedOpenLoopIds: userControls.dismissedOpenLoopIds,
+        }),
+      ],
+      userControls,
+    });
+  }
+
   if (
     turnSignals.exactReviewMode
     && candidate
     && candidate.initiativeType !== INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION
+    && userControls.allowInitiativeThisTurn !== true
   ) {
     return baseDecision({
       reason: 'exact review suppresses extra initiative unless a source-check warning is needed',
@@ -945,11 +1169,13 @@ function decideInitiative({
           riskClass: candidate.riskClass,
         }),
       ],
+      userControls,
     });
   }
 
   if (
     directCommand
+    && userControls.allowInitiativeThisTurn !== true
     && (!candidate
       || candidate.initiativeType !== INITIATIVE_TYPES.SOURCE_CHECK_SUGGESTION
       || (!turnSignals.exactReviewMode && !turnSignals.urgencyPressure))
@@ -957,6 +1183,7 @@ function decideInitiative({
     return baseDecision({
       reason: 'direct command should not get extra initiative',
       heldBack: [buildHeldBack('direct-command', { initiativeType: INITIATIVE_TYPES.NONE })],
+      userControls,
     });
   }
 
@@ -964,6 +1191,7 @@ function decideInitiative({
     return baseDecision({
       reason: 'no high-confidence initiative candidate',
       heldBack: [],
+      userControls,
     });
   }
 
@@ -978,6 +1206,7 @@ function decideInitiative({
       reason: riskDecision.reason,
       riskClass: candidate.riskClass,
       heldBack: [riskDecision.heldBack],
+      userControls,
     });
   }
 
@@ -992,6 +1221,7 @@ function decideInitiative({
           riskClass: candidate.riskClass,
         }),
       ],
+      userControls,
     });
   }
 
@@ -1013,6 +1243,7 @@ function decideInitiative({
     candidateId: candidate.id || '',
     forbiddenActions: FORBIDDEN_ACTIONS.slice(),
     heldBack: [],
+    userControls,
   };
 }
 
@@ -1243,6 +1474,7 @@ function buildLiveInitiativePromptBridge({
     maxPerTurn: maxSuggestions,
     cooldownTurns: cooldownLimit,
     decision,
+    userControls: decision.userControls || null,
     scaffold: {
       ...scaffold,
       livePromptBridge: rendered,
@@ -1278,8 +1510,10 @@ module.exports = {
   INITIATIVE_PROMPT_SCAFFOLD_SCHEMA,
   INITIATIVE_RISK_CLASSES,
   INITIATIVE_TYPES,
+  INITIATIVE_USER_CONTROLS_SCHEMA,
   buildLiveInitiativePromptBridge,
   buildInitiativePromptScaffold,
   decideInitiative,
+  extractInitiativeUserControls,
   extractRecentInitiativesFromMessages,
 };

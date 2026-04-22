@@ -1185,6 +1185,73 @@ function expireOpenLoops(stateLike = {}, options = {}) {
   };
 }
 
+function applyOpenLoopDismissals(stateLike = {}, options = {}) {
+  const normalized = normalizeOpenLoopState(stateLike);
+  const at = lifecycleTimestamp(options);
+  const targetIds = new Set(uniqueStrings(options.dismissedOpenLoopIds || options.loopIds || [], 20)
+    .map((id) => cleanString(id, 140))
+    .filter(Boolean));
+  const dismissedLoopIds = [];
+  const heldBack = [];
+  const seen = new Set();
+
+  if (!targetIds.size) {
+    return {
+      schema: OPEN_LOOP_SCHEMA,
+      state: normalized,
+      dismissedLoopIds,
+      heldBack,
+      authority: OPEN_LOOP_AUTHORITY,
+      memoryWrites: false,
+      autonomousActions: false,
+    };
+  }
+
+  const loops = normalized.loops.map((loop) => {
+    if (!targetIds.has(loop.id)) return loop;
+    seen.add(loop.id);
+    const status = classifyOpenLoopStatus(loop, options.now || at);
+    if ([
+      OPEN_LOOP_STATUSES.COMPLETED,
+      OPEN_LOOP_STATUSES.DISMISSED,
+      OPEN_LOOP_STATUSES.EXPIRED,
+    ].includes(status)) {
+      heldBack.push({ id: loop.id, reason: `${status}-not-dismissed` });
+      return loop;
+    }
+    const dismissed = dismissOpenLoop(loop, {
+      ...options,
+      at,
+      basis: options.basis || OPEN_LOOP_COMPLETION_BASES.MANUAL_COMMAND,
+      reason: buildLifecycleReason(options, 'user-dismissed-reminder'),
+    });
+    if (!dismissed) {
+      heldBack.push({ id: loop.id, reason: 'invalid-loop' });
+      return loop;
+    }
+    dismissedLoopIds.push(loop.id);
+    return dismissed;
+  });
+
+  for (const id of targetIds) {
+    if (!seen.has(id)) heldBack.push({ id, reason: 'loop-not-found' });
+  }
+
+  return {
+    schema: OPEN_LOOP_SCHEMA,
+    state: {
+      ...normalized,
+      updatedAt: dismissedLoopIds.length ? at : normalized.updatedAt,
+      loops,
+    },
+    dismissedLoopIds,
+    heldBack,
+    authority: OPEN_LOOP_AUTHORITY,
+    memoryWrites: false,
+    autonomousActions: false,
+  };
+}
+
 function summarizeOpenLoopState(state, { now = new Date() } = {}) {
   const normalized = normalizeOpenLoopState(state);
   const statusCounts = Object.fromEntries(Object.values(OPEN_LOOP_STATUSES).map((status) => [status, 0]));
@@ -1232,6 +1299,7 @@ module.exports = {
   OPEN_LOOP_STATUSES,
   OPEN_LOOP_COMPLETION_BASES,
   OPEN_LOOP_LIFECYCLE_ACTIONS,
+  applyOpenLoopDismissals,
   buildLiveOpenLoopPromptBridge,
   buildOpenLoopPromptBridgeFixture,
   completeOpenLoop,

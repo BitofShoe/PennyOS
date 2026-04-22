@@ -12,9 +12,11 @@ const {
   INITIATIVE_PROMPT_SCAFFOLD_SCHEMA,
   INITIATIVE_RISK_CLASSES,
   INITIATIVE_TYPES,
+  INITIATIVE_USER_CONTROLS_SCHEMA,
   buildLiveInitiativePromptBridge,
   buildInitiativePromptScaffold,
   decideInitiative,
+  extractInitiativeUserControls,
   extractRecentInitiativesFromMessages,
 } = require('../lib/penny-initiative-policy');
 const {
@@ -148,6 +150,173 @@ test('explicit stop-suggesting text disables initiative', () => {
   assert.match(decision.reason, /disabled by user preference/i);
   assert.deepEqual(decision.heldBack, [
     { reason: 'user-opt-out', initiativeType: INITIATIVE_TYPES.NONE },
+  ]);
+});
+
+test('initiative user controls distinguish opt-out, dismissal, and thread watch consent', () => {
+  const loop = {
+    id: 'bounded-initiative-policy',
+    title: 'Bounded initiative policy',
+    selected: true,
+    confidence: 'high',
+    nextLikelyStep: 'Run the focused initiative policy test.',
+  };
+
+  const optOut = extractInitiativeUserControls({
+    userText: 'Stop suggesting next steps for now.',
+    relevantOpenLoops: [loop],
+  });
+  assert.equal(optOut.schema, INITIATIVE_USER_CONTROLS_SCHEMA);
+  assert.equal(optOut.initiativePreference, 'disabled');
+  assert.equal(optOut.preferenceScope, 'session');
+  assert.equal(optOut.durablePreferenceRequested, false);
+  assert.equal(optOut.dismissalRequested, false);
+  assert.deepEqual(optOut.reasons, ['explicit-opt-out']);
+
+  const durableOptOut = extractInitiativeUserControls({
+    userText: 'From now on, stop suggesting next steps.',
+    relevantOpenLoops: [loop],
+  });
+  assert.equal(durableOptOut.initiativePreference, 'disabled');
+  assert.equal(durableOptOut.preferenceScope, 'global');
+  assert.equal(durableOptOut.durablePreferenceRequested, true);
+
+  const dismissal = extractInitiativeUserControls({
+    userText: "Don't remind me about that.",
+    relevantOpenLoops: [loop],
+  });
+  assert.equal(dismissal.initiativePreference, 'unchanged');
+  assert.equal(dismissal.dismissalRequested, true);
+  assert.deepEqual(dismissal.dismissedOpenLoopIds, ['bounded-initiative-policy']);
+  assert.deepEqual(dismissal.reasons, ['dismissal-request']);
+
+  const threadWatch = extractInitiativeUserControls({
+    userText: 'Keep an eye on this thread.',
+    relevantOpenLoops: [loop],
+  });
+  assert.equal(threadWatch.initiativePreference, 'enabled');
+  assert.equal(threadWatch.preferenceScope, 'thread');
+  assert.equal(threadWatch.allowInitiativeThisTurn, true);
+  assert.equal(threadWatch.keepEyeOnThread, true);
+  assert.equal(threadWatch.memoryWrites, false);
+  assert.equal(threadWatch.autonomousActions, false);
+});
+
+test('stored user opt-out suppresses future initiative candidates', () => {
+  const decision = decideInitiative({
+    userText: 'Any tiny next step?',
+    userPreferences: { initiativeEnabled: false },
+    retrievalSignals: [
+      {
+        kind: 'next-step',
+        confidence: 'high',
+        suggestionText: 'Run the compare harness.',
+      },
+    ],
+  });
+
+  assert.equal(decision.initiativeAllowed, false);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.NONE);
+  assert.equal(decision.userControls.initiativePreference, 'disabled');
+  assert.equal(decision.userControls.preferenceScope, 'stored');
+  assert.deepEqual(decision.heldBack, [
+    { reason: 'user-opt-out', initiativeType: INITIATIVE_TYPES.NONE },
+  ]);
+});
+
+test('explicit current-turn opt-in allows a low-risk suggestion despite direct command wording', () => {
+  const decision = decideInitiative({
+    userText: 'Please review this patch, and you can be proactive here.',
+    retrievalSignals: [
+      {
+        kind: 'next-step',
+        confidence: 'high',
+        suggestionText: 'After the review, run the focused initiative policy test.',
+      },
+    ],
+  });
+
+  assert.equal(decision.initiativeAllowed, true);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.NEXT_STEP_SUGGESTION);
+  assert.equal(decision.riskClass, INITIATIVE_RISK_CLASSES.LOW);
+  assert.equal(decision.userControls.allowInitiativeThisTurn, true);
+  assert.equal(decision.userControls.preferenceScope, 'current-turn');
+});
+
+test('explicit current-turn opt-in can override a stored opt-out without bypassing gates', () => {
+  const decision = decideInitiative({
+    userText: 'You can be proactive here.',
+    userPreferences: { initiativeEnabled: false },
+    retrievalSignals: [
+      {
+        kind: 'next-step',
+        confidence: 'high',
+        suggestionText: 'Run the focused initiative policy test.',
+      },
+    ],
+  });
+
+  assert.equal(decision.initiativeAllowed, true);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.NEXT_STEP_SUGGESTION);
+  assert.equal(decision.userControls.initiativePreference, 'enabled');
+  assert.equal(decision.userControls.preferenceScope, 'current-turn');
+  assert.deepEqual(decision.userControls.reasons, ['stored-opt-out', 'explicit-opt-in']);
+});
+
+test('explicit opt-in does not bypass high-risk initiative gates', () => {
+  const decision = decideInitiative({
+    userText: 'You can be proactive here.',
+    retrievalSignals: [
+      {
+        riskClass: INITIATIVE_RISK_CLASSES.HIGH,
+        confidence: 'high',
+        suggestionText: 'Offer to edit the release notes file after this reply.',
+      },
+    ],
+  });
+
+  assert.equal(decision.initiativeAllowed, false);
+  assert.equal(decision.riskClass, INITIATIVE_RISK_CLASSES.HIGH);
+  assert.equal(decision.userControls.initiativePreference, 'enabled');
+  assert.match(decision.reason, /high-risk initiative requires direct user request/i);
+  assert.deepEqual(decision.heldBack, [
+    {
+      reason: 'high-risk-not-requested',
+      initiativeType: INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
+      suggestionText: 'Offer to edit the release notes file after this reply.',
+      riskClass: INITIATIVE_RISK_CLASSES.HIGH,
+    },
+  ]);
+});
+
+test('reminder dismissal suppresses the targeted open-loop initiative without global opt-out', () => {
+  const decision = decideInitiative({
+    userText: "Don't remind me about that.",
+    relevantOpenLoops: [
+      {
+        id: 'bounded-initiative-policy',
+        title: 'Bounded initiative policy',
+        selected: true,
+        confidence: 'high',
+        nextLikelyStep: 'Run the focused initiative policy test.',
+      },
+    ],
+  });
+
+  assert.equal(decision.initiativeAllowed, false);
+  assert.equal(decision.initiativeType, INITIATIVE_TYPES.NONE);
+  assert.equal(decision.userControls.initiativePreference, 'unchanged');
+  assert.equal(decision.userControls.dismissalRequested, true);
+  assert.deepEqual(decision.userControls.dismissedOpenLoopIds, ['bounded-initiative-policy']);
+  assert.match(decision.reason, /dismissed reminder/i);
+  assert.deepEqual(decision.heldBack, [
+    {
+      reason: 'user-dismissed-reminder',
+      initiativeType: INITIATIVE_TYPES.NEXT_STEP_SUGGESTION,
+      suggestionText: 'Run the focused initiative policy test.',
+      candidateId: 'bounded-initiative-policy',
+      dismissedOpenLoopIds: ['bounded-initiative-policy'],
+    },
   ]);
 });
 

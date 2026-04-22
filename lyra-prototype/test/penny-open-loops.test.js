@@ -5,6 +5,7 @@ const {
   OPEN_LOOP_SCHEMA,
   OPEN_LOOP_PROMPT_BRIDGE_SCHEMA,
   OPEN_LOOP_STATUSES,
+  applyOpenLoopDismissals,
   buildLiveOpenLoopPromptBridge,
   buildOpenLoopPromptBridgeFixture,
   classifyOpenLoopStatus,
@@ -257,6 +258,52 @@ test('dismissed and expired loops never surface even when mentioned', () => {
     { id: 'static-live-advisory', reason: 'dismissed-suppressed' },
     { id: 'provider-comparison', reason: 'expired-suppressed' },
   ]);
+});
+
+test('applies user dismissal controls to targeted open loops without store writes', () => {
+  const result = applyOpenLoopDismissals({
+    updatedAt: '2026-04-22T11:00:00.000Z',
+    loops: [
+      {
+        id: 'nagging-loop',
+        title: 'Nagging loop',
+        status: 'open',
+        nextLikelyStep: 'Bring this up again.',
+      },
+      {
+        id: 'done-loop',
+        title: 'Done loop',
+        status: 'completed',
+        completedAt: '2026-04-22T10:00:00.000Z',
+      },
+      {
+        id: 'other-loop',
+        title: 'Other loop',
+        status: 'open',
+      },
+    ],
+  }, {
+    now: NOW,
+    dismissedOpenLoopIds: ['nagging-loop', 'done-loop', 'missing-loop'],
+    reason: 'user said not to remind them about that',
+    sourceRefs: [{ type: 'conversation', id: 'turn-dismissal' }],
+  });
+  const dismissed = result.state.loops.find((loop) => loop.id === 'nagging-loop');
+  const summary = summarizeOpenLoopState(result.state, { now: NOW });
+
+  assert.equal(result.schema, OPEN_LOOP_SCHEMA);
+  assert.equal(result.memoryWrites, false);
+  assert.equal(result.autonomousActions, false);
+  assert.deepEqual(result.dismissedLoopIds, ['nagging-loop']);
+  assert.deepEqual(result.heldBack, [
+    { id: 'done-loop', reason: 'completed-not-dismissed' },
+    { id: 'missing-loop', reason: 'loop-not-found' },
+  ]);
+  assert.equal(dismissed.status, OPEN_LOOP_STATUSES.DISMISSED);
+  assert.equal(dismissed.dismissed, true);
+  assert.equal(dismissed.history.at(-1).action, 'dismiss');
+  assert.equal(dismissed.history.at(-1).reason, 'user said not to remind them about that');
+  assert.deepEqual(summary.surfaceableLoopIds, ['other-loop']);
 });
 
 test('maxLoops cap keeps extra relevant open loops out of the selected list', () => {
