@@ -39,6 +39,7 @@
     "eval:ledger-compare": "node scripts/eval-penny-ledger-compare.js",
     "eval:open-loop-compare": "node scripts/eval-penny-open-loop-compare.js",
     "eval:session-reflection-compare": "node scripts/eval-penny-session-reflection-compare.js",
+    "eval:memory-links": "node scripts/eval-penny-memory-links-compare.js",
     "eval:aliveness:fixture": "node scripts/eval-penny-aliveness-compare.js --fixture",
     "eval:frame-budget": "node scripts/eval-penny-frame-budget.js",
     "eval:static-embedding-live-compare": "node scripts/eval-penny-static-embedding-live-compare.js",
