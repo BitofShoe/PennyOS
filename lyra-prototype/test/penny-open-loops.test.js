@@ -7,6 +7,7 @@ const {
   classifyOpenLoopStatus,
   normalizeOpenLoop,
   normalizeOpenLoopState,
+  selectRelevantOpenLoops,
   summarizeOpenLoopState,
 } = require('../lib/penny-open-loops');
 
@@ -162,4 +163,123 @@ test('surface policy can intentionally hold back otherwise active loops', () => 
   assert.equal(summary.surfaceableCount, 0);
   assert.deepEqual(summary.surfaceableLoopIds, []);
   assert.equal(summary.heldBackCount, 2);
+});
+
+test('selects an explicitly mentioned open loop and holds adjacent loops back', () => {
+  const result = selectRelevantOpenLoops({
+    now: NOW,
+    userText: 'Please continue static live-advisory and check the correction guardrails.',
+    loops: [
+      {
+        id: 'static-live-advisory',
+        title: 'Static embeddings live advisory',
+        status: 'in-progress',
+        priority: 'high',
+        lastTouchedAt: '2026-04-22T08:00:00.000Z',
+        nextLikelyStep: 'Test stale correction guardrails before enabling live advisory.',
+      },
+      {
+        id: 'deterministic-extraction',
+        title: 'Deterministic extraction fixture plan',
+        status: 'deferred',
+        priority: 'high',
+        lastTouchedAt: '2026-04-22T08:00:00.000Z',
+        nextLikelyStep: 'Wait for a concrete document extraction use case.',
+      },
+    ],
+  });
+
+  assert.deepEqual(result.selected.map((loop) => loop.id), ['static-live-advisory']);
+  assert.equal(result.selected[0].surfaceReason, 'explicit-anchor+recent-open-loop');
+  assert.equal(result.selected[0].confidence, 'high');
+  assert.match(result.selected[0].promptSnippet, /Authority: advisory\./);
+  assert.deepEqual(result.heldBack.map((loop) => ({ id: loop.id, reason: loop.reason })), [
+    { id: 'deterministic-extraction', reason: 'adjacent-not-central' },
+  ]);
+});
+
+test('static memory candidate relation can select a relevant open loop without making it canonical', () => {
+  const result = selectRelevantOpenLoops({
+    now: NOW,
+    userText: 'That memory result seems relevant; keep going.',
+    staticCandidates: [
+      {
+        openLoopId: 'static-memory-reflex',
+        text: 'Static memory reflex candidate from the current turn.',
+      },
+    ],
+    loops: [
+      {
+        id: 'static-memory-reflex',
+        title: 'Static memory reflex follow-through',
+        status: 'open',
+        lastTouchedAt: '2026-04-22T09:00:00.000Z',
+        nextLikelyStep: 'Use the static candidate as advisory discovery only.',
+      },
+    ],
+  });
+
+  assert.equal(result.selected.length, 1);
+  assert.equal(result.selected[0].id, 'static-memory-reflex');
+  assert.equal(result.selected[0].surfaceReason, 'static-candidate-direct+recent-open-loop');
+  assert.match(result.selected[0].promptSnippet, /Authority: advisory\./);
+});
+
+test('dismissed and expired loops never surface even when mentioned', () => {
+  const result = selectRelevantOpenLoops({
+    now: NOW,
+    userText: 'Continue static live-advisory and provider comparison.',
+    loops: [
+      {
+        id: 'static-live-advisory',
+        title: 'Static embeddings live advisory',
+        status: 'open',
+        dismissed: true,
+      },
+      {
+        id: 'provider-comparison',
+        title: 'Provider comparison',
+        status: 'in-progress',
+        surfacePolicy: {
+          expiresAt: '2026-04-01T00:00:00.000Z',
+        },
+      },
+    ],
+  });
+
+  assert.deepEqual(result.selected, []);
+  assert.deepEqual(result.heldBack, [
+    { id: 'static-live-advisory', reason: 'dismissed-suppressed' },
+    { id: 'provider-comparison', reason: 'expired-suppressed' },
+  ]);
+});
+
+test('maxLoops cap keeps extra relevant open loops out of the selected list', () => {
+  const result = selectRelevantOpenLoops({
+    now: NOW,
+    maxLoops: 1,
+    userText: 'Continue static live-advisory and candidate survival follow-through.',
+    loops: [
+      {
+        id: 'static-live-advisory',
+        title: 'Static embeddings live advisory',
+        status: 'in-progress',
+        priority: 'critical',
+        lastTouchedAt: '2026-04-22T08:00:00.000Z',
+      },
+      {
+        id: 'candidate-survival',
+        title: 'Candidate survival follow-through',
+        status: 'open',
+        priority: 'high',
+        lastTouchedAt: '2026-04-22T08:00:00.000Z',
+      },
+    ],
+  });
+
+  assert.equal(result.selected.length, 1);
+  assert.equal(result.selected[0].id, 'static-live-advisory');
+  assert.deepEqual(result.heldBack.map((loop) => ({ id: loop.id, reason: loop.reason })), [
+    { id: 'candidate-survival', reason: 'max-loop-cap' },
+  ]);
 });
