@@ -108,14 +108,15 @@ Normal chat flow:
 5. For local mode, backend selects `chat` vs `tool` lane
 6. For chat-like turns, backend retrieves bounded archive context plus bounded research-ledger context
 7. If explicitly enabled, the open-loop prompt bridge may merge one relevant advisory loop into prompt context; canon-first recall suppresses this bridge for direct personal-memory questions
-8. Wording-recall turns are treated as recall-heavy chat turns so Penny answers remembered phrasing before caveating, while direct canon-memory questions still suppress stale history canon-first
-9. The selected lane resolves its preferred model and transport family
-10. If the turn includes an image, the LM Studio payload carries only that current image before the text part; later text-only turns do not replay earlier image blobs
-11. Reply comes back with a visible text response plus a hidden mood tag, and Penny records a runtime artifact / trace summary for the turn
-12. Frontend parses the mood tag and updates Penny's visual state
-13. Canonical explicit memory is written back to `data/penny-memory.json`
-14. Archive consolidation runs after successful turns and writes episodic/derived memory to `data/penny-memory-archive.json`
-15. Research-ledger updates run after qualifying turns and write bounded advisory continuity to `data/penny-memory-ledger.json`
+8. If explicitly enabled, the bounded initiative bridge may add one source-aware optional suggestion scaffold; direct commands, opt-outs, cooldowns, weak evidence, pressure, high-risk actions, and canon-first recall can hold it back
+9. Wording-recall turns are treated as recall-heavy chat turns so Penny answers remembered phrasing before caveating, while direct canon-memory questions still suppress stale history canon-first
+10. The selected lane resolves its preferred model and transport family
+11. If the turn includes an image, the LM Studio payload carries only that current image before the text part; later text-only turns do not replay earlier image blobs
+12. Reply comes back with a visible text response plus a hidden mood tag, and Penny records a runtime artifact / trace summary for the turn
+13. Frontend parses the mood tag and updates Penny's visual state
+14. Canonical explicit memory is written back to `data/penny-memory.json`
+15. Archive consolidation runs after successful turns and writes episodic/derived memory to `data/penny-memory-archive.json`
+16. Research-ledger updates run after qualifying turns and write bounded advisory continuity to `data/penny-memory-ledger.json`
 
 ## Backend subsystems
 
@@ -192,6 +193,7 @@ Current archive-policy behavior:
 - static embedding sidecar cache files are derived retrieval artifacts, separate from LM Studio embedding vectors, and do not become authored memory or canonical truth
 - open-loop state is owned by `lib/penny-open-loops.js` and `lib/penny-open-loop-store.js`, with fixture suggestions in `lib/penny-open-loop-extraction.js`; loops can be created, updated, deferred, dismissed, expired, or completed, but completion requires an explicit user statement, deterministic artifact, test/source receipt, or manual command basis
 - the live open-loop prompt bridge is opt-in via `PENNY_ENABLE_OPEN_LOOP_PROMPT=1`, capped by `PENNY_OPEN_LOOP_MAX_RENDERED` and `PENNY_OPEN_LOOP_MAX_TOKENS`, and measured by `npm run eval:open-loop-compare`; passing compare makes it eligible for local opt-in, not default runtime law
+- bounded initiative policy is owned by `lib/penny-initiative-policy.js`; its live bridge is opt-in via `PENNY_ENABLE_BOUNDED_INITIATIVE=1`, capped by `PENNY_INITIATIVE_MAX_PER_TURN=1`, cooldown-aware through `PENNY_INITIATIVE_COOLDOWN_TURNS`, and limited to suggest-only scaffolds with no action-taking, memory writes, or unchecked source claims
 - background chat vectorization now defaults on, but it still runs only after `archiveCompletedTurn`, never in prompt assembly, and can be disabled with `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=0`. It is off the reply-latency path, but it still shares process, embedding-backend, and cache/store capacity.
 - inspector payloads expose background-vectorization telemetry, including the session `lastArchivedAt` timestamp, and the in-app panel now surfaces a compact background-vectorization summary so the behavior stays inspectable in practice
 
@@ -204,6 +206,7 @@ Important trust boundary:
 - promotion into stronger explicit memory requires inspector review
 - research ledger context is advisory continuity, not canonical truth
 - open-loop context is advisory continuity, not canonical truth, and user dismissal/completion/expiry should keep loops from resurfacing
+- initiative context is an optional response scaffold, not authority; user opt-out, dismissal, pressure/cooldown gates, and risk gates outrank any suggested next move
 
 ### 3. LM Studio transport layer
 
@@ -293,6 +296,7 @@ The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
 - prompt-time `promptTruth` receipts for `stableFacts`, `memoryBooks`, `sessionArchive`, `globalArchive`, and `researchLedger`, including candidate vs rendered ids/counts plus holdback reasons
 - sibling `toolEvidenceReceipt` items for deterministic-only, provenance-only, prompt-visible raw JSON, prompt-visible auto-verification JSON, summarized write-rescue context, and summarized semantic-render context
 - sibling `toolCostSummary` metadata derived from advisory tool descriptors so broad, bounded, external-source, and raw-dump-risk calls stay inspectable without expanding PromptTruth or changing planner behavior
+- sibling `initiativePromptBridge` metadata for the opt-in bounded initiative scaffold, including enabled/held-back state, selected max-one suggestion identity, cooldown, and explicit no-PromptTruth/no-tool-evidence/no-side-effect receipts
 - a bounded `reasoningPolicy` receipt derived from latency budget plus execution path, with `minimal`, `deliberate`, `verifier-first`, and `attachment-bounded` modes instead of any raw reasoning text surface
 - explicit approximate-path policy metadata from the latency budget and runtime fallback state
 - advisory-merge summaries that distinguish lossy merge pressure from canonical memory authority
@@ -304,6 +308,7 @@ Important receipt rule:
 
 - prompt assembly is the source of truth for advisory usage
 - `promptTruth` stays narrow to prompt-time memory/research context; `toolEvidenceReceipt` is a sibling artifact receipt, not a PromptTruth channel
+- initiative prompt bridge receipts stay sibling model-advisory metadata; they do not add PromptTruth channels, merge into `toolEvidenceReceipt`, or authorize action/memory side effects
 - `researchLedgerPromptInjected` now means the ledger was actually rendered into the prompt
 - `selected*Ids` stay candidate continuity fields, while additive `rendered*Ids` carry prompt-visible identity
 - post-reply ledger mutation stays in `researchLedgerUpdate` instead of being backfilled into prompt-use receipts
@@ -343,6 +348,8 @@ The QA/eval harnesses now share small helper layers and script-owned fixture mod
   - explicit-mode static sidecar indexing/query status for live-shadow and live-advisory retrieval traces
 - `lib/penny-gemma-runtime-watch.js`
   - fixture/status schema for Gemma runtime watch items such as vision-budget exposure, thinking-control default-off state, current-turn image policy, prompt-cache/RAM risk, compatible loaded-model fallback, and chat sampling
+- `lib/penny-initiative-policy.js` and `scripts/eval-penny-initiative-fixture.js`
+  - bounded initiative policy, prompt scaffold, user-control, memory-suggestion review gate, pressure/annoyance fixture coverage, and live-bridge guardrail receipts without default enablement
 - `scripts/eval-penny-open-loop-compare.js`
   - disposable mock-route compare for open-loop-off vs open-loop-on, measuring continuity wins against adjacent-topic bleed, annoyance, overclaim, and prompt-token delta before local opt-in
 - `scripts/eval-penny-static-embedding-live-compare.js`
@@ -356,7 +363,7 @@ The QA/eval harnesses now share small helper layers and script-owned fixture mod
 
 This does not make Penny “judge herself” in production. It makes the existing harnesses more honest about whether a run is trustworthy, polluted by environment drift, or behaviorally red.
 
-The April 21 pressure/Gemma/tool-cost follow-through is artifact and QA coverage only unless a later explicit slice says otherwise: no runtime voice change, no `promptTruth` expansion, no `toolEvidenceReceipt` expansion beyond optional sibling cost metadata, no default thinking, no default context increase, no default embedding-provider change, and no external dependency import.
+The April 21 pressure/Gemma/tool-cost follow-through is artifact and QA coverage only unless a later explicit slice says otherwise: no runtime voice change, no `promptTruth` expansion, no `toolEvidenceReceipt` expansion beyond optional sibling cost metadata, no default thinking, no default context increase, no default embedding-provider change, and no external dependency import. The bounded initiative bridge follows the same posture: fixture and opt-in scaffolding first, default enablement only after bounded aliveness compare evidence shows a real benefit without annoyance, overclaim, pressure, latency, or prompt-bloat regressions.
 
 ### 9. Mood / vessel presentation
 

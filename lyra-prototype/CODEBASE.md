@@ -201,6 +201,8 @@ Three-arm static embedding live sidecar compare harness for static-off, live-sha
 Fixture-only open-loop prompt bridge artifact for selected vs held-back advisory loops.
 - [scripts/eval-penny-open-loop-compare.js](./scripts/eval-penny-open-loop-compare.js)
 Disposable mock-route compare harness for open-loop-off vs open-loop-on, with continuity, annoyance, overclaim, adjacent-topic bleed, and prompt-token metrics.
+- [scripts/eval-penny-initiative-fixture.js](./scripts/eval-penny-initiative-fixture.js)
+Fixture-only bounded initiative artifact for allowed vs held-back suggestions, pressure/annoyance cases, source-aware prompt scaffolds, and max-one rendering.
 - [scripts/eval-penny-runtime-fit.js](./scripts/eval-penny-runtime-fit.js)
 Latency/runtime-fit harness for context-length and semantic-readiness tradeoffs; `eval:runtime-fit:context-pressure` adds a fixture-only short/medium/long rendered-context artifact with nullable latency fields and `not-run` answer drift.
 - [scripts/qa-penny-memory.js](./scripts/qa-penny-memory.js)
@@ -289,6 +291,7 @@ Current modules worth knowing:
 - [lib/penny-open-loops.js](./lib/penny-open-loops.js)
 - [lib/penny-open-loop-store.js](./lib/penny-open-loop-store.js)
 - [lib/penny-open-loop-extraction.js](./lib/penny-open-loop-extraction.js)
+- [lib/penny-initiative-policy.js](./lib/penny-initiative-policy.js)
 - [lib/penny-tool-intents.js](./lib/penny-tool-intents.js)
 - [lib/penny-local-lanes.js](./lib/penny-local-lanes.js)
 - [lib/penny-lmstudio-status.js](./lib/penny-lmstudio-status.js)
@@ -357,6 +360,7 @@ Likely modules you will touch:
 - archive utility scoring and pruning heuristics for evals plus live background-prewarm candidate ranking in `lib/penny-memory-archive-policy.js`
 - research continuity topic tracking in `lib/penny-research-ledger.js`
 - advisory open-loop continuity in `lib/penny-open-loops.js`, `lib/penny-open-loop-store.js`, and `lib/penny-open-loop-extraction.js`; the live bridge is off by default, bounded to one relevant advisory snippet when opted in, and must not become explicit memory or autonomous task execution
+- bounded initiative policy in `lib/penny-initiative-policy.js`; the live bridge is off by default via `PENNY_ENABLE_BOUNDED_INITIATIVE`, capped at one optional suggestion, cooldown-aware, user-dismissible, and must not write memory, take side effects, or claim unchecked source support
 - prompt composition and transport shaping in `server.js`
 - prompt-builder regressions in `test/penny-prompt-builders.test.js`
 - lane selection in `lib/penny-local-lanes.js`
@@ -434,6 +438,8 @@ Start here:
 Static embedding live sidecar work is opt-in. Normal repo work should leave `PENNY_STATIC_EMBED_MODE` unset or `off`, while QA comparison can use `qa-shadow` / `npm run eval:static-embedding-live-compare`. Local experimental Penny runs may set `PENNY_STATIC_EMBED_MODE=live-advisory`; that lets static candidates enter archive selection under gates, but it does not make static retrieval truth authority, does not replace the LM Studio embedding default, does not raise prompt limits, and keeps static-only rendered items capped.
 
 Open-loop continuity work is also opt-in at the live prompt bridge. The state/store/extraction/lifecycle helpers are real code, but normal runtime prompt injection requires `PENNY_ENABLE_OPEN_LOOP_PROMPT=1` and stays capped by `PENNY_OPEN_LOOP_MAX_RENDERED=1` plus `PENNY_OPEN_LOOP_MAX_TOKENS`. `npm run eval:open-loop-compare` is the current compare harness; passing it means eligible for local opt-in, not permission to raise prompt limits, expand PromptTruth, or let Penny surface unrelated follow-ups.
+
+Bounded initiative work is opt-in at the live prompt bridge. The pure policy, fixture scaffold, user controls, review-gated memory suggestion checks, and pressure canaries are real code, but normal runtime prompt injection requires `PENNY_ENABLE_BOUNDED_INITIATIVE=1` and stays capped by `PENNY_INITIATIVE_MAX_PER_TURN=1` plus cooldown suppression. It records `modelAdvisory.initiativePromptBridge` as sibling advisory metadata; it is not PromptTruth, not `toolEvidenceReceipt`, not an automatic memory write, and not autonomous task execution. Default enablement should wait for the bounded aliveness compare harness, not just the fixture canaries.
 
 Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, `lib/penny-qa-trace.js`, and their tests cover social pressure, companion-feedback bias, remote/source pressure, and agent-integrity receipt canaries. Gemma runtime watch lives in `lib/penny-gemma-runtime-watch.js` plus status/preflight/runtime-fit artifacts. Tool output-cost descriptors live in `lib/penny-tool-registry.js` and optional sibling runtime artifact cost summaries. None of those status surfaces change runtime voice, expand `promptTruth`, switch default embeddings, enable default thinking, raise default context, or import external dependencies.
 
