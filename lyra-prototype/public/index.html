@@ -60,8 +60,14 @@
 
         <main class="panel main">
           <div class="topbar">
-            <div>
-              <div class="title">Penny Live Link</div>
+            <div class="topbar-title">
+              <div class="mobile-mood-display" aria-hidden="true">
+                <div class="face mobile-mood-face" id="mobileCoreFace"></div>
+              </div>
+
+              <div>
+                <div class="title">Penny Live Link</div>
+              </div>
             </div>
 
             <div class="status-stack">
@@ -131,7 +137,7 @@
             <div class="composer-wrap">
               <div class="composer-frame">
                 <label class="composer-label" for="composer">Open channel</label>
-                <input id="composer" class="composer" placeholder="Say something to Penny..." autocomplete="off" />
+                <textarea id="composer" class="composer" placeholder="Say something to Penny..." autocomplete="off" rows="3" spellcheck="true"></textarea>
               </div>
 
               <div class="composer-tools">

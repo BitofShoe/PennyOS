@@ -159,3 +159,37 @@ test('createAmbientChromeRuntime wires the emoji picker and particle burst contr
   assert.equal(bootOverlayEl.classList.has('done'), true);
   assert.equal(bootOverlayEl.removed, true);
 });
+
+test('createAmbientChromeRuntime autosizes the composer textarea', async () => {
+  const { createAmbientChromeRuntime } = await helpersPromise;
+  const listeners = {};
+  const composerEl = {
+    style: {},
+    scrollHeight: 88,
+    addEventListener(type, handler) {
+      listeners[type] = handler;
+    },
+    removeEventListener(type) {
+      delete listeners[type];
+    },
+  };
+  const windowRef = {
+    requestAnimationFrame(fn) {
+      fn();
+      return 1;
+    },
+  };
+
+  const runtime = createAmbientChromeRuntime({
+    windowRef,
+    documentRef: {},
+    composerEl,
+  });
+
+  assert.equal(composerEl.style.height, '88px');
+  assert.equal(typeof runtime.syncComposerSize, 'function');
+
+  composerEl.scrollHeight = 132;
+  listeners.input();
+  assert.equal(composerEl.style.height, '132px');
+});

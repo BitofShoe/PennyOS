@@ -85,6 +85,7 @@ const els = {
   statusValue: document.getElementById('statusValue'),
   statusValueTop: document.getElementById('statusValueTop'),
   coreFace: document.getElementById('coreFace'),
+  mobileCoreFace: document.getElementById('mobileCoreFace'),
   shell: document.getElementById('shell'),
   chatWrap: document.getElementById('chatWrap'),
   cyberDecor: document.querySelector('.cyber-decor'),
@@ -335,7 +336,8 @@ function triggerGlitch(profile = null) {
 }
 
 function renderSprite(mood, palette) {
-  const container = els.coreFace;
+  const containers = [els.coreFace, els.mobileCoreFace].filter(Boolean);
+  if (!containers.length) return;
   const intensity = getIntensity();
   const profile = getMoodPresentationProfileRuntime({
     mood,
@@ -344,13 +346,18 @@ function renderSprite(mood, palette) {
   });
   const variant = getMoodSpriteVariantRuntime(activeExpressionPack, mood, profile.variantIndex);
   const spriteKey = `${mood}:${intensity}:${profile.variantIndex}:${profile.closeUp ? 'close' : 'wide'}:${variant?.src || 'default'}`;
-  if (spriteKey === _lastSpriteKey) return;
+  const hasMissingSprite = containers.some((container) => !container.querySelector('.penny-display'));
+  if (spriteKey === _lastSpriteKey && !hasMissingSprite) return;
 
   const html = companionFaceHtml(mood);
-  const isFirstRender = !container.querySelector('.penny-display');
+  const isFirstRender = hasMissingSprite;
 
   if (isFirstRender) {
-    container.innerHTML = html;
+    for (const container of containers) {
+      container.innerHTML = html;
+      container.style.transition = '';
+      container.style.opacity = '1';
+    }
     _lastSpriteKey = spriteKey;
     _lastRenderedMood = mood;
     _lastPresentationProfile = profile;
@@ -362,17 +369,25 @@ function renderSprite(mood, palette) {
 
   if (_spriteTimer) { clearTimeout(_spriteTimer); _spriteTimer = null; }
 
-  container.style.transition = `opacity ${Number(profile.fadeOutMs || 100)}ms ease-out`;
-  container.style.opacity = '0.04';
+  for (const container of containers) {
+    container.style.transition = `opacity ${Number(profile.fadeOutMs || 100)}ms ease-out`;
+    container.style.opacity = '0.04';
+  }
 
   _spriteTimer = setTimeout(() => {
-    container.innerHTML = html;
+    for (const container of containers) {
+      container.innerHTML = html;
+    }
     applyIntensityClass();
-    container.style.transition = `opacity ${Number(profile.fadeInMs || 180)}ms ease-in`;
-    container.style.opacity = '1';
+    for (const container of containers) {
+      container.style.transition = `opacity ${Number(profile.fadeInMs || 180)}ms ease-in`;
+      container.style.opacity = '1';
+    }
     _lastPresentationProfile = profile;
     _spriteTimer = setTimeout(() => {
-      container.style.transition = '';
+      for (const container of containers) {
+        container.style.transition = '';
+      }
       _spriteTimer = null;
     }, Number(profile.settleMs || 200));
     _lastSpriteKey = spriteKey;
@@ -719,7 +734,9 @@ async function sendMessage() {
   state.messages.push(msgObj);
   const assistantDraft = { role: 'assistant', content: '', streaming: true, toolsUsed: [], mood: 'thinking' };
   state.messages.push(assistantDraft);
-  els.composer.value = ''; attachmentUi.clearPendingAttachments(); state.loading = true; state.presence = 'thinking'; renderMessages(); updateTheme(); saveState();
+  els.composer.value = '';
+  els.composer.dispatchEvent(new Event('input', { bubbles: true }));
+  attachmentUi.clearPendingAttachments(); state.loading = true; state.presence = 'thinking'; renderMessages(); updateTheme(); saveState();
   try {
     const body = { sessionId: state.memory.sessionId, messages: serializeMessagesForApi(), memories: buildChatMemoryPayload(state.memory), stream: true };
     if (imageData) body.image = imageData;

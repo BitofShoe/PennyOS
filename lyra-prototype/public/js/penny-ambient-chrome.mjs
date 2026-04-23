@@ -32,6 +32,11 @@ export function buildEmojiSet() {
   return out;
 }
 
+function emitComposerInput(composerEl, documentRef) {
+  if (!composerEl?.dispatchEvent || !documentRef?.defaultView?.Event) return;
+  composerEl.dispatchEvent(new documentRef.defaultView.Event('input', { bubbles: true }));
+}
+
 function createEmojiPickerRuntime({ composerEl, emojiBtnEl, emojiPickerEl, emojiGridEl, documentRef }) {
   if (!composerEl || !emojiPickerEl || !emojiBtnEl) return {};
 
@@ -47,6 +52,7 @@ function createEmojiPickerRuntime({ composerEl, emojiBtnEl, emojiPickerEl, emoji
     composerEl.value = value.slice(0, pos) + emoji + value.slice(pos);
     composerEl.focus();
     composerEl.selectionStart = composerEl.selectionEnd = pos + emoji.length;
+    emitComposerInput(composerEl, documentRef);
     emojiPickerEl.hidden = true;
   };
 
@@ -250,6 +256,34 @@ function createParticleRuntime({ canvasEl, windowRef, randomFn, moodPaletteFn })
   };
 }
 
+function createComposerAutosizeRuntime({ composerEl, windowRef }) {
+  if (!composerEl || typeof composerEl.addEventListener !== 'function') return {};
+
+  const sync = () => {
+    if (!composerEl.style) return;
+    composerEl.style.height = 'auto';
+    const scrollHeight = Number(composerEl.scrollHeight) || 0;
+    if (scrollHeight > 0) composerEl.style.height = `${scrollHeight}px`;
+  };
+  const syncSoon = () => {
+    if (windowRef?.requestAnimationFrame) {
+      windowRef.requestAnimationFrame(sync);
+      return;
+    }
+    sync();
+  };
+
+  composerEl.addEventListener('input', sync);
+  syncSoon();
+
+  return {
+    sync,
+    destroy() {
+      composerEl.removeEventListener('input', sync);
+    },
+  };
+}
+
 export function createAmbientChromeRuntime({
   windowRef,
   documentRef,
@@ -264,6 +298,10 @@ export function createAmbientChromeRuntime({
   scaleFn = () => 1,
   moodPaletteFn = () => null,
 }) {
+  const composerAutosizeRuntime = createComposerAutosizeRuntime({
+    composerEl,
+    windowRef,
+  });
   const emojiPickerRuntime = createEmojiPickerRuntime({
     composerEl,
     emojiBtnEl,
@@ -283,6 +321,7 @@ export function createAmbientChromeRuntime({
 
   return {
     emojiSet: emojiPickerRuntime.emojiSet || [],
+    syncComposerSize: composerAutosizeRuntime.sync || null,
     particleBurst: particleRuntime.particleBurst || null,
   };
 }
