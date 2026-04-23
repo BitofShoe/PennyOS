@@ -1030,6 +1030,7 @@ function summarizeLatestReplyRetrievalSource(label = '', selected = [], rendered
 }
 
 const REPLY_CONTEXT_MAP_SOURCE_LIMIT = 8;
+const REPLY_CONTEXT_HISTORY_LIMIT = 4;
 
 function normalizeReplyContextStatus(value = '') {
   const status = String(value || '').trim().toLowerCase().replaceAll('_', ' ');
@@ -1127,17 +1128,173 @@ function normalizeReplyContextSelection(map = {}, selectedId = 'latest-reply') {
   };
 }
 
-export function buildReplyContextMapViewModel(viewModel = {}, selectedId = 'latest-reply') {
+function buildReplyContextSnapshotRecords(viewModel = {}) {
+  const recentAuditTrail = Array.isArray(viewModel?.recentAuditTrail) ? viewModel.recentAuditTrail : [];
+  return recentAuditTrail.slice(0, REPLY_CONTEXT_HISTORY_LIMIT).map((audit, index) => ({
+    id: `reply-snapshot-${index}`,
+    latest: index === 0,
+    audit: audit && typeof audit === 'object' ? audit : {},
+    artifact: index === 0 && viewModel?.artifact && typeof viewModel.artifact === 'object'
+      ? viewModel.artifact
+      : null,
+  }));
+}
+
+function normalizeReplyContextSnapshotSelection(history = {}, selectedSnapshotId = '') {
+  const items = Array.isArray(history.items) ? history.items : [];
+  const requestedId = String(selectedSnapshotId || '').trim();
+  const selected = items.find((item) => item.id === requestedId) || items[0] || null;
+  return {
+    ...history,
+    selectedId: selected?.id || '',
+    selected,
+  };
+}
+
+function summarizeReplyContextSnapshotHint(promptTruth = {}, toolEvidenceReceipt = null) {
+  const stableFacts = normalizePromptTruthChannel(promptTruth?.channels?.stableFacts);
+  const rawStableFacts = promptTruth?.channels?.stableFacts && typeof promptTruth.channels.stableFacts === 'object'
+    ? promptTruth.channels.stableFacts
+    : {};
+  const hasCanonReceipt = Boolean(
+    stableFacts.candidateCount
+    || stableFacts.renderedCount
+    || stableFacts.heldBackReason
+    || String(rawStableFacts.state || '').trim(),
+  );
+  const advisoryStates = ['memoryBooks', 'sessionArchive', 'globalArchive', 'researchLedger']
+    .map((channelKey) => {
+      const normalized = normalizePromptTruthChannel(promptTruth?.channels?.[channelKey]);
+      const rawChannel = promptTruth?.channels?.[channelKey] && typeof promptTruth.channels[channelKey] === 'object'
+        ? promptTruth.channels[channelKey]
+        : {};
+      const hasReceipt = Boolean(
+        normalized.candidateCount
+        || normalized.renderedCount
+        || normalized.heldBackReason
+        || String(rawChannel.state || '').trim(),
+      );
+      return hasReceipt ? normalizeReplyContextStatus(normalized.state) : 'not recorded';
+    });
+  const parts = [];
+  if (hasCanonReceipt) {
+    parts.push(`canon ${normalizeReplyContextStatus(stableFacts.state)}`);
+  }
+  if (advisoryStates.some((state) => state === 'rendered')) {
+    parts.push('advisory rendered');
+  }
+  if (advisoryStates.some((state) => state === 'held back')) {
+    parts.push('advisory held back');
+  }
+  if (toolEvidenceReceipt?.summary?.itemCount > 0) {
+    parts.push(`tool receipt ${toolEvidenceReceipt.summary.itemCount}`);
+  }
+  return parts.join(' | ') || 'not recorded';
+}
+
+export function buildReplyContextHistoryViewModel(viewModel = {}, selectedSnapshotId = '') {
+  const snapshots = buildReplyContextSnapshotRecords(viewModel);
+  if (!snapshots.length) {
+    return normalizeReplyContextSnapshotSelection({
+      available: false,
+      items: [],
+      omittedCount: 0,
+      summary: 'Recent reply snapshots are not recorded yet.',
+    }, selectedSnapshotId);
+  }
+
+  return normalizeReplyContextSnapshotSelection({
+    available: true,
+    items: snapshots.map((snapshot, index) => {
+      const scope = snapshot.artifact?.scope && typeof snapshot.artifact.scope === 'object'
+        ? snapshot.artifact.scope
+        : {};
+      const promptTruth = snapshot.artifact?.promptTruth && typeof snapshot.artifact.promptTruth === 'object'
+        ? snapshot.artifact.promptTruth
+        : (snapshot.audit?.promptTruth && typeof snapshot.audit.promptTruth === 'object' ? snapshot.audit.promptTruth : {});
+      const toolEvidenceReceipt = normalizeToolEvidenceReceipt(snapshot.artifact?.toolEvidenceReceipt);
+      const requestedMode = String(snapshot.audit?.requestedMode || scope.requestedMode || '').trim();
+      const selectedLane = String(snapshot.audit?.selectedLane || scope.selectedLane || '').trim();
+      const executionPath = String(snapshot.audit?.executionPath || snapshot.artifact?.executionPath || '').trim();
+      return {
+        id: snapshot.id,
+        label: snapshot.latest ? 'Latest' : `Reply ${index + 1}`,
+        timestamp: formatReplyContextText(snapshot.audit?.usedAt || ''),
+        turnHint: `reply ${index + 1}`,
+        pathHint: `${requestedMode || 'not recorded'} / ${selectedLane || 'not recorded'} / ${executionPath || 'not recorded'}`,
+        summaryHint: summarizeReplyContextSnapshotHint(promptTruth, toolEvidenceReceipt),
+      };
+    }),
+    omittedCount: Math.max(0, (Array.isArray(viewModel?.recentAuditTrail) ? viewModel.recentAuditTrail.length : 0) - snapshots.length),
+    summary: `${snapshots.length} recent reply snapshot${snapshots.length === 1 ? '' : 's'} available.`,
+  }, selectedSnapshotId);
+}
+
+function pickReplyContextSummarySources(viewModel = {}, selectedSnapshotId = '') {
+  const snapshots = buildReplyContextSnapshotRecords(viewModel);
+  const selectedSnapshot = snapshots.find((item) => item.id === String(selectedSnapshotId || '').trim()) || snapshots[0] || null;
+  const useLatestFallback = !selectedSnapshot || selectedSnapshot.latest;
+  const artifact = selectedSnapshot?.artifact && typeof selectedSnapshot.artifact === 'object'
+    ? selectedSnapshot.artifact
+    : (useLatestFallback && viewModel?.artifact && typeof viewModel.artifact === 'object' ? viewModel.artifact : null);
+  const latestAudit = selectedSnapshot?.audit && typeof selectedSnapshot.audit === 'object'
+    ? selectedSnapshot.audit
+    : (useLatestFallback && Array.isArray(viewModel?.recentAuditTrail) && viewModel.recentAuditTrail.length
+      ? viewModel.recentAuditTrail[0]
+      : null);
+  const modelAdvisory = artifact?.modelAdvisory && typeof artifact.modelAdvisory === 'object'
+    ? artifact.modelAdvisory
+    : {};
+  const promptTruth = artifact?.promptTruth && typeof artifact.promptTruth === 'object'
+    ? artifact.promptTruth
+    : (modelAdvisory.promptTruth && typeof modelAdvisory.promptTruth === 'object'
+      ? modelAdvisory.promptTruth
+      : (latestAudit?.promptTruth && typeof latestAudit.promptTruth === 'object' ? latestAudit.promptTruth : {}));
+  const retrievalSource = latestAudit?.retrieval && typeof latestAudit.retrieval === 'object'
+    ? latestAudit.retrieval
+    : (useLatestFallback
+      ? (viewModel?.session?.lastRetrieval?.summary && typeof viewModel.session.lastRetrieval.summary === 'object'
+        ? viewModel.session.lastRetrieval.summary
+        : (viewModel?.session?.lastRetrieval && typeof viewModel.session.lastRetrieval === 'object'
+          ? viewModel.session.lastRetrieval
+          : {}))
+      : {});
+  const routing = useLatestFallback && viewModel?.routing && typeof viewModel.routing === 'object'
+    ? viewModel.routing
+    : {};
+  const runtimeReadiness = useLatestFallback && viewModel?.runtime?.readiness && typeof viewModel.runtime.readiness === 'object'
+    ? viewModel.runtime.readiness
+    : {};
+  const runtimePerformance = useLatestFallback && viewModel?.runtime?.performance && typeof viewModel.runtime.performance === 'object'
+    ? viewModel.runtime.performance
+    : {};
+  return {
+    artifact,
+    latestAudit,
+    promptTruth,
+    retrieval: normalizeLatestRetrievalSummary(retrievalSource),
+    routing,
+    runtimeReadiness,
+    runtimePerformance,
+    modelAdvisory,
+    toolEvidenceReceipt: normalizeToolEvidenceReceipt(artifact?.toolEvidenceReceipt),
+    selectedSnapshot,
+  };
+}
+
+export function buildReplyContextMapViewModel(viewModel = {}, selectedId = 'latest-reply', selectedSnapshotId = '') {
   const {
     artifact,
     latestAudit,
     promptTruth,
     retrieval,
     routing,
+    runtimeReadiness,
     runtimePerformance,
     modelAdvisory,
     toolEvidenceReceipt,
-  } = pickLatestReplySummarySources(viewModel);
+    selectedSnapshot,
+  } = pickReplyContextSummarySources(viewModel, selectedSnapshotId);
   const scope = artifact?.scope && typeof artifact.scope === 'object' ? artifact.scope : {};
   const requestedMode = String(scope.requestedMode || routing.requestedMode || latestAudit?.requestedMode || '').trim();
   const selectedLane = String(scope.selectedLane || routing.selectedLane || latestAudit?.selectedLane || '').trim();
@@ -1155,8 +1312,13 @@ export function buildReplyContextMapViewModel(viewModel = {}, selectedId = 'late
     || selectedLane
     || executionPath
     || latencyClass
+    || runtimeReadiness?.warmState
     || countRecordedRetrievalIds(retrieval)
   );
+  const selectedReplyLabel = selectedSnapshot && !selectedSnapshot.latest ? 'Selected reply' : 'Latest reply';
+  const selectedReplyExplanation = selectedSnapshot && !selectedSnapshot.latest
+    ? 'This node appears because the inspector can summarize the selected reply route from existing audit receipts.'
+    : 'This node appears because the inspector can summarize the newest reply route from existing runtime and audit receipts.';
 
   if (!hasLatestReplyContext) {
     return normalizeReplyContextSelection({
@@ -1283,12 +1445,12 @@ export function buildReplyContextMapViewModel(viewModel = {}, selectedId = 'late
     available: true,
     center: {
       id: 'latest-reply',
-      label: 'Latest reply',
+      label: selectedReplyLabel,
       authority: 'runtime receipt',
       status: hasLatestReplyContext ? 'verified' : 'not recorded',
       detail: [requestedMode || 'mode not recorded', selectedLane || 'lane not recorded', executionPath || 'path not recorded']
         .join(' / '),
-      explanation: 'This node appears because the inspector can summarize the newest reply route from existing runtime and audit receipts.',
+      explanation: selectedReplyExplanation,
       metadata: [
         buildReplyContextMetadata('Requested mode', requestedMode || 'not recorded'),
         buildReplyContextMetadata('Selected lane', selectedLane || 'not recorded'),
@@ -1300,6 +1462,44 @@ export function buildReplyContextMapViewModel(viewModel = {}, selectedId = 'late
     omittedCount: Math.max(0, nodes.length - visibleNodes.length),
     summary: `${recordedCount} of ${visibleNodes.length} context surfaces recorded for this reply.`,
   }, selectedId);
+}
+
+function renderReplyContextHistory(history = {}, escapeHtmlFn = escapeHtml) {
+  if (!history.available) {
+    return `
+      <div class="reply-context-history empty">
+        <div class="memory-copy">
+          Recent reply snapshots
+          <small>${escapeHtmlFn(history.summary || 'Recent reply snapshots are not recorded yet.')}</small>
+        </div>
+      </div>
+    `;
+  }
+  return `
+    <div class="reply-context-history" data-reply-context-snapshot-selected-id="${escapeHtmlFn(history.selectedId || '')}">
+      <div class="reply-context-history-heading">
+        <div>
+          <div class="section-label">Recent reply snapshots</div>
+          <small>${escapeHtmlFn(`${history.summary}${history.omittedCount ? ` ${history.omittedCount} older snapshot(s) hidden by the compact cap.` : ''}`)}</small>
+        </div>
+      </div>
+      <div class="reply-context-history-strip" aria-label="Recent reply snapshots">
+        ${history.items.map((item) => `
+          <button
+            class="reply-context-snapshot${item.id === history.selectedId ? ' is-selected' : ''}"
+            type="button"
+            data-reply-context-snapshot-id="${escapeHtmlFn(item.id || '')}"
+            aria-pressed="${item.id === history.selectedId ? 'true' : 'false'}"
+          >
+            <span class="reply-context-snapshot-title">${escapeHtmlFn(item.label || 'Reply')}</span>
+            <span class="reply-context-snapshot-meta">${escapeHtmlFn(`${item.timestamp || 'not recorded'} | ${item.turnHint || 'not recorded'}`)}</span>
+            <span class="reply-context-snapshot-path">${escapeHtmlFn(item.pathHint || 'not recorded')}</span>
+            <span class="reply-context-snapshot-summary">${escapeHtmlFn(item.summaryHint || 'not recorded')}</span>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
 }
 
 function renderReplyContextNode(node = {}, selectedId = 'latest-reply', escapeHtmlFn = escapeHtml, center = false) {
@@ -1394,6 +1594,21 @@ function bindReplyContextSelection(els = {}, inspector = null, escapeHtmlFn = es
   if (!panel || typeof panel.addEventListener !== 'function' || panel.__replyContextSelectionBound) return;
   panel.__replyContextSelectionBound = true;
   panel.addEventListener('click', (event) => {
+    const snapshotButton = event?.target?.closest?.('[data-reply-context-snapshot-id]');
+    if (snapshotButton) {
+      const nextSnapshotId = String(snapshotButton.dataset?.replyContextSnapshotId || '').trim();
+      if (!nextSnapshotId) return;
+      panel.__replyContextSnapshotId = nextSnapshotId;
+      if (panel.dataset) panel.dataset.replyContextSnapshotId = nextSnapshotId;
+      const scrollTop = typeof panel.scrollTop === 'number' ? panel.scrollTop : null;
+      renderMemoryInspector({
+        els: panel.__replyContextEls || els,
+        inspector: panel.__replyContextInspector || inspector,
+        escapeHtmlFn: panel.__replyContextEscapeHtmlFn || escapeHtmlFn,
+      });
+      if (scrollTop !== null) panel.scrollTop = scrollTop;
+      return;
+    }
     const button = event?.target?.closest?.('[data-reply-context-node-id]');
     if (!button) return;
     const nextSelectedId = String(button.dataset?.replyContextNodeId || '').trim();
@@ -1562,22 +1777,30 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
   }
 
   const viewModel = buildMemoryInspectorViewModel(inspector);
+  const replyContextHistory = buildReplyContextHistoryViewModel(
+    viewModel,
+    els.memoryInspectorPanel.__replyContextSnapshotId || els.memoryInspectorPanel.dataset?.replyContextSnapshotId || '',
+  );
   const replyContextMap = buildReplyContextMapViewModel(
     viewModel,
     els.memoryInspectorPanel.__replyContextSelectedId || els.memoryInspectorPanel.dataset?.replyContextSelectedId || 'latest-reply',
+    replyContextHistory.selectedId,
   );
   const runtimeReadiness = viewModel.runtime?.readiness || {};
   els.memoryInspectorPanel.__replyContextEls = els;
   els.memoryInspectorPanel.__replyContextInspector = inspector;
   els.memoryInspectorPanel.__replyContextEscapeHtmlFn = escapeHtmlFn;
   els.memoryInspectorPanel.__replyContextSelectedId = replyContextMap.selectedId;
+  els.memoryInspectorPanel.__replyContextSnapshotId = replyContextHistory.selectedId;
   if (els.memoryInspectorPanel.dataset) {
     els.memoryInspectorPanel.dataset.replyContextSelectedId = replyContextMap.selectedId;
+    els.memoryInspectorPanel.dataset.replyContextSnapshotId = replyContextHistory.selectedId;
   }
   els.memoryInspectorPanel.className = 'list-block';
   els.memoryInspectorPanel.innerHTML = `
     <div class="section-label">Last reply at a glance</div>
     ${renderLatestReplySummary(viewModel, escapeHtmlFn)}
+    ${renderReplyContextHistory(replyContextHistory, escapeHtmlFn)}
     ${renderReplyContextMap(replyContextMap, escapeHtmlFn)}
     <div class="list-item">
       <div class="memory-copy">

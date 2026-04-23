@@ -1801,6 +1801,93 @@ select.input-lite option {
   background: rgba(255, 255, 255, 0.025);
 }
 
+.reply-context-history {
+  display: grid;
+  gap: 10px;
+  padding: 0.92rem 0.96rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.015)),
+    rgba(255, 255, 255, 0.022);
+}
+
+.reply-context-history.empty {
+  padding: 0.92rem 1rem;
+}
+
+.reply-context-history-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reply-context-history-heading small {
+  color: var(--muted-soft);
+}
+
+.reply-context-history-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.reply-context-snapshot {
+  min-width: 0;
+  flex: 1 1 180px;
+  display: grid;
+  gap: 4px;
+  padding: 0.72rem 0.78rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+  color: inherit;
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.reply-context-snapshot:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.reply-context-snapshot:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--primary) 62%, white);
+  box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.18);
+}
+
+.reply-context-snapshot.is-selected {
+  border-color: color-mix(in srgb, var(--primary) 58%, white);
+  box-shadow:
+    0 0 0 1px rgba(125, 211, 252, 0.18),
+    0 12px 28px rgba(0, 0, 0, 0.16);
+  transform: translateY(-1px);
+  background:
+    linear-gradient(180deg, rgba(177, 79, 64, 0.08), rgba(255, 255, 255, 0.02)),
+    rgba(255, 255, 255, 0.035);
+}
+
+.reply-context-snapshot-title {
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.reply-context-snapshot-meta,
+.reply-context-snapshot-path,
+.reply-context-snapshot-summary {
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: var(--muted-soft);
+}
+
+.reply-context-snapshot-summary {
+  color: var(--muted);
+}
+
 .reply-context-map-heading {
   display: flex;
   justify-content: space-between;

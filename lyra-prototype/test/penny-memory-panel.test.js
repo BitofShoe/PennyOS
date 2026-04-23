@@ -107,6 +107,77 @@ function buildReplyContextInspectorFixture() {
   };
 }
 
+function buildReplyContextHistorySwitchFixture() {
+  const fixture = buildReplyContextInspectorFixture();
+  fixture.archive.session.recentAuditTrail = [
+    {
+      turnId: 'turn-newest',
+      usedAt: '2026-04-23T10:15:00.000Z',
+      selectedLane: 'tool',
+      requestedMode: 'local',
+      executionPath: 'llm-chat',
+      retrieval: {
+        mode: 'keyword',
+        reasonCode: 'keyword_fallback',
+        selectedSessionIds: ['session-1'],
+        selectedGlobalIds: [],
+        selectedBookIds: [],
+        selectedLedgerIds: ['topic-1'],
+        renderedSessionIds: [],
+        renderedGlobalIds: [],
+        renderedBookIds: [],
+        renderedLedgerIds: [],
+        semanticReady: false,
+        semanticDowngrade: false,
+        compression: { used: false },
+      },
+      promptTruth: {
+        channels: {
+          stableFacts: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+          memoryBooks: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+          sessionArchive: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+          globalArchive: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+          researchLedger: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+        },
+      },
+      researchLedger: { updateStatus: 'skipped', topicLabel: 'package.json' },
+    },
+    {
+      turnId: 'turn-older',
+      usedAt: '2026-04-23T09:55:00.000Z',
+      selectedLane: 'chat',
+      requestedMode: 'local',
+      executionPath: 'llm-chat',
+      retrieval: {
+        mode: 'semantic',
+        reasonCode: 'semantic_query',
+        selectedSessionIds: ['session-2'],
+        selectedGlobalIds: ['global-1'],
+        selectedBookIds: ['book-2'],
+        selectedLedgerIds: [],
+        renderedSessionIds: ['session-2'],
+        renderedGlobalIds: [],
+        renderedBookIds: ['book-2'],
+        renderedLedgerIds: [],
+        semanticReady: true,
+        semanticDowngrade: false,
+        compression: { used: false },
+      },
+      promptTruth: {
+        channels: {
+          stableFacts: { candidateCount: 1, renderedCount: 0, heldBackReason: 'reply-scoped' },
+          memoryBooks: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+          sessionArchive: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+          globalArchive: { candidateCount: 1, renderedCount: 0, heldBackReason: 'reply-context-cap' },
+          researchLedger: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+        },
+      },
+      researchLedger: { updateStatus: 'applied', topicLabel: 'memory panel' },
+    },
+  ];
+  return fixture;
+}
+
 test('buildMemoryPanelViewModel normalizes explicit memory rows', async () => {
   const { buildMemoryPanelViewModel } = await helpersPromise;
   const viewModel = buildMemoryPanelViewModel({
@@ -601,7 +672,26 @@ test('buildReplyContextMapViewModel derives a bounded authority map from latest 
   assert.equal(byId.get('post-reply-ledger').status, 'held back');
 });
 
-test('renderMemoryInspector defaults reply-context details to Latest reply and updates them on node click', async () => {
+test('buildReplyContextHistoryViewModel defaults to the newest snapshot and keeps compact safe hints', async () => {
+  const { buildMemoryInspectorViewModel, buildReplyContextHistoryViewModel } = await helpersPromise;
+  const viewModel = buildMemoryInspectorViewModel(buildReplyContextHistorySwitchFixture());
+  const history = buildReplyContextHistoryViewModel(viewModel);
+
+  assert.equal(history.available, true);
+  assert.equal(history.selectedId, 'reply-snapshot-0');
+  assert.equal(history.selected.label, 'Latest');
+  assert.equal(history.items.length, 2);
+  assert.match(history.items[0].pathHint, /local \/ tool \/ llm-chat/);
+  assert.match(history.items[0].summaryHint, /canon rendered/);
+  assert.match(history.items[0].summaryHint, /advisory held back/);
+  assert.match(history.items[0].summaryHint, /tool receipt 1/);
+  assert.match(history.items[1].pathHint, /local \/ chat \/ llm-chat/);
+  assert.match(history.items[1].summaryHint, /canon held back/);
+  assert.match(history.items[1].summaryHint, /advisory rendered/);
+  assert.doesNotMatch(history.items[1].summaryHint, /session-2|global-1|book-2/);
+});
+
+test('renderMemoryInspector defaults to the newest snapshot and keeps Reply Context Details on the Latest reply node', async () => {
   const { renderMemoryInspector } = await helpersPromise;
   const panel = createInspectorPanelStub();
   const els = { memoryInspectorPanel: panel };
@@ -611,8 +701,12 @@ test('renderMemoryInspector defaults reply-context details to Latest reply and u
     inspector: buildReplyContextInspectorFixture(),
   });
 
+  assert.match(panel.innerHTML, /data-reply-context-snapshot-selected-id="reply-snapshot-0"/);
   assert.match(panel.innerHTML, /data-reply-context-selected-id="latest-reply"/);
   assert.match(panel.innerHTML, /data-reply-context-details-id="latest-reply"/);
+  assert.match(panel.innerHTML, /Recent reply snapshots/);
+  assert.match(panel.innerHTML, /Latest<\/span>/);
+  assert.match(panel.innerHTML, /not recorded \| reply 1/i);
   assert.match(panel.innerHTML, /Reply Context Details/);
   assert.match(panel.innerHTML, /This node appears because the inspector can summarize the newest reply route from existing runtime and audit receipts\./);
   assert.match(panel.innerHTML, /runtime receipt/);
@@ -642,6 +736,78 @@ test('renderMemoryInspector defaults reply-context details to Latest reply and u
   assert.match(panel.innerHTML, /Prompt-visible items/);
   assert.match(panel.innerHTML, /Deterministic-only items/);
   assert.match(panel.innerHTML, /Provenance-only items/);
+});
+
+test('renderMemoryInspector switches reply-context snapshots and safely updates the map and details panel', async () => {
+  const { renderMemoryInspector } = await helpersPromise;
+  const panel = createInspectorPanelStub();
+  const els = { memoryInspectorPanel: panel };
+
+  renderMemoryInspector({
+    els,
+    inspector: buildReplyContextHistorySwitchFixture(),
+  });
+
+  assert.match(panel.innerHTML, /data-reply-context-snapshot-selected-id="reply-snapshot-0"/);
+  assert.match(panel.innerHTML, /Latest reply/);
+  assert.match(panel.innerHTML, /local \/ tool \/ llm-chat/);
+  assert.match(panel.innerHTML, /candidate \| fallback/);
+
+  panel.emit('click', {
+    target: {
+      closest(selector) {
+        if (selector === '[data-reply-context-snapshot-id]') {
+          return {
+            dataset: {
+              replyContextSnapshotId: 'reply-snapshot-1',
+            },
+          };
+        }
+        return null;
+      },
+    },
+  });
+
+  assert.match(panel.innerHTML, /data-reply-context-snapshot-selected-id="reply-snapshot-1"/);
+  assert.match(panel.innerHTML, /data-reply-context-details-id="latest-reply"/);
+  assert.match(panel.innerHTML, /Selected reply/);
+  assert.match(panel.innerHTML, /This node appears because the inspector can summarize the selected reply route from existing audit receipts\./);
+  assert.match(panel.innerHTML, /local \/ chat \/ llm-chat/);
+  assert.match(panel.innerHTML, /canonical \| held back/);
+  assert.match(panel.innerHTML, /advisory \| rendered/);
+  assert.match(panel.innerHTML, /advisory \| held back/);
+  assert.match(panel.innerHTML, /runtime receipt \| not recorded/);
+  assert.match(panel.innerHTML, /candidate \| verified/);
+  assert.match(panel.innerHTML, /semantic path/);
+  assert.match(panel.innerHTML, /prompt not recorded \| update applied/i);
+  assert.match(panel.innerHTML, /authority-canonical/);
+  assert.match(panel.innerHTML, /authority-advisory/);
+  assert.match(panel.innerHTML, /authority-runtime-receipt/);
+
+  panel.emit('click', {
+    target: {
+      closest(selector) {
+        if (selector === '[data-reply-context-node-id]') {
+          return {
+            dataset: {
+              replyContextNodeId: 'tool-evidence',
+            },
+          };
+        }
+        return null;
+      },
+    },
+  });
+
+  assert.match(panel.innerHTML, /data-reply-context-details-id="tool-evidence"/);
+  assert.match(panel.innerHTML, /runtime receipt/);
+  assert.match(panel.innerHTML, /not recorded/);
+  assert.match(panel.innerHTML, /This node appears because the runtime artifact can carry a sibling tool-evidence receipt that stays separate from PromptTruth\./);
+  assert.match(panel.innerHTML, /Receipt items/);
+  assert.match(panel.innerHTML, /Prompt-visible items/);
+  assert.match(panel.innerHTML, /runtime artifact receipt only; not a PromptTruth channel/i);
+  assert.doesNotMatch(panel.innerHTML, /supported the reply/i);
+  assert.doesNotMatch(panel.innerHTML, /\bproved\b/i);
 });
 
 test('renderMemoryInspector exposes runtime artifact evidence sources and tool labels', async () => {
@@ -1359,6 +1525,8 @@ test('renderMemoryInspector shows a calm empty latest-reply summary when no repl
 
   assert.match(els.memoryInspectorPanel.innerHTML, /Last reply at a glance/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Last-reply summary is not available yet\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Recent reply snapshots/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Recent reply snapshots are not recorded yet\./i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Reply Context Map is waiting for a reply receipt\./i);
   assert.match(els.memoryInspectorPanel.innerHTML, /The deeper inspector sections below still show whatever state is available\./i);
   assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /Reply Context Details/i);
