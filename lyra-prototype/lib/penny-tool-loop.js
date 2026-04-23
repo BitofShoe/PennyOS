@@ -2,6 +2,11 @@ const {
   buildToolCostHintForToolName,
   buildToolCostHintFromDescriptor,
 } = require('./penny-tool-registry');
+const {
+  buildSearchOnlyExactClaimGuidance,
+  buildSearchToReadHandoffGuidance,
+  findSearchOnlyExactClaimIssues,
+} = require('./penny-tool-evidence-guards');
 
 const WRITE_TOOL_NAMES = new Set([
   'write_project_file',
@@ -1344,6 +1349,18 @@ function createLmStudioToolLoopApi({
               error.toolOutcomeDebug = toolDebug;
               throw error;
             }
+            const searchOnlyExactClaimIssues = findSearchOnlyExactClaimIssues({ text, userText, toolRecords });
+            if (searchOnlyExactClaimIssues.length) {
+              toolMessages.push({
+                role: 'assistant',
+                content: typeof message.content === 'string' ? message.content : text,
+              });
+              toolMessages.push({
+                role: 'system',
+                content: buildSearchOnlyExactClaimGuidance(searchOnlyExactClaimIssues),
+              });
+              continue;
+            }
             const unsupportedReceiptClaims = findUnsupportedReceiptClaims(text, toolRecords);
             if (unsupportedReceiptClaims.length) {
               toolMessages.push({
@@ -1439,6 +1456,15 @@ function createLmStudioToolLoopApi({
               tool_call_id: call.id,
               content: JSON.stringify(result.data),
             });
+            const searchHandoffGuidance = name === 'search_project_text' && result.ok
+              ? buildSearchToReadHandoffGuidance(result.data)
+              : '';
+            if (searchHandoffGuidance) {
+              toolMessages.push({
+                role: 'system',
+                content: searchHandoffGuidance,
+              });
+            }
           }
           if (writeRequiredBeforeFinal && !editedPaths.size) {
             toolMessages.push({
@@ -1704,6 +1730,15 @@ function createLmStudioToolLoopApi({
               role: 'system',
               content: `Tool result from ${decision.tool}:\n${JSON.stringify(result.data, null, 2)}`,
             });
+            const searchHandoffGuidance = decision.tool === 'search_project_text' && result.ok
+              ? buildSearchToReadHandoffGuidance(result.data)
+              : '';
+            if (searchHandoffGuidance) {
+              plannerMessages.push({
+                role: 'system',
+                content: searchHandoffGuidance,
+              });
+            }
             if (writeRequiredBeforeFinal && !editedPaths.size) {
               plannerMessages.push({
                 role: 'system',
@@ -1782,6 +1817,23 @@ function createLmStudioToolLoopApi({
             plannerMessages.push({
               role: 'system',
               content: `Automatic verification ran after your code edits. Reply again with kind "final" and include those verified outcomes in Penny's normal voice.`,
+            });
+            continue;
+          }
+
+          const searchOnlyExactClaimIssues = findSearchOnlyExactClaimIssues({ text: decision.text || '', userText, toolRecords });
+          if (searchOnlyExactClaimIssues.length) {
+            updateManualFallbackDebug(toolDebug, {
+              lastPlannerStatus: 'search-only-exact-claim',
+              lastDecisionKind: decision.kind,
+              lastDecisionTool: '',
+              lastDecisionError: searchOnlyExactClaimIssues.map((issue) => issue.path).join(','),
+              lastAssistantText: assistantText,
+            });
+            plannerMessages.push({ role: 'assistant', content: assistantText });
+            plannerMessages.push({
+              role: 'system',
+              content: buildSearchOnlyExactClaimGuidance(searchOnlyExactClaimIssues),
             });
             continue;
           }

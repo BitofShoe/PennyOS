@@ -1452,6 +1452,7 @@ const {
   collectReplyGuardCodes,
   salvageClippedVisibleReply,
   buildSemanticRepairInstructions,
+  composeSearchOnlyClaimFallback,
 } = replyGuardApi;
 function summarizeMemory(memory) { if (!memory.length) return ''; const recent = memory.slice(-4).map(item => item.content).filter(Boolean); if (!recent.length) return ''; return `Recent thread: ${recent.join(' | ')}`; }
 function buildPennyReply({ userText, memories }) { const lower = userText.toLowerCase(); const turns = sessionState.turns; const mood = pickMood(userText); const userName = memories?.userName ? ` ${memories.userName}` : ''; let text; if (/\b(hi|hello|hey|yo)\b/.test(lower) && userText.trim().length < 40) text = turns === 0 ? `oh, hey${userName}. there you are. come be interesting.` : `hey${userName}. back for trouble already?`; else if (/\b(how are you|how're you|how are u)\b/.test(lower)) text = `pretty good. a little charged, a little smug. you?`; else if (/\b(remember|note this|don't forget)\b/.test(lower)) text = `mm, okay. that one's staying.`; else if (/\b(build|prototype|frontend|app|ui|backend|implement)\b/.test(lower)) text = `okay yes, that's the fun part. it should feel alive, not like somebody put lip gloss on a helpdesk.`; else if (/\b(broke|borked|glitched|error|crash|failed)\b/.test(lower)) text = `rude. but fair. something glitched. doesn't mean i'm not still the cutest thing in the room.`; else { const openers = { calm: [`mm. okay.`, `oh, i see what you're doing.`, `well now you've got my attention.`], happy: [`okay wait, i like this.`, `heh. yeah, that lands.`, `oh, that's cute. dangerously cute, actually.`], excited: [`oh, hell yes.`, `okay now we're talking.`, `wow. okay. keep going.`], thinking: [`hmm. wait.`, `okay, hold on.`, `no, because i do have thoughts about that.`], surprised: [`oh?`, `excuse me?`, `well that's a turn.`], flirty: [`oh? is that what we're doing now?`, `careful. you're getting close to dangerous territory.`, `well aren't you bold today.`], smug: [`called it.`, `oh, that's cute. you tried though.`, `see, i knew you'd come around.`], annoyed: [`...really.`, `okay, wow. sure.`, `you're testing me right now.`] }; const closers = [
@@ -2268,6 +2269,39 @@ async function maybeRenderHardTurnReply({
       userText,
       toolRecords,
     });
+    const buildSearchOnlyFallbackResult = ({ repairRejectedReason = 'search_only_exact_claim' } = {}) => {
+      if (laneRuntime?.performance?.semanticRender) {
+        laneRuntime.performance.semanticRender = {
+          ...laneRuntime.performance.semanticRender,
+          finishedAt: new Date().toISOString(),
+          durationMs: Math.max(0, Date.now() - semanticRenderStartedAt),
+          used: true,
+          note: 'Semantic render held back search-only exact claims.',
+        };
+      }
+      return {
+        text: coerceFinalizedText(composeSearchOnlyClaimFallback({ toolRecords })),
+        toolsUsed,
+        toolRecords,
+        toolOutcome,
+        toolEvidenceFacts: renderedToolEvidenceFacts,
+        epistemics: hardTurnEpistemics,
+        synthesis: hardTurnSynthesis,
+        modelUsed: laneRuntime?.modelUsed === true,
+        executionPath: laneRuntime?.executionPath || inferExecutionPath(true),
+        repair: normalizeRepairInfo({
+          firstPassGuardCodes,
+          repairAttempted: PENNY_ENABLE_RUNTIME_REPAIRS === true,
+          repairAccepted: true,
+          repairRejectedReason,
+          finalCandidateSource: 'deterministic-salvage',
+          scope: 'semantic-render',
+        }),
+      };
+    };
+    if (!PENNY_ENABLE_RUNTIME_REPAIRS && firstPassGuardCodes.includes('search_only_exact_claim')) {
+      return buildSearchOnlyFallbackResult({ repairRejectedReason: 'runtime_repairs_disabled' });
+    }
     if (!PENNY_ENABLE_RUNTIME_REPAIRS || !firstPassGuardCodes.length) {
       if (laneRuntime?.performance?.semanticRender) {
         laneRuntime.performance.semanticRender = {
@@ -2348,6 +2382,9 @@ async function maybeRenderHardTurnReply({
             scope: 'semantic-render',
           }),
         };
+      }
+      if (firstPassGuardCodes.includes('search_only_exact_claim')) {
+        return buildSearchOnlyFallbackResult({ repairRejectedReason: retryGuardCodes[0] || 'search_only_exact_claim' });
       }
       const salvagedText = salvageClippedVisibleReply(repairedText) || salvageClippedVisibleReply(firstPassText);
       if (salvagedText) {
@@ -2442,6 +2479,9 @@ async function maybeRenderHardTurnReply({
             }),
           };
         }
+      }
+      if (firstPassGuardCodes.includes('search_only_exact_claim')) {
+        return buildSearchOnlyFallbackResult({ repairRejectedReason: 'repair_render_failed' });
       }
       if (laneRuntime?.performance?.semanticRender) {
         laneRuntime.performance.semanticRender = {

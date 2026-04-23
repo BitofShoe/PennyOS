@@ -316,6 +316,93 @@ test('maybeRenderHardTurnReply keeps project search hits concrete in semantic co
   }
 });
 
+test('maybeRenderHardTurnReply holds back search-only exact code claims', async () => {
+  const mockLmStudio = await createMockSemanticRenderServer({
+    reply: [
+      '* `AGENTS.md` lines 69 and 118 lock `toolEvidenceReceipt` next to `PromptTruth`.\n* `ARCHITECTURE.md` line 192 refuses to expand both receipts.\n[MOOD:thinking]',
+      '* `AGENTS.md` lines 69 and 118 lock `toolEvidenceReceipt` next to `PromptTruth`.\n* `ARCHITECTURE.md` line 192 refuses to expand both receipts.\n[MOOD:thinking]',
+    ],
+  });
+  const { serverModule, cleanup } = loadServerModuleForSemanticRender(mockLmStudio.baseUrl);
+  try {
+    const result = await serverModule.maybeRenderHardTurnReply(buildSemanticRenderArgs({
+      userText: 'Use the project tools to explain how toolEvidenceReceipt relates to PromptTruth in the current code. Answer with exactly three bullets and include concrete file paths.',
+      text: 'Searches found likely docs, but no files were read yet.\n[MOOD:thinking]',
+      toolsUsed: [
+        { name: 'search_project_text', label: 'searched "toolEvidenceReceipt"', ok: true },
+        { name: 'search_project_text', label: 'searched "PromptTruth"', ok: true },
+      ],
+      toolRecords: [
+        {
+          name: 'search_project_text',
+          args: { query: 'toolEvidenceReceipt', path: '.', limit: 5 },
+          result: {
+            ok: true,
+            label: 'searched "toolEvidenceReceipt"',
+            data: {
+              query: 'toolEvidenceReceipt',
+              root: '.',
+              hits: [
+                {
+                  path: 'AGENTS.md',
+                  line: 69,
+                  text: 'Do not auto-ingest external docs into PromptTruth or toolEvidenceReceipt.',
+                },
+                {
+                  path: 'ARCHITECTURE.md',
+                  line: 192,
+                  text: 'PromptTruth and toolEvidenceReceipt remain separate sibling artifacts.',
+                },
+              ],
+              truncated: false,
+            },
+          },
+        },
+        {
+          name: 'search_project_text',
+          args: { query: 'PromptTruth', path: '.', limit: 5 },
+          result: {
+            ok: true,
+            label: 'searched "PromptTruth"',
+            data: {
+              query: 'PromptTruth',
+              root: '.',
+              hits: [
+                {
+                  path: 'AGENTS.md',
+                  line: 118,
+                  text: 'Runtime claims need code, tests, artifacts, or command output.',
+                },
+              ],
+              truncated: false,
+            },
+          },
+        },
+      ],
+      toolEvidenceFacts: [{
+        path: 'native_tool_loop',
+        promptVisibility: 'prompt_visible',
+        nonPromptUse: 'none',
+        renderForm: 'raw_json',
+        modelHop: 'multi',
+        toolRecordIndexes: [0, 1],
+      }],
+    }));
+
+    assert.equal(mockLmStudio.stats.chatRequests, 2);
+    assert.equal(result.repair.firstPassGuardCodes.includes('search_only_exact_claim'), true);
+    assert.equal(result.repair.finalCandidateSource, 'deterministic-salvage');
+    assert.match(result.text, /candidate hits/i);
+    assert.match(result.text, /haven't read those files/i);
+    assert.doesNotMatch(result.text, /line 192|lines 69/i);
+    const repairPrompt = String(mockLmStudio.chatBodies[1]?.messages?.[1]?.content || '');
+    assert.match(repairPrompt, /Do not present exact file, line, function, or code-mechanics claims/i);
+  } finally {
+    cleanup();
+    await mockLmStudio.close();
+  }
+});
+
 test('maybeRenderHardTurnReply does not duplicate an existing semantic_render evidence fact', async () => {
   const mockLmStudio = await createMockSemanticRenderServer();
   const { serverModule, cleanup } = loadServerModuleForSemanticRender(mockLmStudio.baseUrl);

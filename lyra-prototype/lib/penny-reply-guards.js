@@ -1,3 +1,8 @@
+const {
+  composeSearchOnlyClaimFallback,
+  findSearchOnlyExactClaimIssues,
+} = require('./penny-tool-evidence-guards');
+
 function createReplyGuardApi({
   stripReplyMoodTags,
   enableContradictionGuards = true,
@@ -83,6 +88,9 @@ function createReplyGuardApi({
     if (userRequestedStructuredReply(userText) && wordCount < 80 && !candidateHasStructuredReply(text)) {
       codes.push('requested_structure_missing');
     }
+    if (findSearchOnlyExactClaimIssues({ text, userText, toolRecords }).length) {
+      codes.push('search_only_exact_claim');
+    }
     if (recordCount >= 2 && wordCount < 48 && !candidateHasConcreteToolAnchor(text, toolRecords)) {
       codes.push('tool_summary_too_thin');
     }
@@ -151,6 +159,9 @@ function createReplyGuardApi({
     if (guardCodes.includes('requested_structure_missing')) {
       lines.push('- The user asked for a structured answer. Use bullets or short labeled sections instead of a single preamble paragraph.');
     }
+    if (guardCodes.includes('search_only_exact_claim')) {
+      lines.push('- Do not present exact file, line, function, or code-mechanics claims from search_project_text hits alone. Say they are candidate search hits, or remove the exact claim unless the verified tool trail includes a read_project_file/read_project_file_around_match receipt for that path.');
+    }
     if (guardCodes.includes('contradiction_stale_value')) {
       lines.push('- Do not restate superseded facts as current truth.');
       for (const contradiction of activeContradictions.slice(0, 2)) {
@@ -164,6 +175,7 @@ function createReplyGuardApi({
     collectReplyGuardCodes,
     salvageClippedVisibleReply,
     buildSemanticRepairInstructions,
+    composeSearchOnlyClaimFallback,
   };
 }
 

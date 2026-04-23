@@ -7,6 +7,13 @@
 - `npm run preset:lmstudio`
 - `npm run start:durable`
 
+## WSL vs Windows Reality
+
+- Use WSL for ordinary repo reads, unit tests, and static inspection.
+- Use Windows PowerShell/cmd for live LM Studio probes and disposable live Penny QA; Windows owns the LM Studio process and loopback behavior here.
+- A WSL failure to reach `127.0.0.1:1234` is not enough to call LM Studio down. Recheck from Windows with `/v1/models`, `lms ps --json`, or `npm run preflight`.
+- If invoking PowerShell from WSL, avoid mixed-PATH runtime mistakes by pinning Windows Node (`C:\Program Files\nodejs\node.exe`) for ad hoc live-QA wrappers.
+
 ## Healthy State
 
 - LM Studio API reachable

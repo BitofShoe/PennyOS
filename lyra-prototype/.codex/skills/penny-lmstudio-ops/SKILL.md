@@ -41,6 +41,13 @@ Use this skill for Penny's local LM Studio workflow, not for general model advic
 4. Run `npm run preset:lmstudio` only when preset wiring needs repair.
 5. Use the reference doc before touching LM Studio scripts.
 
+## Local Shell Trap
+
+- Prefer WSL for static repo inspection, but use Windows PowerShell/cmd for live LM Studio and disposable Penny QA on this machine.
+- Do not trust WSL `127.0.0.1:1234` as proof that the Windows LM Studio API is down. Verify from Windows with a direct `/v1/models` probe or `npm run preflight`.
+- When launching live QA from a PowerShell wrapper under WSL, pin Windows Node explicitly if PATH is mixed, for example `C:\Program Files\nodejs\node.exe`; otherwise PowerShell can pick up a non-Windows `node` and fail with `%1 is not a valid Win32 application`.
+- The `lms` CLI may exist at `C:\Users\malac\.lmstudio\bin\lms.exe` even when WSL cannot resolve `lms` from PATH.
+
 ## Task Fit
 
 - Blockers: missing LM Studio, unavailable models, broken preset wiring, or port conflicts.

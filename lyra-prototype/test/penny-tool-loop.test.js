@@ -40,6 +40,39 @@ function buildToolLoopApi({ responses = [], executePennyTool = null, maxToolStep
           data: { ok: true, status: 'M tmp/qwen-dual-lane-sandbox.md' },
         };
       }
+      if (name === 'search_project_text') {
+        return {
+          ok: true,
+          label: `searched "${args.query || 'query'}"`,
+          data: {
+            query: args.query || '',
+            root: args.path || '.',
+            hits: [
+              {
+                path: 'lib/penny-visible-reply.js',
+                line: 42,
+                text: 'function coercePennyVisibleReply(raw) {',
+              },
+            ],
+            truncated: false,
+          },
+        };
+      }
+      if (name === 'read_project_file_around_match') {
+        return {
+          ok: true,
+          label: `read ${args.path || 'file'} around ${args.query || 'match'}`,
+          data: {
+            path: args.path || '',
+            query: args.query || '',
+            startLine: 36,
+            endLine: 52,
+            lines: [
+              { line: 42, text: 'function coercePennyVisibleReply(raw) {' },
+            ],
+          },
+        };
+      }
       return { ok: true, label: name, data: {} };
     },
     parseToolArguments(text = '') {
@@ -62,6 +95,8 @@ function buildToolLoopApi({ responses = [], executePennyTool = null, maxToolStep
     },
     PENNY_TOOL_DEFINITIONS: [
       { type: 'function', function: { name: 'read_project_file' } },
+      { type: 'function', function: { name: 'read_project_file_around_match' } },
+      { type: 'function', function: { name: 'search_project_text' } },
       { type: 'function', function: { name: 'insert_in_project_file' } },
       { type: 'function', function: { name: 'get_git_status' } },
       { type: 'function', function: { name: 'read_git_diff' } },
@@ -244,6 +279,89 @@ test('runLmStudioToolLoop still allows plain final text for read-only tool turns
 
   assert.match(result.text, /local companion prototype/i);
   assert.equal(api.toolCalls.length, 0);
+});
+
+test('runLmStudioToolLoop requires read handoff before accepting search-only exact code claims', async () => {
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: '',
+              tool_calls: [
+                {
+                  id: 'call_search',
+                  type: 'function',
+                  function: {
+                    name: 'search_project_text',
+                    arguments: JSON.stringify({ query: 'coercePennyVisibleReply', limit: 5 }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: 'The function is `coercePennyVisibleReply` in `lib/penny-visible-reply.js` line 42.\n[MOOD:thinking]',
+              tool_calls: [],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: '',
+              tool_calls: [
+                {
+                  id: 'call_read',
+                  type: 'function',
+                  function: {
+                    name: 'read_project_file_around_match',
+                    arguments: JSON.stringify({
+                      path: 'lib/penny-visible-reply.js',
+                      query: 'coercePennyVisibleReply',
+                    }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: 'Read-backed now: `coercePennyVisibleReply` lives in `lib/penny-visible-reply.js` around line 42.\n[MOOD:thinking]',
+              tool_calls: [],
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const result = await api.runLmStudioToolLoop({
+    userText: 'Use the project tools to inspect where Penny strips hidden reasoning. Answer with the exact file path and function names.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.equal(result.text, 'Read-backed now: `coercePennyVisibleReply` lives in `lib/penny-visible-reply.js` around line 42.\n[MOOD:thinking]');
+  assert.deepEqual(api.toolCalls.map((call) => call.name), [
+    'search_project_text',
+    'read_project_file_around_match',
+  ]);
+  assert.match(JSON.stringify(api.payloads[1].messages), /Search result handoff/i);
+  assert.match(JSON.stringify(api.payloads[2].messages), /Read next before finalizing: lib\/penny-visible-reply\.js/i);
 });
 
 test('runLmStudioToolLoop corrects fake npm test pass claims without receipts', async () => {
