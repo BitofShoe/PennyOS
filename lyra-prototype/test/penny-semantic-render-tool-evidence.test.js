@@ -239,6 +239,83 @@ test('maybeRenderHardTurnReply appends semantic_render evidence only after summa
   }
 });
 
+test('maybeRenderHardTurnReply keeps project search hits concrete in semantic core', async () => {
+  const mockLmStudio = await createMockSemanticRenderServer({
+    reply: 'The concrete search hit points at `lib/penny-visible-reply.js` and `coercePennyVisibleReply`.\n[MOOD:thinking]',
+  });
+  const { serverModule, cleanup } = loadServerModuleForSemanticRender(mockLmStudio.baseUrl);
+  try {
+    const result = await serverModule.maybeRenderHardTurnReply(buildSemanticRenderArgs({
+      userText: 'Use the project tools to inspect where Penny strips hidden reasoning or think spans. Answer with concise bullets and include the exact file path and function names.',
+      text: 'Searches returned hits, but the draft did not follow them into concrete file names.\n[MOOD:thinking]',
+      toolsUsed: [
+        { name: 'search_project_text', label: 'searched "reasoning"', ok: true },
+        { name: 'read_project_file', label: 'failed to read src/chat/sanitize.js', ok: false },
+      ],
+      toolRecords: [
+        {
+          name: 'search_project_text',
+          args: { query: 'reasoning', path: '.', limit: 5 },
+          result: {
+            ok: true,
+            label: 'searched "reasoning"',
+            data: {
+              query: 'reasoning',
+              root: '.',
+              hits: [
+                {
+                  path: 'lib/penny-visible-reply.js',
+                  line: 42,
+                  text: 'function coercePennyVisibleReply(raw) {',
+                },
+                {
+                  path: 'server.js',
+                  line: 1883,
+                  text: 'return `[object with ${Object.keys(value).length} keys]`;',
+                },
+              ],
+              truncated: false,
+            },
+          },
+        },
+        {
+          name: 'read_project_file',
+          args: { path: 'src/chat/sanitize.js' },
+          result: {
+            ok: false,
+            label: 'failed to read src/chat/sanitize.js',
+            data: {
+              path: 'src/chat/sanitize.js',
+              error: 'Could not read src/chat/sanitize.js: ENOENT',
+            },
+          },
+        },
+      ],
+      toolEvidenceFacts: [{
+        path: 'native_tool_loop',
+        promptVisibility: 'prompt_visible',
+        nonPromptUse: 'none',
+        renderForm: 'raw_json',
+        modelHop: 'multi',
+        toolRecordIndexes: [0, 1],
+      }],
+    }));
+
+    assert.equal(mockLmStudio.stats.chatRequests >= 1, true);
+    assert.match(result.text, /lib\/penny-visible-reply\.js/);
+    const semanticPrompt = String(mockLmStudio.chatBodies[0]?.messages?.[1]?.content || '');
+    assert.doesNotMatch(semanticPrompt, /\[object with \d+ keys\]/);
+    assert.match(semanticPrompt, /lib\/penny-visible-reply\.js/);
+    assert.match(semanticPrompt, /42/);
+    assert.match(semanticPrompt, /coercePennyVisibleReply/);
+    assert.match(semanticPrompt, /src\/chat\/sanitize\.js/);
+    assert.match(semanticPrompt, /ENOENT/);
+  } finally {
+    cleanup();
+    await mockLmStudio.close();
+  }
+});
+
 test('maybeRenderHardTurnReply does not duplicate an existing semantic_render evidence fact', async () => {
   const mockLmStudio = await createMockSemanticRenderServer();
   const { serverModule, cleanup } = loadServerModuleForSemanticRender(mockLmStudio.baseUrl);

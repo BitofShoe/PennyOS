@@ -1640,7 +1640,7 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'search_project_text',
-      description: 'Search project text files for a phrase with bounded traversal. Defaults ignore generated or heavy folders and skips large/non-text files.',
+      description: 'Search project text files for a phrase with bounded traversal. Returns hits with path, line, and text; read a promising hit with read_project_file_around_match or read_project_file before finalizing exact code details.',
       parameters: {
         type: 'object',
         properties: {
@@ -1864,8 +1864,40 @@ function semanticStringLimit(key = '', depth = 0) {
   if (normalizedKey === 'excerpt') return 2200;
   if (normalizedKey === 'diff') return 1800;
   if (normalizedKey === 'text') return depth === 0 ? 1200 : 900;
+  if (normalizedKey === 'snippet') return 700;
   if (normalizedKey === 'stderr' || normalizedKey === 'stdout' || normalizedKey === 'error') return 700;
   return depth === 0 ? 700 : 360;
+}
+
+const SEMANTIC_SOURCE_RECORD_KEYS = [
+  'path', 'line', 'text', 'snippet', 'title', 'url', 'requestedUrl',
+  'startLine', 'endLine', 'matchLine', 'query',
+];
+
+function looksLikeSemanticSourceRecord(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (Object.prototype.hasOwnProperty.call(value, 'path')
+    && (Object.prototype.hasOwnProperty.call(value, 'line')
+      || Object.prototype.hasOwnProperty.call(value, 'text')
+      || Object.prototype.hasOwnProperty.call(value, 'snippet'))) {
+    return true;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'url')
+    && (Object.prototype.hasOwnProperty.call(value, 'title')
+      || Object.prototype.hasOwnProperty.call(value, 'snippet')
+      || Object.prototype.hasOwnProperty.call(value, 'text'))) {
+    return true;
+  }
+  return false;
+}
+
+function sanitizeDeepSemanticSourceRecord(value = {}, depth = 0) {
+  const out = {};
+  for (const key of SEMANTIC_SOURCE_RECORD_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    out[key] = sanitizeSemanticValue(value[key], depth + 1, key);
+  }
+  return out;
 }
 
 function sanitizeSemanticValue(value, depth = 0, key = '') {
@@ -1879,6 +1911,9 @@ function sanitizeSemanticValue(value, depth = 0, key = '') {
     return value.slice(0, depth === 0 ? 6 : 4).map(item => sanitizeSemanticValue(item, depth + 1, key));
   }
   if (typeof value !== 'object') return String(value);
+  if (depth >= 2 && looksLikeSemanticSourceRecord(value)) {
+    return sanitizeDeepSemanticSourceRecord(value, depth);
+  }
   if (depth >= 2) {
     return `[object with ${Object.keys(value).length} keys]`;
   }
