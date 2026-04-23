@@ -54,6 +54,19 @@ test('coercePennyVisibleReply strips full Gemma thought-channel blocks before vi
   assert.equal(decision.cleanupTransform.operations.includes('strip-internal-reasoning'), true);
 });
 
+test('coercePennyVisibleReply strips dangling Qwen reasoning tags after visible text', () => {
+  const raw = `Visible reply only.\n[MOOD:smug]\n<think>\nHidden scratchpad that never closes.`;
+  const decision = classifyVisibleReplyDecision(raw);
+  assert.equal(coercePennyVisibleReply(raw), 'Visible reply only.\n[MOOD:smug]');
+  assert.equal(decision.cleanupApplied, true);
+  assert.equal(decision.cleanupTransform.operations.includes('strip-internal-reasoning'), true);
+});
+
+test('coercePennyVisibleReply strips dangling thought-channel markers after visible text', () => {
+  const raw = `Visible reply only.\n[MOOD:thinking]\n<|channel>analysis\nHidden scratchpad that never closes.`;
+  assert.equal(coercePennyVisibleReply(raw), 'Visible reply only.\n[MOOD:thinking]');
+});
+
 test('coercePennyVisibleReply strips empty Gemma thought markers', () => {
   const raw = `<|channel>thought\n<channel|>\nVisible reply only.\n[MOOD:calm]`;
   assert.equal(coercePennyVisibleReply(raw), 'Visible reply only.\n[MOOD:calm]');
@@ -178,6 +191,11 @@ test('coercePennyVisibleReply preserves structured deterministic result piles', 
     coercePennyVisibleReply(raw),
     `yeah, the live web is mostly throwing "Latest Tech Analysis News | Digital Foundry" at me first.\n\nhere's the pile:\n1. Latest Tech Analysis News | Digital Foundry\nhttps://www.digitalfoundry.net/news\n2. Crimson Desert looks absurdly good in new preview\nhttps://www.digitalfoundry.net/crimson-desert-preview\n\npick one and i'll crack it open.\n[MOOD:thinking]`,
   );
+});
+
+test('coercePennyVisibleReply preserves technical bullet summaries with concrete file anchors', () => {
+  const raw = `- \`README.md\` is the app-facing overview.\n- \`docs/README.md\` is the docs routing layer.\n[MOOD:thinking]`;
+  assert.equal(coercePennyVisibleReply(raw), raw);
 });
 
 test('coercePennyVisibleReply falls back to final-polish draft candidates inside a single giant planning block', () => {

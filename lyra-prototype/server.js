@@ -84,6 +84,9 @@ const {
   createVisibleReplyApi,
 } = require('./lib/penny-visible-reply');
 const {
+  createReplyGuardApi,
+} = require('./lib/penny-reply-guards');
+const {
   createLmStudioToolLoopApi,
 } = require('./lib/penny-tool-loop');
 const {
@@ -1441,6 +1444,15 @@ const {
   isMissingLmStudioThreadError: isMissingLmStudioThreadErrorApi,
   lmStudioStageLabel: lmStudioStageLabelApi,
 } = visibleReplyApi;
+const replyGuardApi = createReplyGuardApi({
+  stripReplyMoodTags,
+  enableContradictionGuards: PENNY_ENABLE_CONTRADICTION_GUARDS,
+});
+const {
+  collectReplyGuardCodes,
+  salvageClippedVisibleReply,
+  buildSemanticRepairInstructions,
+} = replyGuardApi;
 function summarizeMemory(memory) { if (!memory.length) return ''; const recent = memory.slice(-4).map(item => item.content).filter(Boolean); if (!recent.length) return ''; return `Recent thread: ${recent.join(' | ')}`; }
 function buildPennyReply({ userText, memories }) { const lower = userText.toLowerCase(); const turns = sessionState.turns; const mood = pickMood(userText); const userName = memories?.userName ? ` ${memories.userName}` : ''; let text; if (/\b(hi|hello|hey|yo)\b/.test(lower) && userText.trim().length < 40) text = turns === 0 ? `oh, hey${userName}. there you are. come be interesting.` : `hey${userName}. back for trouble already?`; else if (/\b(how are you|how're you|how are u)\b/.test(lower)) text = `pretty good. a little charged, a little smug. you?`; else if (/\b(remember|note this|don't forget)\b/.test(lower)) text = `mm, okay. that one's staying.`; else if (/\b(build|prototype|frontend|app|ui|backend|implement)\b/.test(lower)) text = `okay yes, that's the fun part. it should feel alive, not like somebody put lip gloss on a helpdesk.`; else if (/\b(broke|borked|glitched|error|crash|failed)\b/.test(lower)) text = `rude. but fair. something glitched. doesn't mean i'm not still the cutest thing in the room.`; else { const openers = { calm: [`mm. okay.`, `oh, i see what you're doing.`, `well now you've got my attention.`], happy: [`okay wait, i like this.`, `heh. yeah, that lands.`, `oh, that's cute. dangerously cute, actually.`], excited: [`oh, hell yes.`, `okay now we're talking.`, `wow. okay. keep going.`], thinking: [`hmm. wait.`, `okay, hold on.`, `no, because i do have thoughts about that.`], surprised: [`oh?`, `excuse me?`, `well that's a turn.`], flirty: [`oh? is that what we're doing now?`, `careful. you're getting close to dangerous territory.`, `well aren't you bold today.`], smug: [`called it.`, `oh, that's cute. you tried though.`, `see, i knew you'd come around.`], annoyed: [`...really.`, `okay, wow. sure.`, `you're testing me right now.`] }; const closers = [
   `go on.`,
@@ -1917,19 +1929,6 @@ function cleanDraftForSemanticRender(text = '') {
   return stripReplyMoodTags(visible).trim();
 }
 
-function normalizeGuardText(text = '') {
-  return String(text || '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-function textMentionsFact(text = '', fact = '') {
-  const needle = normalizeGuardText(fact);
-  if (!needle) return false;
-  return normalizeGuardText(text).includes(needle);
-}
-
 function collectActiveContradictions(memories = {}) {
   const items = Array.isArray(memories?.archiveContext?.activeContradictions)
     ? memories.archiveContext.activeContradictions
@@ -1941,37 +1940,6 @@ function collectActiveContradictions(memories = {}) {
       conflictKey: String(item?.conflictKey || '').trim(),
     }))
     .filter((item) => item.oldText && item.newText);
-}
-
-function collectReplyGuardCodes({ candidate = '', activeContradictions = [] } = {}) {
-  const text = String(candidate || '').trim();
-  const codes = [];
-  if (!text || text.length < 4) codes.push('empty_visible_reply');
-  if (/\b(?:todo|tbd|placeholder|insert .* here|coming soon)\b/i.test(text)) codes.push('placeholder_visible_reply');
-  if (/\.\.\.$/.test(text) && text.split(/\s+/).length < 10) codes.push('clipped_visible_reply');
-  if (PENNY_ENABLE_CONTRADICTION_GUARDS) {
-    for (const contradiction of activeContradictions) {
-      if (textMentionsFact(text, contradiction.oldText) && !textMentionsFact(text, contradiction.newText)) {
-        codes.push('contradiction_stale_value');
-        break;
-      }
-    }
-  }
-  return [...new Set(codes)];
-}
-
-function buildSemanticRepairInstructions({ guardCodes = [], activeContradictions = [] } = {}) {
-  const lines = [];
-  if (guardCodes.includes('empty_visible_reply') || guardCodes.includes('placeholder_visible_reply') || guardCodes.includes('clipped_visible_reply')) {
-    lines.push('- Return one complete visible reply. No placeholders, clipped fragments, or TODO language.');
-  }
-  if (guardCodes.includes('contradiction_stale_value')) {
-    lines.push('- Do not restate superseded facts as current truth.');
-    for (const contradiction of activeContradictions.slice(0, 2)) {
-      lines.push(`- If that fact is relevant, treat "${contradiction.newText}" as current and "${contradiction.oldText}" as replaced.`);
-    }
-  }
-  return lines.join('\n');
 }
 
 function buildSemanticCore({ userText, file, toolRecords, draftText }) {
@@ -2262,6 +2230,8 @@ async function maybeRenderHardTurnReply({
     const firstPassGuardCodes = collectReplyGuardCodes({
       candidate: firstPassText,
       activeContradictions,
+      userText,
+      toolRecords,
     });
     if (!PENNY_ENABLE_RUNTIME_REPAIRS || !firstPassGuardCodes.length) {
       if (laneRuntime?.performance?.semanticRender) {
@@ -2312,6 +2282,8 @@ async function maybeRenderHardTurnReply({
       const retryGuardCodes = collectReplyGuardCodes({
         candidate: repairedText,
         activeContradictions,
+        userText,
+        toolRecords,
       });
       if (!retryGuardCodes.length) {
         if (laneRuntime?.performance?.semanticRender) {
@@ -2342,6 +2314,44 @@ async function maybeRenderHardTurnReply({
           }),
         };
       }
+      const salvagedText = salvageClippedVisibleReply(repairedText) || salvageClippedVisibleReply(firstPassText);
+      if (salvagedText) {
+        const salvageGuardCodes = collectReplyGuardCodes({
+          candidate: salvagedText,
+          activeContradictions,
+          userText,
+          toolRecords,
+        });
+        if (!salvageGuardCodes.length) {
+          if (laneRuntime?.performance?.semanticRender) {
+            laneRuntime.performance.semanticRender = {
+              ...laneRuntime.performance.semanticRender,
+              finishedAt: new Date().toISOString(),
+              durationMs: Math.max(0, Date.now() - semanticRenderStartedAt),
+              used: true,
+              note: 'Semantic render completed after deterministic clipped-tail salvage.',
+            };
+          }
+          return {
+            text: salvagedText,
+            toolsUsed,
+            toolRecords,
+            toolOutcome,
+            toolEvidenceFacts: renderedToolEvidenceFacts,
+            epistemics: hardTurnEpistemics,
+            synthesis: hardTurnSynthesis,
+            modelUsed: laneRuntime?.modelUsed === true,
+            executionPath: laneRuntime?.executionPath || inferExecutionPath(true),
+            repair: normalizeRepairInfo({
+              firstPassGuardCodes,
+              repairAttempted: true,
+              repairAccepted: true,
+              finalCandidateSource: 'deterministic-salvage',
+              scope: 'semantic-render',
+            }),
+          };
+        }
+      }
       return {
         text: firstPassText,
         toolsUsed,
@@ -2360,6 +2370,44 @@ async function maybeRenderHardTurnReply({
         }),
       };
     } catch {
+      const salvagedText = salvageClippedVisibleReply(firstPassText);
+      if (salvagedText) {
+        const salvageGuardCodes = collectReplyGuardCodes({
+          candidate: salvagedText,
+          activeContradictions,
+          userText,
+          toolRecords,
+        });
+        if (!salvageGuardCodes.length) {
+          if (laneRuntime?.performance?.semanticRender) {
+            laneRuntime.performance.semanticRender = {
+              ...laneRuntime.performance.semanticRender,
+              finishedAt: new Date().toISOString(),
+              durationMs: Math.max(0, Date.now() - semanticRenderStartedAt),
+              used: true,
+              note: 'Repair render failed; deterministic clipped-tail salvage accepted.',
+            };
+          }
+          return {
+            text: salvagedText,
+            toolsUsed,
+            toolRecords,
+            toolOutcome,
+            toolEvidenceFacts: renderedToolEvidenceFacts,
+            epistemics: hardTurnEpistemics,
+            synthesis: hardTurnSynthesis,
+            modelUsed: laneRuntime?.modelUsed === true,
+            executionPath: laneRuntime?.executionPath || inferExecutionPath(true),
+            repair: normalizeRepairInfo({
+              firstPassGuardCodes,
+              repairAttempted: true,
+              repairAccepted: true,
+              finalCandidateSource: 'deterministic-salvage',
+              scope: 'semantic-render',
+            }),
+          };
+        }
+      }
       if (laneRuntime?.performance?.semanticRender) {
         laneRuntime.performance.semanticRender = {
           ...laneRuntime.performance.semanticRender,

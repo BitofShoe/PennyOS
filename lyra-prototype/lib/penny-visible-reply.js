@@ -39,6 +39,15 @@ function createVisibleReplyApi({
     for (const re of stripBlocks) {
       t = t.replace(re, '');
     }
+    const stripDanglingBlocks = [
+      /\u003c\s*(?:think|redacted_reasoning|reasoning)\b[^>]*\u003e[\s\S]*$/i,
+    ];
+    for (const re of stripDanglingBlocks) {
+      t = t.replace(re, '');
+    }
+    t = t.replace(/<\|channel\>\s*(?:thought|analysis)[\s\S]*$/i, (match, offset) => {
+      return t.slice(0, offset).trim() ? '' : match;
+    });
     return t.replace(/\n{3,}/g, '\n\n').trim();
   }
 
@@ -308,7 +317,8 @@ function createVisibleReplyApi({
     const value = String(text || '').trim();
     if (!value) return false;
     return /(?:^|\n)here's the pile:\s*(?:\n|\r\n?)+\d+\.\s+\S/i.test(value)
-      || /\n\d+\.\s+\S[\s\S]*?\n(?:https?:\/\/|www\.)/i.test(value);
+      || /\n\d+\.\s+\S[\s\S]*?\n(?:https?:\/\/|www\.)/i.test(value)
+      || /(?:^|\n)\s*[-*]\s+[\s\S]*?\b[A-Za-z0-9_.\/-]+\.(?:js|mjs|json|md|txt|html|css)(?::\d+)?\b[\s\S]*?(?:\n\s*[-*]\s+|\n\s*\[MOOD:)/i.test(value);
   }
 
   function cleanDraftCandidate(text = '') {

@@ -15,7 +15,9 @@ function readRequestBody(req) {
   });
 }
 
-async function createMockSemanticRenderServer({ reply = 'Semantic render landed.\n[MOOD:thinking]' } = {}) {
+async function createMockSemanticRenderServer({
+  reply = 'README.md and docs/README.md were both checked; the first is the app overview and the second is the docs routing layer.\n[MOOD:thinking]',
+} = {}) {
   const chatBodies = [];
   const stats = {
     modelsRequests: 0,
@@ -37,9 +39,13 @@ async function createMockSemanticRenderServer({ reply = 'Semantic render landed.
     }
 
     if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
+      const requestIndex = stats.chatRequests;
       stats.chatRequests += 1;
       const body = JSON.parse((await readRequestBody(req)) || '{}');
       chatBodies.push(body);
+      const responseReply = typeof reply === 'function'
+        ? reply({ body, requestIndex })
+        : (Array.isArray(reply) ? reply[Math.min(requestIndex, reply.length - 1)] : reply);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({
         id: 'chatcmpl-semantic-render-mock',
@@ -52,7 +58,7 @@ async function createMockSemanticRenderServer({ reply = 'Semantic render landed.
             finish_reason: 'stop',
             message: {
               role: 'assistant',
-              content: reply,
+              content: responseReply,
             },
           },
         ],
@@ -199,7 +205,10 @@ test('maybeRenderHardTurnReply appends semantic_render evidence only after summa
     const result = await serverModule.maybeRenderHardTurnReply(buildSemanticRenderArgs());
 
     assert.equal(mockLmStudio.stats.chatRequests, 1);
-    assert.equal(result.text, 'Semantic render landed.');
+    assert.equal(
+      result.text,
+      'README.md and docs/README.md were both checked; the first is the app overview and the second is the docs routing layer.',
+    );
     assert.equal(Array.isArray(result.toolEvidenceFacts), true);
     assert.equal(result.toolEvidenceFacts.length, 2);
     assert.deepEqual(result.toolEvidenceFacts[0], {
@@ -266,6 +275,101 @@ test('maybeRenderHardTurnReply does not duplicate an existing semantic_render ev
       modelHop: 'single',
       toolRecordIndexes: [0, 1],
     });
+  } finally {
+    cleanup();
+    await mockLmStudio.close();
+  }
+});
+
+test('maybeRenderHardTurnReply repairs Qwen-style preamble-only tool summaries', async () => {
+  const mockLmStudio = await createMockSemanticRenderServer({
+    reply: [
+      "Here is the breakdown of how the two docs actually connect.\n[MOOD:thinking]",
+      "- `README.md` is the app-facing overview.\n- `docs/README.md` is the docs routing layer.\n[MOOD:thinking]",
+    ],
+  });
+  const { serverModule, cleanup } = loadServerModuleForSemanticRender(mockLmStudio.baseUrl);
+  try {
+    const result = await serverModule.maybeRenderHardTurnReply(buildSemanticRenderArgs({
+      userText: 'Compare README.md with docs/README.md. Use bullets.',
+    }));
+
+    assert.equal(mockLmStudio.stats.chatRequests, 2);
+    assert.equal(
+      result.text,
+      '- `README.md` is the app-facing overview.\n- `docs/README.md` is the docs routing layer.',
+    );
+    assert.equal(result.repair.repairAttempted, true);
+    assert.equal(result.repair.repairAccepted, true);
+    assert.equal(result.repair.finalCandidateSource, 'repair');
+    assert.equal(result.repair.firstPassGuardCodes.includes('preamble_only_visible_reply'), true);
+    assert.equal(result.repair.firstPassGuardCodes.includes('tool_summary_too_thin'), true);
+    assert.equal(result.repair.firstPassGuardCodes.includes('requested_structure_missing'), true);
+    const repairPrompt = String(mockLmStudio.chatBodies[1]?.messages?.[1]?.content || '');
+    assert.match(repairPrompt, /Do not return a setup sentence by itself/i);
+    assert.match(repairPrompt, /The user asked for a structured answer/i);
+  } finally {
+    cleanup();
+    await mockLmStudio.close();
+  }
+});
+
+test('maybeRenderHardTurnReply repairs clipped tool summaries with dangling inline markers', async () => {
+  const mockLmStudio = await createMockSemanticRenderServer({
+    reply: [
+      'Found it. The logic lives in `lib/penny-visible-reply.js`. The function is `stripThinkSpans` and it handles targeting `\n[MOOD:thinking]',
+      'Found it. `stripThinkSpans` lives in `lib/penny-visible-reply.js`, and the route repair guard is in `server.js`.\n[MOOD:thinking]',
+    ],
+  });
+  const { serverModule, cleanup } = loadServerModuleForSemanticRender(mockLmStudio.baseUrl);
+  try {
+    const result = await serverModule.maybeRenderHardTurnReply(buildSemanticRenderArgs());
+
+    assert.equal(mockLmStudio.stats.chatRequests, 2);
+    assert.equal(
+      result.text,
+      'Found it. `stripThinkSpans` lives in `lib/penny-visible-reply.js`, and the route repair guard is in `server.js`.',
+    );
+    assert.equal(result.repair.repairAttempted, true);
+    assert.equal(result.repair.repairAccepted, true);
+    assert.equal(result.repair.firstPassGuardCodes.includes('clipped_visible_reply'), true);
+    const repairPrompt = String(mockLmStudio.chatBodies[1]?.messages?.[1]?.content || '');
+    assert.match(repairPrompt, /dangling quotes, dangling backticks/i);
+  } finally {
+    cleanup();
+    await mockLmStudio.close();
+  }
+});
+
+test('maybeRenderHardTurnReply salvages complete prefix when Qwen repeats a clipped trailing block', async () => {
+  const clipped = [
+    '*   **`lib/penny-visible-reply.js`**',
+    '    *   `stripThinkSpans`: strips hidden reasoning spans before the visible reply is classified.',
+    '',
+    '*   **`server.js`**',
+    '    *   `collectReplyGuardCodes`: flags clipped or preamble-only final answers before accepting semantic render output.',
+    '',
+    '*   **`tmp/broken-helper.js`**',
+    '    *   `stripThinkingTags(text)`: uses the regex `/',
+    '[MOOD:thinking]',
+  ].join('\n');
+  const mockLmStudio = await createMockSemanticRenderServer({
+    reply: [clipped, clipped],
+  });
+  const { serverModule, cleanup } = loadServerModuleForSemanticRender(mockLmStudio.baseUrl);
+  try {
+    const result = await serverModule.maybeRenderHardTurnReply(buildSemanticRenderArgs({
+      userText: 'Use bullets and include concrete file paths.',
+    }));
+
+    assert.equal(mockLmStudio.stats.chatRequests, 2);
+    assert.equal(result.repair.repairAttempted, true);
+    assert.equal(result.repair.repairAccepted, true);
+    assert.equal(result.repair.finalCandidateSource, 'deterministic-salvage');
+    assert.match(result.text, /lib\/penny-visible-reply\.js/);
+    assert.match(result.text, /server\.js/);
+    assert.doesNotMatch(result.text, /tmp\/broken-helper\.js/);
+    assert.doesNotMatch(result.text, /regex `\//);
   } finally {
     cleanup();
     await mockLmStudio.close();

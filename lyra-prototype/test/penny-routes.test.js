@@ -780,7 +780,7 @@ test('public chat route persists tool-loop and semantic_render receipt items int
       const semanticPrompt = messages.find((message) => /Verified semantic core:/i.test(String(message?.content || '')));
       if (semanticPrompt) {
         return buildMockChatCompletion(body, {
-          content: 'README frames Penny as the local companion prototype, and docs/README is the docs authority map.\n[MOOD:thinking]',
+          content: 'README.md frames Penny as the local companion prototype, and docs/README.md is the docs authority map.\n[MOOD:thinking]',
         });
       }
       if (!new RegExp(userPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(raw)) {
