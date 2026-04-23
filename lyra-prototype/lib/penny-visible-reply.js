@@ -172,7 +172,9 @@ function createVisibleReplyApi({
     }
     if (/```/.test(text)) operations.push('strip-code-fence');
     if (/^(?:penny|assistant)\s*:/im.test(text)) operations.push('strip-speaker-prefix');
-    if (/(?:^|\n)\s*\*?\s*(?:thinking process|analyze the request|draft(?:\s+\d+)?|final polish)\b/i.test(text)) {
+    if (/(?:^|\n)\s*\*?\s*(?:thinking process|analyze the request|draft(?:\s+\d+)?|final polish)\b/i.test(text)
+      || /(?:^|\n)\s*(?:\.?\s*let'?s decide|add mood tag|make sure (?:no meta commentary|we have appropriate mood tag|to include specific detail)|we should be careful:\s*must not|we must end with exactly one mood tag|that'?s \d+ sentences\?\s*actually|choose (?:something fitting|appropriate mood)|maybe we can say)\b/i.test(text)
+      || /\b(?:but we want something like|we could phrase(?: it)? as)\b/i.test(text)) {
       operations.push('drop-meta-lines');
     }
     if (/[â€œâ€â€˜â€™â€¦â€”â€“]|Ã/.test(text)) operations.push('repair-text-encoding');
@@ -268,6 +270,13 @@ function createVisibleReplyApi({
     }
     if (/^(#{1,3}\s|[-*]\s|Step\s+\d|\d+\.\s|Output:|Response:|Final answer:)/i.test(raw)) return true;
     if (/^(Thinking Process|Analyze the Request|Determine the Voice|Drafting the Reply|Fact Check|Constraint Check|Refinement|Penny-ifying|Final Polish|Draft(?:\s+\d+)?|Observation|Tone|Content)\b/i.test(x)) return true;
+    if (/^(?:Let'?s decide|Add mood tag|Choose something fitting|Choose appropriate mood|Maybe we can say)\b/i.test(x)) return true;
+    if (/^Make sure (?:no meta commentary|we have appropriate mood tag|to include specific detail)\b/i.test(x)) return true;
+    if (/^We should be careful:\s*must not\b/i.test(x)) return true;
+    if (/^We must end with exactly one mood tag\b/i.test(x)) return true;
+    if (/^That'?s \d+ sentences\?\s*Actually\b/i.test(x)) return true;
+    if (/\b(?:that'?s a paraphrase|did they say something like|possibly the phrase is|need to recall|allowed moods are specific list)\b/i.test(x)) return true;
+    if (/\b(?:but we want something like|we could phrase(?: it)? as)\b/i.test(x)) return true;
     return /^(I need to|I'll |I should|Let me |First,|The user |Okay, I|Since the |Based on|Looking at|I will |My goal|According to|Here's |I must|We need|I can |I have to|To respond|I want to|I'm going to|Note:|Analysis:|Actually, let's make it more)/i.test(x);
   }
 
@@ -346,19 +355,37 @@ function createVisibleReplyApi({
     return candidates;
   }
 
+  function quotedReplyCandidateIsPlanningExample(source = '', matchIndex = -1) {
+    const text = String(source || '');
+    const start = Number.isFinite(matchIndex) ? matchIndex : -1;
+    if (start < 0) return false;
+    const before = text.slice(Math.max(0, start - 120), start);
+    return /\b(?:maybe we can say|we could phrase(?: it)? as|make sure (?:to include specific detail|no meta commentary)|possibly the phrase is|did they say something like|need to recall)\b/i.test(before);
+  }
+
+  function looksLikeUsableQuotedReplyCandidate(candidate = '') {
+    const text = cleanDraftCandidate(candidate);
+    if (text.length < 40) return false;
+    if (isMetaThinkingLine(text)) return false;
+    if (/\b(?:answer the|what exact phrase|did i use|what .* did i|the user wrote|the prompt asks)\b/i.test(text)) return false;
+    return /[.!?]$/.test(text) || text.split(/\s+/).length >= 9;
+  }
+
   function collectQuotedReplyCandidates(text = '') {
-    return [...String(text || '').matchAll(/"([^"\n]{20,}?)"/g)]
+    const source = String(text || '');
+    return [...source.matchAll(/"([^"\n]{20,}?)"/g)]
+      .filter((match) => !quotedReplyCandidateIsPlanningExample(source, Number(match.index)))
       .map((match) => cleanDraftCandidate(match[1]))
-      .filter((candidate) => candidate && !isMetaThinkingLine(candidate));
+      .filter((candidate) => candidate && looksLikeUsableQuotedReplyCandidate(candidate));
   }
 
   function paragraphLooksLikeCoT(p) {
     const block = String(p || '').trim();
     if (!block) return true;
     if (isMetaThinkingLine(block.split('\n')[0] || '')) return true;
-    if (/\b(option \d|draft(?:\s+\d+)?|final polish|refining option|adding more bite)\b/i.test(block)) return true;
+    if (/\b(option \d|draft(?:\s+\d+)?|final polish|refining option|adding more bite|mood tag|specific detail|but we want something like|we could phrase(?: it)? as|maybe we can say|we must end with exactly one mood tag|choose appropriate mood|allowed moods are specific list|that'?s a paraphrase|did they say something like|possibly the phrase is|need to recall)\b/i.test(block)) return true;
     const head = block.slice(0, 260);
-    if (/\b(user (said|wants|is asking)|the prompt|as (an )?ai|instruction says|penny should|i (need|must|will|should) (respond|answer|write|mention|make sure)|format.*mood tag|the mood should|let'?s (draft|try|stick)|this gives me room|wait, i need to check|actually, looking closer)\b/i.test(head)) {
+    if (/\b(user (said|wants|is asking)|the prompt|as (an )?ai|instruction says|penny should|i (need|must|will|should) (respond|answer|write|mention|make sure)|format.*mood tag|the mood should|let'?s (draft|try|stick|decide)|this gives me room|wait, i need to check|actually, looking closer|choose (?:something fitting|appropriate mood)|maybe we can say|we should be careful:\s*must not|we must end with exactly one mood tag|that'?s \d+ sentences\?\s*actually)\b/i.test(head)) {
       return true;
     }
     return false;
@@ -424,7 +451,8 @@ function createVisibleReplyApi({
         body = quoteCandidates.join('\n\n');
         reasonCode = VISIBLE_REPLY_REASON_CODES.SALVAGED_QUOTE_CANDIDATE;
       }
-      if (!body) body = stripLeadingMetaLines(before);
+      if (!body || looksOnlyLikeCoT(body)) body = stripLeadingMetaLines(before);
+      if (looksOnlyLikeCoT(body)) body = '';
       body = cleanDraftCandidate(body);
       const out = `${body}\n${moodTag}${afterMood ? `\n${afterMood}` : ''}`.trim();
       return finalizeVisibleReplyDecision(
@@ -460,7 +488,8 @@ function createVisibleReplyApi({
       out = quoteCandidates.join('\n\n');
       reasonCode = VISIBLE_REPLY_REASON_CODES.SALVAGED_QUOTE_CANDIDATE;
     }
-    if (!out) out = stripLeadingMetaLines(t);
+    if (!out || looksOnlyLikeCoT(out)) out = stripLeadingMetaLines(t);
+    if (looksOnlyLikeCoT(out)) out = '';
     out = cleanDraftCandidate(out);
     return finalizeVisibleReplyDecision(
       raw,

@@ -57,6 +57,37 @@ test('LM Studio prompt builders keep prompt memories single-sourced per turn', (
   assert.equal((String(statefulContinuation).match(/Favorite tea is lapsang souchong/g) || []).length, 1);
 });
 
+test('LM Studio prompt builders do not mention hidden reasoning channels', () => {
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const {
+    buildLmStudioPrompt,
+    buildLmStudioMessages,
+    buildLmStudioStatefulInput,
+  } = require('../server.js');
+
+  const prompt = buildLmStudioPrompt({
+    userText: 'Hey.',
+    messages: [{ role: 'user', content: 'Hey.' }],
+    memories: {},
+  });
+  const messages = buildLmStudioMessages({
+    userText: 'Open package.json and summarize the scripts.',
+    messages: [{ role: 'user', content: 'Open package.json and summarize the scripts.' }],
+    memories: {},
+  });
+  const statefulInput = buildLmStudioStatefulInput({
+    userText: 'Hey.',
+    messages: [{ role: 'user', content: 'Hey.' }],
+    memories: {},
+    hasThread: false,
+  });
+
+  const serialized = `${prompt}\n${JSON.stringify(messages)}\n${String(statefulInput)}`;
+  assert.doesNotMatch(serialized, /hidden (?:reasoning|thinking)|separate hidden|reasoning channel/i);
+  assert.match(serialized, /scratch work/i);
+});
+
 test('LM Studio stateful image input uses native text-plus-image parts', () => {
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];

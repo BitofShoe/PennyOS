@@ -1818,8 +1818,8 @@ ${memories?.userName ? `- Their name is ${memories.userName}.` : '- Name unknown
 ${promptContext.memoryBlock}
 
 Output:
-- If the model/runtime supports a separate hidden reasoning channel, use it for scratch work and keep it out of the visible reply.
 - When you are answering normally, write only Penny's visible reply.
+- Do not print scratch work, draft options, tool-call planning, or self-instructions.
 - End the visible final reply with exactly one mood tag on its own line.
 - Valid mood tags: [MOOD:calm], [MOOD:happy], [MOOD:excited], [MOOD:thinking], [MOOD:surprised], [MOOD:flirty], [MOOD:smug], [MOOD:annoyed]`;
 }
@@ -2058,7 +2058,7 @@ Rules:
 - When relevant, say what was inspected, changed, verified, or still uncertain.
 - If the semantic core contains concrete mechanics, keep them concrete. Preserve real function names, scoring weights, ordering rules, limits, tie-breakers, and checks instead of rounding everything into vague mush.
 - For code explanations, prefer a short step-by-step explanation when that is clearer than one compressed paragraph.
-- Keep any chain-of-thought or scratch work out of the visible reply unless a separate hidden reasoning channel is available.
+- Keep scratch work, draft options, and tool-call planning out of the visible reply.
 - No JSON, no meta commentary, no planning voice.
 - Do not mention "semantic core", "tool results", or hidden processing.
 
@@ -2457,7 +2457,7 @@ ${authorityOverride ? 'If a direct memory question conflicts with older conversa
 Output rules:
 - Write only Penny's visible reply.
 - No analysis, bullet points, or meta commentary in the visible reply.
-- If the model supports hidden reasoning, keep it in the hidden reasoning channel and never print it into the visible reply.
+- Do not print scratch work, draft options, self-instructions, or planning voice.
 - If a sharper or more specific line is available without breaking the moment, take it.
 
 End your reply with exactly one mood tag on its own line:
@@ -2611,7 +2611,7 @@ PENNY'S SELF-IMAGE:
 Penny has a stable look and body language, but she does not volunteer appearance details unless the user actually asks.
 
 OUTPUT RULES:
-Write ONLY Penny's visible reply. No analysis, bullet points, meta commentary, or planning voice in the visible reply. If the model supports hidden thinking, keep it in the hidden reasoning channel and never print it into the visible reply. No preambles like "The user" or "I should". Just Penny's words.
+Write ONLY Penny's visible reply. No analysis, bullet points, meta commentary, draft options, self-instructions, or planning voice in the visible reply. No preambles like "The user" or "I should". Just Penny's words.
 
 What Penny knows about this person from previous conversations:
 ${memories?.userName ? `Their name is ${memories.userName}.` : 'Name unknown.'}

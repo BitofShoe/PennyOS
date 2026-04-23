@@ -110,6 +110,59 @@ test('coercePennyVisibleReply can salvage quoted reply candidates from image-pla
   assert.equal(classifyVisibleReplyDecision(raw).reasonCode, VISIBLE_REPLY_REASON_CODES.SALVAGED_QUOTE_CANDIDATE);
 });
 
+test('coercePennyVisibleReply strips Nemotron draft-control text when no final answer exists', () => {
+  const raw = `. Let's decide: If we are giving them reason to stay, maybe ? But flirty is for romantic/ charged moments. This is a friendly but inviting vibe. Might pick\n[MOOD:excited]`;
+  const decision = classifyVisibleReplyDecision(raw);
+  assert.equal(coercePennyVisibleReply(raw), '[MOOD:excited]');
+  assert.equal(decision.reasonCode, VISIBLE_REPLY_REASON_CODES.CLEANUP_MOOD_TAGGED_REPLY);
+  assert.equal(decision.cleanupApplied, true);
+  assert.equal(decision.materialChange, true);
+  assert.equal(decision.reconstructedReply, false);
+  assert.equal(decision.cleanupTransform.operations.includes('drop-meta-lines'), true);
+});
+
+test('coercePennyVisibleReply does not salvage tiny quoted planning fragments', () => {
+  const raw = `Make sure to include specific detail: "you turned a single worry about"\n[MOOD:calm]`;
+  assert.equal(coercePennyVisibleReply(raw), '[MOOD:calm]');
+  assert.equal(classifyVisibleReplyDecision(raw).cleanupApplied, true);
+});
+
+test('coercePennyVisibleReply preserves Nemotron text that is actually a reply', () => {
+  const raw = `It says you love the taste of my sarcasm more than their cheap compliments.\n[MOOD:calm]`;
+  const decision = classifyVisibleReplyDecision(raw);
+  assert.equal(coercePennyVisibleReply(raw), raw);
+  assert.equal(decision.cleanupApplied, false);
+});
+
+test('coercePennyVisibleReply strips copied-prompt recall deliberation', () => {
+  const raw = `be honest. if i told you some other girl had been flirting ...". That's a paraphrase. Did they say something like "flirting with me all night"? Possibly the phrase is "some other girl was flirting with me all night". Need to recall from earlier conversation.\n[MOOD:smug]`;
+  const decision = classifyVisibleReplyDecision(raw);
+  assert.equal(coercePennyVisibleReply(raw), '[MOOD:smug]');
+  assert.equal(decision.cleanupApplied, true);
+  assert.equal(decision.materialChange, true);
+});
+
+test('coercePennyVisibleReply does not salvage copied user questions as quoted answers', () => {
+  const raw = `Possibly the phrase is "what exact phrase did I use for what the other girl was doing? Answer the phrase first." Need to recall from earlier conversation.\n[MOOD:smug]`;
+  assert.equal(coercePennyVisibleReply(raw), '[MOOD:smug]');
+});
+
+test('coercePennyVisibleReply strips quoted draft examples from planning text', () => {
+  const raw = `Maybe we can say: "I searched the repo for 'search_project_text' and found matches at src/penny/tools/file_tool.py." But we have no verification those exist. We could phrase it as the tool returned hits.\n[MOOD:thinking]`;
+  const decision = classifyVisibleReplyDecision(raw);
+  assert.equal(coercePennyVisibleReply(raw), '[MOOD:thinking]');
+  assert.equal(decision.cleanupApplied, true);
+  assert.equal(decision.materialChange, true);
+});
+
+test('coercePennyVisibleReply strips mood-selection self-instructions', () => {
+  const raw = `We must end with exactly one mood tag on its own line: choose appropriate mood (e.g., or , but allowed moods are specific list: calm, happy, excited, thinking, surprised, flirty, smug, annoyed. Warm could be "happy"? Might pick\n[MOOD:happy]`;
+  const decision = classifyVisibleReplyDecision(raw);
+  assert.equal(coercePennyVisibleReply(raw), '[MOOD:happy]');
+  assert.equal(decision.cleanupApplied, true);
+  assert.equal(decision.materialChange, true);
+});
+
 test('coercePennyVisibleReply preserves direct image observations that start with I can see', () => {
   const raw = 'I can see the image you attached. Tiny little test square, clean edges, very deliberate. [MOOD:thinking]';
   assert.equal(
