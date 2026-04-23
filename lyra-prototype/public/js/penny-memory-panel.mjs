@@ -1707,6 +1707,18 @@ function renderScopedSectionHeading(title = '', scope = '', escapeHtmlFn = escap
   `;
 }
 
+function renderInspectorScopeGroup(title = '', scope = '', content = '', escapeHtmlFn = escapeHtml, options = {}) {
+  const scopeClass = normalizeInspectorScopeClass(scope);
+  return `
+    <section class="inspector-scope-group${scopeClass ? ` ${scopeClass}` : ''}">
+      ${renderScopedSectionHeading(title, scope, escapeHtmlFn, options)}
+      <div class="inspector-scope-group-body">
+        ${content}
+      </div>
+    </section>
+  `;
+}
+
 function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml, selectedSnapshotId = '') {
   const {
     artifact,
@@ -1874,6 +1886,55 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
     replyContextHistory.selectedId,
   );
   const runtimeReadiness = viewModel.runtime?.readiness || {};
+  const currentInspectorStateGroup = renderInspectorScopeGroup(
+    'Current inspector state',
+    'Latest/current',
+    `
+      ${renderScopedSectionHeading('Semantic memory', 'Latest/current', escapeHtmlFn)}
+      <div class="list-item">
+        <div class="memory-copy">
+          Semantic memory is <strong>${escapeHtmlFn(viewModel.semantic.ready ? 'active' : 'fallback')}</strong>.
+          <small>${escapeHtmlFn(`${viewModel.semantic.configuredModel || 'no embedding model configured'}${runtimeReadiness.warmState ? ` · ${runtimeReadiness.warmState}` : ''}${Number.isFinite(Number(runtimeReadiness.cacheAgeMs)) ? ` · ${formatCacheAge(runtimeReadiness.cacheAgeMs)}` : ''}`)}</small>
+        </div>
+      </div>
+      ${renderScopedSectionHeading('Memory layer counts', 'Latest/current', escapeHtmlFn, { withGap: true })}
+      <div class="list-item">
+        <div class="memory-copy">
+          Explicit facts: ${escapeHtmlFn(String(viewModel.explicit.count || 0))} &middot; Memory books: ${escapeHtmlFn(String(viewModel.books.enabledCount || 0))} enabled &middot; Session archive: ${escapeHtmlFn(String(viewModel.session.episodeCount || 0))} episodes / ${escapeHtmlFn(String(viewModel.session.chapterCount || 0))} chapters &middot; Global patterns: ${escapeHtmlFn(String(viewModel.global.patternCount || 0))} &middot; Investigations: ${escapeHtmlFn(String(viewModel.ledger.topicCount || 0))}
+        </div>
+      </div>
+      ${renderScopedSectionHeading('Background vectorization', 'Latest/current', escapeHtmlFn, { withGap: true })}
+      ${renderBackgroundVectorizationSummary(viewModel.backgroundVectorization, viewModel.session, escapeHtmlFn)}
+      ${renderScopedSectionHeading('Routing summary', 'Latest/current', escapeHtmlFn, { withGap: true })}
+      ${renderRoutingSummary(viewModel.routing, escapeHtmlFn)}
+      ${renderScopedSectionHeading('Runtime artifact', 'Latest/current', escapeHtmlFn, { withGap: true })}
+      ${renderArtifactSummary(viewModel.artifact, escapeHtmlFn)}
+      ${renderScopedSectionHeading('Trace artifact', 'Latest/current', escapeHtmlFn, { withGap: true })}
+      ${renderTraceArtifactSummary(viewModel.artifact, escapeHtmlFn)}
+      ${renderScopedSectionHeading('Trace provenance', 'Latest/current', escapeHtmlFn, { withGap: true })}
+      ${renderTraceProvenance(viewModel.artifact, escapeHtmlFn)}
+    `,
+    escapeHtmlFn,
+    {
+      note: 'Below the selected-reply cluster, these compact sections use the newest inspector and runtime state. They do not switch when you select an older reply snapshot above.',
+    },
+  );
+  const sessionContinuityStateGroup = renderInspectorScopeGroup(
+    'Session-wide continuity state',
+    'Session-wide',
+    `
+      ${renderScopedSectionHeading('Research continuity ledger', 'Session-wide', escapeHtmlFn)}
+      ${renderResearchLedger(viewModel.ledger, escapeHtmlFn)}
+      ${renderScopedSectionHeading('Recency protection', 'Session-wide', escapeHtmlFn, { withGap: true })}
+      ${renderRecencyProtection(viewModel.session.recencyProtection, escapeHtmlFn)}
+      ${renderScopedSectionHeading('Recent audit trail', 'Session-wide', escapeHtmlFn, { withGap: true })}
+      ${renderRecentAuditTrail(viewModel.recentAuditTrail, escapeHtmlFn)}
+    `,
+    escapeHtmlFn,
+    {
+      note: 'This block summarizes current session continuity state. It stays session-wide even when the selected reply snapshot changes.',
+    },
+  );
   els.memoryInspectorPanel.__replyContextEls = els;
   els.memoryInspectorPanel.__replyContextInspector = inspector;
   els.memoryInspectorPanel.__replyContextEscapeHtmlFn = escapeHtmlFn;
@@ -1896,38 +1957,8 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
     ${renderLatestReplySummary(viewModel, escapeHtmlFn, replyContextHistory.selectedId)}
     ${renderReplyContextHistory(replyContextHistory, escapeHtmlFn)}
     ${renderReplyContextMap(replyContextMap, escapeHtmlFn)}
-    ${renderScopedSectionHeading('Semantic memory', 'Latest/current', escapeHtmlFn, {
-      withGap: true,
-      note: 'Below the selected-reply cluster, compact sections return to overall inspector state. Latest/current uses the newest inspector/runtime data, while session-wide summarizes the current session state; neither follows older snapshot selection.',
-    })}
-    <div class="list-item">
-      <div class="memory-copy">
-        Semantic memory is <strong>${escapeHtmlFn(viewModel.semantic.ready ? 'active' : 'fallback')}</strong>.
-        <small>${escapeHtmlFn(`${viewModel.semantic.configuredModel || 'no embedding model configured'}${runtimeReadiness.warmState ? ` · ${runtimeReadiness.warmState}` : ''}${Number.isFinite(Number(runtimeReadiness.cacheAgeMs)) ? ` · ${formatCacheAge(runtimeReadiness.cacheAgeMs)}` : ''}`)}</small>
-      </div>
-    </div>
-    ${renderScopedSectionHeading('Memory layer counts', 'Latest/current', escapeHtmlFn, { withGap: true })}
-    <div class="list-item">
-      <div class="memory-copy">
-        Explicit facts: ${escapeHtmlFn(String(viewModel.explicit.count || 0))} &middot; Memory books: ${escapeHtmlFn(String(viewModel.books.enabledCount || 0))} enabled &middot; Session archive: ${escapeHtmlFn(String(viewModel.session.episodeCount || 0))} episodes / ${escapeHtmlFn(String(viewModel.session.chapterCount || 0))} chapters &middot; Global patterns: ${escapeHtmlFn(String(viewModel.global.patternCount || 0))} &middot; Investigations: ${escapeHtmlFn(String(viewModel.ledger.topicCount || 0))}
-      </div>
-    </div>
-    ${renderScopedSectionHeading('Background vectorization', 'Latest/current', escapeHtmlFn, { withGap: true })}
-    ${renderBackgroundVectorizationSummary(viewModel.backgroundVectorization, viewModel.session, escapeHtmlFn)}
-    ${renderScopedSectionHeading('Routing summary', 'Latest/current', escapeHtmlFn, { withGap: true })}
-    ${renderRoutingSummary(viewModel.routing, escapeHtmlFn)}
-    ${renderScopedSectionHeading('Runtime artifact', 'Latest/current', escapeHtmlFn, { withGap: true })}
-    ${renderArtifactSummary(viewModel.artifact, escapeHtmlFn)}
-    ${renderScopedSectionHeading('Trace artifact', 'Latest/current', escapeHtmlFn, { withGap: true })}
-    ${renderTraceArtifactSummary(viewModel.artifact, escapeHtmlFn)}
-    ${renderScopedSectionHeading('Trace provenance', 'Latest/current', escapeHtmlFn, { withGap: true })}
-    ${renderTraceProvenance(viewModel.artifact, escapeHtmlFn)}
-    ${renderScopedSectionHeading('Research continuity ledger', 'Session-wide', escapeHtmlFn, { withGap: true })}
-    ${renderResearchLedger(viewModel.ledger, escapeHtmlFn)}
-    ${renderScopedSectionHeading('Recency protection', 'Session-wide', escapeHtmlFn, { withGap: true })}
-    ${renderRecencyProtection(viewModel.session.recencyProtection, escapeHtmlFn)}
-    ${renderScopedSectionHeading('Recent audit trail', 'Session-wide', escapeHtmlFn, { withGap: true })}
-    ${renderRecentAuditTrail(viewModel.recentAuditTrail, escapeHtmlFn)}
+    ${currentInspectorStateGroup}
+    ${sessionContinuityStateGroup}
     ${renderScopedSectionHeading('Last retrieval for Penny\'s reply', 'Latest/current', escapeHtmlFn, { withGap: true })}
     ${renderItems([...(viewModel.retrieval.session || []), ...(viewModel.retrieval.global || [])], 'No archive memories were retrieved for the last reply.', escapeHtmlFn)}
     ${renderScopedSectionHeading('Active contradictions', 'Latest/current', escapeHtmlFn, { withGap: true })}

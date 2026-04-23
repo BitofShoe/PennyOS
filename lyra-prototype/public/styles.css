@@ -1814,6 +1814,36 @@ select.input-lite option {
   font-size: 0.76rem;
 }
 
+.inspector-scope-group {
+  display: grid;
+  gap: 12px;
+  padding: 0.94rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.018)),
+    rgba(255, 255, 255, 0.018);
+}
+
+.inspector-scope-group.scope-latest-current {
+  border-color: rgba(132, 183, 255, 0.18);
+  background:
+    linear-gradient(180deg, rgba(132, 183, 255, 0.075), rgba(255, 255, 255, 0.018)),
+    rgba(255, 255, 255, 0.018);
+}
+
+.inspector-scope-group.scope-session-wide {
+  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.018)),
+    rgba(255, 255, 255, 0.018);
+}
+
+.inspector-scope-group-body {
+  display: grid;
+  gap: 10px;
+}
+
 .inspector-scope-pill {
   display: inline-flex;
   align-items: center;

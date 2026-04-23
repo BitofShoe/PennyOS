@@ -718,11 +718,16 @@ test('renderMemoryInspector defaults to the newest snapshot and keeps Reply Cont
   assert.match(panel.innerHTML, /Requested mode/);
   assert.match(panel.innerHTML, /Selected lane/);
   assert.match(panel.innerHTML, /Execution path/);
+  assert.match(panel.innerHTML, /Current inspector state<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
+  assert.match(panel.innerHTML, /Below the selected-reply cluster, these compact sections use the newest inspector and runtime state\./i);
+  assert.match(panel.innerHTML, /Current inspector state[\s\S]*Semantic memory/i);
   assert.match(panel.innerHTML, /Semantic memory<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
   assert.match(panel.innerHTML, /Memory layer counts<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
   assert.match(panel.innerHTML, /Routing summary<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
+  assert.match(panel.innerHTML, /Session-wide continuity state<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
+  assert.match(panel.innerHTML, /This block summarizes current session continuity state\./i);
+  assert.match(panel.innerHTML, /Session-wide continuity state[\s\S]*Research continuity ledger/i);
   assert.match(panel.innerHTML, /Research continuity ledger<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
-  assert.match(panel.innerHTML, /Below the selected-reply cluster, compact sections return to overall inspector state\./i);
 
   panel.emit('click', {
     target: {
@@ -806,10 +811,13 @@ test('renderMemoryInspector switches reply-context snapshots and safely updates 
   assert.match(panel.innerHTML, /authority-canonical/);
   assert.match(panel.innerHTML, /authority-advisory/);
   assert.match(panel.innerHTML, /authority-runtime-receipt/);
+  assert.match(panel.innerHTML, /Current inspector state<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
   assert.match(panel.innerHTML, /Semantic memory<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
+  assert.match(panel.innerHTML, /Session-wide continuity state<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
   assert.match(panel.innerHTML, /Recent audit trail<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
   assert.match(panel.innerHTML, /Session archive<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
-  assert.match(panel.innerHTML, /Below the selected-reply cluster, compact sections return to overall inspector state\./i);
+  assert.match(panel.innerHTML, /Below the selected-reply cluster, these compact sections use the newest inspector and runtime state\./i);
+  assert.match(panel.innerHTML, /This block summarizes current session continuity state\./i);
 
   panel.emit('click', {
     target: {
@@ -1611,7 +1619,10 @@ test('renderMemoryInspector shows a calm empty latest-reply summary when no repl
   assert.match(els.memoryInspectorPanel.innerHTML, /Reply Context Map<\/div>\s*<span class="inspector-scope-pill scope-selected-snapshot">Selected snapshot<\/span>/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Reply Context Map is waiting for a reply receipt\./i);
   assert.match(els.memoryInspectorPanel.innerHTML, /The compact sections below still show latest\/current or session-wide state based on their scope pills\./i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /Below the selected-reply cluster, compact sections return to overall inspector state\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Current inspector state<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Below the selected-reply cluster, these compact sections use the newest inspector and runtime state\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Session-wide continuity state<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /This block summarizes current session continuity state\./i);
   assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /Reply Context Details/i);
 });
 
