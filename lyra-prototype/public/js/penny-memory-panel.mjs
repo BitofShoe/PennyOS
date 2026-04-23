@@ -950,63 +950,58 @@ function renderRecencyProtection(recencyProtection = {}, escapeHtmlFn = escapeHt
   `;
 }
 
-function normalizeLatestRetrievalSummary(value = null) {
-  const source = value && typeof value === 'object' ? value : {};
-  return {
-    mode: String(source.mode || '').trim(),
-    reasonCode: String(source.reasonCode || '').trim(),
-    selectedSessionIds: Array.isArray(source.selectedSessionIds) ? source.selectedSessionIds : [],
-    selectedGlobalIds: Array.isArray(source.selectedGlobalIds) ? source.selectedGlobalIds : [],
-    selectedBookIds: Array.isArray(source.selectedBookIds) ? source.selectedBookIds : [],
-    selectedLedgerIds: Array.isArray(source.selectedLedgerIds) ? source.selectedLedgerIds : [],
-    renderedSessionIds: Array.isArray(source.renderedSessionIds) ? source.renderedSessionIds : [],
-    renderedGlobalIds: Array.isArray(source.renderedGlobalIds) ? source.renderedGlobalIds : [],
-    renderedBookIds: Array.isArray(source.renderedBookIds) ? source.renderedBookIds : [],
-    renderedLedgerIds: Array.isArray(source.renderedLedgerIds) ? source.renderedLedgerIds : [],
-    semanticReady: source.semanticReady === true,
-    semanticDowngrade: source.semanticDowngrade === true,
-    compression: source.compression && typeof source.compression === 'object'
-      ? source.compression
-      : { used: false },
-  };
+function hasOwn(value = null, key = '') {
+  return Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function pickLatestReplySummarySources(viewModel = {}) {
-  const artifact = viewModel?.artifact && typeof viewModel.artifact === 'object' ? viewModel.artifact : null;
-  const latestAudit = Array.isArray(viewModel?.recentAuditTrail) && viewModel.recentAuditTrail.length
-    ? viewModel.recentAuditTrail[0]
+function normalizeLatestRetrievalSummary(value = null) {
+  const source = value && typeof value === 'object' ? value : {};
+  const compression = source.compression && typeof source.compression === 'object'
+    ? source.compression
     : null;
-  const modelAdvisory = artifact?.modelAdvisory && typeof artifact.modelAdvisory === 'object'
-    ? artifact.modelAdvisory
-    : {};
-  const promptTruth = artifact?.promptTruth && typeof artifact.promptTruth === 'object'
-    ? artifact.promptTruth
-    : (modelAdvisory.promptTruth && typeof modelAdvisory.promptTruth === 'object'
-      ? modelAdvisory.promptTruth
-      : (latestAudit?.promptTruth && typeof latestAudit.promptTruth === 'object' ? latestAudit.promptTruth : {}));
-  const retrievalSource = viewModel?.session?.lastRetrieval?.summary && typeof viewModel.session.lastRetrieval.summary === 'object'
-    ? viewModel.session.lastRetrieval.summary
-    : (viewModel?.session?.lastRetrieval && typeof viewModel.session.lastRetrieval === 'object'
-      ? viewModel.session.lastRetrieval
-      : (latestAudit?.retrieval && typeof latestAudit.retrieval === 'object' ? latestAudit.retrieval : {}));
-  const routing = viewModel?.routing && typeof viewModel.routing === 'object' ? viewModel.routing : {};
-  const runtimeReadiness = viewModel?.runtime?.readiness && typeof viewModel.runtime.readiness === 'object'
-    ? viewModel.runtime.readiness
-    : {};
-  const runtimePerformance = viewModel?.runtime?.performance && typeof viewModel.runtime.performance === 'object'
-    ? viewModel.runtime.performance
-    : {};
-  const toolEvidenceReceipt = normalizeToolEvidenceReceipt(artifact?.toolEvidenceReceipt);
+  const hasRecordedSummary = [
+    'mode',
+    'reasonCode',
+    'selectedSessionIds',
+    'selectedGlobalIds',
+    'selectedBookIds',
+    'selectedLedgerIds',
+    'renderedSessionIds',
+    'renderedGlobalIds',
+    'renderedBookIds',
+    'renderedLedgerIds',
+    'semanticReady',
+    'semanticDowngrade',
+  ].some((key) => hasOwn(source, key));
   return {
-    artifact,
-    latestAudit,
-    promptTruth,
-    retrieval: normalizeLatestRetrievalSummary(retrievalSource),
-    routing,
-    runtimeReadiness,
-    runtimePerformance,
-    modelAdvisory,
-    toolEvidenceReceipt,
+    mode: String(source.mode || '').trim(),
+    modeRecorded: hasOwn(source, 'mode'),
+    reasonCode: String(source.reasonCode || '').trim(),
+    reasonCodeRecorded: hasOwn(source, 'reasonCode'),
+    selectedSessionIds: Array.isArray(source.selectedSessionIds) ? source.selectedSessionIds : [],
+    selectedSessionIdsRecorded: hasOwn(source, 'selectedSessionIds'),
+    selectedGlobalIds: Array.isArray(source.selectedGlobalIds) ? source.selectedGlobalIds : [],
+    selectedGlobalIdsRecorded: hasOwn(source, 'selectedGlobalIds'),
+    selectedBookIds: Array.isArray(source.selectedBookIds) ? source.selectedBookIds : [],
+    selectedBookIdsRecorded: hasOwn(source, 'selectedBookIds'),
+    selectedLedgerIds: Array.isArray(source.selectedLedgerIds) ? source.selectedLedgerIds : [],
+    selectedLedgerIdsRecorded: hasOwn(source, 'selectedLedgerIds'),
+    renderedSessionIds: Array.isArray(source.renderedSessionIds) ? source.renderedSessionIds : [],
+    renderedSessionIdsRecorded: hasOwn(source, 'renderedSessionIds'),
+    renderedGlobalIds: Array.isArray(source.renderedGlobalIds) ? source.renderedGlobalIds : [],
+    renderedGlobalIdsRecorded: hasOwn(source, 'renderedGlobalIds'),
+    renderedBookIds: Array.isArray(source.renderedBookIds) ? source.renderedBookIds : [],
+    renderedBookIdsRecorded: hasOwn(source, 'renderedBookIds'),
+    renderedLedgerIds: Array.isArray(source.renderedLedgerIds) ? source.renderedLedgerIds : [],
+    renderedLedgerIdsRecorded: hasOwn(source, 'renderedLedgerIds'),
+    semanticReady: source.semanticReady === true ? true : (source.semanticReady === false ? false : null),
+    semanticReadyRecorded: hasOwn(source, 'semanticReady'),
+    semanticDowngrade: source.semanticDowngrade === true ? true : (source.semanticDowngrade === false ? false : null),
+    semanticDowngradeRecorded: hasOwn(source, 'semanticDowngrade'),
+    compression,
+    compressionRecorded: hasOwn(source, 'compression'),
+    compressionUsed: compression?.used === true ? true : (compression?.used === false ? false : null),
+    hasRecordedSummary,
   };
 }
 
@@ -1023,7 +1018,8 @@ function countRecordedRetrievalIds(summary = {}) {
   ].reduce((total, list) => total + (Array.isArray(list) ? list.length : 0), 0);
 }
 
-function summarizeLatestReplyRetrievalSource(label = '', selected = [], rendered = []) {
+function summarizeLatestReplyRetrievalSource(label = '', selected = [], rendered = [], recorded = false) {
+  if (!recorded) return `${label} not recorded`;
   const selectedCount = Array.isArray(selected) ? selected.length : 0;
   const renderedCount = Array.isArray(rendered) ? rendered.length : 0;
   return `${label} rendered ${renderedCount} of ${selectedCount} selected`;
@@ -1072,6 +1068,15 @@ function buildReplyContextMetadata(label = '', value = '') {
     label: formatReplyContextText(label),
     value: formatReplyContextText(value),
   };
+}
+
+function hasRecordedPromptTruthChannel(channel = null) {
+  const source = channel && typeof channel === 'object' ? channel : null;
+  if (!source) return false;
+  return hasOwn(source, 'candidateCount')
+    || hasOwn(source, 'renderedCount')
+    || Boolean(String(source.heldBackReason || '').trim())
+    || Boolean(String(source.state || '').trim());
 }
 
 function promptTruthChannelMapNode({
@@ -1218,6 +1223,7 @@ export function buildReplyContextHistoryViewModel(viewModel = {}, selectedSnapsh
       const executionPath = String(snapshot.audit?.executionPath || snapshot.artifact?.executionPath || '').trim();
       return {
         id: snapshot.id,
+        latest: snapshot.latest,
         label: snapshot.latest ? 'Latest' : `Reply ${index + 1}`,
         timestamp: formatReplyContextText(snapshot.audit?.usedAt || ''),
         turnHint: `reply ${index + 1}`,
@@ -1250,15 +1256,13 @@ function pickReplyContextSummarySources(viewModel = {}, selectedSnapshotId = '')
     : (modelAdvisory.promptTruth && typeof modelAdvisory.promptTruth === 'object'
       ? modelAdvisory.promptTruth
       : (latestAudit?.promptTruth && typeof latestAudit.promptTruth === 'object' ? latestAudit.promptTruth : {}));
-  const retrievalSource = latestAudit?.retrieval && typeof latestAudit.retrieval === 'object'
-    ? latestAudit.retrieval
-    : (useLatestFallback
-      ? (viewModel?.session?.lastRetrieval?.summary && typeof viewModel.session.lastRetrieval.summary === 'object'
-        ? viewModel.session.lastRetrieval.summary
-        : (viewModel?.session?.lastRetrieval && typeof viewModel.session.lastRetrieval === 'object'
-          ? viewModel.session.lastRetrieval
-          : {}))
-      : {});
+  const retrievalSource = useLatestFallback
+    ? (viewModel?.session?.lastRetrieval?.summary && typeof viewModel.session.lastRetrieval.summary === 'object'
+      ? viewModel.session.lastRetrieval.summary
+      : (viewModel?.session?.lastRetrieval && typeof viewModel.session.lastRetrieval === 'object'
+        ? viewModel.session.lastRetrieval
+        : (latestAudit?.retrieval && typeof latestAudit.retrieval === 'object' ? latestAudit.retrieval : {})))
+    : (latestAudit?.retrieval && typeof latestAudit.retrieval === 'object' ? latestAudit.retrieval : {});
   const routing = useLatestFallback && viewModel?.routing && typeof viewModel.routing === 'object'
     ? viewModel.routing
     : {};
@@ -1270,7 +1274,7 @@ function pickReplyContextSummarySources(viewModel = {}, selectedSnapshotId = '')
     : {};
   return {
     artifact,
-    latestAudit,
+    selectedAudit: latestAudit,
     promptTruth,
     retrieval: normalizeLatestRetrievalSummary(retrievalSource),
     routing,
@@ -1285,7 +1289,7 @@ function pickReplyContextSummarySources(viewModel = {}, selectedSnapshotId = '')
 export function buildReplyContextMapViewModel(viewModel = {}, selectedId = 'latest-reply', selectedSnapshotId = '') {
   const {
     artifact,
-    latestAudit,
+    selectedAudit,
     promptTruth,
     retrieval,
     routing,
@@ -1296,9 +1300,9 @@ export function buildReplyContextMapViewModel(viewModel = {}, selectedId = 'late
     selectedSnapshot,
   } = pickReplyContextSummarySources(viewModel, selectedSnapshotId);
   const scope = artifact?.scope && typeof artifact.scope === 'object' ? artifact.scope : {};
-  const requestedMode = String(scope.requestedMode || routing.requestedMode || latestAudit?.requestedMode || '').trim();
-  const selectedLane = String(scope.selectedLane || routing.selectedLane || latestAudit?.selectedLane || '').trim();
-  const executionPath = String(artifact?.executionPath || latestAudit?.executionPath || '').trim();
+  const requestedMode = String(scope.requestedMode || routing.requestedMode || selectedAudit?.requestedMode || '').trim();
+  const selectedLane = String(scope.selectedLane || routing.selectedLane || selectedAudit?.selectedLane || '').trim();
+  const executionPath = String(artifact?.executionPath || selectedAudit?.executionPath || '').trim();
   const latencyClass = String(
     artifact?.performance?.latencyClass
     || runtimePerformance?.latencyClass
@@ -1307,7 +1311,7 @@ export function buildReplyContextMapViewModel(viewModel = {}, selectedId = 'late
   ).trim();
   const hasLatestReplyContext = Boolean(
     artifact
-    || latestAudit
+    || selectedAudit
     || requestedMode
     || selectedLane
     || executionPath
@@ -1350,7 +1354,7 @@ export function buildReplyContextMapViewModel(viewModel = {}, selectedId = 'late
   const researchLedgerUpdate = artifact?.researchLedgerUpdate && typeof artifact.researchLedgerUpdate === 'object'
     ? artifact.researchLedgerUpdate
     : {
-        status: String(latestAudit?.researchLedger?.updateStatus || '').trim(),
+        status: String(selectedAudit?.researchLedger?.updateStatus || '').trim(),
         reason: '',
       };
   const ledgerUpdateStatus = normalizeReplyContextStatus(researchLedgerUpdate.status === 'applied'
@@ -1627,6 +1631,14 @@ function bindReplyContextSelection(els = {}, inspector = null, escapeHtmlFn = es
 
 function summarizeLatestReplyCanonicalState(promptTruth = {}, authorityPressure = {}) {
   const stableFacts = normalizePromptTruthChannel(promptTruth?.channels?.stableFacts);
+  const hasCanonReceipt = hasRecordedPromptTruthChannel(promptTruth?.channels?.stableFacts)
+    || hasOwn(promptTruth, 'canonicalFactsPresent')
+    || hasOwn(authorityPressure, 'canonicalFactsPresent')
+    || promptTruth?.canonicalOverrideActive === true
+    || authorityPressure?.canonicalOverrideActive === true;
+  if (!hasCanonReceipt) {
+    return 'not recorded';
+  }
   if (promptTruth?.canonicalOverrideActive === true || authorityPressure?.canonicalOverrideActive === true) {
     return 'canon-first holdback active';
   }
@@ -1637,13 +1649,42 @@ function summarizeLatestReplyCanonicalState(promptTruth = {}, authorityPressure 
   ) {
     return 'canon rendered';
   }
+  const status = normalizeReplyContextStatus(stableFacts.state);
+  if (status === 'held back') return 'canon held back';
+  if (status === 'candidate') return 'canon candidate';
   return 'canon silent';
 }
 
-function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml) {
+function summarizeLatestReplyRetrievalPath(retrieval = {}) {
+  const mode = String(retrieval.mode || '').trim().toLowerCase();
+  if (mode === 'semantic') return 'semantic path';
+  if (mode === 'keyword') return 'keyword path';
+  if (retrieval.semanticReady === true) return 'semantic path';
+  if (retrieval.semanticReady === false && retrieval.semanticReadyRecorded) return 'keyword path';
+  return 'not recorded';
+}
+
+function summarizeLatestReplyCompression(retrieval = {}) {
+  if (!retrieval.compressionRecorded) return 'compression not recorded';
+  return `compression ${retrieval.compressionUsed === true ? 'used' : 'not used'}`;
+}
+
+function buildReplySummaryHeading(selectedSnapshot = null) {
+  return selectedSnapshot && selectedSnapshot.latest === false
+    ? 'Selected reply at a glance'
+    : 'Last reply at a glance';
+}
+
+function buildReplySummaryFallbackText(selectedSnapshot = null) {
+  return selectedSnapshot && selectedSnapshot.latest === false
+    ? 'Selected snapshot summary is based on the recorded audit receipt.'
+    : 'Latest reply summary is based on the newest recorded inspector data.';
+}
+
+function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml, selectedSnapshotId = '') {
   const {
     artifact,
-    latestAudit,
+    selectedAudit,
     promptTruth,
     retrieval,
     routing,
@@ -1651,14 +1692,15 @@ function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml) {
     runtimePerformance,
     modelAdvisory,
     toolEvidenceReceipt,
-  } = pickLatestReplySummarySources(viewModel);
+    selectedSnapshot,
+  } = pickReplyContextSummarySources(viewModel, selectedSnapshotId);
   const authorityPressure = modelAdvisory.authorityPressure && typeof modelAdvisory.authorityPressure === 'object'
     ? modelAdvisory.authorityPressure
     : {};
   const scope = artifact?.scope && typeof artifact.scope === 'object' ? artifact.scope : {};
-  const requestedMode = String(scope.requestedMode || routing.requestedMode || latestAudit?.requestedMode || '').trim();
-  const selectedLane = String(scope.selectedLane || routing.selectedLane || latestAudit?.selectedLane || '').trim();
-  const executionPath = String(artifact?.executionPath || latestAudit?.executionPath || '').trim();
+  const requestedMode = String(scope.requestedMode || routing.requestedMode || selectedAudit?.requestedMode || '').trim();
+  const selectedLane = String(scope.selectedLane || routing.selectedLane || selectedAudit?.selectedLane || '').trim();
+  const executionPath = String(artifact?.executionPath || selectedAudit?.executionPath || '').trim();
   const latencyClass = String(
     artifact?.performance?.latencyClass
     || runtimePerformance?.latencyClass
@@ -1667,12 +1709,13 @@ function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml) {
   ).trim();
   const hasReplySummaryData = Boolean(
     artifact
-    || latestAudit
+    || selectedAudit
     || requestedMode
     || selectedLane
     || executionPath
     || latencyClass
     || countRecordedRetrievalIds(retrieval)
+    || retrieval.hasRecordedSummary
     || runtimeReadiness?.warmState
     || runtimeReadiness?.checkedAt,
   );
@@ -1692,36 +1735,54 @@ function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml) {
     .map((channelKey) => summarizePromptTruthChannel(channelKey, promptTruth?.channels?.[channelKey]))
     .filter(Boolean);
   const retrievalBits = [
-    summarizeLatestReplyRetrievalSource('session', retrieval.selectedSessionIds, retrieval.renderedSessionIds),
-    summarizeLatestReplyRetrievalSource('global', retrieval.selectedGlobalIds, retrieval.renderedGlobalIds),
-    summarizeLatestReplyRetrievalSource('books', retrieval.selectedBookIds, retrieval.renderedBookIds),
-    summarizeLatestReplyRetrievalSource('ledger', retrieval.selectedLedgerIds, retrieval.renderedLedgerIds),
+    summarizeLatestReplyRetrievalSource(
+      'session',
+      retrieval.selectedSessionIds,
+      retrieval.renderedSessionIds,
+      retrieval.selectedSessionIdsRecorded || retrieval.renderedSessionIdsRecorded,
+    ),
+    summarizeLatestReplyRetrievalSource(
+      'global',
+      retrieval.selectedGlobalIds,
+      retrieval.renderedGlobalIds,
+      retrieval.selectedGlobalIdsRecorded || retrieval.renderedGlobalIdsRecorded,
+    ),
+    summarizeLatestReplyRetrievalSource(
+      'books',
+      retrieval.selectedBookIds,
+      retrieval.renderedBookIds,
+      retrieval.selectedBookIdsRecorded || retrieval.renderedBookIdsRecorded,
+    ),
+    summarizeLatestReplyRetrievalSource(
+      'ledger',
+      retrieval.selectedLedgerIds,
+      retrieval.renderedLedgerIds,
+      retrieval.selectedLedgerIdsRecorded || retrieval.renderedLedgerIdsRecorded,
+    ),
   ];
-  const retrievalPath = retrieval.semanticReady
-    ? 'semantic path'
-    : 'keyword path';
+  const retrievalPath = summarizeLatestReplyRetrievalPath(retrieval);
   const readinessBits = [
-    `chat ${runtimeReadiness.chatModelReady ? 'ready' : 'pending'}`,
-    `tool ${runtimeReadiness.toolModelReady ? 'ready' : 'pending'}`,
-    `embeddings ${runtimeReadiness.embeddingReady ? 'ready' : 'fallback'}`,
+    `chat ${formatReplyContextBoolean(runtimeReadiness.chatModelReady, 'ready', 'pending')}`,
+    `tool ${formatReplyContextBoolean(runtimeReadiness.toolModelReady, 'ready', 'pending')}`,
+    `embeddings ${formatReplyContextBoolean(runtimeReadiness.embeddingReady, 'ready', 'fallback')}`,
     Number.isFinite(Number(runtimeReadiness.cacheAgeMs)) ? `cache ${formatCacheAge(runtimeReadiness.cacheAgeMs)}` : 'cache age not recorded',
   ];
   const toolEvidenceSummary = toolEvidenceReceipt?.summary || null;
   const researchLedgerPromptChannel = normalizePromptTruthChannel(promptTruth?.channels?.researchLedger);
   const researchLedgerPromptState = summarizeResearchLedgerPromptState(
     researchLedgerPromptChannel,
-    isResearchLedgerRendered(artifact) || isResearchLedgerRendered(latestAudit?.artifactSummary),
+    isResearchLedgerRendered(artifact) || isResearchLedgerRendered(selectedAudit?.artifactSummary),
   );
   const researchLedgerPromptLabel = normalizeReplyContextStatus(researchLedgerPromptState);
   const researchLedgerUpdate = artifact?.researchLedgerUpdate && typeof artifact.researchLedgerUpdate === 'object'
     ? artifact.researchLedgerUpdate
     : {
-        status: String(latestAudit?.researchLedger?.updateStatus || '').trim(),
+        status: String(selectedAudit?.researchLedger?.updateStatus || '').trim(),
         reason: '',
       };
   const ledgerBits = [
     researchLedgerPromptChannel.heldBackReason ? `reason ${researchLedgerPromptChannel.heldBackReason}` : '',
-    String(latestAudit?.researchLedger?.topicLabel || latestAudit?.researchLedger?.topicId || '').trim(),
+    String(selectedAudit?.researchLedger?.topicLabel || selectedAudit?.researchLedger?.topicId || '').trim(),
     String(researchLedgerUpdate.reason || '').trim(),
   ].filter(Boolean);
 
@@ -1729,7 +1790,7 @@ function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml) {
     <div class="list-item">
       <div class="memory-copy">
         Reply path: <strong>${escapeHtmlFn(`${requestedMode || 'not recorded'}/${selectedLane || 'not recorded'} · ${executionPath || 'not recorded'} · ${latencyClass || 'latency not recorded'}`)}</strong>
-        <small>${escapeHtmlFn(artifact?.summary?.text || 'Latest route summary is based on the current inspector state.')}</small>
+        <small>${escapeHtmlFn(artifact?.summary?.text || buildReplySummaryFallbackText(selectedSnapshot))}</small>
       </div>
     </div>
     <div class="list-item">
@@ -1740,8 +1801,8 @@ function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml) {
     </div>
     <div class="list-item">
       <div class="memory-copy">
-        Memory used: <strong>${escapeHtmlFn(`${retrievalPath}${retrieval.semanticDowngrade ? ' · semantic downgraded' : ''}`)}</strong>
-        <small>${escapeHtmlFn(`${retrievalBits.join(' | ')} | compression ${retrieval.compression?.used ? 'used' : 'not used'}${retrieval.reasonCode ? ` | ${retrieval.reasonCode}` : ''}`)}</small>
+        Memory used: <strong>${escapeHtmlFn(`${retrievalPath}${retrieval.semanticDowngrade === true ? ' · semantic downgraded' : ''}`)}</strong>
+        <small>${escapeHtmlFn(`${retrievalBits.join(' | ')} | ${summarizeLatestReplyCompression(retrieval)}${retrieval.reasonCode ? ` | ${retrieval.reasonCode}` : ''}`)}</small>
       </div>
     </div>
     <div class="list-item">
@@ -1750,14 +1811,14 @@ function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml) {
         <small>${escapeHtmlFn(readinessBits.join(' | '))}</small>
       </div>
     </div>
-    ${toolEvidenceSummary
-      ? `<div class="list-item">
+    <div class="list-item">
       <div class="memory-copy">
-        Tool evidence: <strong>${escapeHtmlFn(`${toolEvidenceSummary.itemCount} item(s)`)}</strong>
-        <small>${escapeHtmlFn(`prompt-visible ${toolEvidenceSummary.promptVisibleItemCount} | deterministic-only ${toolEvidenceSummary.deterministicOnlyItemCount} | provenance-only ${toolEvidenceSummary.provenanceOnlyItemCount}`)}</small>
+        Tool evidence: <strong>${escapeHtmlFn(toolEvidenceSummary ? `${toolEvidenceSummary.itemCount} item(s)` : 'not recorded')}</strong>
+        <small>${escapeHtmlFn(toolEvidenceSummary
+          ? `prompt-visible ${toolEvidenceSummary.promptVisibleItemCount} | deterministic-only ${toolEvidenceSummary.deterministicOnlyItemCount} | provenance-only ${toolEvidenceSummary.provenanceOnlyItemCount}`
+          : 'No sibling runtime receipt was recorded for this reply snapshot.')}</small>
       </div>
-    </div>`
-      : ''}
+    </div>
     <div class="list-item">
       <div class="memory-copy">
         Post-reply ledger: <strong>${escapeHtmlFn(`${researchLedgerPromptLabel} · update ${researchLedgerUpdate.status || 'not recorded'}`)}</strong>
@@ -1798,8 +1859,8 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
   }
   els.memoryInspectorPanel.className = 'list-block';
   els.memoryInspectorPanel.innerHTML = `
-    <div class="section-label">Last reply at a glance</div>
-    ${renderLatestReplySummary(viewModel, escapeHtmlFn)}
+    <div class="section-label">${escapeHtmlFn(buildReplySummaryHeading(replyContextHistory.selected || null))}</div>
+    ${renderLatestReplySummary(viewModel, escapeHtmlFn, replyContextHistory.selectedId)}
     ${renderReplyContextHistory(replyContextHistory, escapeHtmlFn)}
     ${renderReplyContextMap(replyContextMap, escapeHtmlFn)}
     <div class="list-item">

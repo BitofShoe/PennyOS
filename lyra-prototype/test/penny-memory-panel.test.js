@@ -680,6 +680,7 @@ test('buildReplyContextHistoryViewModel defaults to the newest snapshot and keep
   assert.equal(history.available, true);
   assert.equal(history.selectedId, 'reply-snapshot-0');
   assert.equal(history.selected.label, 'Latest');
+  assert.equal(history.selected.latest, true);
   assert.equal(history.items.length, 2);
   assert.match(history.items[0].pathHint, /local \/ tool \/ llm-chat/);
   assert.match(history.items[0].summaryHint, /canon rendered/);
@@ -770,6 +771,18 @@ test('renderMemoryInspector switches reply-context snapshots and safely updates 
 
   assert.match(panel.innerHTML, /data-reply-context-snapshot-selected-id="reply-snapshot-1"/);
   assert.match(panel.innerHTML, /data-reply-context-details-id="latest-reply"/);
+  assert.match(panel.innerHTML, /Selected reply at a glance/i);
+  assert.match(panel.innerHTML, /Reply path: <strong>local\/chat .* llm-chat .* latency not recorded/i);
+  assert.match(panel.innerHTML, /Selected snapshot summary is based on the recorded audit receipt\./i);
+  assert.match(panel.innerHTML, /What rendered: <strong>canon held back<\/strong>/i);
+  assert.match(panel.innerHTML, /Memory used: <strong>semantic path<\/strong>/i);
+  assert.match(panel.innerHTML, /session rendered 1 of 1 selected/i);
+  assert.match(panel.innerHTML, /global rendered 0 of 1 selected/i);
+  assert.match(panel.innerHTML, /books rendered 1 of 1 selected/i);
+  assert.match(panel.innerHTML, /Readiness: <strong>not recorded<\/strong>/i);
+  assert.match(panel.innerHTML, /chat not recorded \| tool not recorded \| embeddings not recorded \| cache age not recorded/i);
+  assert.match(panel.innerHTML, /Tool evidence: <strong>not recorded<\/strong>/i);
+  assert.match(panel.innerHTML, /No sibling runtime receipt was recorded for this reply snapshot\./i);
   assert.match(panel.innerHTML, /Selected reply/);
   assert.match(panel.innerHTML, /This node appears because the inspector can summarize the selected reply route from existing audit receipts\./);
   assert.match(panel.innerHTML, /local \/ chat \/ llm-chat/);
@@ -806,6 +819,56 @@ test('renderMemoryInspector switches reply-context snapshots and safely updates 
   assert.match(panel.innerHTML, /Receipt items/);
   assert.match(panel.innerHTML, /Prompt-visible items/);
   assert.match(panel.innerHTML, /runtime artifact receipt only; not a PromptTruth channel/i);
+  assert.doesNotMatch(panel.innerHTML, /supported the reply/i);
+  assert.doesNotMatch(panel.innerHTML, /\bproved\b/i);
+});
+
+test('renderMemoryInspector keeps selected older snapshots strict when fields are not recorded', async () => {
+  const { renderMemoryInspector } = await helpersPromise;
+  const panel = createInspectorPanelStub();
+  const els = { memoryInspectorPanel: panel };
+  const fixture = buildReplyContextHistorySwitchFixture();
+  fixture.archive.session.recentAuditTrail[1] = {
+    turnId: 'turn-older',
+    usedAt: '2026-04-23T09:55:00.000Z',
+    selectedLane: 'chat',
+    requestedMode: 'local',
+    executionPath: 'llm-chat',
+  };
+
+  renderMemoryInspector({
+    els,
+    inspector: fixture,
+  });
+
+  panel.emit('click', {
+    target: {
+      closest(selector) {
+        if (selector === '[data-reply-context-snapshot-id]') {
+          return {
+            dataset: {
+              replyContextSnapshotId: 'reply-snapshot-1',
+            },
+          };
+        }
+        return null;
+      },
+    },
+  });
+
+  assert.match(panel.innerHTML, /Selected reply at a glance/i);
+  assert.match(panel.innerHTML, /Reply path: <strong>local\/chat .* llm-chat .* latency not recorded/i);
+  assert.match(panel.innerHTML, /Selected snapshot summary is based on the recorded audit receipt\./i);
+  assert.match(panel.innerHTML, /What rendered: <strong>not recorded<\/strong>/i);
+  assert.match(panel.innerHTML, /No prompt-truth summary was recorded for this reply\./i);
+  assert.match(panel.innerHTML, /Memory used: <strong>not recorded<\/strong>/i);
+  assert.match(panel.innerHTML, /session not recorded \| global not recorded \| books not recorded \| ledger not recorded \| compression not recorded/i);
+  assert.match(panel.innerHTML, /Readiness: <strong>not recorded<\/strong>/i);
+  assert.match(panel.innerHTML, /chat not recorded \| tool not recorded \| embeddings not recorded \| cache age not recorded/i);
+  assert.match(panel.innerHTML, /Tool evidence: <strong>not recorded<\/strong>/i);
+  assert.match(panel.innerHTML, /No sibling runtime receipt was recorded for this reply snapshot\./i);
+  assert.match(panel.innerHTML, /Post-reply ledger: <strong>not recorded · update not recorded<\/strong>/i);
+  assert.match(panel.innerHTML, /No additional ledger detail was recorded for this reply\./i);
   assert.doesNotMatch(panel.innerHTML, /supported the reply/i);
   assert.doesNotMatch(panel.innerHTML, /\bproved\b/i);
 });
@@ -1196,11 +1259,8 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Last reply at a glance/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Reply path: <strong>local\/tool .* tool-heavy/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /What rendered: <strong>canon-first holdback active<\/strong>/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /Memory used: <strong>keyword path<\/strong>/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /session rendered 0 of 0 selected/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /global rendered 0 of 0 selected/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /books rendered 0 of 0 selected/i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /ledger rendered 0 of 0 selected/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Memory used: <strong>not recorded<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /session not recorded \| global not recorded \| books not recorded \| ledger not recorded \| compression not used/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /compression not used/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Readiness: <strong>warm<\/strong>/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Tool evidence: <strong>1 item\(s\)<\/strong>/i);
@@ -1479,7 +1539,8 @@ test('renderMemoryInspector uses latest audit data for the top summary when the 
   assert.match(els.memoryInspectorPanel.innerHTML, /session rendered 0 of 1 selected/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /ledger rendered 0 of 1 selected/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /embeddings fallback/i);
-  assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /Tool evidence: <strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Tool evidence: <strong>not recorded<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /No sibling runtime receipt was recorded for this reply snapshot\./i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Post-reply ledger: <strong>held back · update skipped<\/strong>/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /reason canon-priority-suppression \| tea continuity/i);
 });
