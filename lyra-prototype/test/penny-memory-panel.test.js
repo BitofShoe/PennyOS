@@ -3,6 +3,110 @@ const assert = require('node:assert/strict');
 
 const helpersPromise = import('../public/js/penny-memory-panel.mjs');
 
+function createInspectorPanelStub() {
+  const listeners = new Map();
+  return {
+    className: '',
+    textContent: '',
+    innerHTML: '',
+    dataset: {},
+    scrollTop: 0,
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    emit(type, event) {
+      const listener = listeners.get(type);
+      if (listener) listener(event);
+    },
+  };
+}
+
+function buildReplyContextInspectorFixture() {
+  return {
+    sessionId: 'demo',
+    explicit: { count: 1 },
+    archive: {
+      session: {
+        episodeCount: 1,
+        chapterCount: 0,
+        recencyProtection: {
+          enabled: true,
+          protectedEpisodeCount: 1,
+          protectedEpisodeIds: ['episode-1'],
+        },
+        activeContradictions: [],
+        lastRetrieval: {
+          session: [],
+          global: [],
+          summary: {
+            mode: 'keyword',
+            reasonCode: 'keyword_fallback',
+            selectedSessionIds: ['session-1'],
+            selectedGlobalIds: [],
+            selectedBookIds: [],
+            selectedLedgerIds: ['topic-1'],
+            renderedSessionIds: [],
+            renderedGlobalIds: [],
+            renderedBookIds: [],
+            renderedLedgerIds: [],
+            semanticReady: false,
+            semanticDowngrade: false,
+            compression: { used: false },
+          },
+          compression: { used: false, chapters: [] },
+        },
+        recentAuditTrail: [
+          {
+            selectedLane: 'tool',
+            requestedMode: 'local',
+            executionPath: 'llm-chat',
+            promptTruth: {
+              channels: {
+                stableFacts: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+                memoryBooks: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+                sessionArchive: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+                globalArchive: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+                researchLedger: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+              },
+            },
+            researchLedger: { updateStatus: 'skipped' },
+          },
+        ],
+      },
+      global: {
+        patternCount: 0,
+        promotionQueue: [],
+      },
+    },
+    memoryBooks: { enabledCount: 0, matchedBooks: [] },
+    embeddings: {
+      semanticMemory: { ready: false, configuredModel: '' },
+    },
+    ledger: { topicCount: 0, openCount: 0, provisionalCount: 0, settledCount: 0, context: { topics: [] }, recentTopics: [] },
+    routing: {},
+    runtime: {
+      readiness: {},
+      performance: { latencyClass: 'tool-heavy' },
+    },
+    artifact: {
+      scope: { requestedMode: 'local', selectedLane: 'tool' },
+      executionPath: 'llm-chat',
+      toolEvidenceReceipt: {
+        summary: {
+          itemCount: 1,
+          promptVisibleItemCount: 1,
+          deterministicOnlyItemCount: 0,
+          provenanceOnlyItemCount: 0,
+        },
+      },
+      researchLedgerUpdate: {
+        status: 'skipped',
+        reason: '',
+      },
+    },
+  };
+}
+
 test('buildMemoryPanelViewModel normalizes explicit memory rows', async () => {
   const { buildMemoryPanelViewModel } = await helpersPromise;
   const viewModel = buildMemoryPanelViewModel({
@@ -417,6 +521,129 @@ test('buildMemoryInspectorViewModel exposes books, compression, contradictions, 
   assert.equal(viewModel.artifact.synthesis.generated, true);
 });
 
+test('buildReplyContextMapViewModel derives a bounded authority map from latest reply receipts', async () => {
+  const { buildReplyContextMapViewModel } = await helpersPromise;
+  const map = buildReplyContextMapViewModel({
+    session: {
+      lastRetrieval: {
+        summary: {
+          mode: 'semantic',
+          reasonCode: 'semantic_query',
+          selectedSessionIds: ['session-1'],
+          selectedGlobalIds: [],
+          selectedBookIds: ['book-1'],
+          selectedLedgerIds: ['topic-1'],
+          renderedSessionIds: ['session-1'],
+          renderedGlobalIds: [],
+          renderedBookIds: ['book-1'],
+          renderedLedgerIds: [],
+          semanticReady: true,
+          semanticDowngrade: false,
+          compression: { used: false },
+        },
+      },
+    },
+    recentAuditTrail: [
+      {
+        selectedLane: 'tool',
+        requestedMode: 'local',
+        executionPath: 'llm-chat',
+        promptTruth: {
+          channels: {
+            stableFacts: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+            memoryBooks: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+            sessionArchive: { candidateCount: 1, renderedCount: 1, heldBackReason: '' },
+            globalArchive: { candidateCount: 0, renderedCount: 0, heldBackReason: '' },
+            researchLedger: { candidateCount: 1, renderedCount: 0, heldBackReason: 'canon-priority-suppression' },
+          },
+        },
+        researchLedger: { updateStatus: 'skipped' },
+      },
+    ],
+    routing: {},
+    runtime: { performance: { latencyClass: 'tool-heavy' } },
+    artifact: {
+      scope: { requestedMode: 'local', selectedLane: 'tool' },
+      executionPath: 'llm-chat',
+      toolEvidenceReceipt: {
+        summary: {
+          itemCount: 1,
+          promptVisibleItemCount: 1,
+          deterministicOnlyItemCount: 0,
+          provenanceOnlyItemCount: 0,
+        },
+      },
+    },
+  });
+
+  assert.equal(map.available, true);
+  assert.equal(map.nodes.length, 8);
+  assert.equal(map.omittedCount, 0);
+  assert.equal(map.selectedId, 'latest-reply');
+  assert.equal(map.selected.label, 'Latest reply');
+  assert.equal(map.selected.authority, 'runtime receipt');
+  assert.equal(map.center.label, 'Latest reply');
+  assert.match(map.center.detail, /local \/ tool \/ llm-chat/);
+
+  const byId = new Map(map.nodes.map((node) => [node.id, node]));
+  assert.equal(byId.get('explicit-facts').authority, 'canonical');
+  assert.equal(byId.get('explicit-facts').status, 'rendered');
+  assert.equal(byId.get('session-archive').authority, 'advisory');
+  assert.equal(byId.get('session-archive').status, 'rendered');
+  assert.equal(byId.get('global-archive').status, 'not recorded');
+  assert.equal(byId.get('research-ledger').status, 'held back');
+  assert.equal(byId.get('retrieval-path').authority, 'candidate');
+  assert.equal(byId.get('retrieval-path').status, 'verified');
+  assert.match(byId.get('retrieval-path').detail, /semantic path/);
+  assert.equal(byId.get('tool-evidence').authority, 'runtime receipt');
+  assert.equal(byId.get('tool-evidence').status, 'verified');
+  assert.match(byId.get('tool-evidence').detail, /not PromptTruth/);
+  assert.equal(byId.get('post-reply-ledger').status, 'held back');
+});
+
+test('renderMemoryInspector defaults reply-context details to Latest reply and updates them on node click', async () => {
+  const { renderMemoryInspector } = await helpersPromise;
+  const panel = createInspectorPanelStub();
+  const els = { memoryInspectorPanel: panel };
+
+  renderMemoryInspector({
+    els,
+    inspector: buildReplyContextInspectorFixture(),
+  });
+
+  assert.match(panel.innerHTML, /data-reply-context-selected-id="latest-reply"/);
+  assert.match(panel.innerHTML, /data-reply-context-details-id="latest-reply"/);
+  assert.match(panel.innerHTML, /Reply Context Details/);
+  assert.match(panel.innerHTML, /This node appears because the inspector can summarize the newest reply route from existing runtime and audit receipts\./);
+  assert.match(panel.innerHTML, /runtime receipt/);
+  assert.match(panel.innerHTML, /Requested mode/);
+  assert.match(panel.innerHTML, /Selected lane/);
+  assert.match(panel.innerHTML, /Execution path/);
+
+  panel.emit('click', {
+    target: {
+      closest(selector) {
+        if (selector === '[data-reply-context-node-id]') {
+          return {
+            dataset: {
+              replyContextNodeId: 'tool-evidence',
+            },
+          };
+        }
+        return null;
+      },
+    },
+  });
+
+  assert.match(panel.innerHTML, /data-reply-context-selected-id="tool-evidence"/);
+  assert.match(panel.innerHTML, /data-reply-context-details-id="tool-evidence"/);
+  assert.match(panel.innerHTML, /This node appears because the runtime artifact can carry a sibling tool-evidence receipt that stays separate from PromptTruth\./);
+  assert.match(panel.innerHTML, /Receipt items/);
+  assert.match(panel.innerHTML, /Prompt-visible items/);
+  assert.match(panel.innerHTML, /Deterministic-only items/);
+  assert.match(panel.innerHTML, /Provenance-only items/);
+});
+
 test('renderMemoryInspector exposes runtime artifact evidence sources and tool labels', async () => {
   const { renderMemoryInspector } = await helpersPromise;
   const els = {
@@ -813,6 +1040,22 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /Tool evidence: <strong>1 item\(s\)<\/strong>/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /prompt-visible 1 \| deterministic-only 0 \| provenance-only 0/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Post-reply ledger: <strong>held back · update skipped<\/strong>/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Reply Context Map/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /data-reply-context-details-id="latest-reply"/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /authority-canonical/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Explicit facts/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /canonical \| rendered/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Session archive/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /advisory \| held back/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Global archive/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /advisory \| not recorded/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Retrieval path/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /candidate \| fallback/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Tool evidence/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /runtime receipt \| verified/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /1 receipt item\(s\); not PromptTruth/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /does not write memory, rank memories, or add a PromptTruth\/toolEvidenceReceipt channel/i);
+  assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /knowledge graph/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /read README\.md/);
   assert.match(els.memoryInspectorPanel.innerHTML, /project-path: README\.md/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Epistemic caution:/);
@@ -873,7 +1116,9 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /ledger selected 1 rendered 0/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /ledger held back/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /post-reply update skipped/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /This node appears because the inspector can summarize the newest reply route from existing runtime and audit receipts\./i);
   assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /supported the reply/i);
+  assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /\bproved\b/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Protected ids:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /thread thread-demo/i);
 });
@@ -1114,7 +1359,26 @@ test('renderMemoryInspector shows a calm empty latest-reply summary when no repl
 
   assert.match(els.memoryInspectorPanel.innerHTML, /Last reply at a glance/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Last-reply summary is not available yet\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Reply Context Map is waiting for a reply receipt\./i);
   assert.match(els.memoryInspectorPanel.innerHTML, /The deeper inspector sections below still show whatever state is available\./i);
+  assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /Reply Context Details/i);
+});
+
+test('renderMemoryInspector keeps the no-inspector state safe', async () => {
+  const { renderMemoryInspector } = await helpersPromise;
+  const els = {
+    memoryInspectorPanel: createInspectorPanelStub(),
+  };
+
+  const result = renderMemoryInspector({
+    els,
+    inspector: null,
+  });
+
+  assert.equal(result, null);
+  assert.equal(els.memoryInspectorPanel.className, 'list-block empty');
+  assert.equal(els.memoryInspectorPanel.textContent, 'Inspector data will appear here once Penny has a chat to archive.');
+  assert.equal(els.memoryInspectorPanel.innerHTML, '');
 });
 
 test('buildBrainModeNote keeps local, shadow, and fallback explanations stable', async () => {

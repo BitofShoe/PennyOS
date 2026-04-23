@@ -1029,6 +1029,387 @@ function summarizeLatestReplyRetrievalSource(label = '', selected = [], rendered
   return `${label} rendered ${renderedCount} of ${selectedCount} selected`;
 }
 
+const REPLY_CONTEXT_MAP_SOURCE_LIMIT = 8;
+
+function normalizeReplyContextStatus(value = '') {
+  const status = String(value || '').trim().toLowerCase().replaceAll('_', ' ');
+  if (status === 'rendered') return 'rendered';
+  if (status === 'held back' || status === 'held-back' || status === 'disabled') return 'held back';
+  if (status === 'candidate') return 'candidate';
+  if (status === 'fallback') return 'fallback';
+  if (status === 'verified' || status === 'applied') return 'verified';
+  return 'not recorded';
+}
+
+function replyContextStatusClass(status = '') {
+  return normalizeReplyContextStatus(status).replace(/\s+/g, '-');
+}
+
+function normalizeReplyContextAuthority(value = 'advisory') {
+  return String(value || 'advisory').trim().toLowerCase() || 'advisory';
+}
+
+function formatReplyContextText(value = '') {
+  const text = String(value ?? '').trim();
+  return text || 'not recorded';
+}
+
+function formatReplyContextCount(value = null) {
+  return Number.isFinite(Number(value))
+    ? String(Math.max(0, Number(value)))
+    : 'not recorded';
+}
+
+function formatReplyContextBoolean(value = null, trueLabel = 'yes', falseLabel = 'no') {
+  if (value === true) return trueLabel;
+  if (value === false) return falseLabel;
+  return 'not recorded';
+}
+
+function buildReplyContextMetadata(label = '', value = '') {
+  return {
+    label: formatReplyContextText(label),
+    value: formatReplyContextText(value),
+  };
+}
+
+function promptTruthChannelMapNode({
+  id = '',
+  label = '',
+  authority = 'advisory',
+  channel = null,
+  explanation = '',
+} = {}) {
+  const normalized = normalizePromptTruthChannel(channel);
+  const rawState = String(channel?.state || '').trim();
+  const hasCounts = normalized.candidateCount > 0 || normalized.renderedCount > 0;
+  const hasRecordedChannel = hasCounts || normalized.heldBackReason || rawState;
+  const status = hasRecordedChannel
+    ? normalizeReplyContextStatus(normalized.state)
+    : 'not recorded';
+  const detail = hasRecordedChannel
+    ? `${normalized.renderedCount} rendered / ${normalized.candidateCount} candidate${normalized.heldBackReason ? ` | ${normalized.heldBackReason}` : ''}`
+    : 'no prompt receipt recorded';
+  return {
+    id,
+    label,
+    authority,
+    status,
+    detail,
+    explanation: formatReplyContextText(explanation),
+    metadata: [
+      buildReplyContextMetadata('Prompt state', hasRecordedChannel ? status : 'not recorded'),
+      buildReplyContextMetadata('Candidate count', hasRecordedChannel ? formatReplyContextCount(normalized.candidateCount) : 'not recorded'),
+      buildReplyContextMetadata('Rendered count', hasRecordedChannel ? formatReplyContextCount(normalized.renderedCount) : 'not recorded'),
+      buildReplyContextMetadata('Holdback reason', normalized.heldBackReason || 'not recorded'),
+    ],
+  };
+}
+
+function normalizeReplyContextSelection(map = {}, selectedId = 'latest-reply') {
+  const candidates = [map.center, ...(Array.isArray(map.nodes) ? map.nodes : [])]
+    .filter(Boolean);
+  const fallback = candidates[0] || {
+    id: 'latest-reply',
+    label: 'Latest reply',
+    authority: 'runtime receipt',
+    status: 'not recorded',
+    detail: 'not recorded',
+    explanation: 'Reply Context Map is waiting for a reply receipt.',
+    metadata: [],
+  };
+  const requestedId = String(selectedId || '').trim();
+  const selected = candidates.find((node) => node.id === requestedId) || fallback;
+  return {
+    ...map,
+    selectedId: selected.id,
+    selected,
+  };
+}
+
+export function buildReplyContextMapViewModel(viewModel = {}, selectedId = 'latest-reply') {
+  const {
+    artifact,
+    latestAudit,
+    promptTruth,
+    retrieval,
+    routing,
+    runtimePerformance,
+    modelAdvisory,
+    toolEvidenceReceipt,
+  } = pickLatestReplySummarySources(viewModel);
+  const scope = artifact?.scope && typeof artifact.scope === 'object' ? artifact.scope : {};
+  const requestedMode = String(scope.requestedMode || routing.requestedMode || latestAudit?.requestedMode || '').trim();
+  const selectedLane = String(scope.selectedLane || routing.selectedLane || latestAudit?.selectedLane || '').trim();
+  const executionPath = String(artifact?.executionPath || latestAudit?.executionPath || '').trim();
+  const latencyClass = String(
+    artifact?.performance?.latencyClass
+    || runtimePerformance?.latencyClass
+    || modelAdvisory?.reasoningPolicy?.sourceLatencyClass
+    || '',
+  ).trim();
+  const hasLatestReplyContext = Boolean(
+    artifact
+    || latestAudit
+    || requestedMode
+    || selectedLane
+    || executionPath
+    || latencyClass
+    || countRecordedRetrievalIds(retrieval)
+  );
+
+  if (!hasLatestReplyContext) {
+    return normalizeReplyContextSelection({
+      available: false,
+      center: {
+        id: 'latest-reply',
+        label: 'Latest reply',
+        authority: 'runtime receipt',
+        status: 'not recorded',
+        detail: 'waiting for a route receipt',
+        explanation: 'This node appears because the inspector can summarize the newest reply route only when a runtime or audit receipt is available.',
+        metadata: [
+          buildReplyContextMetadata('Requested mode', 'not recorded'),
+          buildReplyContextMetadata('Selected lane', 'not recorded'),
+          buildReplyContextMetadata('Execution path', 'not recorded'),
+          buildReplyContextMetadata('Latency class', 'not recorded'),
+        ],
+      },
+      nodes: [],
+      omittedCount: 0,
+      summary: 'Reply Context Map is waiting for a reply receipt.',
+    }, selectedId);
+  }
+
+  const channels = promptTruth?.channels || {};
+  const retrievalPath = retrieval.semanticReady ? 'semantic path' : 'keyword path';
+  const retrievalStatus = retrieval.semanticReady ? 'verified' : 'fallback';
+  const researchLedgerPromptChannel = normalizePromptTruthChannel(channels.researchLedger);
+  const researchLedgerUpdate = artifact?.researchLedgerUpdate && typeof artifact.researchLedgerUpdate === 'object'
+    ? artifact.researchLedgerUpdate
+    : {
+        status: String(latestAudit?.researchLedger?.updateStatus || '').trim(),
+        reason: '',
+      };
+  const ledgerUpdateStatus = normalizeReplyContextStatus(researchLedgerUpdate.status === 'applied'
+    ? 'verified'
+    : (researchLedgerPromptChannel.state || researchLedgerUpdate.status));
+  const toolEvidenceSummary = toolEvidenceReceipt?.summary || null;
+  const nodes = [
+    promptTruthChannelMapNode({
+      id: 'explicit-facts',
+      label: 'Explicit facts',
+      authority: 'canonical',
+      channel: channels.stableFacts,
+      explanation: 'This node appears because prompt-time receipts track whether canonical explicit facts rendered into the latest reply context.',
+    }),
+    promptTruthChannelMapNode({
+      id: 'memory-books',
+      label: 'Memory books',
+      authority: 'advisory',
+      channel: channels.memoryBooks,
+      explanation: 'This node appears because prompt-time receipts separately track advisory memory-book context from canonical explicit facts.',
+    }),
+    promptTruthChannelMapNode({
+      id: 'session-archive',
+      label: 'Session archive',
+      authority: 'advisory',
+      channel: channels.sessionArchive,
+      explanation: 'This node appears because prompt-time receipts record whether advisory session-archive context was selected and rendered for the reply.',
+    }),
+    promptTruthChannelMapNode({
+      id: 'global-archive',
+      label: 'Global archive',
+      authority: 'advisory',
+      channel: channels.globalArchive,
+      explanation: 'This node appears because prompt-time receipts record whether longer-range advisory archive context rendered for the reply.',
+    }),
+    promptTruthChannelMapNode({
+      id: 'research-ledger',
+      label: 'Research ledger',
+      authority: 'advisory',
+      channel: channels.researchLedger,
+      explanation: 'This node appears because prompt-time receipts track research-ledger context separately from the later post-reply ledger update.',
+    }),
+    {
+      id: 'retrieval-path',
+      label: 'Retrieval path',
+      authority: 'candidate',
+      status: retrievalStatus,
+      detail: `${retrievalPath}${retrieval.semanticDowngrade ? ' | semantic downgraded' : ''}${retrieval.reasonCode ? ` | ${retrieval.reasonCode}` : ''}`,
+      explanation: 'This node appears because the latest retrieval summary records which archive retrieval path ran for the reply and whether it downgraded to fallback behavior.',
+      metadata: [
+        buildReplyContextMetadata('Path', retrievalPath),
+        buildReplyContextMetadata('Semantic ready', formatReplyContextBoolean(retrieval.semanticReady)),
+        buildReplyContextMetadata('Semantic downgraded', formatReplyContextBoolean(retrieval.semanticDowngrade)),
+        buildReplyContextMetadata('Reason code', retrieval.reasonCode || 'not recorded'),
+      ],
+    },
+    {
+      id: 'tool-evidence',
+      label: 'Tool evidence',
+      authority: 'runtime receipt',
+      status: toolEvidenceSummary?.itemCount > 0 ? 'verified' : 'not recorded',
+      detail: toolEvidenceSummary?.itemCount > 0
+        ? `${toolEvidenceSummary.itemCount} receipt item(s); not PromptTruth`
+        : 'no runtime receipt recorded',
+      explanation: 'This node appears because the runtime artifact can carry a sibling tool-evidence receipt that stays separate from PromptTruth.',
+      metadata: [
+        buildReplyContextMetadata('Receipt items', toolEvidenceSummary ? formatReplyContextCount(toolEvidenceSummary.itemCount) : 'not recorded'),
+        buildReplyContextMetadata('Prompt-visible items', toolEvidenceSummary ? formatReplyContextCount(toolEvidenceSummary.promptVisibleItemCount) : 'not recorded'),
+        buildReplyContextMetadata('Deterministic-only items', toolEvidenceSummary ? formatReplyContextCount(toolEvidenceSummary.deterministicOnlyItemCount) : 'not recorded'),
+        buildReplyContextMetadata('Provenance-only items', toolEvidenceSummary ? formatReplyContextCount(toolEvidenceSummary.provenanceOnlyItemCount) : 'not recorded'),
+      ],
+    },
+    {
+      id: 'post-reply-ledger',
+      label: 'Post-reply ledger',
+      authority: 'advisory',
+      status: ledgerUpdateStatus,
+      detail: `prompt ${normalizeReplyContextStatus(researchLedgerPromptChannel.state)} | update ${researchLedgerUpdate.status || 'not recorded'}`,
+      explanation: 'This node appears because the inspector keeps prompt-time research-ledger rendering separate from the later post-reply ledger update receipt.',
+      metadata: [
+        buildReplyContextMetadata('Prompt state', normalizeReplyContextStatus(researchLedgerPromptChannel.state)),
+        buildReplyContextMetadata('Prompt holdback reason', researchLedgerPromptChannel.heldBackReason || 'not recorded'),
+        buildReplyContextMetadata('Update status', researchLedgerUpdate.status || 'not recorded'),
+        buildReplyContextMetadata('Update reason', researchLedgerUpdate.reason || 'not recorded'),
+      ],
+    },
+  ];
+  const visibleNodes = nodes.slice(0, REPLY_CONTEXT_MAP_SOURCE_LIMIT);
+  const recordedCount = visibleNodes.filter((node) => node.status !== 'not recorded').length;
+
+  return normalizeReplyContextSelection({
+    available: true,
+    center: {
+      id: 'latest-reply',
+      label: 'Latest reply',
+      authority: 'runtime receipt',
+      status: hasLatestReplyContext ? 'verified' : 'not recorded',
+      detail: [requestedMode || 'mode not recorded', selectedLane || 'lane not recorded', executionPath || 'path not recorded']
+        .join(' / '),
+      explanation: 'This node appears because the inspector can summarize the newest reply route from existing runtime and audit receipts.',
+      metadata: [
+        buildReplyContextMetadata('Requested mode', requestedMode || 'not recorded'),
+        buildReplyContextMetadata('Selected lane', selectedLane || 'not recorded'),
+        buildReplyContextMetadata('Execution path', executionPath || 'not recorded'),
+        buildReplyContextMetadata('Latency class', latencyClass || 'not recorded'),
+      ],
+    },
+    nodes: visibleNodes,
+    omittedCount: Math.max(0, nodes.length - visibleNodes.length),
+    summary: `${recordedCount} of ${visibleNodes.length} context surfaces recorded for this reply.`,
+  }, selectedId);
+}
+
+function renderReplyContextNode(node = {}, selectedId = 'latest-reply', escapeHtmlFn = escapeHtml, center = false) {
+  const status = normalizeReplyContextStatus(node.status);
+  const authority = normalizeReplyContextAuthority(node.authority);
+  const selected = String(node.id || '').trim() === String(selectedId || '').trim();
+  const className = center ? 'reply-context-center' : 'reply-context-node';
+  return `
+    <button
+      class="${className} status-${escapeHtmlFn(replyContextStatusClass(status))} authority-${escapeHtmlFn(authority.replace(/\s+/g, '-'))}${selected ? ' is-selected' : ''}"
+      type="button"
+      data-reply-context-node-id="${escapeHtmlFn(node.id || '')}"
+      aria-pressed="${selected ? 'true' : 'false'}"
+    >
+      ${center ? '' : '<span class="reply-context-edge" aria-hidden="true"></span>'}
+      <span class="reply-context-node-label">${escapeHtmlFn(node.label || 'Context')}</span>
+      <span class="reply-context-node-meta">${escapeHtmlFn(`${authority} | ${status}`)}</span>
+      <span class="reply-context-node-detail">${escapeHtmlFn(node.detail || 'not recorded')}</span>
+    </button>
+  `;
+}
+
+function renderReplyContextDetails(node = {}, escapeHtmlFn = escapeHtml) {
+  const authority = normalizeReplyContextAuthority(node.authority);
+  const status = normalizeReplyContextStatus(node.status);
+  const metadata = Array.isArray(node.metadata) ? node.metadata : [];
+  return `
+    <div class="reply-context-details" id="replyContextDetails" data-reply-context-details-id="${escapeHtmlFn(node.id || '')}">
+      <div class="reply-context-details-heading">
+        <div>
+          <div class="section-label">Reply Context Details</div>
+          <div class="reply-context-details-title">${escapeHtmlFn(node.label || 'Context')}</div>
+        </div>
+        <div class="reply-context-details-badges">
+          <span class="reply-context-pill authority-${escapeHtmlFn(authority.replace(/\s+/g, '-'))}">${escapeHtmlFn(authority)}</span>
+          <span class="reply-context-pill status-${escapeHtmlFn(replyContextStatusClass(status))}">${escapeHtmlFn(status)}</span>
+        </div>
+      </div>
+      <div class="reply-context-details-copy">${escapeHtmlFn(node.explanation || 'This node appears because the inspector recorded it for the latest reply context.')}</div>
+      <div class="reply-context-details-grid">
+        ${metadata.length
+          ? metadata.map((item) => `
+            <div class="reply-context-detail-item">
+              <small>${escapeHtmlFn(item.label || 'Detail')}</small>
+              <strong>${escapeHtmlFn(item.value || 'not recorded')}</strong>
+            </div>
+          `).join('')
+          : `
+            <div class="reply-context-detail-item">
+              <small>Detail</small>
+              <strong>not recorded</strong>
+            </div>
+          `}
+      </div>
+    </div>
+  `;
+}
+
+function renderReplyContextMap(map = {}, escapeHtmlFn = escapeHtml) {
+  if (!map.available) {
+    return `
+      <div class="list-item reply-context-map empty">
+        <div class="memory-copy">
+          Reply Context Map
+          <small>${escapeHtmlFn(map.summary)}</small>
+        </div>
+      </div>
+    `;
+  }
+  return `
+    <div class="reply-context-map" aria-label="Reply Context Map" data-reply-context-selected-id="${escapeHtmlFn(map.selectedId || 'latest-reply')}">
+      <div class="reply-context-map-heading">
+        <div>
+          <div class="section-label">Reply Context Map</div>
+          <small>${escapeHtmlFn(`${map.summary}${map.omittedCount ? ` ${map.omittedCount} extra surface(s) hidden by the compact map cap.` : ''}`)}</small>
+        </div>
+      </div>
+      <div class="reply-context-core">
+        ${renderReplyContextNode(map.center, map.selectedId, escapeHtmlFn, true)}
+        <div class="reply-context-nodes">
+          ${map.nodes.map((node) => renderReplyContextNode(node, map.selectedId, escapeHtmlFn)).join('')}
+        </div>
+      </div>
+      ${renderReplyContextDetails(map.selected, escapeHtmlFn)}
+      <small class="reply-context-footnote">Inspector-only view. It does not write memory, rank memories, or add a PromptTruth/toolEvidenceReceipt channel.</small>
+    </div>
+  `;
+}
+
+function bindReplyContextSelection(els = {}, inspector = null, escapeHtmlFn = escapeHtml) {
+  const panel = els.memoryInspectorPanel;
+  if (!panel || typeof panel.addEventListener !== 'function' || panel.__replyContextSelectionBound) return;
+  panel.__replyContextSelectionBound = true;
+  panel.addEventListener('click', (event) => {
+    const button = event?.target?.closest?.('[data-reply-context-node-id]');
+    if (!button) return;
+    const nextSelectedId = String(button.dataset?.replyContextNodeId || '').trim();
+    if (!nextSelectedId) return;
+    panel.__replyContextSelectedId = nextSelectedId;
+    if (panel.dataset) panel.dataset.replyContextSelectedId = nextSelectedId;
+    const scrollTop = typeof panel.scrollTop === 'number' ? panel.scrollTop : null;
+    renderMemoryInspector({
+      els: panel.__replyContextEls || els,
+      inspector: panel.__replyContextInspector || inspector,
+      escapeHtmlFn: panel.__replyContextEscapeHtmlFn || escapeHtmlFn,
+    });
+    if (scrollTop !== null) panel.scrollTop = scrollTop;
+  });
+}
+
 function summarizeLatestReplyCanonicalState(promptTruth = {}, authorityPressure = {}) {
   const stableFacts = normalizePromptTruthChannel(promptTruth?.channels?.stableFacts);
   if (promptTruth?.canonicalOverrideActive === true || authorityPressure?.canonicalOverrideActive === true) {
@@ -1116,7 +1497,7 @@ function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml) {
     researchLedgerPromptChannel,
     isResearchLedgerRendered(artifact) || isResearchLedgerRendered(latestAudit?.artifactSummary),
   );
-  const researchLedgerPromptLabel = formatPromptTruthStateLabel(researchLedgerPromptState);
+  const researchLedgerPromptLabel = normalizeReplyContextStatus(researchLedgerPromptState);
   const researchLedgerUpdate = artifact?.researchLedgerUpdate && typeof artifact.researchLedgerUpdate === 'object'
     ? artifact.researchLedgerUpdate
     : {
@@ -1132,7 +1513,7 @@ function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml) {
   return `
     <div class="list-item">
       <div class="memory-copy">
-        Reply path: <strong>${escapeHtmlFn(`${requestedMode || 'unknown'}/${selectedLane || 'unknown'} · ${executionPath || 'not recorded'} · ${latencyClass || 'latency not recorded'}`)}</strong>
+        Reply path: <strong>${escapeHtmlFn(`${requestedMode || 'not recorded'}/${selectedLane || 'not recorded'} · ${executionPath || 'not recorded'} · ${latencyClass || 'latency not recorded'}`)}</strong>
         <small>${escapeHtmlFn(artifact?.summary?.text || 'Latest route summary is based on the current inspector state.')}</small>
       </div>
     </div>
@@ -1181,11 +1562,23 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
   }
 
   const viewModel = buildMemoryInspectorViewModel(inspector);
+  const replyContextMap = buildReplyContextMapViewModel(
+    viewModel,
+    els.memoryInspectorPanel.__replyContextSelectedId || els.memoryInspectorPanel.dataset?.replyContextSelectedId || 'latest-reply',
+  );
   const runtimeReadiness = viewModel.runtime?.readiness || {};
+  els.memoryInspectorPanel.__replyContextEls = els;
+  els.memoryInspectorPanel.__replyContextInspector = inspector;
+  els.memoryInspectorPanel.__replyContextEscapeHtmlFn = escapeHtmlFn;
+  els.memoryInspectorPanel.__replyContextSelectedId = replyContextMap.selectedId;
+  if (els.memoryInspectorPanel.dataset) {
+    els.memoryInspectorPanel.dataset.replyContextSelectedId = replyContextMap.selectedId;
+  }
   els.memoryInspectorPanel.className = 'list-block';
   els.memoryInspectorPanel.innerHTML = `
     <div class="section-label">Last reply at a glance</div>
     ${renderLatestReplySummary(viewModel, escapeHtmlFn)}
+    ${renderReplyContextMap(replyContextMap, escapeHtmlFn)}
     <div class="list-item">
       <div class="memory-copy">
         Semantic memory is <strong>${escapeHtmlFn(viewModel.semantic.ready ? 'active' : 'fallback')}</strong>.
@@ -1230,6 +1623,7 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
     <div class="section-label" style="margin-top:12px;">Promotion queue</div>
     ${renderQueue(viewModel.queue, escapeHtmlFn)}
   `;
+  bindReplyContextSelection(els, inspector, escapeHtmlFn);
   return viewModel;
 }
 
