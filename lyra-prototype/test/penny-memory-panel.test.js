@@ -705,15 +705,24 @@ test('renderMemoryInspector defaults to the newest snapshot and keeps Reply Cont
   assert.match(panel.innerHTML, /data-reply-context-snapshot-selected-id="reply-snapshot-0"/);
   assert.match(panel.innerHTML, /data-reply-context-selected-id="latest-reply"/);
   assert.match(panel.innerHTML, /data-reply-context-details-id="latest-reply"/);
+  assert.match(panel.innerHTML, /Last reply at a glance<\/div>\s*<span class="inspector-scope-pill scope-selected-snapshot">Selected snapshot<\/span>/i);
+  assert.match(panel.innerHTML, /Summary, recent snapshots, and the reply-context map below all follow the selected reply snapshot\./i);
   assert.match(panel.innerHTML, /Recent reply snapshots/);
+  assert.match(panel.innerHTML, /Recent reply snapshots<\/div>\s*<span class="inspector-scope-pill scope-selected-snapshot">Selected snapshot<\/span>/i);
   assert.match(panel.innerHTML, /Latest<\/span>/);
   assert.match(panel.innerHTML, /not recorded \| reply 1/i);
+  assert.match(panel.innerHTML, /Reply Context Map<\/div>\s*<span class="inspector-scope-pill scope-selected-snapshot">Selected snapshot<\/span>/i);
   assert.match(panel.innerHTML, /Reply Context Details/);
   assert.match(panel.innerHTML, /This node appears because the inspector can summarize the newest reply route from existing runtime and audit receipts\./);
   assert.match(panel.innerHTML, /runtime receipt/);
   assert.match(panel.innerHTML, /Requested mode/);
   assert.match(panel.innerHTML, /Selected lane/);
   assert.match(panel.innerHTML, /Execution path/);
+  assert.match(panel.innerHTML, /Semantic memory<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
+  assert.match(panel.innerHTML, /Memory layer counts<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
+  assert.match(panel.innerHTML, /Routing summary<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
+  assert.match(panel.innerHTML, /Research continuity ledger<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
+  assert.match(panel.innerHTML, /Below the selected-reply cluster, compact sections return to overall inspector state\./i);
 
   panel.emit('click', {
     target: {
@@ -771,6 +780,7 @@ test('renderMemoryInspector switches reply-context snapshots and safely updates 
 
   assert.match(panel.innerHTML, /data-reply-context-snapshot-selected-id="reply-snapshot-1"/);
   assert.match(panel.innerHTML, /data-reply-context-details-id="latest-reply"/);
+  assert.match(panel.innerHTML, /Selected reply at a glance<\/div>\s*<span class="inspector-scope-pill scope-selected-snapshot">Selected snapshot<\/span>/i);
   assert.match(panel.innerHTML, /Selected reply at a glance/i);
   assert.match(panel.innerHTML, /Reply path: <strong>local\/chat .* llm-chat .* latency not recorded/i);
   assert.match(panel.innerHTML, /Selected snapshot summary is based on the recorded audit receipt\./i);
@@ -796,6 +806,10 @@ test('renderMemoryInspector switches reply-context snapshots and safely updates 
   assert.match(panel.innerHTML, /authority-canonical/);
   assert.match(panel.innerHTML, /authority-advisory/);
   assert.match(panel.innerHTML, /authority-runtime-receipt/);
+  assert.match(panel.innerHTML, /Semantic memory<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
+  assert.match(panel.innerHTML, /Recent audit trail<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
+  assert.match(panel.innerHTML, /Session archive<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
+  assert.match(panel.innerHTML, /Below the selected-reply cluster, compact sections return to overall inspector state\./i);
 
   panel.emit('click', {
     target: {
@@ -857,6 +871,7 @@ test('renderMemoryInspector keeps selected older snapshots strict when fields ar
   });
 
   assert.match(panel.innerHTML, /Selected reply at a glance/i);
+  assert.match(panel.innerHTML, /Selected reply at a glance<\/div>\s*<span class="inspector-scope-pill scope-selected-snapshot">Selected snapshot<\/span>/i);
   assert.match(panel.innerHTML, /Reply path: <strong>local\/chat .* llm-chat .* latency not recorded/i);
   assert.match(panel.innerHTML, /Selected snapshot summary is based on the recorded audit receipt\./i);
   assert.match(panel.innerHTML, /What rendered: <strong>not recorded<\/strong>/i);
@@ -869,6 +884,8 @@ test('renderMemoryInspector keeps selected older snapshots strict when fields ar
   assert.match(panel.innerHTML, /No sibling runtime receipt was recorded for this reply snapshot\./i);
   assert.match(panel.innerHTML, /Post-reply ledger: <strong>not recorded · update not recorded<\/strong>/i);
   assert.match(panel.innerHTML, /No additional ledger detail was recorded for this reply\./i);
+  assert.match(panel.innerHTML, /Routing summary<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
+  assert.match(panel.innerHTML, /Research continuity ledger<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
   assert.doesNotMatch(panel.innerHTML, /supported the reply/i);
   assert.doesNotMatch(panel.innerHTML, /\bproved\b/i);
 });
@@ -1284,6 +1301,7 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /knowledge graph/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /read README\.md/);
   assert.match(els.memoryInspectorPanel.innerHTML, /project-path: README\.md/);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Trace provenance<\/div>\s*<span class="inspector-scope-pill scope-latest-current">Latest\/current<\/span>/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Epistemic caution:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Archive synthesis:/);
   assert.match(els.memoryInspectorPanel.innerHTML, /Latency class:/);
@@ -1342,6 +1360,7 @@ test('renderMemoryInspector exposes runtime artifact evidence sources and tool l
   assert.match(els.memoryInspectorPanel.innerHTML, /ledger selected 1 rendered 0/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /ledger held back/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /post-reply update skipped/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Session archive<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /This node appears because the inspector can summarize the newest reply route from existing runtime and audit receipts\./i);
   assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /supported the reply/i);
   assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /\bproved\b/i);
@@ -1587,9 +1606,12 @@ test('renderMemoryInspector shows a calm empty latest-reply summary when no repl
   assert.match(els.memoryInspectorPanel.innerHTML, /Last reply at a glance/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Last-reply summary is not available yet\./i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Recent reply snapshots/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Recent reply snapshots<\/div>\s*<span class="inspector-scope-pill scope-selected-snapshot">Selected snapshot<\/span>/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Recent reply snapshots are not recorded yet\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Reply Context Map<\/div>\s*<span class="inspector-scope-pill scope-selected-snapshot">Selected snapshot<\/span>/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Reply Context Map is waiting for a reply receipt\./i);
-  assert.match(els.memoryInspectorPanel.innerHTML, /The deeper inspector sections below still show whatever state is available\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /The compact sections below still show latest\/current or session-wide state based on their scope pills\./i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Below the selected-reply cluster, compact sections return to overall inspector state\./i);
   assert.doesNotMatch(els.memoryInspectorPanel.innerHTML, /Reply Context Details/i);
 });
 

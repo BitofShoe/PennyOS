@@ -33,7 +33,7 @@ export function ensureMemoryInspectorUi(els = {}) {
     <div>
       <div class="section-label">Hybrid memory inspector</div>
       <div class="memory-toolbar-note">
-        Latest reply first. Explicit facts stay canonical, and the deeper archive and receipt surfaces stay below.
+        Latest reply first. Scope pills show which compact sections follow the selected snapshot versus latest/current or session-wide inspector state.
       </div>
     </div>
     <div class="memory-toolbar-actions">
@@ -1473,7 +1473,7 @@ function renderReplyContextHistory(history = {}, escapeHtmlFn = escapeHtml) {
     return `
       <div class="reply-context-history empty">
         <div class="memory-copy">
-          Recent reply snapshots
+          ${renderScopedSectionHeading('Recent reply snapshots', 'Selected snapshot', escapeHtmlFn)}
           <small>${escapeHtmlFn(history.summary || 'Recent reply snapshots are not recorded yet.')}</small>
         </div>
       </div>
@@ -1483,7 +1483,7 @@ function renderReplyContextHistory(history = {}, escapeHtmlFn = escapeHtml) {
     <div class="reply-context-history" data-reply-context-snapshot-selected-id="${escapeHtmlFn(history.selectedId || '')}">
       <div class="reply-context-history-heading">
         <div>
-          <div class="section-label">Recent reply snapshots</div>
+          ${renderScopedSectionHeading('Recent reply snapshots', 'Selected snapshot', escapeHtmlFn)}
           <small>${escapeHtmlFn(`${history.summary}${history.omittedCount ? ` ${history.omittedCount} older snapshot(s) hidden by the compact cap.` : ''}`)}</small>
         </div>
       </div>
@@ -1534,7 +1534,7 @@ function renderReplyContextDetails(node = {}, escapeHtmlFn = escapeHtml) {
     <div class="reply-context-details" id="replyContextDetails" data-reply-context-details-id="${escapeHtmlFn(node.id || '')}">
       <div class="reply-context-details-heading">
         <div>
-          <div class="section-label">Reply Context Details</div>
+          ${renderScopedSectionHeading('Reply Context Details', 'Selected snapshot', escapeHtmlFn)}
           <div class="reply-context-details-title">${escapeHtmlFn(node.label || 'Context')}</div>
         </div>
         <div class="reply-context-details-badges">
@@ -1567,7 +1567,7 @@ function renderReplyContextMap(map = {}, escapeHtmlFn = escapeHtml) {
     return `
       <div class="list-item reply-context-map empty">
         <div class="memory-copy">
-          Reply Context Map
+          ${renderScopedSectionHeading('Reply Context Map', 'Selected snapshot', escapeHtmlFn)}
           <small>${escapeHtmlFn(map.summary)}</small>
         </div>
       </div>
@@ -1577,7 +1577,7 @@ function renderReplyContextMap(map = {}, escapeHtmlFn = escapeHtml) {
     <div class="reply-context-map" aria-label="Reply Context Map" data-reply-context-selected-id="${escapeHtmlFn(map.selectedId || 'latest-reply')}">
       <div class="reply-context-map-heading">
         <div>
-          <div class="section-label">Reply Context Map</div>
+          ${renderScopedSectionHeading('Reply Context Map', 'Selected snapshot', escapeHtmlFn)}
           <small>${escapeHtmlFn(`${map.summary}${map.omittedCount ? ` ${map.omittedCount} extra surface(s) hidden by the compact map cap.` : ''}`)}</small>
         </div>
       </div>
@@ -1681,6 +1681,32 @@ function buildReplySummaryFallbackText(selectedSnapshot = null) {
     : 'Latest reply summary is based on the newest recorded inspector data.';
 }
 
+function normalizeInspectorScopeClass(scope = '') {
+  const normalized = String(scope || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized ? `scope-${normalized}` : '';
+}
+
+function renderScopedSectionHeading(title = '', scope = '', escapeHtmlFn = escapeHtml, options = {}) {
+  const note = String(options?.note || '').trim();
+  const withGap = options?.withGap === true;
+  const scopeClass = normalizeInspectorScopeClass(scope);
+  return `
+    <div class="inspector-section-heading${withGap ? ' with-gap' : ''}">
+      <div class="inspector-section-heading-row">
+        <div class="section-label">${escapeHtmlFn(title)}</div>
+        ${scope
+          ? `<span class="inspector-scope-pill${scopeClass ? ` ${scopeClass}` : ''}">${escapeHtmlFn(scope)}</span>`
+          : ''}
+      </div>
+      ${note ? `<small class="inspector-section-note">${escapeHtmlFn(note)}</small>` : ''}
+    </div>
+  `;
+}
+
 function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml, selectedSnapshotId = '') {
   const {
     artifact,
@@ -1725,7 +1751,7 @@ function renderLatestReplySummary(viewModel = {}, escapeHtmlFn = escapeHtml, sel
       <div class="list-item">
         <div class="memory-copy">
           Last-reply summary is not available yet.
-          <small>Penny will start filling this in once a reply has route and inspector data to summarize. The deeper inspector sections below still show whatever state is available.</small>
+          <small>Penny will start filling this in once a reply has route and inspector data to summarize. The compact sections below still show latest/current or session-wide state based on their scope pills.</small>
         </div>
       </div>
     `;
@@ -1859,48 +1885,62 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
   }
   els.memoryInspectorPanel.className = 'list-block';
   els.memoryInspectorPanel.innerHTML = `
-    <div class="section-label">${escapeHtmlFn(buildReplySummaryHeading(replyContextHistory.selected || null))}</div>
+    ${renderScopedSectionHeading(
+      buildReplySummaryHeading(replyContextHistory.selected || null),
+      'Selected snapshot',
+      escapeHtmlFn,
+      {
+        note: 'Summary, recent snapshots, and the reply-context map below all follow the selected reply snapshot.',
+      },
+    )}
     ${renderLatestReplySummary(viewModel, escapeHtmlFn, replyContextHistory.selectedId)}
     ${renderReplyContextHistory(replyContextHistory, escapeHtmlFn)}
     ${renderReplyContextMap(replyContextMap, escapeHtmlFn)}
+    ${renderScopedSectionHeading('Semantic memory', 'Latest/current', escapeHtmlFn, {
+      withGap: true,
+      note: 'Below the selected-reply cluster, compact sections return to overall inspector state. Latest/current uses the newest inspector/runtime data, while session-wide summarizes the current session state; neither follows older snapshot selection.',
+    })}
     <div class="list-item">
       <div class="memory-copy">
         Semantic memory is <strong>${escapeHtmlFn(viewModel.semantic.ready ? 'active' : 'fallback')}</strong>.
         <small>${escapeHtmlFn(`${viewModel.semantic.configuredModel || 'no embedding model configured'}${runtimeReadiness.warmState ? ` · ${runtimeReadiness.warmState}` : ''}${Number.isFinite(Number(runtimeReadiness.cacheAgeMs)) ? ` · ${formatCacheAge(runtimeReadiness.cacheAgeMs)}` : ''}`)}</small>
       </div>
     </div>
+    ${renderScopedSectionHeading('Memory layer counts', 'Latest/current', escapeHtmlFn, { withGap: true })}
     <div class="list-item">
       <div class="memory-copy">
         Explicit facts: ${escapeHtmlFn(String(viewModel.explicit.count || 0))} &middot; Memory books: ${escapeHtmlFn(String(viewModel.books.enabledCount || 0))} enabled &middot; Session archive: ${escapeHtmlFn(String(viewModel.session.episodeCount || 0))} episodes / ${escapeHtmlFn(String(viewModel.session.chapterCount || 0))} chapters &middot; Global patterns: ${escapeHtmlFn(String(viewModel.global.patternCount || 0))} &middot; Investigations: ${escapeHtmlFn(String(viewModel.ledger.topicCount || 0))}
       </div>
     </div>
-    <div class="section-label" style="margin-top:12px;">Background vectorization</div>
+    ${renderScopedSectionHeading('Background vectorization', 'Latest/current', escapeHtmlFn, { withGap: true })}
     ${renderBackgroundVectorizationSummary(viewModel.backgroundVectorization, viewModel.session, escapeHtmlFn)}
+    ${renderScopedSectionHeading('Routing summary', 'Latest/current', escapeHtmlFn, { withGap: true })}
     ${renderRoutingSummary(viewModel.routing, escapeHtmlFn)}
-    <div class="section-label" style="margin-top:12px;">Runtime artifact</div>
+    ${renderScopedSectionHeading('Runtime artifact', 'Latest/current', escapeHtmlFn, { withGap: true })}
     ${renderArtifactSummary(viewModel.artifact, escapeHtmlFn)}
-    <div class="section-label" style="margin-top:12px;">Trace artifact</div>
+    ${renderScopedSectionHeading('Trace artifact', 'Latest/current', escapeHtmlFn, { withGap: true })}
     ${renderTraceArtifactSummary(viewModel.artifact, escapeHtmlFn)}
+    ${renderScopedSectionHeading('Trace provenance', 'Latest/current', escapeHtmlFn, { withGap: true })}
     ${renderTraceProvenance(viewModel.artifact, escapeHtmlFn)}
-    <div class="section-label" style="margin-top:12px;">Research continuity ledger</div>
+    ${renderScopedSectionHeading('Research continuity ledger', 'Session-wide', escapeHtmlFn, { withGap: true })}
     ${renderResearchLedger(viewModel.ledger, escapeHtmlFn)}
-    <div class="section-label" style="margin-top:12px;">Recency protection</div>
+    ${renderScopedSectionHeading('Recency protection', 'Session-wide', escapeHtmlFn, { withGap: true })}
     ${renderRecencyProtection(viewModel.session.recencyProtection, escapeHtmlFn)}
-    <div class="section-label" style="margin-top:12px;">Recent audit trail</div>
+    ${renderScopedSectionHeading('Recent audit trail', 'Session-wide', escapeHtmlFn, { withGap: true })}
     ${renderRecentAuditTrail(viewModel.recentAuditTrail, escapeHtmlFn)}
-    <div class="section-label" style="margin-top:12px;">Last retrieval for Penny's reply</div>
+    ${renderScopedSectionHeading('Last retrieval for Penny\'s reply', 'Latest/current', escapeHtmlFn, { withGap: true })}
     ${renderItems([...(viewModel.retrieval.session || []), ...(viewModel.retrieval.global || [])], 'No archive memories were retrieved for the last reply.', escapeHtmlFn)}
-    <div class="section-label" style="margin-top:12px;">Active contradictions</div>
+    ${renderScopedSectionHeading('Active contradictions', 'Latest/current', escapeHtmlFn, { withGap: true })}
     ${renderActiveContradictions(viewModel.activeContradictions, escapeHtmlFn)}
-    <div class="section-label" style="margin-top:12px;">Matched memory books</div>
+    ${renderScopedSectionHeading('Matched memory books', 'Latest/current', escapeHtmlFn, { withGap: true })}
     ${renderItems(viewModel.matchedBooks, 'No memory books matched on the last reply.', escapeHtmlFn)}
-    <div class="section-label" style="margin-top:12px;">Compression fallback</div>
+    ${renderScopedSectionHeading('Compression fallback', 'Latest/current', escapeHtmlFn, { withGap: true })}
     ${viewModel.compression.used
       ? `${renderCompressionExplanation(viewModel.compression, escapeHtmlFn)}${renderItems(viewModel.compression.chapters || [], `Compression fallback was used because ${viewModel.compression.reason || 'session chapters were needed'}.`, escapeHtmlFn)}`
       : '<div class="list-item"><div class="memory-copy">Compression fallback was not used on the last reply.</div></div>'}
-    <div class="section-label" style="margin-top:12px;">Session archive</div>
+    ${renderScopedSectionHeading('Session archive', 'Session-wide', escapeHtmlFn, { withGap: true })}
     ${renderItems(viewModel.session.recentEpisodes || [], 'No archived session episodes yet.', escapeHtmlFn)}
-    <div class="section-label" style="margin-top:12px;">Session chapters</div>
+    ${renderScopedSectionHeading('Session chapters', 'Session-wide', escapeHtmlFn, { withGap: true })}
     ${renderItems(viewModel.session.chapters || [], 'No session chapters yet.', escapeHtmlFn)}
     <div class="section-label" style="margin-top:12px;">Longer-term summaries and patterns</div>
     ${renderItems([...(viewModel.global.summaries || []), ...(viewModel.global.patterns || [])], 'No global summaries or patterns yet.', escapeHtmlFn)}
