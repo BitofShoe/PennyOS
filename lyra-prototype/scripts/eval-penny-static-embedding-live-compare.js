@@ -6,6 +6,7 @@ const { spawn } = require('child_process');
 
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
 const { buildQaTrust, validateRuntimeArtifact } = require('../lib/penny-qa-trust');
+const { modelsLookCompatible } = require('../lib/penny-qa-validity');
 
 function parseArgValue(name, argv = process.argv.slice(2)) {
   const dashed = `--${name}`;
@@ -27,7 +28,12 @@ const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
 const COMPARE_BACKEND = resolveCompareBackend(parseArgValue('backend') || process.env.PENNY_STATIC_LIVE_COMPARE_BACKEND || 'mock');
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `static-embedding-live-compare-${COMPARE_BACKEND}-${STAMP}.json`);
-const CHAT_MODEL = String(process.env.PENNY_STATIC_LIVE_COMPARE_CHAT_MODEL || 'mock/static-compare-chat').trim();
+const CHAT_MODEL = String(
+  process.env.PENNY_STATIC_LIVE_COMPARE_CHAT_MODEL
+  || (COMPARE_BACKEND === 'real'
+    ? (process.env.PENNY_QA_CHAT_MODEL || process.env.PENNY_LMSTUDIO_CHAT_MODEL || 'unsloth/gemma-4-31b-it@q6_k')
+    : 'mock/static-compare-chat'),
+).trim();
 const TOOL_MODEL = String(process.env.PENNY_STATIC_LIVE_COMPARE_TOOL_MODEL || 'google/gemma-4-e4b').trim();
 const EMBED_MODEL = String(process.env.PENNY_STATIC_LIVE_COMPARE_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5').trim();
 const STATIC_PROVIDER = String(process.env.PENNY_STATIC_LIVE_COMPARE_PROVIDER || 'static').trim();
@@ -104,6 +110,17 @@ function uniqueNeedleHits(text = '', needles = []) {
     }
   }
   return hits;
+}
+
+function normalizeBaseUrl(value = '', fallback = '') {
+  const text = String(value || fallback || '').trim().replace(/\/+$/, '');
+  return text || String(fallback || '').trim().replace(/\/+$/, '');
+}
+
+function deriveNativeBaseUrl(baseUrl = '') {
+  const normalized = normalizeBaseUrl(baseUrl, 'http://127.0.0.1:1234/v1');
+  if (/\/v1$/i.test(normalized)) return normalized.replace(/\/v1$/i, '/api/v1');
+  return `${normalized}/api/v1`;
 }
 
 function buildCases() {
@@ -618,10 +635,12 @@ async function runMode(modeConfig, lmStudio, index = 0) {
 
   const cases = buildCases();
   for (let caseIndex = 0; caseIndex < cases.length; caseIndex += 1) {
+    console.log(`[static-compare] ${modeConfig.key} ${caseIndex + 1}/${cases.length}: ${cases[caseIndex].name}`);
     const caseResult = await runCaseInMode(modeConfig, lmStudio, cases[caseIndex], index, caseIndex);
     if (!result.serverStatus) result.serverStatus = caseResult.serverStatus;
     if (!result.staticStatus && caseResult.staticStatus) result.staticStatus = caseResult.staticStatus;
     result.cases.push(caseResult.result);
+    console.log(`[static-compare] ${modeConfig.key} ${cases[caseIndex].name}: ${caseResult.result.ok ? 'ok' : 'failed'} score=${caseResult.result.score} seconds=${caseResult.result.seconds}`);
   }
   result.totalScore = round(result.cases.reduce((sum, item) => sum + Number(item.score || 0), 0), 2);
   result.environment = {
@@ -851,10 +870,57 @@ function buildStaticCompareTrace(payload = {}) {
 }
 
 async function createBackend() {
-  if (COMPARE_BACKEND !== 'mock') {
-    throw new Error('Static embedding live compare currently supports the mock backend only. Use the default command for bounded route-level evidence.');
-  }
+  if (COMPARE_BACKEND === 'real') return createRealLmStudioBackend();
   return createMockLmStudioServer();
+}
+
+async function createRealLmStudioBackend() {
+  const baseUrl = normalizeBaseUrl(
+    process.env.PENNY_STATIC_LIVE_COMPARE_LMSTUDIO_BASE || process.env.PENNY_LMSTUDIO_BASE,
+    'http://127.0.0.1:1234/v1',
+  );
+  const nativeBaseUrl = normalizeBaseUrl(
+    process.env.PENNY_STATIC_LIVE_COMPARE_LMSTUDIO_NATIVE_BASE || process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    deriveNativeBaseUrl(baseUrl),
+  );
+  const warnings = [];
+  const blockers = [];
+  let modelRows = [];
+  try {
+    const response = await fetchJson(`${baseUrl}/models`, {}, 15000);
+    modelRows = Array.isArray(response.json?.data) ? response.json.data : [];
+  } catch (error) {
+    blockers.push(`Could not reach LM Studio models endpoint at ${baseUrl}/models: ${String(error?.message || error).trim()}`);
+  }
+  const loadedModels = modelRows
+    .map((item) => String(item?.id || item?.model || item?.name || '').trim())
+    .filter(Boolean);
+  if (loadedModels.length) {
+    if (!loadedModels.some((model) => modelsLookCompatible(model, CHAT_MODEL))) {
+      blockers.push(`Expected live chat model is not loaded: ${CHAT_MODEL}.`);
+    }
+    if (EMBED_MODEL && !loadedModels.some((model) => modelsLookCompatible(model, EMBED_MODEL))) {
+      warnings.push(`Expected embed model is not loaded: ${EMBED_MODEL}; semantic memory may fall back, but static compare can still run.`);
+    }
+  }
+  return {
+    backend: 'real',
+    baseUrl,
+    nativeBaseUrl,
+    preparation: {
+      ok: blockers.length === 0,
+      blockers,
+      warnings,
+      loadedModels,
+      loadedModelEntries: modelRows,
+      semanticMemoryReady: EMBED_MODEL
+        ? loadedModels.some((model) => modelsLookCompatible(model, EMBED_MODEL))
+        : false,
+    },
+    loadedModelEntries: loadedModels,
+    requestLog: [],
+    close: async () => {},
+  };
 }
 
 async function main() {
@@ -862,6 +928,9 @@ async function main() {
   const startedAt = new Date().toISOString();
   const lmStudio = await createBackend();
   try {
+    if (lmStudio.preparation && lmStudio.preparation.ok === false) {
+      throw new Error(`Static live compare backend is not ready: ${(lmStudio.preparation.blockers || []).join(' ')}`);
+    }
     const modes = [];
     const orderedModes = [
       MODE_CONFIGS['static-off'],

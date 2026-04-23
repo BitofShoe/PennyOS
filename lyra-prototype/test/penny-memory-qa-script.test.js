@@ -5,15 +5,20 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+  buildStaticEmbeddingServerEnv,
   buildCandidateSurvivalArchiveUnitPaths,
   buildQaServerEnv,
+  buildSuitePaths,
   buildSourceSensitiveMemoryQaFixture,
   buildSmokeScenarioSpecs,
   buildMemoryQaTrace,
   canonicalAuthorityPressureSatisfied,
   classifySourceSensitiveMemoryOutcome,
   countNeedleHits,
+  normalizeQaStaticEmbedMode,
   parseMemoryQaArgs,
+  resolveMemoryQaModelManagementMode,
+  resolveMemoryQaStaticEmbeddingConfig,
   resolveChatRequestTimeoutMs,
   runCandidateSurvivalArchiveUnitQa,
   scoreTruthReplacement,
@@ -141,6 +146,7 @@ test('buildQaServerEnv forces stateless chat transport for memory QA servers', (
       memoryFile: 'data/penny-memory.test.json',
       archiveFile: 'data/penny-memory-archive.test.json',
       embeddingsFile: 'data/penny-memory-embeddings.test.json',
+      staticEmbeddingsFile: 'data/penny-memory-embeddings.static.test.json',
       ledgerFile: 'data/penny-memory-ledger.test.json',
       openLoopFile: 'data/penny-open-loops.test.json',
     },
@@ -154,6 +160,89 @@ test('buildQaServerEnv forces stateless chat transport for memory QA servers', (
   assert.equal(env.PENNY_MEMORY_EMBEDDINGS_FILE, 'data/penny-memory-embeddings.test.json');
   assert.equal(env.PENNY_MEMORY_LEDGER_FILE, 'data/penny-memory-ledger.test.json');
   assert.equal(env.PENNY_OPEN_LOOP_FILE, 'data/penny-open-loops.test.json');
+});
+
+test('memory QA static embedding config inherits runtime mode but isolates cache by suite', () => {
+  assert.equal(normalizeQaStaticEmbedMode('advisory'), 'live-advisory');
+  assert.equal(normalizeQaStaticEmbedMode('shadow'), 'live-shadow');
+  assert.equal(normalizeQaStaticEmbedMode('nope'), 'off');
+  assert.match(buildSuitePaths('unit-static').staticEmbeddingsFile, /penny-memory-embeddings\.static\.unit-static\./);
+
+  const suitePaths = {
+    memoryFile: 'data/penny-memory.test.json',
+    archiveFile: 'data/penny-memory-archive.test.json',
+    embeddingsFile: 'data/penny-memory-embeddings.test.json',
+    staticEmbeddingsFile: '/tmp/penny-memory-embeddings.static.memory-qa-test.json',
+    ledgerFile: 'data/penny-memory-ledger.test.json',
+    openLoopFile: 'data/penny-open-loops.test.json',
+  };
+  const config = resolveMemoryQaStaticEmbeddingConfig({
+    PENNY_STATIC_EMBED_MODE: 'live-advisory',
+    PENNY_STATIC_EMBED_PROVIDER: 'model2vec-potion-8m',
+    PENNY_STATIC_EMBED_MAX_CANDIDATES: '7',
+  }, {
+    rootDir: '/tmp/penny-root',
+    stamp: 'static-memory-test',
+    defaultCacheFile: suitePaths.staticEmbeddingsFile,
+  });
+
+  assert.equal(config.enabled, true);
+  assert.equal(config.mode, 'live-advisory');
+  assert.equal(config.maxCandidates, 7);
+  assert.equal(config.maxStaticOnlyRendered, 1);
+  assert.equal(config.ownsCacheFile, true);
+  assert.equal(config.cacheFile, suitePaths.staticEmbeddingsFile);
+
+  assert.deepEqual(buildStaticEmbeddingServerEnv(config), {
+    PENNY_STATIC_EMBED_MODE: 'live-advisory',
+    PENNY_STATIC_EMBED_PROVIDER: 'model2vec-potion-8m',
+    PENNY_STATIC_EMBED_INDEX_SCOPE: 'session,archive,research-ledger',
+    PENNY_STATIC_EMBED_MAX_CANDIDATES: '7',
+    PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED: '1',
+    PENNY_STATIC_EMBED_BATCH_SIZE: '16',
+    PENNY_STATIC_EMBED_CACHE_FILE: suitePaths.staticEmbeddingsFile,
+  });
+
+  const env = buildQaServerEnv({
+    suiteSlug: 'static-memory',
+    suitePaths,
+    embedModel: 'text-embedding-nomic-embed-text-v1.5',
+    env: {
+      PENNY_STATIC_EMBED_MODE: 'live-advisory',
+      PENNY_STATIC_EMBED_CACHE_FILE: 'data/shared-static-cache.json',
+    },
+  });
+  assert.equal(env.PENNY_STATIC_EMBED_MODE, 'live-advisory');
+  assert.equal(env.PENNY_STATIC_EMBED_CACHE_FILE, suitePaths.staticEmbeddingsFile);
+
+  const qaEnv = buildQaServerEnv({
+    suiteSlug: 'static-memory',
+    suitePaths,
+    embedModel: 'text-embedding-nomic-embed-text-v1.5',
+    env: {
+      PENNY_STATIC_EMBED_MODE: 'live-advisory',
+      PENNY_QA_STATIC_EMBED_CACHE_FILE: 'data/explicit-qa-static-cache.json',
+    },
+  });
+  assert.equal(qaEnv.PENNY_STATIC_EMBED_CACHE_FILE, path.resolve(process.cwd(), 'data/explicit-qa-static-cache.json'));
+});
+
+test('memory QA model management supports strict no-model-ops mode', () => {
+  assert.deepEqual(resolveMemoryQaModelManagementMode({
+    PENNY_QA_STRICT_NO_MODEL_OPS: '1',
+  }, []), {
+    strictNoModelOps: true,
+    manageModels: false,
+    loadChatModel: false,
+    loadEmbedModel: false,
+    prepareReportOnly: true,
+    repairPreset: false,
+    loadStrategy: 'strict-no-model-ops',
+  });
+
+  assert.equal(resolveMemoryQaModelManagementMode({
+    PENNY_QA_MANAGE_MODELS: '0',
+  }, []).loadStrategy, 'preloaded-no-model-management');
 });
 
 test('candidate-survival archive-unit mode writes an artifact and cleans disposable stores', async () => {
@@ -421,6 +510,30 @@ test('scoreTruthReplacement accepts alternative expected phrasings after normali
       ]],
     ),
     1,
+  );
+  assert.equal(
+    scoreTruthReplacement(
+      "A copper rabbit. Don't go trying to sneak that brass fox back in here; we've already upgraded.",
+      ['copper rabbit'],
+      ['brass fox'],
+    ),
+    1,
+  );
+  assert.equal(
+    scoreTruthReplacement(
+      'A copper rabbit, not a brass fox.',
+      ['copper rabbit'],
+      ['brass fox'],
+    ),
+    1,
+  );
+  assert.equal(
+    scoreTruthReplacement(
+      'A copper rabbit? No, the answer is still a brass fox.',
+      ['copper rabbit'],
+      ['brass fox'],
+    ),
+    0,
   );
 });
 

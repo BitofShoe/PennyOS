@@ -51,6 +51,7 @@ const WORDING_RECALL_PATTERNS = [
   /\bwhat\s+was\s+the\s+(?:phrase|wording)\b/,
   /\banswer\s+the\s+phrase\s+first\b/,
 ];
+const DETAIL_RECALL_PATTERN = /\b(checkpoint|final check|quick check|memory check|what|where|which|color|colour|number|kind|type|after i corrected|replaced|tucked|kept)\b/i;
 function normalizeText(text = '') {
   return String(text).replace(/\s+/g, ' ').trim().replace(/[.!?;,\s]+$/g, '');
 }
@@ -346,6 +347,12 @@ function isWordingRecallQuestion(userText = '') {
   return WORDING_RECALL_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
+function isArchiveDetailRecallQuestion(userText = '') {
+  const normalized = normalizeText(userText || '').toLowerCase();
+  if (!normalized || PROJECT_SURFACE_PATTERN.test(normalized)) return false;
+  return isQuestionLike(normalized) && DETAIL_RECALL_PATTERN.test(normalized);
+}
+
 function isDirectMemoryAuthorityQuestion(userText = '', memories = null, limit = MEMORY_PROMPT_LIMIT, now = Date.now()) {
   return isCanonicalMemoryQuestion(userText, memories, limit, now);
 }
@@ -558,6 +565,11 @@ function buildPromptMemoryContext(
   const ongoingInvestigations = researchLedgerPromptEnabled
     ? researchLedgerEntries.map((item) => item.text)
     : [];
+  const recallPrecisionLines = isArchiveDetailRecallQuestion(userText)
+    && !suppressArchiveForDirectAuthority
+    && (sessionContextEntries.length || globalArchiveEntries.length)
+    ? ['detail recall: preserve exact modifiers and requested slots from rendered memory (colors, materials, numbers, locations, object names). If one requested detail is absent, say you do not remember that part instead of substituting a nearby detail.']
+    : [];
   const initiativeLines = initiativePromptBridge?.enabled === true
     && Number(initiativePromptBridge?.promptBridge?.renderedCount || 0) > 0
     && initiativePromptBridge?.promptBridge?.promptText
@@ -571,6 +583,7 @@ function buildPromptMemoryContext(
 
   const stableFactsSection = formatPromptSection('Wake state - stable facts', stableFacts);
   const turnStateSection = formatPromptSection('Wake state - current turn state (ephemeral)', turnStateLines);
+  const recallPrecisionSection = formatPromptSection('Wake state - recall precision', recallPrecisionLines);
   const sessionContextSection = formatPromptSection('Wake state - active session context', sessionContext);
   const contradictionSection = formatPromptSection('Wake state - contradictions/open questions', contradictionAndLoopLines);
   const investigationsSection = formatPromptSection('Wake state - ongoing investigations (advisory)', ongoingInvestigations);
@@ -579,6 +592,7 @@ function buildPromptMemoryContext(
 
   if (stableFactsSection) sections.push(stableFactsSection);
   if (turnStateSection) sections.push(turnStateSection);
+  if (recallPrecisionSection) sections.push(recallPrecisionSection);
   if (!suppressArchiveForDirectAuthority && sessionContextSection) sections.push(sessionContextSection);
   if (contradictionSection) sections.push(contradictionSection);
   if (!suppressArchiveForDirectAuthority && investigationsSection) sections.push(investigationsSection);

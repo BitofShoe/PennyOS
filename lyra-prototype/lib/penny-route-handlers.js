@@ -709,13 +709,13 @@ function createPennyRouteHandlers(deps = {}) {
             memories: [],
           });
         }
-        const archive = purgeArchiveMemory({
+        const archive = await purgeArchiveMemory({
           sessionId,
           clearSessionArchive: payload.clearSessionArchive === true,
           clearGlobalArchive: payload.clearGlobalArchive === true,
           clearEmbeddings: payload.clearEmbeddings === true,
         });
-        purgeResearchLedger?.({
+        await purgeResearchLedger?.({
           sessionId,
           clearSessionLedger: payload.clearSessionArchive === true,
           clearGlobalLedger: payload.clearGlobalArchive === true,

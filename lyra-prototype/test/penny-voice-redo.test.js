@@ -12,12 +12,17 @@ const {
   buildVoiceQaTrace,
   buildPromptPlan,
   buildPressureWatchArtifact,
+  buildStaticEmbeddingQaReceipt,
+  buildStaticEmbeddingServerEnv,
   classifyLatencyBucket,
   classifyPremiseCaveatPosition,
   evaluateExactRecall,
   evaluateSpiritFirstRecall,
+  normalizeQaStaticEmbedMode,
+  resolveQaStaticEmbeddingConfig,
   resolveModelManagementMode,
   resolvePromptSet,
+  summarizeStaticEmbeddingRuntime,
 } = require('../scripts/qa-penny-voice-redo');
 
 function buildToolArtifact({ toolsUsed = [], toolRecords = [], toolEvidenceFacts = null } = {}) {
@@ -139,6 +144,101 @@ test('resolveModelManagementMode has a strict prompt-only mode with no prepare/l
     assert.equal(strict.repairPreset, false);
     assert.equal(strict.loadStrategy, 'strict-no-model-ops');
   }
+});
+
+test('voice QA static embedding config uses explicit QA env and isolated cache by default', () => {
+  assert.equal(normalizeQaStaticEmbedMode('advisory'), 'live-advisory');
+  assert.equal(normalizeQaStaticEmbedMode('shadow'), 'live-shadow');
+  assert.equal(normalizeQaStaticEmbedMode('nope'), 'off');
+
+  const config = resolveQaStaticEmbeddingConfig({
+    PENNY_STATIC_EMBED_MODE: 'off',
+    PENNY_QA_STATIC_EMBED_MODE: 'live-advisory',
+    PENNY_QA_STATIC_EMBED_PROVIDER: 'model2vec-potion-8m',
+    PENNY_QA_STATIC_EMBED_MAX_CANDIDATES: '7',
+  }, {
+    rootDir: '/tmp/penny-root',
+    stamp: '2026-04-22Tstatic',
+  });
+
+  assert.equal(config.enabled, true);
+  assert.equal(config.mode, 'live-advisory');
+  assert.equal(config.maxCandidates, 7);
+  assert.equal(config.maxStaticOnlyRendered, 1);
+  assert.equal(config.ownsCacheFile, true);
+  assert.match(config.cacheFile, /penny-memory-embeddings\.static\.voice-redo-qa-2026-04-22Tstatic\.json$/);
+
+  assert.deepEqual(buildStaticEmbeddingServerEnv(config), {
+    PENNY_STATIC_EMBED_MODE: 'live-advisory',
+    PENNY_STATIC_EMBED_PROVIDER: 'model2vec-potion-8m',
+    PENNY_STATIC_EMBED_INDEX_SCOPE: 'session,archive,research-ledger',
+    PENNY_STATIC_EMBED_MAX_CANDIDATES: '7',
+    PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED: '1',
+    PENNY_STATIC_EMBED_BATCH_SIZE: '16',
+    PENNY_STATIC_EMBED_CACHE_FILE: config.cacheFile,
+  });
+});
+
+test('voice QA static embedding receipt reports queried runtime artifacts', () => {
+  const prompts = [
+    {
+      resultType: 'turn-result',
+      ok: true,
+      seconds: 1,
+      artifact: {
+        staticEmbeddingShadow: {
+          mode: 'live-advisory',
+          provider: 'model2vec-potion-8m',
+          queryMs: 2.5,
+          candidateCount: 2,
+          staticOnlyCandidateCount: 1,
+          staticOnlyRenderedCount: 1,
+          staticOnlyRenderedCap: 1,
+          topCandidates: [
+            {
+              id: 'archive:episode:current-coding-mascot',
+              sourceType: 'archive-episode',
+              textPreview: 'Current coding mascot is copper rabbit now.',
+              staticOnly: true,
+              rendered: true,
+              staticEmbedding: { similarity: 0.91 },
+            },
+          ],
+        },
+        frameBudget: {
+          timings: { staticMemoryQueryMs: 2.5 },
+          workDone: { staticOnlyRendered: 1 },
+        },
+      },
+    },
+  ];
+  const runtime = summarizeStaticEmbeddingRuntime(prompts);
+  assert.equal(runtime.traceCount, 1);
+  assert.equal(runtime.queriedTurns, 1);
+  assert.equal(runtime.staticCandidatesInspected, 2);
+  assert.equal(runtime.staticOnlyCandidateCount, 1);
+  assert.equal(runtime.staticOnlyRendered, 1);
+
+  const receipt = buildStaticEmbeddingQaReceipt({
+    config: resolveQaStaticEmbeddingConfig({ PENNY_QA_STATIC_EMBED_MODE: 'live-advisory' }, {
+      rootDir: '/tmp/penny-root',
+      stamp: 'static-test',
+    }),
+    serverStatus: {
+      enabled: true,
+      mode: 'live-advisory',
+      provider: 'model2vec-potion-8m',
+      ready: true,
+      indexedItems: 4,
+      pendingItems: 0,
+      lastQueryMs: 2.5,
+    },
+    prompts,
+  });
+
+  assert.equal(receipt.verdict, 'queried');
+  assert.equal(receipt.serverStatus.ready, true);
+  assert.equal(receipt.runtime.topCandidatePreviews[0].id, 'archive:episode:current-coding-mascot');
 });
 
 test('buildPromptPlan keeps the tiebreak slice chat-only and focused on recall behavior', () => {

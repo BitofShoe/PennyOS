@@ -703,6 +703,16 @@ function scheduleArchiveConsolidation({
       });
   });
 }
+async function purgeArchiveMemoryAfterConsolidation(options = {}) {
+  archiveConsolidationQueue = archiveConsolidationQueue
+    .catch(() => {})
+    .then(() => {
+      const result = purgeArchiveMemoryApi(options);
+      scheduleStaticMemoryIndexRefresh();
+      return result;
+    });
+  return archiveConsolidationQueue;
+}
 function scheduleResearchLedgerUpdate({
   sessionId = 'default',
   userText = '',
@@ -3206,7 +3216,7 @@ const routeHandlers = createPennyRouteHandlers({
   mergeMemoryItems,
   mergeMemoryState,
   reviewPromotion: reviewPromotionApi,
-  purgeArchiveMemory: purgeArchiveMemoryApi,
+  purgeArchiveMemory: purgeArchiveMemoryAfterConsolidation,
   purgeResearchLedger: purgeResearchLedgerApi,
   buildChatMemoryState,
   sanitizeChatMessages,

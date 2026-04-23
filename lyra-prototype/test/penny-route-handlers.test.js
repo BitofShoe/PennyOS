@@ -5,6 +5,53 @@ const { EventEmitter } = require('node:events');
 const { bindClientDisconnectAbort, createPennyRouteHandlers } = require('../lib/penny-route-handlers');
 const { buildLastRouteInfo } = require('../lib/penny-runtime-artifacts');
 
+test('memory purge waits for archive and ledger cleanup before inspecting memory', async () => {
+  const calls = [];
+  let response = null;
+  const memory = { memories: [{ text: 'Anchor memory', kind: 'personal' }] };
+  const handlers = createPennyRouteHandlers({
+    sendJson(_res, statusCode, json) {
+      response = { statusCode, json };
+    },
+    async safeReadBody() {
+      return JSON.stringify({ sessionId: 'purge-demo', clearSessionArchive: true });
+    },
+    getStoredMemory() {
+      return { memory };
+    },
+    saveStoredMemory(_sessionId, nextMemory) {
+      return nextMemory;
+    },
+    async purgeArchiveMemory() {
+      calls.push('archive-start');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      calls.push('archive-done');
+      return { archive: { sessions: {} }, embeddings: { items: [] } };
+    },
+    async purgeResearchLedger() {
+      calls.push('ledger-done');
+      return { clearedSessionTopics: 1 };
+    },
+    async buildCombinedMemoryInspector() {
+      calls.push('inspector');
+      return { archive: { session: null } };
+    },
+  });
+
+  const handled = await handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://localhost/api/penny/memory/purge'),
+  });
+
+  assert.equal(handled, true);
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(calls, ['archive-start', 'archive-done', 'ledger-done', 'inspector']);
+  assert.equal(response.json.ok, true);
+  assert.deepEqual(response.json.memory, memory);
+  assert.deepEqual(response.json.archive.archive.sessions, {});
+});
+
 function createToolReceiptRouteHarness({
   sessionId = 'tool-receipt-session',
   userText = 'Inspect README.md',

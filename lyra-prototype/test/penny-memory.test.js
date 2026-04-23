@@ -92,6 +92,49 @@ test('formatPromptMemories includes bounded archive context without replacing ex
   assert.match(out, /Wake state - retrieval hints \(advisory\):/);
 });
 
+test('formatPromptMemories adds precision guidance for archive-backed multi-detail recall', () => {
+  const now = Date.UTC(2026, 3, 12);
+  const memories = {
+    memories: [],
+    archiveContext: {
+      session: [
+        { id: 'receipt-case', text: 'The receipt from earlier was tucked into the green cassette case.' },
+        { id: 'watch-correction', text: 'After the correction, the watch is gold, not silver.' },
+      ],
+      global: [
+        { id: 'receipt-global', text: 'The receipt from earlier was tucked into the green cassette case.', sourceLabel: 'archive-global' },
+      ],
+    },
+  };
+
+  const out = formatPromptMemories(
+    memories,
+    'Checkpoint: what color was the watch after I corrected it, and where did I keep the green cassette case?',
+    3,
+    '- Nothing yet.',
+    now,
+  );
+  const promptTruth = buildPromptTruth(
+    memories,
+    'Checkpoint: what color was the watch after I corrected it, and where did I keep the green cassette case?',
+    3,
+    '- Nothing yet.',
+    now,
+  );
+
+  const precisionIndex = out.indexOf('Wake state - recall precision:');
+  const sessionIndex = out.indexOf('Wake state - active session context:');
+  assert.ok(precisionIndex >= 0);
+  assert.ok(sessionIndex >= 0);
+  assert.ok(precisionIndex < sessionIndex);
+  assert.match(out, /preserve exact modifiers and requested slots/i);
+  assert.match(out, /colors, materials, numbers, locations, object names/i);
+  assert.match(out, /green cassette case/i);
+  assert.match(out, /watch is gold/i);
+  assert.equal(promptTruth.channels.sessionArchive.renderedCount, 2);
+  assert.equal(promptTruth.channels.globalArchive.renderedCount, 1);
+});
+
 test('formatPromptMemories keeps explicit memories ahead of archive continuity sections on non-authority questions', () => {
   const now = Date.UTC(2026, 3, 12);
   const out = formatPromptMemories({

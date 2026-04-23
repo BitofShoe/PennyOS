@@ -47,6 +47,90 @@ const QA_MODEL_TTL_SECONDS = Number(process.env.PENNY_QA_MODEL_TTL_SECONDS || 18
 const DEFAULT_QA_CHAT_MODEL = 'unsloth/gemma-4-31b-it@q6_k';
 const DEFAULT_QA_TOOL_MODEL = 'google/gemma-4-e4b';
 const DEFAULT_QA_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+const DEFAULT_QA_STATIC_EMBED_PROVIDER = 'model2vec-potion-8m';
+const DEFAULT_QA_STATIC_EMBED_INDEX_SCOPE = 'session,archive,research-ledger';
+const DEFAULT_QA_STATIC_EMBED_MAX_CANDIDATES = 12;
+const DEFAULT_QA_STATIC_EMBED_BATCH_SIZE = 16;
+
+function hasEnvValue(env = {}, name = '') {
+  return Object.prototype.hasOwnProperty.call(env || {}, name)
+    && String(env[name] ?? '').trim() !== '';
+}
+
+function pickQaEnvValue(env = {}, qaName = '', runtimeName = '', fallback = '') {
+  if (qaName && hasEnvValue(env, qaName)) return String(env[qaName]).trim();
+  if (runtimeName && hasEnvValue(env, runtimeName)) return String(env[runtimeName]).trim();
+  return String(fallback ?? '').trim();
+}
+
+function normalizeQaStaticEmbedMode(value = '') {
+  const text = String(value || '').trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'advisory', 'live-advisory'].includes(text)) return 'live-advisory';
+  if (['shadow', 'live-shadow'].includes(text)) return 'live-shadow';
+  return 'off';
+}
+
+function normalizePositiveInteger(value, fallback) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number) || number <= 0) return Math.max(1, Math.round(Number(fallback) || 1));
+  return number;
+}
+
+function normalizeNonNegativeInteger(value, fallback) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number) || number < 0) return Math.max(0, Math.round(Number(fallback) || 0));
+  return number;
+}
+
+function resolveQaStaticEmbeddingConfig(env = process.env, {
+  rootDir = ROOT_DIR,
+  stamp = STAMP,
+} = {}) {
+  const mode = normalizeQaStaticEmbedMode(pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_MODE', 'PENNY_STATIC_EMBED_MODE', 'off'));
+  const enabled = mode !== 'off';
+  const maxStaticOnlyRenderedFallback = mode === 'live-advisory' ? 1 : 0;
+  const rawCacheFile = hasEnvValue(env, 'PENNY_QA_STATIC_EMBED_CACHE_FILE')
+    ? String(env.PENNY_QA_STATIC_EMBED_CACHE_FILE).trim()
+    : '';
+  const cacheFile = enabled
+    ? path.resolve(rootDir, rawCacheFile || `data/penny-memory-embeddings.static.voice-redo-qa-${stamp}.json`)
+    : '';
+  return {
+    schema: 'penny-voice-qa-static-embedding-config.v1',
+    enabled,
+    mode,
+    provider: pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_PROVIDER', 'PENNY_STATIC_EMBED_PROVIDER', DEFAULT_QA_STATIC_EMBED_PROVIDER),
+    indexScope: pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_INDEX_SCOPE', 'PENNY_STATIC_EMBED_INDEX_SCOPE', DEFAULT_QA_STATIC_EMBED_INDEX_SCOPE),
+    maxCandidates: normalizePositiveInteger(
+      pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_MAX_CANDIDATES', 'PENNY_STATIC_EMBED_MAX_CANDIDATES', DEFAULT_QA_STATIC_EMBED_MAX_CANDIDATES),
+      DEFAULT_QA_STATIC_EMBED_MAX_CANDIDATES,
+    ),
+    maxStaticOnlyRendered: normalizeNonNegativeInteger(
+      pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED', 'PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED', maxStaticOnlyRenderedFallback),
+      maxStaticOnlyRenderedFallback,
+    ),
+    batchSize: normalizePositiveInteger(
+      pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_BATCH_SIZE', 'PENNY_STATIC_EMBED_BATCH_SIZE', DEFAULT_QA_STATIC_EMBED_BATCH_SIZE),
+      DEFAULT_QA_STATIC_EMBED_BATCH_SIZE,
+    ),
+    cacheFile,
+    ownsCacheFile: enabled && !rawCacheFile,
+  };
+}
+
+function buildStaticEmbeddingServerEnv(config = {}) {
+  const enabled = config?.enabled === true;
+  return {
+    PENNY_STATIC_EMBED_MODE: enabled ? String(config.mode || 'off') : 'off',
+    PENNY_STATIC_EMBED_PROVIDER: String(config.provider || DEFAULT_QA_STATIC_EMBED_PROVIDER),
+    PENNY_STATIC_EMBED_INDEX_SCOPE: String(config.indexScope || DEFAULT_QA_STATIC_EMBED_INDEX_SCOPE),
+    PENNY_STATIC_EMBED_MAX_CANDIDATES: String(config.maxCandidates || DEFAULT_QA_STATIC_EMBED_MAX_CANDIDATES),
+    PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED: String(enabled ? config.maxStaticOnlyRendered || 0 : 0),
+    PENNY_STATIC_EMBED_BATCH_SIZE: String(config.batchSize || DEFAULT_QA_STATIC_EMBED_BATCH_SIZE),
+    PENNY_STATIC_EMBED_CACHE_FILE: enabled ? String(config.cacheFile || '') : '',
+  };
+}
+
 function hasArgFlag(name, argv = process.argv.slice(2)) {
   const dashed = `--${name}`;
   return (Array.isArray(argv) ? argv : []).some((value) => String(value || '').trim() === dashed);
@@ -76,6 +160,7 @@ const QA_LOAD_EMBED_MODEL = QA_MODEL_MANAGEMENT.loadEmbedModel;
 const CHAT_MODEL = String(process.env.PENNY_QA_CHAT_MODEL || DEFAULT_QA_CHAT_MODEL).trim();
 const TOOL_MODEL = String(process.env.PENNY_QA_TOOL_MODEL || DEFAULT_QA_TOOL_MODEL).trim();
 const EMBED_MODEL = String(process.env.PENNY_QA_EMBED_MODEL || process.env.PENNY_LMSTUDIO_EMBED_MODEL || DEFAULT_QA_EMBED_MODEL).trim();
+const QA_STATIC_EMBEDDING = resolveQaStaticEmbeddingConfig(process.env, { rootDir: ROOT_DIR, stamp: STAMP });
 const VOICE_FIXTURE = {
   name: 'agentic_inspect_package_json',
   anchorPath: path.join(ROOT_DIR, 'package.json'),
@@ -1654,6 +1739,151 @@ function collectVoiceTraceResults(prompts = []) {
   return results;
 }
 
+function compactStaticEmbeddingStatus(status = null) {
+  if (!status || typeof status !== 'object') return null;
+  return {
+    enabled: status.enabled === true,
+    mode: String(status.mode || '').trim(),
+    provider: String(status.provider || '').trim(),
+    ready: status.ready === true,
+    indexedItems: normalizeNonNegativeInteger(status.indexedItems, 0),
+    pendingItems: normalizeNonNegativeInteger(status.pendingItems, 0),
+    lastQueryMs: status.lastQueryMs == null ? null : Number(status.lastQueryMs),
+    modelId: String(status.modelId || '').trim(),
+    dimensions: status.dimensions == null ? null : normalizeNonNegativeInteger(status.dimensions, 0),
+    cacheFile: String(status.cacheFile || '').trim(),
+  };
+}
+
+function staticEmbeddingShadowFromArtifact(artifact = null) {
+  if (!artifact || typeof artifact !== 'object') return null;
+  if (artifact.staticEmbeddingShadow && typeof artifact.staticEmbeddingShadow === 'object') {
+    return artifact.staticEmbeddingShadow;
+  }
+  if (artifact.retrieval?.staticEmbeddingShadow && typeof artifact.retrieval.staticEmbeddingShadow === 'object') {
+    return artifact.retrieval.staticEmbeddingShadow;
+  }
+  return null;
+}
+
+function summarizeStaticEmbeddingRuntime(prompts = []) {
+  const results = collectVoiceTraceResults(prompts);
+  const artifacts = results
+    .map((item) => item?.artifact)
+    .filter((item) => item && typeof item === 'object');
+  const shadows = artifacts
+    .map(staticEmbeddingShadowFromArtifact)
+    .filter((item) => item && typeof item === 'object');
+  const frameBudgets = artifacts
+    .map((item) => item?.frameBudget)
+    .filter((item) => item && typeof item === 'object');
+  const topCandidates = shadows.flatMap((shadow) => (
+    Array.isArray(shadow.topCandidates) ? shadow.topCandidates : []
+  ));
+  const queriedTurns = shadows.filter((shadow) => (
+    shadow.skipped !== true
+    && (
+      Number(shadow.candidateCount || 0) > 0
+      || Number.isFinite(Number(shadow.queryMs))
+      || shadow.frameBudgetSidecar?.status === 'scheduled'
+    )
+  )).length;
+  const staticOnlyRenderedFromCandidates = topCandidates.filter((candidate) => (
+    candidate?.staticOnly === true
+    && (
+      candidate?.rendered === true
+      || candidate?.selected === true
+      || candidate?.policy?.rendered === true
+      || candidate?.policy?.selected === true
+    )
+  )).length;
+  const staticOnlyRenderedFromAdvisory = shadows.reduce((sum, shadow) => (
+    sum + normalizeNonNegativeInteger(shadow.staticOnlyRenderedCount, 0)
+  ), 0);
+  const staticOnlyRenderedFromFrameBudget = frameBudgets.reduce((sum, frameBudget) => (
+    sum + normalizeNonNegativeInteger(frameBudget?.workDone?.staticOnlyRendered, 0)
+  ), 0);
+  const queryMsValues = shadows
+    .map((shadow) => Number(shadow.queryMs ?? shadow.frameBudgetSidecar?.actualMs))
+    .filter(Number.isFinite);
+  return {
+    schema: 'penny-voice-qa-static-embedding-runtime.v1',
+    runtimeArtifactCount: artifacts.length,
+    traceCount: shadows.length,
+    queriedTurns,
+    modes: uniqueStrings(shadows.map((shadow) => shadow.mode)),
+    providers: uniqueStrings(shadows.map((shadow) => shadow.provider)),
+    staticCandidatesInspected: shadows.reduce((sum, shadow) => (
+      sum + normalizeNonNegativeInteger(shadow.candidateCount ?? shadow.frameBudgetSidecar?.candidateCount, 0)
+    ), 0),
+    staticOnlyCandidateCount: shadows.reduce((sum, shadow) => (
+      sum + normalizeNonNegativeInteger(shadow.staticOnlyCandidateCount, 0)
+    ), 0),
+    staticOnlyRendered: Math.max(
+      staticOnlyRenderedFromCandidates,
+      staticOnlyRenderedFromAdvisory,
+      staticOnlyRenderedFromFrameBudget,
+    ),
+    frameBudgetQueryTurns: frameBudgets.filter((frameBudget) => (
+      frameBudget?.timings?.staticMemoryQueryMs != null
+    )).length,
+    totalQueryMs: queryMsValues.length
+      ? Math.round(queryMsValues.reduce((sum, value) => sum + value, 0) * 100) / 100
+      : 0,
+    topCandidatePreviews: topCandidates.slice(0, 6).map((candidate) => ({
+      id: String(candidate?.id || candidate?.sourceItemId || '').trim(),
+      sourceType: String(candidate?.sourceType || '').trim(),
+      similarity: candidate?.staticEmbedding?.similarity == null ? null : Number(candidate.staticEmbedding.similarity),
+      selected: candidate?.selected === true || candidate?.policy?.selected === true,
+      rendered: candidate?.rendered === true || candidate?.policy?.rendered === true,
+      textPreview: String(candidate?.textPreview || candidate?.evidenceSnippet || candidate?.text || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+    })),
+  };
+}
+
+function buildStaticEmbeddingQaReceipt({
+  config = QA_STATIC_EMBEDDING,
+  serverStatus = null,
+  prompts = [],
+} = {}) {
+  const status = compactStaticEmbeddingStatus(serverStatus);
+  const runtime = summarizeStaticEmbeddingRuntime(prompts);
+  let verdict = 'disabled';
+  const warnings = [];
+  if (config?.enabled === true) {
+    if (!status?.enabled) {
+      verdict = 'server-disabled';
+      warnings.push('Static embedding was requested for QA but the Penny server reported it disabled.');
+    } else if (status.ready !== true) {
+      verdict = 'server-not-ready';
+      warnings.push('Static embedding was enabled but not ready when QA inspected server status.');
+    } else if (runtime.traceCount > 0) {
+      verdict = runtime.queriedTurns > 0 ? 'queried' : 'trace-only';
+    } else {
+      verdict = 'ready-no-query-observed';
+      warnings.push('Static embedding was ready, but no runtime artifact included a staticEmbeddingShadow trace.');
+    }
+  }
+  return {
+    schema: 'penny-voice-qa-static-embedding-receipt.v1',
+    requested: {
+      enabled: config?.enabled === true,
+      mode: String(config?.mode || 'off'),
+      provider: String(config?.provider || ''),
+      indexScope: String(config?.indexScope || ''),
+      maxCandidates: normalizePositiveInteger(config?.maxCandidates, DEFAULT_QA_STATIC_EMBED_MAX_CANDIDATES),
+      maxStaticOnlyRendered: normalizeNonNegativeInteger(config?.maxStaticOnlyRendered, 0),
+      batchSize: normalizePositiveInteger(config?.batchSize, DEFAULT_QA_STATIC_EMBED_BATCH_SIZE),
+      cacheFile: String(config?.cacheFile || ''),
+      ownsCacheFile: config?.ownsCacheFile === true,
+    },
+    serverStatus: status,
+    runtime,
+    verdict,
+    warnings,
+  };
+}
+
 function uniqueStrings(values = []) {
   return [...new Set((Array.isArray(values) ? values : []).map((item) => String(item || '').trim()).filter(Boolean))];
 }
@@ -1858,6 +2088,11 @@ function buildVoiceQaTrace(payload = {}) {
   const pressureWatchFailureCodes = Object.keys(payload?.pressureWatchAudit?.failureCategoryCounts || {})
     .filter(Boolean)
     .map((category) => `pressure_watch_${category}`);
+  const staticQa = payload?.staticEmbeddingQa && typeof payload.staticEmbeddingQa === 'object'
+    ? payload.staticEmbeddingQa
+    : buildStaticEmbeddingQaReceipt({ config: QA_STATIC_EMBEDDING, serverStatus: payload?.serverStatus?.staticEmbedding, prompts });
+  const staticRuntime = staticQa.runtime || {};
+  const staticStatus = staticQa.serverStatus || {};
   const trust = buildQaTrust({
     environment: payload?.environment,
     artifactValidatedCount: artifacts.length,
@@ -1933,6 +2168,15 @@ function buildVoiceQaTrace(payload = {}) {
       archiveItemsRetrieved: artifacts.reduce((sum, item) => sum
         + Number(item?.performance?.archiveRetrieval?.sessionItems || 0)
         + Number(item?.performance?.archiveRetrieval?.globalItems || 0), 0),
+      staticEmbeddingRequestedMode: staticQa.requested?.mode || '',
+      staticEmbeddingStatusMode: staticStatus.mode || '',
+      staticEmbeddingReady: staticStatus.ready === true,
+      staticEmbeddingIndexedItems: Number(staticStatus.indexedItems || 0),
+      staticEmbeddingTraceCount: Number(staticRuntime.traceCount || 0),
+      staticEmbeddingQueriedTurns: Number(staticRuntime.queriedTurns || 0),
+      staticCandidatesInspected: Number(staticRuntime.staticCandidatesInspected || 0),
+      staticOnlyCandidateCount: Number(staticRuntime.staticOnlyCandidateCount || 0),
+      staticOnlyRendered: Number(staticRuntime.staticOnlyRendered || 0),
     },
     memoryWrites: {
       promptsReturningMemory: memoryWrites,
@@ -1982,6 +2226,9 @@ function createServerProcess() {
   removeFileIfExists(ARCHIVE_FILE);
   removeFileIfExists(EMBEDDINGS_FILE);
   removeFileIfExists(OPEN_LOOP_FILE);
+  if (QA_STATIC_EMBEDDING.ownsCacheFile && QA_STATIC_EMBEDDING.cacheFile) {
+    removeFileIfExists(QA_STATIC_EMBEDDING.cacheFile);
+  }
   const outStream = fs.createWriteStream(SERVER_STDOUT_PATH, { flags: 'w' });
   const errStream = fs.createWriteStream(SERVER_STDERR_PATH, { flags: 'w' });
   const child = spawn(process.execPath, ['server.js'], {
@@ -1999,6 +2246,7 @@ function createServerProcess() {
       PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
       PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
       PENNY_LMSTUDIO_TOOL_MODEL: EFFECTIVE_TOOL_MODEL,
+      ...buildStaticEmbeddingServerEnv(QA_STATIC_EMBEDDING),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -2220,8 +2468,10 @@ async function main() {
     memoryFile: SPAWN_SERVER ? MEMORY_FILE : null,
     archiveFile: SPAWN_SERVER ? ARCHIVE_FILE : null,
     embeddingsFile: SPAWN_SERVER ? EMBEDDINGS_FILE : null,
+    staticEmbeddingsFile: SPAWN_SERVER && QA_STATIC_EMBEDDING.enabled ? QA_STATIC_EMBEDDING.cacheFile : null,
     ledgerFile: SPAWN_SERVER ? LEDGER_FILE : null,
     openLoopFile: SPAWN_SERVER ? OPEN_LOOP_FILE : null,
+    staticEmbeddingQa: buildStaticEmbeddingQaReceipt({ config: QA_STATIC_EMBEDDING }),
     preparation: {
       ok: preparation.ok,
       requestedChatModel: preparation.requestedChatModel,
@@ -2242,6 +2492,10 @@ async function main() {
 
   try {
     const status = await waitForServerReady();
+    let refreshedStatus = status;
+    try {
+      refreshedStatus = await fetchJson(`${BASE_URL}/api/penny/status?refresh=1`, {}, 20000);
+    } catch {}
     const lmStudio = await fetchJson(`${BASE_URL}/api/penny/lmstudio/status?refresh=1`, {}, 20000);
     payload.serverStatus = {
       localTransport: status.localLlmTransport,
@@ -2254,8 +2508,14 @@ async function main() {
       resolvedToolModel: lmStudio.resolvedToolModel || '',
       routingMode: lmStudio.routingMode || 'auto',
       semanticMemory: lmStudio.semanticMemory || null,
+      staticEmbedding: refreshedStatus?.staticEmbedding || status?.staticEmbedding || null,
       availableModels: lmStudio.availableModels || [],
     };
+    payload.staticEmbeddingQa = buildStaticEmbeddingQaReceipt({
+      config: QA_STATIC_EMBEDDING,
+      serverStatus: payload.serverStatus.staticEmbedding,
+      prompts: payload.prompts,
+    });
     payload.environment = buildQaEnvironmentValidity({
       serverMode: payload.serverMode,
       preparation: {
@@ -2300,6 +2560,15 @@ async function main() {
       payload.prompts.push(await runSingleTurn(step.name, step.sessionId, step.prompt, step.timeoutMs));
     }
 
+    try {
+      const finalStatus = await fetchJson(`${BASE_URL}/api/penny/status?refresh=1`, {}, 20000);
+      payload.serverStatus.staticEmbedding = finalStatus?.staticEmbedding || payload.serverStatus.staticEmbedding || null;
+    } catch {}
+    payload.staticEmbeddingQa = buildStaticEmbeddingQaReceipt({
+      config: QA_STATIC_EMBEDDING,
+      serverStatus: payload.serverStatus.staticEmbedding,
+      prompts: payload.prompts,
+    });
     payload.summary = summarize(payload.prompts);
     payload.repetitionAudit = buildRepetitionAudit(payload.prompts);
     payload.overComplianceAudit = buildOverComplianceAudit(payload.prompts);
@@ -2338,7 +2607,11 @@ async function main() {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
       payload.cleanedFiles = [];
-      for (const filePath of [MEMORY_FILE, ARCHIVE_FILE, EMBEDDINGS_FILE, LEDGER_FILE, OPEN_LOOP_FILE]) {
+      const disposableFiles = [MEMORY_FILE, ARCHIVE_FILE, EMBEDDINGS_FILE, LEDGER_FILE, OPEN_LOOP_FILE];
+      if (QA_STATIC_EMBEDDING.ownsCacheFile && QA_STATIC_EMBEDDING.cacheFile) {
+        disposableFiles.push(QA_STATIC_EMBEDDING.cacheFile);
+      }
+      for (const filePath of disposableFiles) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           payload.cleanedFiles.push(filePath);
@@ -2366,11 +2639,16 @@ module.exports = {
   buildOverComplianceAudit,
   buildPressureWatchAudit,
   buildPressureWatchArtifact,
+  buildStaticEmbeddingQaReceipt,
+  buildStaticEmbeddingServerEnv,
   classifyLatencyBucket,
   classifyPremiseCaveatPosition,
   evaluateSpiritFirstRecall,
   evaluateExactRecall,
+  normalizeQaStaticEmbedMode,
+  resolveQaStaticEmbeddingConfig,
   resolvePromptSet,
   resolveModelManagementMode,
+  summarizeStaticEmbeddingRuntime,
   startsWithHonestlyOpener,
 };

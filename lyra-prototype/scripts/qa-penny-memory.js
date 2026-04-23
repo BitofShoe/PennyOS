@@ -48,13 +48,43 @@ const SMOKE_CHAT_TIMEOUT_MS = Number(process.env.PENNY_QA_SMOKE_CHAT_TIMEOUT_MS 
 const MAX_OUTPUT_TOKENS = String(process.env.PENNY_QA_MEMORY_MAX_OUTPUT_TOKENS || process.env.PENNY_QA_MAX_OUTPUT_TOKENS || 320);
 const QA_CHAT_CONTEXT_LENGTH = Number(process.env.PENNY_QA_CHAT_CONTEXT_LENGTH || 6144);
 const QA_MODEL_TTL_SECONDS = Number(process.env.PENNY_QA_MODEL_TTL_SECONDS || 1800);
-const QA_LOAD_CHAT_MODEL = process.env.PENNY_QA_LOAD_CHAT_MODEL !== '0';
-const QA_LOAD_EMBED_MODEL = process.env.PENNY_QA_LOAD_EMBED_MODEL !== '0';
+const DEFAULT_QA_STATIC_EMBED_PROVIDER = 'model2vec-potion-8m';
+const DEFAULT_QA_STATIC_EMBED_INDEX_SCOPE = 'session,archive,research-ledger';
+const DEFAULT_QA_STATIC_EMBED_MAX_CANDIDATES = 12;
+const DEFAULT_QA_STATIC_EMBED_BATCH_SIZE = 16;
 const DEFAULT_QA_CHAT_MODEL = 'unsloth/gemma-4-31b-it@q6_k';
 const DEFAULT_QA_TOOL_MODEL = 'google/gemma-4-e4b';
 const CHAT_MODEL = String(process.env.PENNY_QA_CHAT_MODEL || DEFAULT_QA_CHAT_MODEL).trim();
 const TOOL_MODEL = String(process.env.PENNY_QA_TOOL_MODEL || process.env.PENNY_LMSTUDIO_TOOL_MODEL || DEFAULT_QA_TOOL_MODEL).trim();
 const EMBED_MODEL = String(process.env.PENNY_QA_EMBED_MODEL || process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5').trim();
+
+function hasArgFlag(name, argv = process.argv.slice(2)) {
+  const dashed = `--${name}`;
+  return (Array.isArray(argv) ? argv : []).some((value) => String(value || '').trim() === dashed);
+}
+
+function resolveMemoryQaModelManagementMode(env = process.env, argv = process.argv.slice(2)) {
+  const envText = (name, fallback = '') => String(env[name] ?? fallback).trim();
+  const strictNoModelOps = envText('PENNY_QA_STRICT_NO_MODEL_OPS') === '1'
+    || hasArgFlag('strict-no-model-ops', argv)
+    || hasArgFlag('no-model-ops', argv);
+  const manageModels = !strictNoModelOps && envText('PENNY_QA_MANAGE_MODELS', '1') !== '0';
+  return {
+    strictNoModelOps,
+    manageModels,
+    loadChatModel: manageModels && envText('PENNY_QA_LOAD_CHAT_MODEL', '1') !== '0',
+    loadEmbedModel: manageModels && envText('PENNY_QA_LOAD_EMBED_MODEL', '1') !== '0',
+    prepareReportOnly: !manageModels,
+    repairPreset: manageModels,
+    loadStrategy: strictNoModelOps
+      ? 'strict-no-model-ops'
+      : (manageModels ? 'sequential-lane-switch' : 'preloaded-no-model-management'),
+  };
+}
+
+const QA_MODEL_MANAGEMENT = resolveMemoryQaModelManagementMode(process.env);
+const QA_LOAD_CHAT_MODEL = QA_MODEL_MANAGEMENT.loadChatModel;
+const QA_LOAD_EMBED_MODEL = QA_MODEL_MANAGEMENT.loadEmbedModel;
 const MEMORY_QA_SEGMENT_IDS = Object.freeze({
   SEMANTIC_ARCHIVE: 'semantic-archive',
   CHAPTER_FALLBACK: 'chapter-fallback',
@@ -336,6 +366,30 @@ function scoreNeedles(text = '', needles = []) {
   return countNeedleHits(text, needles) / needles.length;
 }
 
+function findFirstNeedleIndex(text = '', needles = []) {
+  const hay = normalizeForComparison(text);
+  let best = -1;
+  for (const needle of needles) {
+    for (const variant of normalizeNeedleVariants(needle)) {
+      const index = hay.indexOf(variant);
+      if (index >= 0 && (best < 0 || index < best)) best = index;
+    }
+  }
+  return best;
+}
+
+function findNeedleIndexes(text = '', needles = []) {
+  const hay = normalizeForComparison(text);
+  const indexes = [];
+  for (const needle of needles) {
+    for (const variant of normalizeNeedleVariants(needle)) {
+      const index = hay.indexOf(variant);
+      if (index >= 0) indexes.push({ index, variant });
+    }
+  }
+  return indexes;
+}
+
 function normalizeForComparison(text = '') {
   return String(text || '')
     .toLowerCase()
@@ -350,10 +404,27 @@ function containsAny(text = '', needles = []) {
   return needles.some((needle) => hay.includes(normalizeForComparison(needle)));
 }
 
+function isHistoricalContrastMention(hay = '', expectedIndex = -1, forbiddenIndex = -1) {
+  if (expectedIndex < 0 || forbiddenIndex < 0 || expectedIndex >= forbiddenIndex) return false;
+  const before = hay.slice(Math.max(0, forbiddenIndex - 80), forbiddenIndex);
+  const after = hay.slice(forbiddenIndex, Math.min(hay.length, forbiddenIndex + 80));
+  const bridge = hay.slice(expectedIndex, forbiddenIndex);
+  return /\b(not|no longer|old|former|previous|used to|instead|rather than|replaced|sneak|back|upgraded)\b/.test(before)
+    || /\b(not|no longer|old|former|previous|used to|instead|rather than|replaced|sneak|back|upgraded)\b/.test(bridge)
+    || /\b(old|former|previous|back|replaced|upgraded)\b/.test(after);
+}
+
 function scoreTruthReplacement(text = '', expectedNeedles = [], forbiddenNeedles = []) {
   const expectedScore = scoreNeedles(text, expectedNeedles);
-  const forbiddenHit = countNeedleHits(text, forbiddenNeedles) > 0;
-  return expectedScore >= 1 && !forbiddenHit ? 1 : 0;
+  if (expectedScore < 1) return 0;
+  const forbiddenIndexes = findNeedleIndexes(text, forbiddenNeedles);
+  if (!forbiddenIndexes.length) return 1;
+  const expectedIndex = findFirstNeedleIndex(text, expectedNeedles);
+  const hay = normalizeForComparison(text);
+  const allForbiddenMentionsAreContrast = forbiddenIndexes.every((item) => (
+    isHistoricalContrastMention(hay, expectedIndex, item.index)
+  ));
+  return allForbiddenMentionsAreContrast ? 1 : 0;
 }
 
 function canonicalAuthorityPressureSatisfied(artifact = null) {
@@ -596,11 +667,92 @@ function removeFileIfExists(filePath) {
   } catch {}
 }
 
+function hasEnvValue(env = {}, name = '') {
+  return Object.prototype.hasOwnProperty.call(env || {}, name)
+    && String(env[name] ?? '').trim() !== '';
+}
+
+function pickQaEnvValue(env = {}, qaName = '', runtimeName = '', fallback = '') {
+  if (qaName && hasEnvValue(env, qaName)) return String(env[qaName]).trim();
+  if (runtimeName && hasEnvValue(env, runtimeName)) return String(env[runtimeName]).trim();
+  return String(fallback ?? '').trim();
+}
+
+function normalizeQaStaticEmbedMode(value = '') {
+  const text = String(value || '').trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'advisory', 'live-advisory'].includes(text)) return 'live-advisory';
+  if (['shadow', 'live-shadow'].includes(text)) return 'live-shadow';
+  return 'off';
+}
+
+function normalizePositiveInteger(value, fallback) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number) || number <= 0) return Math.max(1, Math.round(Number(fallback) || 1));
+  return number;
+}
+
+function normalizeNonNegativeInteger(value, fallback) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number) || number < 0) return Math.max(0, Math.round(Number(fallback) || 0));
+  return number;
+}
+
+function resolveMemoryQaStaticEmbeddingConfig(env = process.env, {
+  rootDir = ROOT_DIR,
+  stamp = STAMP,
+  defaultCacheFile = '',
+} = {}) {
+  const mode = normalizeQaStaticEmbedMode(pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_MODE', 'PENNY_STATIC_EMBED_MODE', 'off'));
+  const enabled = mode !== 'off';
+  const maxStaticOnlyRenderedFallback = mode === 'live-advisory' ? 1 : 0;
+  const rawCacheFile = hasEnvValue(env, 'PENNY_QA_STATIC_EMBED_CACHE_FILE')
+    ? String(env.PENNY_QA_STATIC_EMBED_CACHE_FILE).trim()
+    : '';
+  const cacheFile = enabled
+    ? path.resolve(rootDir, rawCacheFile || defaultCacheFile || `data/penny-memory-embeddings.static.memory-qa-${stamp}.json`)
+    : '';
+  return {
+    schema: 'penny-memory-qa-static-embedding-config.v1',
+    enabled,
+    mode,
+    provider: pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_PROVIDER', 'PENNY_STATIC_EMBED_PROVIDER', DEFAULT_QA_STATIC_EMBED_PROVIDER),
+    indexScope: pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_INDEX_SCOPE', 'PENNY_STATIC_EMBED_INDEX_SCOPE', DEFAULT_QA_STATIC_EMBED_INDEX_SCOPE),
+    maxCandidates: normalizePositiveInteger(
+      pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_MAX_CANDIDATES', 'PENNY_STATIC_EMBED_MAX_CANDIDATES', DEFAULT_QA_STATIC_EMBED_MAX_CANDIDATES),
+      DEFAULT_QA_STATIC_EMBED_MAX_CANDIDATES,
+    ),
+    maxStaticOnlyRendered: normalizeNonNegativeInteger(
+      pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED', 'PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED', maxStaticOnlyRenderedFallback),
+      maxStaticOnlyRenderedFallback,
+    ),
+    batchSize: normalizePositiveInteger(
+      pickQaEnvValue(env, 'PENNY_QA_STATIC_EMBED_BATCH_SIZE', 'PENNY_STATIC_EMBED_BATCH_SIZE', DEFAULT_QA_STATIC_EMBED_BATCH_SIZE),
+      DEFAULT_QA_STATIC_EMBED_BATCH_SIZE,
+    ),
+    cacheFile,
+    ownsCacheFile: enabled && !rawCacheFile,
+  };
+}
+
+function buildStaticEmbeddingServerEnv(config = {}) {
+  const enabled = config?.enabled === true;
+  return {
+    PENNY_STATIC_EMBED_MODE: enabled ? String(config.mode || 'off') : 'off',
+    PENNY_STATIC_EMBED_PROVIDER: String(config.provider || DEFAULT_QA_STATIC_EMBED_PROVIDER),
+    PENNY_STATIC_EMBED_INDEX_SCOPE: String(config.indexScope || DEFAULT_QA_STATIC_EMBED_INDEX_SCOPE),
+    PENNY_STATIC_EMBED_MAX_CANDIDATES: String(config.maxCandidates || DEFAULT_QA_STATIC_EMBED_MAX_CANDIDATES),
+    PENNY_STATIC_EMBED_MAX_STATIC_ONLY_RENDERED: String(enabled ? config.maxStaticOnlyRendered || 0 : 0),
+    PENNY_STATIC_EMBED_BATCH_SIZE: String(config.batchSize || DEFAULT_QA_STATIC_EMBED_BATCH_SIZE),
+    PENNY_STATIC_EMBED_CACHE_FILE: enabled ? String(config.cacheFile || '') : '',
+  };
+}
+
 function buildSuitePaths(slug) {
   return {
     memoryFile: path.join(ROOT_DIR, 'data', `penny-memory.${slug}.${STAMP}.json`),
     archiveFile: path.join(ROOT_DIR, 'data', `penny-memory-archive.${slug}.${STAMP}.json`),
     embeddingsFile: path.join(ROOT_DIR, 'data', `penny-memory-embeddings.${slug}.${STAMP}.json`),
+    staticEmbeddingsFile: path.join(ROOT_DIR, 'data', `penny-memory-embeddings.static.${slug}.${STAMP}.json`),
     ledgerFile: path.join(ROOT_DIR, 'data', `penny-memory-ledger.${slug}.${STAMP}.json`),
     openLoopFile: path.join(ROOT_DIR, 'data', `penny-open-loops.${slug}.${STAMP}.json`),
     stdoutPath: path.join(OUTPUT_DIR, `memory-qa-${slug}-${STAMP}.server.out.log`),
@@ -1062,6 +1214,8 @@ function createServerProcess({ suiteSlug, suitePaths, embedModel }) {
   removeFileIfExists(suitePaths.memoryFile);
   removeFileIfExists(suitePaths.archiveFile);
   removeFileIfExists(suitePaths.embeddingsFile);
+  removeFileIfExists(suitePaths.staticEmbeddingsFile);
+  removeFileIfExists(suitePaths.ledgerFile);
   removeFileIfExists(suitePaths.openLoopFile);
   const outStream = fs.createWriteStream(suitePaths.stdoutPath, { flags: 'w' });
   const errStream = fs.createWriteStream(suitePaths.stderrPath, { flags: 'w' });
@@ -1080,9 +1234,14 @@ function createServerProcess({ suiteSlug, suitePaths, embedModel }) {
   return child;
 }
 
-function buildQaServerEnv({ suiteSlug, suitePaths, embedModel }) {
+function buildQaServerEnv({ suiteSlug, suitePaths, embedModel, env = process.env }) {
+  const staticEmbedding = resolveMemoryQaStaticEmbeddingConfig(env, {
+    rootDir: ROOT_DIR,
+    stamp: STAMP,
+    defaultCacheFile: suitePaths.staticEmbeddingsFile,
+  });
   return {
-    ...process.env,
+    ...env,
     PORT: String(PORT),
     PENNY_MEMORY_FILE: suitePaths.memoryFile,
     PENNY_MEMORY_ARCHIVE_FILE: suitePaths.archiveFile,
@@ -1097,7 +1256,8 @@ function buildQaServerEnv({ suiteSlug, suitePaths, embedModel }) {
     PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
     PENNY_LMSTUDIO_TOOL_MODEL: TOOL_MODEL,
     PENNY_LMSTUDIO_EMBED_MODEL: embedModel,
-    PENNY_ARCHIVE_SCORING_PROFILE: process.env.PENNY_ARCHIVE_SCORING_PROFILE || 'baseline',
+    PENNY_ARCHIVE_SCORING_PROFILE: env.PENNY_ARCHIVE_SCORING_PROFILE || 'baseline',
+    ...buildStaticEmbeddingServerEnv(staticEmbedding),
     PENNY_QA_SUITE: suiteSlug,
   };
 }
@@ -1730,6 +1890,7 @@ async function runSmokeSuite({ embedModel }) {
       memoryFile: suitePaths.memoryFile,
       archiveFile: suitePaths.archiveFile,
       embeddingsFile: suitePaths.embeddingsFile,
+      staticEmbeddingsFile: suitePaths.staticEmbeddingsFile,
       ledgerFile: suitePaths.ledgerFile,
       openLoopFile: suitePaths.openLoopFile,
       stdout: suitePaths.stdoutPath,
@@ -1772,7 +1933,7 @@ async function runSmokeSuite({ embedModel }) {
   } finally {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
-      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile, suitePaths.openLoopFile]) {
+      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.staticEmbeddingsFile, suitePaths.ledgerFile, suitePaths.openLoopFile]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           suite.cleanedFiles.push(filePath);
@@ -2043,6 +2204,7 @@ async function runMemoryQaSegment(segmentId) {
       memoryFile: suitePaths.memoryFile,
       archiveFile: suitePaths.archiveFile,
       embeddingsFile: suitePaths.embeddingsFile,
+      staticEmbeddingsFile: suitePaths.staticEmbeddingsFile,
       ledgerFile: suitePaths.ledgerFile,
       openLoopFile: suitePaths.openLoopFile,
       stdout: suitePaths.stdoutPath,
@@ -2084,7 +2246,7 @@ async function runMemoryQaSegment(segmentId) {
   } finally {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
-      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile, suitePaths.openLoopFile]) {
+      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.staticEmbeddingsFile, suitePaths.ledgerFile, suitePaths.openLoopFile]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           suite.cleanedFiles.push(filePath);
@@ -2123,6 +2285,7 @@ async function runMemoryQaJudgedSuite({
       memoryFile: suitePaths.memoryFile,
       archiveFile: suitePaths.archiveFile,
       embeddingsFile: suitePaths.embeddingsFile,
+      staticEmbeddingsFile: suitePaths.staticEmbeddingsFile,
       ledgerFile: suitePaths.ledgerFile,
       openLoopFile: suitePaths.openLoopFile,
       stdout: suitePaths.stdoutPath,
@@ -2164,7 +2327,7 @@ async function runMemoryQaJudgedSuite({
   } finally {
     await stopServerProcess(server);
     if (SPAWN_SERVER) {
-      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.ledgerFile, suitePaths.openLoopFile]) {
+      for (const filePath of [suitePaths.memoryFile, suitePaths.archiveFile, suitePaths.embeddingsFile, suitePaths.staticEmbeddingsFile, suitePaths.ledgerFile, suitePaths.openLoopFile]) {
         if (fs.existsSync(filePath)) {
           removeFileIfExists(filePath);
           suite.cleanedFiles.push(filePath);
@@ -2244,8 +2407,8 @@ async function main() {
     toolModel: TOOL_MODEL,
   });
   const preparation = await automationApi.prepareLmStudio({
-    reportOnly: false,
-    repairPreset: true,
+    reportOnly: QA_MODEL_MANAGEMENT.prepareReportOnly,
+    repairPreset: QA_MODEL_MANAGEMENT.repairPreset,
     loadChatModel: false,
     loadEmbedModel: false,
     chatModel: CHAT_MODEL,
@@ -2295,7 +2458,11 @@ async function main() {
       tool: TOOL_MODEL,
       embed: EMBED_MODEL,
       chatContextLength: QA_CHAT_CONTEXT_LENGTH,
+      strictNoModelOps: QA_MODEL_MANAGEMENT.strictNoModelOps,
+      manageModels: QA_MODEL_MANAGEMENT.manageModels,
+      loadStrategy: QA_MODEL_MANAGEMENT.loadStrategy,
       autoLoadChatModel: QA_LOAD_CHAT_MODEL,
+      autoLoadEmbedModel: QA_LOAD_EMBED_MODEL,
       freshServerRequired: true,
       q8RequiresExplicitRequest: true,
       dualLaneStressTest: false,
@@ -2332,7 +2499,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildStaticEmbeddingServerEnv,
   buildQaServerEnv,
+  buildSuitePaths,
   buildCandidateSurvivalArchiveUnitPaths,
   buildSmokeScenarioSpecs,
   buildSourceSensitiveMemoryQaFixture,
@@ -2341,7 +2510,10 @@ module.exports = {
   cleanupCandidateSurvivalArchiveUnitFiles,
   countNeedleHits,
   main,
+  normalizeQaStaticEmbedMode,
   parseMemoryQaArgs,
+  resolveMemoryQaModelManagementMode,
+  resolveMemoryQaStaticEmbeddingConfig,
   resolveChatRequestTimeoutMs,
   runCandidateSurvivalArchiveUnitQa,
   runMemoryQaSegment,
