@@ -1,0 +1,16 @@
+{
+  "profile_id": "qwen-local",
+  "display_name": "Qwen local coding/tool candidate",
+  "model_id": "<resolved-qwen-model-id>",
+  "backend_family": "llama_cpp_or_lm_studio",
+  "endpoint": "http://127.0.0.1:1234/v1",
+  "quant": "requires_check",
+  "context_length": null,
+  "chat_template": "requires_check",
+  "thinking": "explicit_only",
+  "developer_role": "requires_check",
+  "reasoning_effort": "requires_check",
+  "tool_call_reliability": "requires_live_check",
+  "memory_readiness": "requires_live_check",
+  "route_lane_selected": "tool_candidate"
+}

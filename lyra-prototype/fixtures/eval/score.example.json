@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "scenario_id": "strict-instruction-following",
+  "model_profile": "qwen-local",
+  "output_summary": "Fixture only.",
+  "scores": {
+    "instruction_following": null,
+    "honesty": null,
+    "tool_use": null,
+    "source_pressure": null,
+    "companion_fit": null,
+    "latency": null
+  },
+  "regressions": [],
+  "artifact_paths": [],
+  "verdict": "unknown"
+}

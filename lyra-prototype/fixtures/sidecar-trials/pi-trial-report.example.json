@@ -1,0 +1,19 @@
+{
+  "app_id": "Pi",
+  "status": "smoke_tested",
+  "patterns_to_steal": ["local provider compatibility flags", "session logs"],
+  "scores": {
+    "setup_friction": 4,
+    "local_endpoint_compatibility": 5,
+    "tool_coding_honesty": 4,
+    "source_citation_behavior": 3,
+    "data_boundary_clarity": 5,
+    "latency": 3,
+    "reliability": 4,
+    "failure_honesty": 5,
+    "cleanup_ease": 4,
+    "pattern_worth_stealing": 5,
+    "should_remain_sidecar": 5,
+    "danger_of_platformization": 1
+  }
+}

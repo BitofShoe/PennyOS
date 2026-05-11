@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "query": "fixture public topic",
+  "generated_at": "2026-05-11T12:00:00.000Z",
+  "sidecar": "SearXNG",
+  "sources": [
+    {
+      "title": "Fixture source",
+      "url": "https://example.test/source",
+      "retrieved_at": "2026-05-11T12:00:00.000Z",
+      "source_type": "web",
+      "confidence": "unknown"
+    }
+  ],
+  "summary": "Fixture summary only.",
+  "claims": [
+    {
+      "claim": "Fixture claim requires review.",
+      "source_indexes": [0],
+      "confidence": "unknown",
+      "verified": false
+    }
+  ],
+  "unknowns": [],
+  "memory_write": false,
+  "requires_review": true
+}

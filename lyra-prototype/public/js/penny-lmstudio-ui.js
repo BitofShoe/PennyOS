@@ -39,7 +39,7 @@ function tokenizeModelPickId(value = '') {
 }
 
 function isQuantizationPickToken(token = '') {
-  return /^(q\d+[a-z0-9]*|fp\d+|bf\d+|f\d+|gguf|mlx|int\d+)$/.test(String(token || '').toLowerCase());
+  return /^(ud|xs|s|m|l|xl|q\d+[a-z0-9]*|fp\d+|bf\d+|f\d+|gguf|mlx|int\d+|qat)$/.test(String(token || '').toLowerCase());
 }
 
 function modelPickTokensEquivalent(leftTokens = [], rightTokens = []) {

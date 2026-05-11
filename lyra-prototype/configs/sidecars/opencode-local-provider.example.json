@@ -1,0 +1,17 @@
+{
+  "note": "Example only. Verify current OpenCode config schema before copying into a live config.",
+  "provider": "local-openai-compatible",
+  "baseURL": "http://127.0.0.1:1234/v1",
+  "model": "<resolved-qwen-model-id>",
+  "compatibility": {
+    "developerRole": false,
+    "reasoningEffort": false,
+    "toolCalls": "requires_check",
+    "qwenThinkingControls": "explicit_only"
+  },
+  "guardrails": {
+    "pennyMemory": "forbidden",
+    "privateRuntimeArtifacts": "forbidden",
+    "workspace": "disposable_repo_or_throwaway_worktree"
+  }
+}

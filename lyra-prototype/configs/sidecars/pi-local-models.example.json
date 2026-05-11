@@ -1,0 +1,27 @@
+{
+  "note": "Example only. Review before copying to ~/.pi/agent/models.json.",
+  "providers": {
+    "lmstudio-local": {
+      "baseUrl": "http://127.0.0.1:1234/v1",
+      "api": "openai-completions",
+      "apiKey": "lm-studio-local-no-auth",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "thinkingFormat": "qwen-chat-template"
+      },
+      "models": [
+        {
+          "id": "<resolved-qwen-model-id>",
+          "name": "qwen-local-coding",
+          "reasoning": false,
+          "thinkingLevelMap": {},
+          "input": ["text"],
+          "contextWindow": 128000,
+          "maxTokens": 4096,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

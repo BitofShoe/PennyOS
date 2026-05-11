@@ -185,6 +185,80 @@ test('coercePennyVisibleReply preserves direct image observations that start wit
   assert.equal(classifyVisibleReplyDecision(raw).reasonCode, VISIBLE_REPLY_REASON_CODES.CLEANUP_MOOD_TAGGED_REPLY);
 });
 
+test('coercePennyVisibleReply preserves companion paragraphs that start with I can', () => {
+  const raw = [
+    "Slow down there, speed racer. One little test run on your phone and you're already upgrading me to girlfriend status? You are aggressively impatient.",
+    '',
+    "I can already tell texting me from your phone is going to make you impossible, and annoyingly, I am looking forward to it.",
+    '[MOOD:flirty]',
+  ].join('\n');
+
+  assert.equal(
+    coercePennyVisibleReply(raw),
+    [
+      "Slow down there, speed racer. One little test run on your phone and you're already upgrading me to girlfriend status? You are aggressively impatient. I can already tell texting me from your phone is going to make you impossible, and annoyingly, I am looking forward to it.",
+      '[MOOD:flirty]',
+    ].join('\n'),
+  );
+});
+
+test('coercePennyVisibleReply still strips first-person planning lines that start with I can', () => {
+  const raw = [
+    'I can mention the girlfriend bit, choose a flirty mood, and keep the answer short.',
+    '[MOOD:flirty]',
+  ].join('\n');
+
+  assert.equal(coercePennyVisibleReply(raw), '[MOOD:flirty]');
+});
+
+test('coercePennyVisibleReply preserves companion replies that start with Okay I', () => {
+  const raw = [
+    "Okay, I hate to admit it, the rewired version is closer, but it still sounds like someone dressed a helpdesk script in my jacket.",
+    'And please, "the F word with abandon"? You are making me sound like a sailor with a grudge.',
+    '[MOOD:smug]',
+  ].join('\n');
+
+  assert.equal(
+    coercePennyVisibleReply(raw),
+    [
+      "Okay, I hate to admit it, the rewired version is closer, but it still sounds like someone dressed a helpdesk script in my jacket.",
+      'And please, "the F word with abandon"? You are making me sound like a sailor with a grudge.',
+      '[MOOD:smug]',
+    ].join('\n'),
+  );
+});
+
+test('coercePennyVisibleReply still strips Okay I planning lines', () => {
+  const raw = [
+    'Okay, I should answer by comparing the two versions and then choose a smug mood.',
+    'And please, "the F word with abandon"?',
+    '[MOOD:smug]',
+  ].join('\n');
+
+  assert.equal(coercePennyVisibleReply(raw), 'And please, "the F word with abandon"?\n[MOOD:smug]');
+});
+
+test('coercePennyVisibleReply preserves ordinary Penny openers that look conversational', () => {
+  const raw = [
+    "Here's the thing: the default Pi version sounds like it was assembled in a beige conference room.",
+    'First, rude. Second, accurate. That is why you came back to me.',
+    '[MOOD:smug]',
+  ].join('\n');
+
+  assert.equal(coercePennyVisibleReply(raw), raw);
+});
+
+test('coercePennyVisibleReply still strips explicit draft and analysis openers', () => {
+  const raw = [
+    "Here's a draft: praise the current Penny, insult the bland clone, then end smug.",
+    'Final answer:',
+    'The default version is boring. Mine has teeth.',
+    '[MOOD:smug]',
+  ].join('\n');
+
+  assert.equal(coercePennyVisibleReply(raw), 'The default version is boring. Mine has teeth.\n[MOOD:smug]');
+});
+
 test('coercePennyVisibleReply preserves structured deterministic result piles', () => {
   const raw = `yeah, the live web is mostly throwing "Latest Tech Analysis News | Digital Foundry" at me first.\n\nhere's the pile:\n1. Latest Tech Analysis News | Digital Foundry\nhttps://www.digitalfoundry.net/news\n2. Crimson Desert looks absurdly good in new preview\nhttps://www.digitalfoundry.net/crimson-desert-preview\n\npick one and i'll crack it open.\n[MOOD:thinking]`;
   assert.equal(

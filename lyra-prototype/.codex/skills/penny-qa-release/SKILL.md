@@ -1,6 +1,6 @@
 ---
 name: penny-qa-release
-description: Use when running or interpreting Penny's release-style QA, readiness checks, or local eval artifacts. Prefer this skill for test ordering, artifact reading, lane-aware QA, and avoiding machine-overload mistakes.
+description: Use when running or interpreting Penny's release-style QA, readiness checks, local eval artifacts, or llama.cpp/LM Studio model QA on Windows/WSL. Prefer this skill for test ordering, artifact reading, lane-aware QA, runtime truth checks, and avoiding machine-overload mistakes.
 compatibility:
   os:
     - Windows
@@ -10,6 +10,7 @@ compatibility:
   npm: ">=11 <12"
   services:
     - LM Studio local API
+    - llama.cpp OpenAI-compatible API
   models:
     chat:
       - unsloth/gemma-4-31b-it@q6_k
@@ -32,14 +33,25 @@ Use this skill for Penny QA runs and artifact interpretation, not for generic re
 - you need to interpret a Penny voice/probe/model artifact
 - you are preparing a branch for user testing
 - you want to avoid rerunning heavy local evals in a dumb order
+- you are validating a llama.cpp-hosted Penny model from WSL/Codex
 
 ## Default Workflow
 
 1. Start with `npm test`.
-2. Run `npm run preflight` before any heavy LM Studio QA.
-3. Run `npm run qa:voice-redo` for chat-lane companion quality.
-4. Run `npm run eval:probes` for tool-lane sanity.
-5. Run `npm run eval:models` only when comparing chat-model behavior.
+2. Run `npm run preflight` before any heavy local-model QA, but treat it as one signal, not final truth.
+3. Confirm the actual runtime from Windows PowerShell when llama.cpp or LM Studio may be involved.
+4. Run `npm run qa:voice-redo` for chat-lane companion quality.
+5. Run `npm run eval:probes` for tool-lane sanity.
+6. Run `npm run eval:models` only when comparing chat-model behavior.
+
+## Local Runtime QA Trap
+
+- Label runtime-sensitive checks as Windows/PowerShell, WSL/static, or WSL-via-Windows-gateway in the handoff.
+- Do not treat WSL `127.0.0.1` failures as proof that a Windows-hosted llama.cpp or LM Studio API is down. Probe from PowerShell or use the Windows host/gateway address when needed.
+- For llama.cpp router checks, inspect the router preset and process command line before assuming which model is selectable or loaded.
+- When the user asks to preserve loaded-model state, restart Penny with `PENNY_SKIP_LMSTUDIO_PREP=1` and avoid model prep/unload loops.
+- When the user explicitly grants model-management permission up front, such as goal mode or "it is okay to load/unload models for this task", agents may load, unload, or restart the local runtime as needed for that QA. Keep it scoped to the requested model/task, serialize heavy runs, and report the exact runtime actions taken.
+- Heavy model QA should be one harness at a time. If the target is only one model, do not quietly rerun or load comparison models.
 
 ## Task Fit
 

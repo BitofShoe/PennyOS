@@ -97,7 +97,7 @@ function createLmStudioStatusApi({
   }
 
   function isQuantizationToken(token = '') {
-    return /^(q\d+[a-z0-9]*|fp\d+|bf\d+|f\d+|gguf|mlx|int\d+|qat)$/.test(String(token || '').toLowerCase());
+    return /^(ud|xs|s|m|l|xl|q\d+[a-z0-9]*|fp\d+|bf\d+|f\d+|gguf|mlx|int\d+|qat)$/.test(String(token || '').toLowerCase());
   }
 
   function modelTokenArraysEquivalent(leftTokens = [], rightTokens = []) {
@@ -354,6 +354,7 @@ function createLmStudioStatusApi({
       }
 
       const runtimeModels = normalizeLmStudioModelEntries(parsed);
+      const runtimeModelIds = runtimeModels.map(item => item.id);
       const loadedModelEntries = loadedModels.map(id => ({ id }));
       const runtimeLaneModels = runtimeModels.filter(item => !isEmbeddingLikeModelId(item?.id));
       const loadedLaneModelEntries = loadedModelEntries.filter(item => !isEmbeddingLikeModelId(item?.id));
@@ -405,10 +406,8 @@ function createLmStudioStatusApi({
         toolCandidateModels,
         availableModels,
         loadedModels,
-        nativeAvailableModels: runtimeModels.map(item => item.id),
-        installedModels: loadedChatCandidates.length
-          ? mergeUniqueModelIds(availableModels, installedModels)
-          : mergeUniqueModelIds(availableModels, installedModels, runtimeModels.map(item => item.id)),
+        nativeAvailableModels: runtimeModelIds,
+        installedModels: mergeUniqueModelIds(availableModels, installedModels, runtimeModelIds),
         desktopLocalServiceEnabled: settings?.enableLocalService ?? null,
         hint: resolvedChatModel ? '' : 'LM Studio is reachable, but no usable chat model is currently loaded.',
         error: '',

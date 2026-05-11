@@ -230,3 +230,31 @@ test('LM Studio status keeps embedding installs in the installed inventory', asy
   assert.ok(status.installedModels.includes('google/gemma-4-e4b@q8_0'));
   assert.ok(status.installedModels.includes('text-embedding-nomic-embed-text-v1.5'));
 });
+
+test('LM Studio status keeps local OpenAI runtime model ids visible for the web picker', async () => {
+  const api = makeStatusApi({
+    models: [
+      'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl',
+      'google/embedding-gemma-300m',
+    ],
+    loadedModels: ['unsloth/gemma-4-31b-it'],
+  });
+
+  const status = await api.getLmStudioConnectionStatus({ force: true });
+
+  assert.equal(status.resolvedChatModel, 'unsloth/gemma-4-31b-it');
+  assert.ok(status.installedModels.includes('unsloth/qwen3.6-35b-a3b@ud-q4_k_xl'));
+  assert.ok(status.installedModels.includes('google/embedding-gemma-300m'));
+});
+
+test('LM Studio status treats UD quant suffixes as aliases for the same model family', () => {
+  const api = makeStatusApi();
+
+  assert.equal(
+    api.modelsLookEquivalent(
+      'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl',
+      'qwen3.6-35b-a3b',
+    ),
+    true,
+  );
+});

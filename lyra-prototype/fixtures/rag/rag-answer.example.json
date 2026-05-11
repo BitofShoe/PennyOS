@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "workspace": "fixture",
+  "question": "What does the fixture document say?",
+  "answer": "Fixture answer only.",
+  "document_citations": [],
+  "document_says": ["The fixture document says this."],
+  "model_infers": ["The model infers this."],
+  "memory_promotion_candidate": false,
+  "memory_write": false,
+  "requires_review": true
+}

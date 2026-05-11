@@ -1,0 +1,16 @@
+{
+  "profile_id": "gemma-local",
+  "display_name": "Gemma local companion candidate",
+  "model_id": "<resolved-gemma-model-id>",
+  "backend_family": "lm_studio_or_llama_cpp",
+  "endpoint": "http://127.0.0.1:1234/v1",
+  "quant": "requires_check",
+  "context_length": null,
+  "chat_template": "requires_check",
+  "thinking": "off",
+  "developer_role": "requires_check",
+  "reasoning_effort": "requires_check",
+  "tool_call_reliability": "requires_live_check",
+  "memory_readiness": "requires_live_check",
+  "route_lane_selected": "chat_candidate"
+}

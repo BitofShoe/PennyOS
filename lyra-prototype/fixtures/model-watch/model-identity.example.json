@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-11T12:00:00.000Z",
+  "backend": "llama_cpp",
+  "endpoint": "http://127.0.0.1:8080/v1",
+  "loaded_model_id": "<resolved-model-id>",
+  "resolved_model_id": "<resolved-model-id>",
+  "quant": "requires_check",
+  "context_length": null,
+  "chat_template": "unknown",
+  "supports_chat_completions": "unknown",
+  "supports_tool_calls": "unknown",
+  "supports_developer_role": "unknown",
+  "supports_reasoning_effort": "unknown",
+  "qwen_thinking": "unknown",
+  "vision": "unknown",
+  "default_model_changed": false,
+  "memory_changed": false,
+  "recommendations": []
+}

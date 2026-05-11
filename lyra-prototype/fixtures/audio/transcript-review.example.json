@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "sidecar": "faster-whisper-server",
+  "audio_source": "fixture",
+  "ambient_capture": false,
+  "transcript": "fixture transcript",
+  "confidence": "unknown",
+  "reviewed": false,
+  "memory_write": false,
+  "tts_output_generated": false,
+  "latency_ms": null,
+  "quality_notes": [],
+  "requires_review": true
+}

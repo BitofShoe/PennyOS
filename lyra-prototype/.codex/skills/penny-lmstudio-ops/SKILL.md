@@ -1,6 +1,6 @@
 ---
 name: penny-lmstudio-ops
-description: Use when working on Penny's LM Studio setup, local model readiness, preset wiring, lane fallback diagnosis, startup preparation, or preflight checks. Prefer this skill before changing LM Studio helper scripts or interpreting local readiness problems.
+description: Use when working on Penny's LM Studio or llama.cpp setup, local model readiness, preset wiring, lane fallback diagnosis, startup preparation, Windows/WSL/PowerShell runtime checks, or preflight checks. Prefer this skill before changing local model helper scripts or interpreting readiness problems.
 compatibility:
   os:
     - Windows
@@ -10,6 +10,7 @@ compatibility:
   npm: ">=11 <12"
   services:
     - LM Studio local API
+    - llama.cpp OpenAI-compatible API
   models:
     chat:
       - unsloth/gemma-4-31b-it@q6_k
@@ -24,7 +25,7 @@ allowed-tools:
 
 # Penny LM Studio Ops
 
-Use this skill for Penny's local LM Studio workflow, not for general model advice.
+Use this skill for Penny's local LM Studio and llama.cpp workflow, not for general model advice.
 
 ## Use It When
 
@@ -32,6 +33,7 @@ Use this skill for Penny's local LM Studio workflow, not for general model advic
 - `@local:penny` preset wiring needs inspection or repair
 - Penny is falling back between chat/tool/embed lanes and you need the real reason
 - you need to run the repo's LM Studio helper scripts in the right order
+- llama.cpp router presets, model dropdowns, or Windows/WSL/PowerShell runtime truth are involved
 
 ## Default Workflow
 
@@ -47,6 +49,16 @@ Use this skill for Penny's local LM Studio workflow, not for general model advic
 - Do not trust WSL `127.0.0.1:1234` as proof that the Windows LM Studio API is down. Verify from Windows with a direct `/v1/models` probe or `npm run preflight`.
 - When launching live QA from a PowerShell wrapper under WSL, pin Windows Node explicitly if PATH is mixed, for example `C:\Program Files\nodejs\node.exe`; otherwise PowerShell can pick up a non-Windows `node` and fail with `%1 is not a valid Win32 application`.
 - The `lms` CLI may exist at `C:\Users\malac\.lmstudio\bin\lms.exe` even when WSL cannot resolve `lms` from PATH.
+
+## llama.cpp Runtime Map
+
+- Penny may be pointed at a Windows llama.cpp OpenAI-compatible API through `PENNY_LMSTUDIO_BASE`, even though several files still use `lmstudio` naming.
+- The local router preset currently lives under `C:\Users\malac\.openclaw\tools\llama.cpp\b9025\penny-router.ini`; check it before assuming LM Studio owns the loaded-model truth.
+- Use PowerShell for live llama.cpp process checks, for example `Get-CimInstance Win32_Process | Where-Object { $_.Name -eq "llama-server.exe" }`, because WSL process and loopback checks can be misleading.
+- If the router is not running, Penny's dropdown can still show installed/fallback model ids, but exact `/v1/models` aliases from the router appear only after the router starts with the updated preset.
+- Default to preserving model state: do not auto-start, stop, unload, or reload llama.cpp or LM Studio models unless the user asked for live runtime changes. Report the current state first.
+- Explicit permission can unlock scoped model management. If the user says goal mode is allowed, says model loading/unloading is okay before the task, or names a model-management goal, agents may start/stop/reload the needed local runtime within that task and should report exactly what they changed.
+- A low-but-nonzero `nvidia-smi` VRAM reading with no compute apps can be driver/display baseline, not a hidden model. Confirm with `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits`.
 
 ## Task Fit
 
@@ -66,7 +78,7 @@ Use this skill for Penny's local LM Studio workflow, not for general model advic
 ## Guardrails
 
 - Do not add per-turn model hot-swapping.
-- Do not run broad unload/reload loops unless the task explicitly asks for them.
+- Do not run broad unload/reload loops unless the task explicitly asks for them or the user granted scoped model-management permission for the task.
 - Treat Q6 `unsloth/gemma-4-31b-it@q6_k` as the practical heavy-QA chat default on this machine.
 - Treat `google/gemma-4-e4b` as the tool lane target.
 - Avoid treating Q8-class chat models as implicit test defaults.

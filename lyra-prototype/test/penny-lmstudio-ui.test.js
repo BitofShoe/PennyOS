@@ -66,3 +66,14 @@ test('updateBackendStatusUi keeps offline cold states explicit', async () => {
   assert.equal(els.backendModel.textContent, 'not detected');
   assert.equal(els.backendToolModel.textContent, 'google/gemma-4-e4b');
 });
+
+test('findBestModelMatch treats UD quant suffixes as model-family aliases', async () => {
+  const { findBestModelMatch } = await helpersPromise;
+
+  const match = findBestModelMatch(
+    ['unsloth/qwen3.6-35b-a3b@ud-q4_k_xl'],
+    'qwen3.6-35b-a3b',
+  );
+
+  assert.equal(match, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+});

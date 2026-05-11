@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "source": "fixture",
+  "generated_at": "2026-05-11T12:00:00.000Z",
+  "read_only": true,
+  "home_control_action": false,
+  "camera_history_persisted": false,
+  "summary": "Fixture home/camera event summary.",
+  "events": [],
+  "source_receipts": [],
+  "privacy_warnings": [],
+  "memory_write": false,
+  "requires_user_review": true
+}

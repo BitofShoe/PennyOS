@@ -267,6 +267,21 @@ function createVisibleReplyApi({
       .trim();
   }
 
+  function isMetaFirstPersonCanLine(line = '') {
+    const x = normalizeMetaLead(line);
+    return /^I can\s+(?:answer|respond|reply|say|mention|phrase|provide|summarize|explain|include|use|write|start(?:\s+by)?|choose|stick)\b/i.test(x)
+      || /^I can\s+make\s+sure\b/i.test(x)
+      || /^I can see\s+(?:the user|that the user|from (?:the )?prompt|in (?:the )?prompt|why (?:the )?user)\b/i.test(x);
+  }
+
+  function isMetaOkayFirstPersonLine(line = '') {
+    const x = normalizeMetaLead(line);
+    if (!/^Okay,\s+I\b/i.test(x)) return false;
+    const withoutOkay = x.replace(/^Okay,\s+/i, '');
+    return /^(?:I need to|I should|I will|I must|I have to|I want to|I'm going to)\b/i.test(withoutOkay)
+      || isMetaFirstPersonCanLine(withoutOkay);
+  }
+
   function isMetaThinkingLine(line) {
     const raw = String(line || '').trim();
     const x = normalizeMetaLead(raw);
@@ -284,9 +299,13 @@ function createVisibleReplyApi({
     if (/^We should be careful:\s*must not\b/i.test(x)) return true;
     if (/^We must end with exactly one mood tag\b/i.test(x)) return true;
     if (/^That'?s \d+ sentences\?\s*Actually\b/i.test(x)) return true;
+    if (/^Here'?s\s+(?:a\s+|the\s+)?(?:draft|analysis|answer|response|reply|plan|thinking process|breakdown)\b/i.test(x)) return true;
+    if (/^First,\s+(?:analy[sz]e|determine|identify|check|draft|we need|i need|the user)\b/i.test(x)) return true;
     if (/\b(?:that'?s a paraphrase|did they say something like|possibly the phrase is|need to recall|allowed moods are specific list)\b/i.test(x)) return true;
     if (/\b(?:but we want something like|we could phrase(?: it)? as)\b/i.test(x)) return true;
-    return /^(I need to|I'll |I should|Let me |First,|The user |Okay, I|Since the |Based on|Looking at|I will |My goal|According to|Here's |I must|We need|I can |I have to|To respond|I want to|I'm going to|Note:|Analysis:|Actually, let's make it more)/i.test(x);
+    if (isMetaFirstPersonCanLine(x)) return true;
+    if (isMetaOkayFirstPersonLine(x)) return true;
+    return /^(I need to|I'll |I should|Let me |The user |Since the |Based on|Looking at|I will |My goal|According to|I must|We need|I have to|To respond|I want to|I'm going to|Note:|Analysis:|Actually, let's make it more)/i.test(x);
   }
 
   function stripLeadingMetaLines(block = '') {
