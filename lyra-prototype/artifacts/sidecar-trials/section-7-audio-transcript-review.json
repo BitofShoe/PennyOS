@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "artifact_schema": "penny-sidecar-section-7-audio.v1",
+  "section_id": 7,
+  "section_title": "Audio/voice sidecars",
+  "primary_app": "Speaches live TTS fixture",
+  "candidate_apps": [
+    "Speaches",
+    "openedai-speech",
+    "faster-whisper-server",
+    "Parler"
+  ],
+  "status": "LIVE_VERIFIED",
+  "generated_at": "2026-05-12T08:49:15.498Z",
+  "live_probe": {
+    "speaches": {
+      "ran": true,
+      "found": true,
+      "details": [
+        {
+          "url": "http://127.0.0.1:18000/v1/models",
+          "checked": true,
+          "wsl": {
+            "ok": true,
+            "sample": "{\"data\":[{\"id\":\"speaches-ai/Kokoro-82M-v1.0-ONNX\",\"created\":1778575596,\"object\":\"model\",\"owned_by\":\"speaches-ai\",\"language\":[\"multilingual\"],\"task\":\"text-to-speech\",\"sample_rate\":24000,\"voices\":[{\"name\":\"af_heart\",\"language\":\"en-us\",\"gender"
+          },
+          "windows": {
+            "ok": true,
+            "status_code": "200"
+          }
+        },
+        {
+          "url": "http://127.0.0.1:18000/health",
+          "checked": true,
+          "wsl": {
+            "ok": true,
+            "sample": "OK"
+          },
+          "windows": {
+            "ok": true,
+            "status_code": "200"
+          }
+        },
+        {
+          "url": "http://127.0.0.1:8000/v1/models",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:8000/v1/models"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:8000/v1/models'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        },
+        {
+          "url": "http://127.0.0.1:8000/health",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:8000/health"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:8000/health'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        }
+      ]
+    },
+    "speaches_tts_live_trial": {
+      "ran": true,
+      "found": true,
+      "base_url": "http://127.0.0.1:18000",
+      "model_id": "speaches-ai/Kokoro-82M-v1.0-ONNX",
+      "voice": "af_heart",
+      "registry_checked": true,
+      "model_download_requested": true,
+      "model_available": true,
+      "tts_request_ran": true,
+      "audio_bytes_generated": 244780,
+      "response_format": "wav",
+      "microphone_access": false,
+      "recording_started": false,
+      "ambient_capture": false,
+      "input_audio_uploaded": false,
+      "audio_output_persisted": false,
+      "private_audio_used": false,
+      "penny_memory_imported": false,
+      "memory_write": false,
+      "errors": [],
+      "content_type": "audio/wav",
+      "ok": true
+    },
+    "openedai_speech": {
+      "ran": true,
+      "found": false,
+      "details": [
+        {
+          "url": "http://127.0.0.1:5050/v1/models",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:5050/v1/models"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:5050/v1/models'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        }
+      ]
+    },
+    "faster_whisper": {
+      "ran": true,
+      "found": false,
+      "details": [
+        {
+          "url": "http://127.0.0.1:9000/health",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:9000/health"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:9000/health'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        },
+        {
+          "url": "http://127.0.0.1:9000/v1/models",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:9000/v1/models"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:9000/v1/models'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        }
+      ]
+    },
+    "parler": {
+      "ran": true,
+      "found": false,
+      "details": [
+        {
+          "url": "http://127.0.0.1:8008/health",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:8008/health"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:8008/health'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        }
+      ]
+    }
+  },
+  "transcript_review": {
+    "audio_source": "fixture",
+    "ambient_capture": false,
+    "transcript": "This is a fixture transcript for explicit review. It was not recorded from a microphone.",
+    "confidence": "medium",
+    "reviewed": false,
+    "memory_write": false,
+    "tts_output_generated": true,
+    "latency_ms": null,
+    "quality_notes": [
+      "fixture text only",
+      "no microphone access attempted",
+      "review required before durable use"
+    ],
+    "requires_review": true
+  },
+  "patterns_to_steal": [
+    "local voice endpoint abstraction",
+    "push-to-talk or explicit recording",
+    "transcript review",
+    "voice as optional interface"
+  ],
+  "microphone_access": false,
+  "recording_started": false,
+  "ambient_capture": false,
+  "private_audio_used": false,
+  "penny_memory_imported": false,
+  "memory_write": false,
+  "runtime_changed": false,
+  "default_model_changed": false,
+  "prompttruth_changed": false,
+  "recommended_next_live_command": "SPEACHES_BASE_URL=http://127.0.0.1:18000 npm run penny:sidecar:audio -- --fixture --live-probe --speaches-tts-trial --speaches-base-url http://127.0.0.1:18000"
+}

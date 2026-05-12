@@ -1,0 +1,15 @@
+use_default_settings: true
+
+general:
+  instance_name: "Penny disposable SearXNG JSON trial"
+  debug: false
+
+search:
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "penny-local-sidecar-json-trial"
+  limiter: false
+  image_proxy: false

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "entities": [
+    {
+      "entity_id": "sensor.front_door_contact",
+      "state": "closed"
+    },
+    {
+      "entity_id": "light.porch",
+      "state": "off"
+    }
+  ]
+}

@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "artifact_schema": "penny-sidecar-section-4-workflow.v1",
+  "section_id": 4,
+  "section_title": "Workflow automation sidecars",
+  "primary_app": "n8n-style toy flow",
+  "candidate_apps": [
+    "n8n",
+    "Windmill",
+    "Activepieces"
+  ],
+  "status": "LIVE_VERIFIED",
+  "generated_at": "2026-05-12T08:05:36.374Z",
+  "live_probe": {
+    "n8n": {
+      "ran": true,
+      "found": true,
+      "details": [
+        {
+          "url": "http://127.0.0.1:15678/healthz",
+          "checked": true,
+          "wsl": {
+            "ok": true,
+            "sample": "{\"status\":\"ok\"}"
+          },
+          "windows": {
+            "ok": true,
+            "status_code": "200"
+          }
+        },
+        {
+          "url": "http://127.0.0.1:15678/rest/settings",
+          "checked": true,
+          "wsl": {
+            "ok": true,
+            "sample": "{\"data\":{\"settingsMode\":\"public\",\"defaultLocale\":\"en\",\"userManagement\":{\"authenticationMethod\":\"email\",\"showSetupOnFirstLoad\":true,\"smtpSetup\":false,\"passwordMinLength\":8},\"sso\":{\"saml\":{\"loginEnabled\":false},\"ldap\":{\"loginEnabled\":false,\"l"
+          },
+          "windows": {
+            "ok": true,
+            "status_code": "200"
+          }
+        },
+        {
+          "url": "http://127.0.0.1:5678/healthz",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:5678/healthz"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:5678/healthz'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        },
+        {
+          "url": "http://127.0.0.1:5678/rest/settings",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:5678/rest/settings"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:5678/rest/settings'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        }
+      ]
+    },
+    "n8n_live_workflow_trial": {
+      "ran": true,
+      "found": true,
+      "mode": "docker_cli_import",
+      "container_name": "penny-n8n-workflow-trial",
+      "workflow_id": "penny-sidecar-local-toy-flow",
+      "workflow_name": "Penny Sidecar Local Toy Flow",
+      "workflow_object_created": true,
+      "workflow_imported": true,
+      "workflow_export_checked": true,
+      "local_only": true,
+      "dry_run": false,
+      "credentials_used": false,
+      "webhook_used": false,
+      "schedule_used": false,
+      "email_used": false,
+      "cloud_used": false,
+      "public_action": false,
+      "home_or_system_action": false,
+      "memory_write": false,
+      "errors": [],
+      "ok": true
+    },
+    "windmill": {
+      "ran": true,
+      "found": false,
+      "details": [
+        {
+          "url": "http://127.0.0.1:8000/api/version",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:8000/api/version"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:8000/api/version'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        }
+      ]
+    },
+    "activepieces": {
+      "ran": true,
+      "found": false,
+      "details": [
+        {
+          "url": "http://127.0.0.1:8080/api/v1/flags",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:8080/api/v1/flags"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:8080/api/v1/flags'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        }
+      ]
+    }
+  },
+  "toy_flow": {
+    "dry_run": true,
+    "local_only": true,
+    "input_kind": "fixture_text_payload",
+    "output_kind": "structured_summary",
+    "email_used": false,
+    "webhook_used": false,
+    "cloud_used": false,
+    "public_action": false,
+    "home_or_system_action": false,
+    "cron_or_schedule": false,
+    "side_effect_labels": [
+      "stdout_json",
+      "artifact_out_only_when_declared"
+    ]
+  },
+  "summary": {
+    "classification": "reviewable_admin_note",
+    "structured_fields": {
+      "title": "Toy local workflow summary",
+      "needs_review": true,
+      "extracted_topic": "local-only sidecar dry run"
+    }
+  },
+  "patterns_to_steal": [
+    "reviewable action queues",
+    "structured output contracts",
+    "dry-run mode",
+    "per-tool side-effect labels"
+  ],
+  "memory_write": false,
+  "runtime_changed": false,
+  "default_model_changed": false,
+  "prompttruth_changed": false,
+  "recommended_next_live_command": "N8N_BASE_URL=http://127.0.0.1:15678 N8N_CONTAINER_NAME=penny-n8n-workflow-trial npm run penny:sidecar:workflow -- --fixture --live-probe --n8n-workflow-trial --n8n-base-url http://127.0.0.1:15678 --n8n-container-name penny-n8n-workflow-trial"
+}

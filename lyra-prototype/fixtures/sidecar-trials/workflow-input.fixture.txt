@@ -1,0 +1,2 @@
+Toy local workflow payload:
+Summarize this note as a reviewable admin item. It mentions a receipt, a possible deadline, and an action queue, but it must not send email, call a webhook, post publicly, control home devices, or schedule cron.

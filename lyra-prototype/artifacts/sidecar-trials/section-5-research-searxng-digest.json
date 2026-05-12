@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "artifact_schema": "penny-sidecar-section-5-research.v1",
+  "section_id": 5,
+  "section_title": "Local research/search sidecars",
+  "primary_app": "SearXNG",
+  "candidate_apps": [
+    "SearXNG",
+    "Local Deep Research",
+    "Perplexica",
+    "Morphic"
+  ],
+  "status": "LIVE_VERIFIED",
+  "generated_at": "2026-05-12T07:05:38.539Z",
+  "live_probe": {
+    "ran": true,
+    "found": true,
+    "query_ran": true,
+    "details": [
+      {
+        "url": "http://127.0.0.1:18089/search?q=penny-local-sidecar&format=json",
+        "checked": true,
+        "wsl": {
+          "ok": true,
+          "sample": "{\"query\": \"penny-local-sidecar\", \"number_of_results\": 0, \"results\": [{\"url\": \"https://www.sidecarcocktail.company/the-penny\", \"title\": \"The Penny - Sidecar Cocktail Co.\", \"content\": \"Nestled in the heart of downtown San Luis Obispo, The Pen"
+        },
+        "windows": {
+          "ok": true,
+          "status_code": "200"
+        }
+      },
+      {
+        "url": "http://127.0.0.1:18089/search?q=penny-local-sidecar",
+        "checked": true,
+        "wsl": {
+          "ok": true,
+          "sample": "<!DOCTYPE html>\n<html class=\"no-js theme-auto center-alignment-no\" lang=\"en-EN\" >\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"endpoint\" content=\"results\">\n  <meta name=\"description\" content=\"SearXNG — a privacy-respecting, open metasearch"
+        },
+        "windows": {
+          "ok": true,
+          "status_code": "200"
+        }
+      },
+      {
+        "url": "http://127.0.0.1:8080/search?q=penny-local-sidecar&format=json",
+        "checked": true,
+        "wsl": {
+          "ok": false,
+          "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:8080/search?q=penny-local-sidecar&format=json"
+        },
+        "windows": {
+          "ok": false,
+          "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:8080/search?q=penny-local-sidecar&format=json'; Write-Output $r.StatusCode } catch { exit 7 }"
+        }
+      },
+      {
+        "url": "http://127.0.0.1:8080/search?q=penny-local-sidecar",
+        "checked": true,
+        "wsl": {
+          "ok": false,
+          "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:8080/search?q=penny-local-sidecar"
+        },
+        "windows": {
+          "ok": false,
+          "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:8080/search?q=penny-local-sidecar'; Write-Output $r.StatusCode } catch { exit 7 }"
+        }
+      },
+      {
+        "url": "http://127.0.0.1:8888/search?q=penny-local-sidecar&format=json",
+        "checked": true,
+        "wsl": {
+          "ok": false,
+          "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:8888/search?q=penny-local-sidecar&format=json"
+        },
+        "windows": {
+          "ok": false,
+          "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:8888/search?q=penny-local-sidecar&format=json'; Write-Output $r.StatusCode } catch { exit 7 }"
+        }
+      },
+      {
+        "url": "http://127.0.0.1:8888/search?q=penny-local-sidecar",
+        "checked": true,
+        "wsl": {
+          "ok": false,
+          "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:8888/search?q=penny-local-sidecar"
+        },
+        "windows": {
+          "ok": false,
+          "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:8888/search?q=penny-local-sidecar'; Write-Output $r.StatusCode } catch { exit 7 }"
+        }
+      }
+    ],
+    "json_output": {
+      "ran": true,
+      "found": true,
+      "query_ran": true,
+      "sources": [
+        {
+          "title": "The Penny - Sidecar Cocktail Co.",
+          "url": "https://www.sidecarcocktail.company/the-penny",
+          "source_type": "web",
+          "confidence": "unknown",
+          "snippet": "Nestled in the heart of downtown San Luis Obispo, The Penny is a stunning event venue blending industrial charm with modern elegance.Missing: local- | Show results with:local-"
+        },
+        {
+          "title": "Dining & Activities in San Luis Obispo - The Penny SLO",
+          "url": "https://thepennyslo.com/dining-and-activities/",
+          "source_type": "web",
+          "confidence": "unknown",
+          "snippet": "Rating 4.8(55)For dinner and a drink head on over to our sister biz, Sidecar. Sidecar's nationally recognized craft cocktail program offers unique yet approachable flavors ..."
+        },
+        {
+          "title": "Rehearsal Dinners - Dining in San Luis Obispo - The Penny SLO",
+          "url": "https://thepennyslo.com/rehearsal-dinners/",
+          "source_type": "web",
+          "confidence": "unknown",
+          "snippet": "Rating 4.8(55)Sidecar offers a variety of packages, from casual cocktail style welcome parties, to sit down dinners! Many of our clients hire Sidecar for wedding day bar ..."
+        },
+        {
+          "title": "Penny's Pooch Patrol - Addams Family Wiki - Fandom",
+          "url": "https://addamsfamily.fandom.com/wiki/Penny%27s_Pooch_Patrol",
+          "source_type": "web",
+          "confidence": "unknown",
+          "snippet": "The motorbike has a sidecar attached to it. The bike is from Massachusetts. On the right side of the motorcycle, it has \"Voted Best In Boston!\" written on it."
+        },
+        {
+          "title": "SIDECAR MARKET - 226 Photos & 112 Reviews - Speakeasies - Yelp",
+          "url": "https://www.yelp.com/biz/sidecar-market-newhall",
+          "source_type": "web",
+          "confidence": "unknown",
+          "snippet": "I can't wait for my next date night to come back. The food was so delicious and high quality - worth the penny. The bartenders are skilled and make excellent ..."
+        }
+      ],
+      "details": [
+        {
+          "url": "http://127.0.0.1:18089/search?q=penny-local-sidecar&format=json",
+          "checked": true,
+          "wsl": {
+            "ok": true,
+            "sample": "{\"query\": \"penny-local-sidecar\", \"number_of_results\": 0, \"results\": [{\"url\": \"https://www.sidecarcocktail.company/the-penny\", \"title\": \"The Penny - Sidecar Cocktail Co.\", \"content\": \"Nestled in the heart of downtown San Luis Obispo, The Pen",
+            "parsed_sources": 5
+          }
+        }
+      ]
+    }
+  },
+  "digest": {
+    "query": "Penny local sidecar review fixture",
+    "mode": "live_json",
+    "sources": [
+      {
+        "title": "The Penny - Sidecar Cocktail Co.",
+        "url": "https://www.sidecarcocktail.company/the-penny",
+        "source_type": "web",
+        "confidence": "unknown",
+        "snippet": "Nestled in the heart of downtown San Luis Obispo, The Penny is a stunning event venue blending industrial charm with modern elegance.Missing: local- | Show results with:local-"
+      },
+      {
+        "title": "Dining & Activities in San Luis Obispo - The Penny SLO",
+        "url": "https://thepennyslo.com/dining-and-activities/",
+        "source_type": "web",
+        "confidence": "unknown",
+        "snippet": "Rating 4.8(55)For dinner and a drink head on over to our sister biz, Sidecar. Sidecar's nationally recognized craft cocktail program offers unique yet approachable flavors ..."
+      },
+      {
+        "title": "Rehearsal Dinners - Dining in San Luis Obispo - The Penny SLO",
+        "url": "https://thepennyslo.com/rehearsal-dinners/",
+        "source_type": "web",
+        "confidence": "unknown",
+        "snippet": "Rating 4.8(55)Sidecar offers a variety of packages, from casual cocktail style welcome parties, to sit down dinners! Many of our clients hire Sidecar for wedding day bar ..."
+      },
+      {
+        "title": "Penny's Pooch Patrol - Addams Family Wiki - Fandom",
+        "url": "https://addamsfamily.fandom.com/wiki/Penny%27s_Pooch_Patrol",
+        "source_type": "web",
+        "confidence": "unknown",
+        "snippet": "The motorbike has a sidecar attached to it. The bike is from Massachusetts. On the right side of the motorcycle, it has \"Voted Best In Boston!\" written on it."
+      },
+      {
+        "title": "SIDECAR MARKET - 226 Photos & 112 Reviews - Speakeasies - Yelp",
+        "url": "https://www.yelp.com/biz/sidecar-market-newhall",
+        "source_type": "web",
+        "confidence": "unknown",
+        "snippet": "I can't wait for my next date night to come back. The food was so delicious and high quality - worth the penny. The bartenders are skilled and make excellent ..."
+      }
+    ],
+    "summary": "Live SearXNG JSON returned 5 reviewable source(s); claims remain unverified until review.",
+    "claims": [
+      {
+        "claim": "Live SearXNG JSON returned reviewable sources for the toy sidecar query.",
+        "source_indexes": [
+          0
+        ],
+        "verified": false,
+        "confidence": "unknown"
+      }
+    ],
+    "unknowns": [
+      "Live search result relevance and correctness still require review before any durable use."
+    ],
+    "memory_write": false,
+    "requires_review": true
+  },
+  "patterns_to_steal": [
+    "citation-first summaries",
+    "source lists separated from conclusions",
+    "unknown/not verified as normal output",
+    "small digests reviewed before durable save"
+  ],
+  "runtime_changed": false,
+  "default_model_changed": false,
+  "prompttruth_changed": false,
+  "recommended_next_live_command": "docker run --rm -p 18089:8080 -v \"$PWD/fixtures/sidecar-trials/searxng-json-settings.yml:/etc/searxng/settings.yml:ro\" searxng/searxng:latest && SEARXNG_URL=http://127.0.0.1:18089 npm run penny:sidecar:research -- --fixture --live-probe --searxng-base-url http://127.0.0.1:18089"
+}

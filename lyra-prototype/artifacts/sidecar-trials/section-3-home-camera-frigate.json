@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "artifact_schema": "penny-sidecar-section-3-home-camera.v1",
+  "section_id": 3,
+  "section_title": "Home and camera/event sidecars",
+  "primary_app": "Frigate version probe",
+  "candidate_apps": [
+    "Frigate",
+    "Home Assistant"
+  ],
+  "status": "LIVE_VERIFIED",
+  "generated_at": "2026-05-12T15:44:01.153Z",
+  "live_probe": {
+    "frigate": {
+      "ran": true,
+      "found": true,
+      "blocked_by_auth": false,
+      "details": [
+        {
+          "url": "http://127.0.0.1:15000/api/version",
+          "checked": true,
+          "wsl": {
+            "ok": true,
+            "status_code": 200,
+            "sample": "0.17.1-416a9b7"
+          },
+          "windows": {
+            "ok": true,
+            "status_code": 200,
+            "sample": "0.17.1-416a9b7"
+          }
+        },
+        {
+          "url": "http://127.0.0.1:5000/api/version",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "curl: (7) Failed to connect to 127.0.0.1 port 5000 after 0 ms: Couldn't connect to server",
+            "status_code": 0
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri 'http://127.0.0.1:5000/api/version'; Write-Output ('STATUS=' + [int]$r.StatusCode); if ($null -ne $r.Content) { Write-Output $r.Content } } catch { if ($_.Exception.Response -and $_.Exception.Response.StatusCode) { Write-Output ('STATUS=' + [int]$_.Exception.Response.StatusCode); exit 0 }; Write-Output ('ERROR=' + $_.Exception.Message); exit 7 }",
+            "status_code": 0
+          }
+        },
+        {
+          "url": "http://127.0.0.1:8971/api/version",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "curl: (7) Failed to connect to 127.0.0.1 port 8971 after 0 ms: Couldn't connect to server",
+            "status_code": 0
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri 'http://127.0.0.1:8971/api/version'; Write-Output ('STATUS=' + [int]$r.StatusCode); if ($null -ne $r.Content) { Write-Output $r.Content } } catch { if ($_.Exception.Response -and $_.Exception.Response.StatusCode) { Write-Output ('STATUS=' + [int]$_.Exception.Response.StatusCode); exit 0 }; Write-Output ('ERROR=' + $_.Exception.Message); exit 7 }",
+            "status_code": 0
+          }
+        }
+      ],
+      "read_only_endpoints_only": true,
+      "streams_requested": false,
+      "camera_history_requested": false,
+      "home_control_action": false
+    },
+    "home_assistant": {
+      "ran": true,
+      "found": false,
+      "blocked_by_auth": true,
+      "details": [
+        {
+          "url": "http://127.0.0.1:18123/api/",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "status_code": 401,
+            "sample": "401: Unauthorized"
+          },
+          "windows": {
+            "ok": false,
+            "status_code": 401,
+            "sample": ""
+          }
+        },
+        {
+          "url": "http://127.0.0.1:8123/api/",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "curl: (7) Failed to connect to 127.0.0.1 port 8123 after 0 ms: Couldn't connect to server",
+            "status_code": 0
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri 'http://127.0.0.1:8123/api/'; Write-Output ('STATUS=' + [int]$r.StatusCode); if ($null -ne $r.Content) { Write-Output $r.Content } } catch { if ($_.Exception.Response -and $_.Exception.Response.StatusCode) { Write-Output ('STATUS=' + [int]$_.Exception.Response.StatusCode); exit 0 }; Write-Output ('ERROR=' + $_.Exception.Message); exit 7 }",
+            "status_code": 0
+          }
+        }
+      ],
+      "read_only_endpoints_only": true,
+      "streams_requested": false,
+      "camera_history_requested": false,
+      "home_control_action": false
+    }
+  },
+  "event_summary_card": {
+    "source": "fixture",
+    "read_only": true,
+    "summary": "Fixture events show one driveway package drop and one backyard animal detection; no actions are taken.",
+    "events": [
+      {
+        "event_id": "frigate-fixture-001",
+        "source_label": "driveway",
+        "label": "package",
+        "confidence": 0.91,
+        "observed_at": "2026-05-11T09:15:00.000-07:00"
+      },
+      {
+        "event_id": "frigate-fixture-002",
+        "source_label": "backyard",
+        "label": "animal",
+        "confidence": 0.78,
+        "observed_at": "2026-05-11T09:42:00.000-07:00"
+      }
+    ],
+    "source_labels": [
+      "driveway",
+      "backyard",
+      "sensor.front_door_contact",
+      "light.porch"
+    ],
+    "home_control_action": false,
+    "camera_history_persisted": false,
+    "ambient_capture": false,
+    "memory_write": false,
+    "requires_user_review": true
+  },
+  "patterns_to_steal": [
+    "source-grounded event summaries",
+    "read-only home status cards",
+    "confirmation before action",
+    "source labels"
+  ],
+  "runtime_changed": false,
+  "default_model_changed": false,
+  "prompttruth_changed": false,
+  "recommended_next_live_command": "FRIGATE_URL=http://127.0.0.1:15000 npm run penny:sidecar:home-camera -- --fixture --live-probe --frigate-base-url http://127.0.0.1:15000"
+}

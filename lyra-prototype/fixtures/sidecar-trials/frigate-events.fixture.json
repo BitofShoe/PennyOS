@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "events": [
+    {
+      "event_id": "frigate-fixture-001",
+      "camera": "driveway",
+      "label": "package",
+      "confidence": 0.91,
+      "observed_at": "2026-05-11T09:15:00.000-07:00"
+    },
+    {
+      "event_id": "frigate-fixture-002",
+      "camera": "backyard",
+      "label": "animal",
+      "confidence": 0.78,
+      "observed_at": "2026-05-11T09:42:00.000-07:00"
+    }
+  ]
+}

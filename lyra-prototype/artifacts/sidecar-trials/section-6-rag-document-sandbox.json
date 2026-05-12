@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "artifact_schema": "penny-sidecar-section-6-rag.v1",
+  "section_id": 6,
+  "section_title": "Document/RAG workspaces",
+  "primary_app": "tiny local RAG sandbox",
+  "candidate_apps": [
+    "Paperless-ngx",
+    "Kotaemon",
+    "Onyx",
+    "txtai",
+    "RAGLite",
+    "Qdrant"
+  ],
+  "status": "LIVE_VERIFIED",
+  "generated_at": "2026-05-12T07:35:23.952Z",
+  "live_probe": {
+    "qdrant": {
+      "ran": true,
+      "found": true,
+      "details": [
+        {
+          "url": "http://127.0.0.1:16333/collections",
+          "checked": true,
+          "wsl": {
+            "ok": true,
+            "sample": "{\"result\":{\"collections\":[]},\"status\":\"ok\",\"time\":0.001760696}"
+          },
+          "windows": {
+            "ok": true,
+            "status_code": "200"
+          }
+        },
+        {
+          "url": "http://127.0.0.1:6333/collections",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:6333/collections"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:6333/collections'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        }
+      ]
+    },
+    "qdrant_live_write_trial": {
+      "ran": true,
+      "found": true,
+      "base_url": "http://127.0.0.1:16333",
+      "collection_name": "penny_sidecar_trial_1778571323840",
+      "collection_created": true,
+      "vectors_upserted": 2,
+      "search_ran": true,
+      "search_result_count": 2,
+      "collection_deleted": true,
+      "private_docs_used": false,
+      "penny_memory_imported": false,
+      "memory_write": false,
+      "errors": [],
+      "ok": true
+    },
+    "paperless": {
+      "ran": true,
+      "found": false,
+      "details": [
+        {
+          "url": "http://127.0.0.1:8000/api/",
+          "checked": true,
+          "wsl": {
+            "ok": false,
+            "error": "Command failed: curl --max-time 1 -fsS http://127.0.0.1:8000/api/"
+          },
+          "windows": {
+            "ok": false,
+            "error": "Command failed: powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 -Uri 'http://127.0.0.1:8000/api/'; Write-Output $r.StatusCode } catch { exit 7 }"
+          }
+        }
+      ]
+    }
+  },
+  "rag_answer": {
+    "workspace": "fixture_document_sandbox",
+    "question": "What does the fixture say about document sidecar outputs and Penny memory?",
+    "answer": "The fixture documents say RAG outputs should keep citations/provenance and require review before any memory promotion.",
+    "document_citations": [
+      {
+        "doc_id": "penny-sidecar-memory-boundary",
+        "title": "penny-sidecar-memory-boundary.md",
+        "chunk_id": "chunk-1",
+        "quote_or_snippet": "Document sidecar outputs are review artifacts with citations/provenance. They are not Penny memory, they are not PromptTruth, and they require review-gated promotion before any durable use.",
+        "confidence": "high"
+      }
+    ],
+    "document_says": [
+      "Document sidecar outputs are review artifacts with citations/provenance."
+    ],
+    "model_infers": [
+      "A tiny local sandbox is enough to test the interface shape before any real document workspace is installed."
+    ],
+    "memory_promotion_candidate": false,
+    "memory_write": false,
+    "requires_review": true
+  },
+  "patterns_to_steal": [
+    "document chunk provenance",
+    "citation UX",
+    "document says vs model infers",
+    "review-gated promotion into memory"
+  ],
+  "private_docs_used": false,
+  "penny_memory_imported": false,
+  "memory_write": false,
+  "prompttruth_changed": false,
+  "runtime_changed": false,
+  "default_model_changed": false,
+  "recommended_next_live_command": "QDRANT_URL=http://127.0.0.1:16333 npm run penny:sidecar:rag -- --fixture --live-probe --qdrant-write-trial --qdrant-base-url http://127.0.0.1:16333"
+}

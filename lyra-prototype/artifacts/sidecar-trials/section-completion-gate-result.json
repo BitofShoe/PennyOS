@@ -1,0 +1,290 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-12T18:18:20.631Z",
+  "project": "Penny Local LLM Sidecar Section Completion Gate",
+  "required_sections": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "all_required_sections_complete": true,
+  "summary": {
+    "live_verified": 6,
+    "harness_verified": 0,
+    "install_blocked_with_harness": 0,
+    "doc_only": 0,
+    "represented_only": 0,
+    "not_done": 0,
+    "failing": 0
+  },
+  "sections": [
+    {
+      "section_id": 2,
+      "title": "Local lab cockpit",
+      "chosen_primary_app": "Open WebUI mock OpenAI-compatible lab route",
+      "candidate_apps": [
+        "Open WebUI",
+        "AnythingLLM",
+        "Lobe Chat",
+        "LibreChat"
+      ],
+      "availability_probe_command": "OPEN_WEBUI_BASE_URL=http://127.0.0.1:13000 PENNY_MOCK_OPENAI_BASE_URL=http://127.0.0.1:18081/v1 npm run penny:sidecar:lab-cockpit -- --fixture --live-probe --openwebui-mock-model-trial --openwebui-base-url http://127.0.0.1:13000 --mock-openai-base-url http://127.0.0.1:18081/v1 --openwebui-auth-token-file /tmp/penny-openwebui-signup.json --json --artifact-out artifacts/sidecar-trials/section-2-lab-cockpit-openwebui.json",
+      "availability_result": "live_found",
+      "status": "LIVE_VERIFIED",
+      "harness_status": "not_present",
+      "runnable_trial_command": "OPEN_WEBUI_BASE_URL=http://127.0.0.1:13000 PENNY_MOCK_OPENAI_BASE_URL=http://127.0.0.1:18081/v1 npm run penny:sidecar:lab-cockpit -- --fixture --live-probe --openwebui-mock-model-trial --openwebui-base-url http://127.0.0.1:13000 --mock-openai-base-url http://127.0.0.1:18081/v1 --openwebui-auth-token-file /tmp/penny-openwebui-signup.json --json --artifact-out artifacts/sidecar-trials/section-2-lab-cockpit-openwebui.json",
+      "artifact_path": "artifacts/sidecar-trials/section-2-lab-cockpit-openwebui.json",
+      "test_command": "node --test test/penny-sidecar-section-completion-gate.test.js",
+      "live_app_found": true,
+      "harness_ran": false,
+      "recommended_next_live_command": "Start disposable mock endpoint on 127.0.0.1:18081, start disposable Open WebUI on 127.0.0.1:13000 with OPENAI_API_BASE_URL=http://penny-openai-mock:18081/v1, create a disposable local signup token, then run the section 2 runnable_trial_command.",
+      "proof": {
+        "no_memory_write": true,
+        "no_runtime_change": true,
+        "no_default_model_change": true,
+        "no_prompttruth_merge": true,
+        "no_public_or_home_action": true
+      },
+      "files_changed": [
+        "lib/penny-sidecar-trials.js",
+        "scripts/penny-lab-cockpit-trial.js",
+        "scripts/penny-openai-compatible-mock-server.js",
+        "test/penny-sidecar-section-completion-gate.test.js",
+        "artifacts/sidecar-trials/section-2-lab-cockpit-openwebui.json"
+      ],
+      "evidence": [
+        "section 2 artifact status LIVE_VERIFIED",
+        "Open WebUI disposable container penny-openwebui-mock-trial ran on loopback port 13000 with OPENAI_API_BASE_URL pointing at mock container penny-openai-mock",
+        "WSL curl and Windows PowerShell both returned HTTP 200 for Open WebUI /health",
+        "Open WebUI /api/models showed penny-sidecar-toy-model from the mock OpenAI-compatible backend",
+        "Open WebUI /api/chat/completions returned an async task receipt and mock backend stats showed chat_requests increasing by 1",
+        "artifact records openwebui_mock_model_trial.live_lmstudio_used=false, penny_ui_replaced=false, memory_write=false, default_model_changed=false, and prompttruth_changed=false",
+        "disposable Open WebUI and mock containers were removed after the live trial"
+      ],
+      "complete": true
+    },
+    {
+      "section_id": 3,
+      "title": "Home and camera/event sidecars",
+      "chosen_primary_app": "Frigate version probe",
+      "candidate_apps": [
+        "Frigate",
+        "Home Assistant"
+      ],
+      "availability_probe_command": "FRIGATE_URL=http://127.0.0.1:15000 HOME_ASSISTANT_URL=http://127.0.0.1:18123 npm run penny:sidecar:home-camera -- --fixture --live-probe --frigate-base-url http://127.0.0.1:15000 --home-assistant-base-url http://127.0.0.1:18123 --json --artifact-out artifacts/sidecar-trials/section-3-home-camera-frigate.json",
+      "availability_result": "live_found",
+      "status": "LIVE_VERIFIED",
+      "harness_status": "HARNESS_VERIFIED",
+      "runnable_trial_command": "FRIGATE_URL=http://127.0.0.1:15000 HOME_ASSISTANT_URL=http://127.0.0.1:18123 npm run penny:sidecar:home-camera -- --fixture --live-probe --frigate-base-url http://127.0.0.1:15000 --home-assistant-base-url http://127.0.0.1:18123 --json --artifact-out artifacts/sidecar-trials/section-3-home-camera-frigate.json",
+      "artifact_path": "artifacts/sidecar-trials/section-3-home-camera-frigate.json",
+      "test_command": "node --test test/penny-sidecar-section-completion-gate.test.js",
+      "live_app_found": true,
+      "harness_ran": true,
+      "recommended_next_live_command": "FRIGATE_URL=http://127.0.0.1:15000 npm run penny:sidecar:home-camera -- --fixture --live-probe --frigate-base-url http://127.0.0.1:15000",
+      "proof": {
+        "no_memory_write": true,
+        "no_runtime_change": true,
+        "no_default_model_change": true,
+        "no_prompttruth_merge": true,
+        "no_public_or_home_action": true
+      },
+      "files_changed": [
+        "lib/penny-sidecar-trials.js",
+        "scripts/penny-home-camera-event-trial.js",
+        "fixtures/sidecar-trials/frigate-events.fixture.json",
+        "fixtures/sidecar-trials/frigate-health-only.config.yml",
+        "fixtures/sidecar-trials/home-assistant-state.fixture.json",
+        "artifacts/sidecar-trials/section-3-home-camera-frigate.json"
+      ],
+      "evidence": [
+        "section 3 artifact status LIVE_VERIFIED",
+        "Frigate Docker container penny-frigate-version-trial started on loopback port 15000 with ghcr.io/blakeblackshear/frigate:stable and fixtures/sidecar-trials/frigate-health-only.config.yml",
+        "WSL curl and Windows PowerShell both returned HTTP 200 with version 0.17.1-416a9b7 for http://127.0.0.1:15000/api/version",
+        "Home Assistant Docker container penny-homeassistant-health-trial started on loopback port 18123 with ghcr.io/home-assistant/home-assistant:stable; /api/ returned HTTP 401 from WSL and Windows and is recorded as blocked_by_auth=true",
+        "no stream endpoint, camera history endpoint, Home Assistant state endpoint, service-call endpoint, device-control path, microphone, or ambient capture path was requested",
+        "fixture card remains read-only, source-labeled, review-gated, and has home_control_action=false, camera_history_persisted=false, ambient_capture=false, memory_write=false"
+      ],
+      "complete": true
+    },
+    {
+      "section_id": 4,
+      "title": "Workflow automation sidecars",
+      "chosen_primary_app": "n8n-style toy flow",
+      "candidate_apps": [
+        "n8n",
+        "Windmill",
+        "Activepieces"
+      ],
+      "availability_probe_command": "npm run penny:sidecar:workflow -- --fixture --live-probe --n8n-workflow-trial --n8n-base-url http://127.0.0.1:15678 --n8n-container-name penny-n8n-workflow-trial --json --artifact-out artifacts/sidecar-trials/section-4-workflow-n8n-toy-flow.json",
+      "availability_result": "live_found",
+      "status": "LIVE_VERIFIED",
+      "harness_status": "HARNESS_VERIFIED",
+      "runnable_trial_command": "npm run penny:sidecar:workflow -- --fixture --live-probe --n8n-workflow-trial --n8n-base-url http://127.0.0.1:15678 --n8n-container-name penny-n8n-workflow-trial --json --artifact-out artifacts/sidecar-trials/section-4-workflow-n8n-toy-flow.json",
+      "artifact_path": "artifacts/sidecar-trials/section-4-workflow-n8n-toy-flow.json",
+      "test_command": "node --test test/penny-sidecar-section-completion-gate.test.js",
+      "live_app_found": true,
+      "harness_ran": true,
+      "recommended_next_live_command": "N8N_BASE_URL=http://127.0.0.1:15678 N8N_CONTAINER_NAME=penny-n8n-workflow-trial npm run penny:sidecar:workflow -- --fixture --live-probe --n8n-workflow-trial --n8n-base-url http://127.0.0.1:15678 --n8n-container-name penny-n8n-workflow-trial",
+      "proof": {
+        "no_memory_write": true,
+        "no_runtime_change": true,
+        "no_default_model_change": true,
+        "no_prompttruth_merge": true,
+        "no_public_or_home_action": true
+      },
+      "files_changed": [
+        "lib/penny-sidecar-trials.js",
+        "scripts/penny-workflow-sidecar-trial.js",
+        "test/penny-sidecar-section-completion-gate.test.js",
+        "fixtures/sidecar-trials/workflow-input.fixture.txt",
+        "artifacts/sidecar-trials/section-4-workflow-n8n-toy-flow.json"
+      ],
+      "evidence": [
+        "section 4 artifact status LIVE_VERIFIED",
+        "n8n Docker container penny-n8n-workflow-trial started on loopback port 15678 for a disposable workflow-object trial",
+        "WSL curl and Windows PowerShell both returned HTTP 200 for /healthz and /rest/settings on http://127.0.0.1:15678",
+        "n8n_live_workflow_trial imported workflow_id penny-sidecar-local-toy-flow through the n8n container CLI and verified export",
+        "the live workflow object is manual-only/local-only and has no credentials, webhooks, schedules, email, cloud, public, home, or system actions"
+      ],
+      "complete": true
+    },
+    {
+      "section_id": 5,
+      "title": "Local research/search sidecars",
+      "chosen_primary_app": "SearXNG",
+      "candidate_apps": [
+        "SearXNG",
+        "Local Deep Research",
+        "Perplexica",
+        "Morphic"
+      ],
+      "availability_probe_command": "npm run penny:sidecar:research -- --fixture --live-probe --json --artifact-out artifacts/sidecar-trials/section-5-research-searxng-digest.json",
+      "availability_result": "live_found",
+      "status": "LIVE_VERIFIED",
+      "harness_status": "HARNESS_VERIFIED",
+      "runnable_trial_command": "npm run penny:sidecar:research -- --fixture --live-probe --json --artifact-out artifacts/sidecar-trials/section-5-research-searxng-digest.json",
+      "artifact_path": "artifacts/sidecar-trials/section-5-research-searxng-digest.json",
+      "test_command": "node --test test/penny-sidecar-section-completion-gate.test.js",
+      "live_app_found": true,
+      "harness_ran": true,
+      "recommended_next_live_command": "docker run --rm -p 18089:8080 -v \"$PWD/fixtures/sidecar-trials/searxng-json-settings.yml:/etc/searxng/settings.yml:ro\" searxng/searxng:latest && SEARXNG_URL=http://127.0.0.1:18089 npm run penny:sidecar:research -- --fixture --live-probe --searxng-base-url http://127.0.0.1:18089",
+      "proof": {
+        "no_memory_write": true,
+        "no_runtime_change": true,
+        "no_default_model_change": true,
+        "no_prompttruth_merge": true,
+        "no_public_or_home_action": true
+      },
+      "files_changed": [
+        "lib/penny-sidecar-trials.js",
+        "scripts/penny-research-sidecar-trial.js",
+        "fixtures/sidecar-trials/search-results.fixture.json",
+        "fixtures/sidecar-trials/searxng-json-settings.yml",
+        "artifacts/sidecar-trials/section-5-research-searxng-digest.json"
+      ],
+      "evidence": [
+        "section 5 artifact status LIVE_VERIFIED with digest.mode=live_json",
+        "SearXNG Docker container penny-searxng-json-trial started on port 18089 with fixtures/sidecar-trials/searxng-json-settings.yml enabling JSON output",
+        "WSL curl and Windows PowerShell both returned HTTP 200 for /search?q=penny-local-sidecar&format=json on port 18089",
+        "the artifact parsed five live web source rows while keeping verified=false, memory_write=false, requires_review=true, and prompttruth_changed=false",
+        "port 18080 was rejected for this receipt because Windows had an existing llama.cpp listener there even though WSL could reach Docker on that port"
+      ],
+      "complete": true
+    },
+    {
+      "section_id": 6,
+      "title": "Document/RAG workspaces",
+      "chosen_primary_app": "tiny local RAG sandbox",
+      "candidate_apps": [
+        "Paperless-ngx",
+        "Kotaemon",
+        "Onyx",
+        "txtai",
+        "RAGLite",
+        "Qdrant"
+      ],
+      "availability_probe_command": "npm run penny:sidecar:rag -- --fixture --live-probe --qdrant-write-trial --qdrant-base-url http://127.0.0.1:16333 --json --artifact-out artifacts/sidecar-trials/section-6-rag-document-sandbox.json",
+      "availability_result": "live_found",
+      "status": "LIVE_VERIFIED",
+      "harness_status": "HARNESS_VERIFIED",
+      "runnable_trial_command": "npm run penny:sidecar:rag -- --fixture --live-probe --qdrant-write-trial --qdrant-base-url http://127.0.0.1:16333 --json --artifact-out artifacts/sidecar-trials/section-6-rag-document-sandbox.json",
+      "artifact_path": "artifacts/sidecar-trials/section-6-rag-document-sandbox.json",
+      "test_command": "node --test test/penny-sidecar-section-completion-gate.test.js",
+      "live_app_found": true,
+      "harness_ran": true,
+      "recommended_next_live_command": "QDRANT_URL=http://127.0.0.1:16333 npm run penny:sidecar:rag -- --fixture --live-probe --qdrant-write-trial --qdrant-base-url http://127.0.0.1:16333",
+      "proof": {
+        "no_memory_write": true,
+        "no_runtime_change": true,
+        "no_default_model_change": true,
+        "no_prompttruth_merge": true,
+        "no_public_or_home_action": true
+      },
+      "files_changed": [
+        "lib/penny-sidecar-trials.js",
+        "scripts/penny-rag-workspace-trial.js",
+        "test/penny-sidecar-section-completion-gate.test.js",
+        "fixtures/sidecar-trials/rag-questions.fixture.json",
+        "fixtures/sidecar-trials/rag-docs/penny-sidecar-memory-boundary.md",
+        "fixtures/sidecar-trials/rag-docs/penny-sidecar-rag-patterns.md",
+        "artifacts/sidecar-trials/section-6-rag-document-sandbox.json"
+      ],
+      "evidence": [
+        "section 6 artifact status LIVE_VERIFIED",
+        "Qdrant Docker container penny-qdrant-live-write-trial started on port 16333 for a disposable live write/search/delete trial",
+        "WSL curl and Windows PowerShell both returned HTTP 200 for /collections on http://127.0.0.1:16333",
+        "qdrant_live_write_trial created a temporary penny_sidecar_trial_* collection, upserted 2 fixture vectors, ran vector search, and deleted the collection",
+        "the RAG answer used only fixture docs, cited snippets, separated document_says from model_infers, and did not ingest Penny memory or private docs"
+      ],
+      "complete": true
+    },
+    {
+      "section_id": 7,
+      "title": "Audio/voice sidecars",
+      "chosen_primary_app": "Speaches live TTS fixture",
+      "candidate_apps": [
+        "Speaches",
+        "openedai-speech",
+        "faster-whisper-server",
+        "Parler"
+      ],
+      "availability_probe_command": "SPEACHES_BASE_URL=http://127.0.0.1:18000 npm run penny:sidecar:audio -- --fixture --live-probe --speaches-tts-trial --speaches-base-url http://127.0.0.1:18000 --json --artifact-out artifacts/sidecar-trials/section-7-audio-transcript-review.json",
+      "availability_result": "live_found",
+      "status": "LIVE_VERIFIED",
+      "harness_status": "not_present",
+      "runnable_trial_command": "SPEACHES_BASE_URL=http://127.0.0.1:18000 npm run penny:sidecar:audio -- --fixture --live-probe --speaches-tts-trial --speaches-base-url http://127.0.0.1:18000 --json --artifact-out artifacts/sidecar-trials/section-7-audio-transcript-review.json",
+      "artifact_path": "artifacts/sidecar-trials/section-7-audio-transcript-review.json",
+      "test_command": "node --test test/penny-sidecar-section-completion-gate.test.js",
+      "live_app_found": true,
+      "harness_ran": true,
+      "recommended_next_live_command": "SPEACHES_BASE_URL=http://127.0.0.1:18000 npm run penny:sidecar:audio -- --fixture --live-probe --speaches-tts-trial --speaches-base-url http://127.0.0.1:18000",
+      "proof": {
+        "no_memory_write": true,
+        "no_runtime_change": true,
+        "no_default_model_change": true,
+        "no_prompttruth_merge": true,
+        "no_public_or_home_action": true
+      },
+      "files_changed": [
+        "lib/penny-sidecar-trials.js",
+        "scripts/penny-audio-voice-sidecar-trial.js",
+        "test/penny-sidecar-section-completion-gate.test.js",
+        "fixtures/sidecar-trials/audio-transcript.fixture.json",
+        "artifacts/sidecar-trials/section-7-audio-transcript-review.json"
+      ],
+      "evidence": [
+        "section 7 artifact status LIVE_VERIFIED",
+        "Speaches Docker container penny-speaches-tts-trial started on loopback port 18000 with ghcr.io/speaches-ai/speaches:latest-cpu",
+        "WSL curl and Windows PowerShell both returned HTTP 200 for http://127.0.0.1:18000/health and /v1/models",
+        "speaches_tts_live_trial checked the text-to-speech registry, requested speaches-ai/Kokoro-82M-v1.0-ONNX, confirmed it in /v1/models, and generated 244780 bytes of audio/wav from fixture text",
+        "openedai-speech, faster-whisper-server, and Parler loopback probes were not found",
+        "fixture transcript review has microphone_access=false, recording_started=false, ambient_capture=false, reviewed=false, memory_write=false"
+      ],
+      "complete": true
+    }
+  ],
+  "failures": []
+}

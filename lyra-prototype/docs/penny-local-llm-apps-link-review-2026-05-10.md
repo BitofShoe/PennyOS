@@ -460,24 +460,37 @@ The first repo-integrated scaffold has landed. It translates this note into stru
 
 This status does not mean any live sidecar install, license approval, dependency approval, default model change, memory promotion, PromptTruth expansion, `toolEvidenceReceipt` merge, hidden-reasoning persistence, context-limit increase, public automation, or home/camera/email authority shipped.
 
+### Corrective Section 2-7 Trial Pass - 2026-05-11
+
+The scaffold-only gap for sections 2-7 is now closed with runnable local trial commands, JSON artifacts, tests, and a section-completion gate.
+
+Packaged checkpoint: `docs/sidecars/penny-local-llm-sidecar-campaign-checkpoint-2026-05-12.md`.
+
+| Section | Cluster | Primary app/harness | Status | Rerun |
+|---|---|---|---|---|
+| 2 | Local lab cockpit | Open WebUI live mock model route via disposable OpenAI-compatible backend | LIVE_VERIFIED | `OPEN_WEBUI_BASE_URL=http://127.0.0.1:13000 PENNY_MOCK_OPENAI_BASE_URL=http://127.0.0.1:18081/v1 npm run penny:sidecar:lab-cockpit -- --fixture --live-probe --openwebui-mock-model-trial --openwebui-base-url http://127.0.0.1:13000 --mock-openai-base-url http://127.0.0.1:18081/v1 --openwebui-auth-token-file /tmp/penny-openwebui-signup.json --json --artifact-out artifacts/sidecar-trials/section-2-lab-cockpit-openwebui.json` |
+| 3 | Home/camera event | Frigate live version probe plus Home Assistant auth-blocker probe | LIVE_VERIFIED | `FRIGATE_URL=http://127.0.0.1:15000 HOME_ASSISTANT_URL=http://127.0.0.1:18123 npm run penny:sidecar:home-camera -- --fixture --live-probe --frigate-base-url http://127.0.0.1:15000 --home-assistant-base-url http://127.0.0.1:18123 --json --artifact-out artifacts/sidecar-trials/section-3-home-camera-frigate.json` |
+| 4 | Workflow automation | n8n live manual workflow import/export plus dry-run toy flow | LIVE_VERIFIED | `npm run penny:sidecar:workflow -- --fixture --live-probe --n8n-workflow-trial --n8n-base-url http://127.0.0.1:15678 --n8n-container-name penny-n8n-workflow-trial --json --artifact-out artifacts/sidecar-trials/section-4-workflow-n8n-toy-flow.json` |
+| 5 | Research/search | SearXNG live JSON query smoke plus review digest | LIVE_VERIFIED | `npm run penny:sidecar:research -- --fixture --live-probe --searxng-base-url http://127.0.0.1:18089 --json --artifact-out artifacts/sidecar-trials/section-5-research-searxng-digest.json` |
+| 6 | Document/RAG | Qdrant live create/upsert/search/delete plus fixture RAG sandbox | LIVE_VERIFIED | `npm run penny:sidecar:rag -- --fixture --live-probe --qdrant-write-trial --qdrant-base-url http://127.0.0.1:16333 --json --artifact-out artifacts/sidecar-trials/section-6-rag-document-sandbox.json` |
+| 7 | Audio/voice | Speaches live TTS fixture plus transcript review | LIVE_VERIFIED | `SPEACHES_BASE_URL=http://127.0.0.1:18000 npm run penny:sidecar:audio -- --fixture --live-probe --speaches-tts-trial --speaches-base-url http://127.0.0.1:18000 --json --artifact-out artifacts/sidecar-trials/section-7-audio-transcript-review.json` |
+
+Gate:
+
+```bash
+npm run penny:sidecar:completion-gate -- --matrix artifacts/sidecar-trials/section-completion-matrix.json --out artifacts/sidecar-trials/section-completion-gate-result.json --json
+```
+
+The gate result is `all_required_sections_complete=true` with sections 2, 3, 4, 5, 6, and 7 live-verified and 0 failures. Disposable Docker smokes verified Open WebUI on port 13000 with a mock OpenAI-compatible backend on port 18081, Frigate on port 15000, Home Assistant auth status on port 18123, n8n on port 15678, SearXNG on port 18089, Qdrant on port 16333, and Speaches on port 18000. WSL `curl` and Windows PowerShell both got HTTP 200 from the safe live endpoints used in the artifacts, except Home Assistant `/api/`, which returned HTTP 401 from both sides and is recorded as `blocked_by_auth=true`. The refreshed Open WebUI artifact goes beyond health/config: it used a disposable local signup token, saw `penny-sidecar-toy-model` through `/api/models`, submitted a non-private toy prompt to `/api/chat/completions`, got an async task receipt, and proved the route reached the mock backend when mock `chat_requests` increased by 1. The refreshed Frigate artifact uses a no-camera config and records only `/api/version`; no stream endpoint, camera history endpoint, Home Assistant state endpoint, service-call endpoint, device-control path, microphone, or ambient capture path was requested. The refreshed n8n artifact goes beyond `/healthz`: it imported workflow id `penny-sidecar-local-toy-flow` through the disposable container CLI, verified export, and recorded credentials/webhooks/schedules/email/cloud/public/home/system actions all false. The refreshed Qdrant artifact goes beyond `/collections`: it created a temporary `penny_sidecar_trial_*` collection, upserted two non-sensitive fixture vectors, ran vector search, deleted the collection, and recorded `private_docs_used=false`, `penny_memory_imported=false`, and `memory_write=false`. The refreshed Speaches artifact goes beyond health/model probes: it checked the text-to-speech registry, requested `speaches-ai/Kokoro-82M-v1.0-ONNX`, confirmed it in `/v1/models`, generated `244780` bytes of `audio/wav` from fixture text, deleted the temp output, and recorded `microphone_access=false`, `recording_started=false`, `ambient_capture=false`, `input_audio_uploaded=false`, `private_audio_used=false`, `penny_memory_imported=false`, and `memory_write=false`. SearXNG used `fixtures/sidecar-trials/searxng-json-settings.yml` to enable JSON for the disposable trial; the artifact parsed live source titles/URLs but kept the digest review-only. Port 18080 was rejected because Windows already had a `llama.cpp` listener there even though WSL could reach Docker on that port. The Docker containers were removed after verification. No live openedai-speech, faster-whisper, or Parler service was found by the safe read-only probes.
+
+Penny remains the companion/runtime owner. These artifacts are review outputs, not memory. The pass does not approve installs, change Penny memory, change PromptTruth, merge tool evidence into PromptTruth, change the default model, change runtime prompts, raise prompt/context limits, persist hidden reasoning, expose LAN/tunnels, add public/email/social automation, enable home control, or add ambient camera/microphone/screen/browser-history capture.
+
 ## Suggested Next Slice
 
-Best next slice: run or prepare the Qwen 3.6 27B sidecar/profile compare.
-
-Goal:
-
-- Compare Gemma 4 31B Q6 vs Qwen 3.6 27B Q4-Q6 on Penny's actual usage split: companion voice, memory recall, strict instruction following, coding/tool tasks, file read/write honesty, source-pressure behavior, and latency.
-
-Constraints:
-
-- Keep the embedding model separate.
-- Keep Penny's default model unchanged until artifacts exist.
-- Use disposable Penny state.
-- Do not overlap heavy model harnesses.
-- Do not change runtime code mid-compare to improve scores.
-- Treat OpenCode/Pi as sidecar operator tools, not Penny replacements.
+Best next sidecar slice: review and commit the packaged checkpoint, or run one optional all-sections-from-empty disposable rerun if another receipt pass is desired. Keep it lab-only: do not route Penny through Open WebUI, do not touch the user's live LM Studio model state, and do not import Penny memory or private runtime artifacts.
 
 Acceptance criteria:
 
-- A compare artifact records loaded model ids, quants, endpoint/backend, lane, prompt/context settings, route/tool evidence, and cleanup.
-- A short verdict says which model is better for companion chat, which is better for strict tool/coding work, and whether one model can realistically serve both lanes on this machine.
+- The completion gate still reports `all_required_sections_complete=true`, all required sections live-verified, and 0 failures.
+- All disposable sidecar containers are stopped after verification.
+- The artifacts keep `memory_imported=false`, `private_runtime_artifacts_uploaded=false`, `memory_write=false`, `runtime_changed=false`, `default_model_changed=false`, and `prompttruth_changed=false`.

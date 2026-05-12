@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "query": "Penny local sidecar review fixture",
+  "sources": [
+    {
+      "title": "Fixture Sidecar Boundary Note",
+      "url": "https://example.test/sidecar-boundary",
+      "source_type": "fixture",
+      "confidence": "medium"
+    },
+    {
+      "title": "Fixture Citation UX Note",
+      "url": "https://example.test/citation-ux",
+      "source_type": "fixture",
+      "confidence": "medium"
+    }
+  ],
+  "claims": [
+    {
+      "claim": "Sidecar research digests should separate sources from conclusions.",
+      "source_indexes": [0, 1],
+      "verified": false,
+      "confidence": "medium"
+    },
+    {
+      "claim": "A digest artifact is not Penny memory.",
+      "source_indexes": [0],
+      "verified": false,
+      "confidence": "medium"
+    }
+  ],
+  "unknowns": [
+    "Live SearXNG availability is unknown until a local endpoint probe succeeds."
+  ]
+}
