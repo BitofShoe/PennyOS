@@ -237,6 +237,9 @@ function createPennyRouteHandlers(deps = {}) {
     getStaticEmbeddingStatus = null,
     setRuntimePreferredChatModel,
     getRuntimePreferredChatModel,
+    listPendingWorkspaceWrites = null,
+    approvePendingWorkspaceWrite = null,
+    denyPendingWorkspaceWrite = null,
     sessionState,
     constants,
   } = deps;
@@ -1814,9 +1817,10 @@ function createPennyRouteHandlers(deps = {}) {
       mood: sessionState.lastMood,
       backend: 'local-lmstudio',
       memoryEntries: sessionState.memory.length,
-      durableMemoryFile: MEMORY_FILE,
-      memoryArchiveFile: MEMORY_ARCHIVE_FILE,
-      memoryEmbeddingsFile: MEMORY_EMBEDDINGS_FILE,
+      durableMemoryConfigured: Boolean(MEMORY_FILE),
+      memoryArchiveConfigured: Boolean(MEMORY_ARCHIVE_FILE),
+      memoryEmbeddingsConfigured: Boolean(MEMORY_EMBEDDINGS_FILE),
+      localPathsRedacted: true,
       shadowEnabled: OPENCLAW_ENABLED,
       webSearchEnabled: WEB_SEARCH_ENABLED,
       lmStudioBase: LMSTUDIO_BASE,
@@ -1834,10 +1838,44 @@ function createPennyRouteHandlers(deps = {}) {
     return true;
   }
 
+  async function handleWorkspaceWriteRoutes({ req, res, url }) {
+    if (!url.pathname.startsWith('/api/penny/workspace-writes')) return false;
+    if (
+      typeof listPendingWorkspaceWrites !== 'function'
+      || typeof approvePendingWorkspaceWrite !== 'function'
+      || typeof denyPendingWorkspaceWrite !== 'function'
+    ) {
+      sendJson(res, 503, { ok: false, error: 'Workspace write approval is not available.' });
+      return true;
+    }
+    try {
+      if (req.method === 'GET' && url.pathname === '/api/penny/workspace-writes') {
+        sendJson(res, 200, { ok: true, ...listPendingWorkspaceWrites() });
+        return true;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/penny/workspace-writes/approve') {
+        const body = await parseJsonBody(req);
+        sendJson(res, 200, { ok: true, write: approvePendingWorkspaceWrite(body) });
+        return true;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/penny/workspace-writes/deny') {
+        const body = await parseJsonBody(req);
+        sendJson(res, 200, { ok: true, write: denyPendingWorkspaceWrite(body) });
+        return true;
+      }
+      sendJson(res, 405, { ok: false, error: 'Unsupported workspace write approval route.' });
+      return true;
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: String(error?.message || error).trim() });
+      return true;
+    }
+  }
+
   async function handleApiRoute(context) {
     if (await handleMemoryRoutes(context)) return true;
     if (await handleShadowRoutes(context)) return true;
     if (await handleLmStudioRoutes(context)) return true;
+    if (await handleWorkspaceWriteRoutes(context)) return true;
     if (await handleChatRoutes(context)) return true;
     if (await handleStatusRoutes(context)) return true;
     return false;

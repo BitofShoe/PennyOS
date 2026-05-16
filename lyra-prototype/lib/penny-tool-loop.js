@@ -14,6 +14,14 @@ const WRITE_TOOL_NAMES = new Set([
   'insert_in_project_file',
 ]);
 
+function isAppliedWorkspaceWriteResult(result = {}) {
+  if (!result || result.ok !== true) return false;
+  const data = result.data && typeof result.data === 'object' ? result.data : {};
+  if (data.pendingApproval === true || data.applied === false) return false;
+  if (data.applied === true || data.directWrite === true || data.approved === true) return true;
+  return data.applied == null && data.pendingApproval == null;
+}
+
 const PROJECT_PATH_EXTENSIONS = 'js|cjs|mjs|json|md|txt|html|css|svg|ps1|log';
 const QUOTED_PROJECT_PATH_PATTERNS = [
   new RegExp("`([^`\\n]+\\.(?:" + PROJECT_PATH_EXTENSIONS + "))`", 'i'),
@@ -1433,7 +1441,7 @@ function createLmStudioToolLoopApi({
             toolsUsed.push({ name, ok: result.ok, label: result.label });
             toolRecords.push(buildToolRecord({ name, args, result, getToolCapabilityDescriptor }));
             onToolEvent?.({ type: 'tool', state: 'done', name, label: result.label, ok: result.ok });
-            if (WRITE_TOOL_NAMES.has(name) && result.ok && result.data?.path) {
+            if (WRITE_TOOL_NAMES.has(name) && isAppliedWorkspaceWriteResult(result) && result.data?.path) {
               editedPaths.add(result.data.path);
             }
             if (name === 'run_node_check' && result.data?.path) {
@@ -1709,7 +1717,7 @@ function createLmStudioToolLoopApi({
             toolsUsed.push({ name: decision.tool, ok: result.ok, label: result.label });
             toolRecords.push(buildToolRecord({ name: decision.tool, args: decision.args || {}, result, getToolCapabilityDescriptor }));
             onToolEvent?.({ type: 'tool', state: 'done', name: decision.tool, label: result.label, ok: result.ok });
-            if (WRITE_TOOL_NAMES.has(decision.tool) && result.ok && result.data?.path) {
+            if (WRITE_TOOL_NAMES.has(decision.tool) && isAppliedWorkspaceWriteResult(result) && result.data?.path) {
               editedPaths.add(result.data.path);
             }
             if (decision.tool === 'run_node_check' && result.data?.path) {

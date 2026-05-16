@@ -44,6 +44,14 @@ function createDirectToolAssistApi({
   if (typeof clampNumber !== 'function') {
     throw new TypeError('createDirectToolAssistApi requires clampNumber');
   }
+
+  function isAppliedWorkspaceWriteResult(result = {}) {
+    if (!result || result.ok !== true) return false;
+    const data = result.data && typeof result.data === 'object' ? result.data : {};
+    if (data.pendingApproval === true || data.applied === false) return false;
+    if (data.applied === true || data.directWrite === true || data.approved === true) return true;
+    return data.applied == null && data.pendingApproval == null;
+  }
   if (typeof normalizeWebUrl !== 'function') {
     throw new TypeError('createDirectToolAssistApi requires normalizeWebUrl');
   }
@@ -250,6 +258,11 @@ function createDirectToolAssistApi({
     }
 
     const pathLabel = primary.result.data?.path || intent.path || 'that file';
+    if (!isAppliedWorkspaceWriteResult(primary.result)) {
+      const pendingId = primary.result.data?.id || primary.result.data?.pendingWriteId || '';
+      const suffix = pendingId ? ` Pending write id: ${pendingId}.` : '';
+      return `i staged a pending edit for ${pathLabel}, but no file write has landed yet.${suffix}\n[MOOD:focused]`;
+    }
     const lines = [];
     if (normalizedMode === 'direct_replace') {
       const replaced = Number(primary.result.data?.replaced || 0);
@@ -301,7 +314,7 @@ function createDirectToolAssistApi({
   function buildSequenceToolOutcome(intent = {}, sequence = {}) {
     const writeToolNames = new Set(['write_project_file', 'replace_in_project_file', 'insert_in_project_file']);
     const records = Array.isArray(sequence.results) ? sequence.results : [];
-    const confirmedWriteCount = records.filter((record) => writeToolNames.has(String(record?.name || '').trim()) && record?.result?.ok).length;
+    const confirmedWriteCount = records.filter((record) => writeToolNames.has(String(record?.name || '').trim()) && isAppliedWorkspaceWriteResult(record?.result)).length;
     const writeIntentRequired = intent?.kind === 'sequence' || intent?.kind === 'open_ended_sequence';
     return {
       writeIntentRequired,

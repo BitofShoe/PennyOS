@@ -3,13 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Penny Companion Prototype</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@300;400;500;700&display=swap"
-      rel="stylesheet"
-    />
+    <title>Penny Local Companion</title>
     <link rel="stylesheet" href="/styles.css?v=20260411d" />
   </head>
   <body>
@@ -263,6 +257,21 @@
 
                 <div class="card-note" id="brainModeNote">
                   LM Studio is Penny's main brain right now. Shadow stays optional and experimental until it proves it can do more than the local lane.
+                </div>
+
+                <div class="storage-block">
+                  <div class="section-label">API access</div>
+                  <label class="field">
+                    <span>Access token</span>
+                    <input id="apiTokenInput" class="input-lite" type="password" autocomplete="off" placeholder="required for LAN sharing" />
+                  </label>
+                  <div class="button-stack">
+                    <button id="saveApiToken" class="secondary-btn" type="button">Save token</button>
+                    <button id="clearApiToken" class="secondary-btn danger" type="button">Clear token</button>
+                  </div>
+                  <div class="card-note" id="apiTokenStatus">
+                    Local browsers receive a loopback session cookie automatically.
+                  </div>
                 </div>
 
                 <div class="storage-block">

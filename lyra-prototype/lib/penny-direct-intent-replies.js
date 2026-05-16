@@ -310,9 +310,28 @@ function createDirectIntentReplyApi({
     return content;
   }
 
+  function isAppliedWorkspaceWriteResult(result = {}) {
+    if (!result || result.ok !== true) return false;
+    const data = result.data && typeof result.data === 'object' ? result.data : {};
+    if (data.pendingApproval === true || data.applied === false) return false;
+    if (data.applied === true || data.directWrite === true || data.approved === true) return true;
+    return data.applied == null && data.pendingApproval == null;
+  }
+
   function composeToolRecordFallback(toolRecords = []) {
     const records = Array.isArray(toolRecords) ? toolRecords : [];
-    const insert = records.find((record) => record?.name === 'insert_in_project_file' && record?.result?.ok && record?.result?.data);
+    const pendingWrite = records.find((record) => (
+      ['insert_in_project_file', 'replace_in_project_file', 'write_project_file'].includes(record?.name)
+      && record?.result?.ok
+      && record?.result?.data?.pendingApproval === true
+    ));
+    if (pendingWrite) {
+      const pathLabel = pendingWrite.result.data.path || 'that file';
+      const pendingId = pendingWrite.result.data.id || pendingWrite.result.data.pendingWriteId || '';
+      const suffix = pendingId ? ` Pending write id: ${pendingId}.` : '';
+      return `i staged a pending edit for ${pathLabel}, but no file write has landed yet.${suffix}\n[MOOD:focused]`;
+    }
+    const insert = records.find((record) => record?.name === 'insert_in_project_file' && isAppliedWorkspaceWriteResult(record?.result) && record?.result?.data);
     if (insert) {
       const pathLabel = insert.result.data.path || 'that file';
       const snippet = truncateText(cleanDirectInstructionContent(String(insert.args?.text || insert.result.data?.textPreview || '').trim()), 1200);
@@ -321,7 +340,7 @@ function createDirectIntentReplyApi({
       }
       return `i added the new text to ${pathLabel}. the change landed.\n[MOOD:smug]`;
     }
-    const replace = records.find((record) => record?.name === 'replace_in_project_file' && record?.result?.ok && record?.result?.data);
+    const replace = records.find((record) => record?.name === 'replace_in_project_file' && isAppliedWorkspaceWriteResult(record?.result) && record?.result?.data);
     if (replace) {
       const pathLabel = replace.result.data.path || 'that file';
       const find = truncateText(String(replace.args?.find || '').trim(), 120);
@@ -332,7 +351,7 @@ function createDirectIntentReplyApi({
       }
       return `i updated ${pathLabel} and the replacement landed.\n[MOOD:smug]`;
     }
-    const write = records.find((record) => record?.name === 'write_project_file' && record?.result?.ok && record?.result?.data);
+    const write = records.find((record) => record?.name === 'write_project_file' && isAppliedWorkspaceWriteResult(record?.result) && record?.result?.data);
     if (write) {
       const pathLabel = write.result.data.path || 'that file';
       const action = write.result.data.action === 'created' ? 'created' : 'updated';

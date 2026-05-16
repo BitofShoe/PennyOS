@@ -330,15 +330,16 @@ function serveFile(res, filePath, {
   fs = defaultFs,
   path = defaultPath,
   mimeTypes = {},
+  headers = {},
 } = {}) {
   fs.readFile(filePath, (error, data) => {
     if (error) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.writeHead(404, { ...headers, 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Not found');
       return;
     }
     const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+    res.writeHead(200, { ...headers, 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
     res.end(data);
   });
 }
@@ -363,7 +364,7 @@ function createPennyServerHttpApi({
     beginEventStream: (res, options) => beginEventStream(res, options),
     sendEventStream: (res, event, payload) => sendEventStream(res, event, payload),
     startEventStreamKeepAlive: (res, options) => startEventStreamKeepAlive(res, options),
-    serveFile: (res, filePath) => serveFile(res, filePath, { fs, path, mimeTypes }),
+    serveFile: (res, filePath, options = {}) => serveFile(res, filePath, { fs, path, mimeTypes, ...options }),
   };
 }
 

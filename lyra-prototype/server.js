@@ -66,6 +66,12 @@ const {
   createWebToolsApi,
 } = require('./lib/penny-web-tools');
 const {
+  createPennyApiSecurity,
+} = require('./lib/penny-api-security');
+const {
+  createWebUrlSafetyApi,
+} = require('./lib/penny-web-url-safety');
+const {
   createGitToolsApi,
 } = require('./lib/penny-git-tools');
 const {
@@ -266,6 +272,9 @@ const TOOL_FILE_LIST_MAX_ITEMS = Number(process.env.PENNY_TOOL_FILE_LIST_MAX_ITE
 const TOOL_SEARCH_MAX_HITS = Number(process.env.PENNY_TOOL_SEARCH_MAX_HITS || 24);
 const TOOL_LOG_TAIL_LINES = Number(process.env.PENNY_TOOL_LOG_TAIL_LINES || 80);
 const TOOL_MAX_RESULT_CHARS = Number(process.env.PENNY_TOOL_MAX_RESULT_CHARS || 12000);
+const PENNY_LAN_SHARE = isEnabledEnv(process.env.PENNY_LAN_SHARE);
+const PENNY_WEB_ALLOW_PRIVATE_NET = isEnabledEnv(process.env.PENNY_WEB_ALLOW_PRIVATE_NET);
+const PENNY_ENABLE_DIRECT_WORKSPACE_WRITES = isEnabledEnv(process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES);
 const WEB_SEARCH_ENABLED = process.env.PENNY_WEB_SEARCH_ENABLED !== '0';
 const WEB_SEARCH_TIMEOUT_MS = Number(process.env.PENNY_WEB_SEARCH_TIMEOUT_MS || 15000);
 const WEB_SEARCH_MAX_RESULTS = Number(process.env.PENNY_WEB_SEARCH_MAX_RESULTS || 6);
@@ -353,13 +362,17 @@ const {
 } = promptAssetLoader;
 const serverHttpApi = createPennyServerHttpApi({ mimeTypes: MIME_TYPES });
 const sendJson = serverHttpApi.sendJson;
+const apiSecurity = createPennyApiSecurity({
+  sendJson,
+  lanAddresses: listLanIPv4Addresses,
+});
 const safeReadBody = (req, options = {}) => serverHttpApi.safeReadBody(req, { maxBytes: MAX_REQUEST_BODY_BYTES, ...options });
 const postJsonLongRunning = serverHttpApi.postJsonLongRunning;
 const postJsonSse = serverHttpApi.postJsonSse;
 const beginEventStream = serverHttpApi.beginEventStream;
 const sendEventStream = serverHttpApi.sendEventStream;
 const startEventStreamKeepAlive = (res, options = {}) => serverHttpApi.startEventStreamKeepAlive(res, { intervalMs: STREAM_KEEPALIVE_MS, ...options });
-const serveFile = (res, filePath) => serverHttpApi.serveFile(res, filePath);
+const serveFile = (res, filePath, options = {}) => serverHttpApi.serveFile(res, filePath, options);
 
 function trimReasoningForLog(text = '', limit = LOG_LMSTUDIO_REASONING_MAX_CHARS) {
   const value = String(text || '').replace(/\r\n/g, '\n').trim();
@@ -914,6 +927,7 @@ const projectToolsApi = createProjectToolsApi({
   TOOL_SEARCH_MAX_HITS,
   TOOL_COMMAND_TIMEOUT_MS,
   execFileText,
+  directWorkspaceWritesEnabled: PENNY_ENABLE_DIRECT_WORKSPACE_WRITES,
 });
 const {
   toProjectRelative,
@@ -927,8 +941,17 @@ const {
   writeProjectFileTool,
   replaceInProjectFileTool,
   insertInProjectFileTool,
+  listPendingWorkspaceWritesTool,
+  approvePendingWorkspaceWriteTool,
+  denyPendingWorkspaceWriteTool,
   runNodeCheckTool,
 } = projectToolsApi;
+const webUrlSafetyApi = createWebUrlSafetyApi({
+  allowPrivateNetwork: PENNY_WEB_ALLOW_PRIVATE_NET,
+  fetchImpl: fetch,
+  userAgent: WEB_USER_AGENT,
+  formatBytes,
+});
 const webToolsApi = createWebToolsApi({
   WEB_SEARCH_ENABLED,
   WEB_SEARCH_TIMEOUT_MS,
@@ -1136,25 +1159,7 @@ function extractFirstUrl(text = '') {
   return match ? match[0] : '';
 }
 function normalizeWebUrl(raw = '') {
-  const base = 'https://duckduckgo.com';
-  try {
-    let value = decodeHtmlEntities(String(raw || '').trim());
-    if (!value) return '';
-    if (value.startsWith('//')) value = `https:${value}`;
-    const parsed = new URL(value, base);
-    const isDuckRedirect = /(^|\.)duckduckgo\.com$/i.test(parsed.hostname)
-      && /^\/l\/?$/i.test(parsed.pathname);
-    if (isDuckRedirect) {
-      const target = parsed.searchParams.get('uddg') || parsed.searchParams.get('rut');
-      if (target) return normalizeWebUrl(target);
-      return '';
-    }
-    if (!/^https?:$/i.test(parsed.protocol)) return '';
-    if (/^duckduckgo\.com$/i.test(parsed.hostname) && !parsed.pathname.startsWith('/l')) return '';
-    return parsed.toString();
-  } catch {
-    return '';
-  }
+  return webUrlSafetyApi.normalizeWebUrl(raw);
 }
 function parseDuckDuckGoLiteResults(html = '', limit = WEB_SEARCH_MAX_RESULTS) {
   const results = [];
@@ -1187,41 +1192,7 @@ function extractHtmlTitle(html = '') {
   return collapseWhitespace(stripHtmlToText(match?.[1] || ''));
 }
 async function fetchTextWithLimit(url, { timeoutMs = WEB_SEARCH_TIMEOUT_MS, maxBytes = WEB_FETCH_MAX_BYTES } = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': WEB_USER_AGENT,
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-      redirect: 'follow',
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-    const raw = await response.text();
-    const bytes = Buffer.byteLength(raw, 'utf8');
-    if (bytes > maxBytes) {
-      throw new Error(`Response was ${formatBytes(bytes)}. Penny caps web fetches at ${formatBytes(maxBytes)}.`);
-    }
-    return {
-      ok: true,
-      url: response.url || url,
-      contentType,
-      text: raw,
-      bytes,
-    };
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      throw new Error(`Web request timed out after ${timeoutMs}ms`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
+  return webUrlSafetyApi.fetchTextWithLimit(url, { timeoutMs, maxBytes });
 }
 function stripCodeFences(text = '') {
   return String(text || '')
@@ -3376,6 +3347,9 @@ const routeHandlers = createPennyRouteHandlers({
   getStaticEmbeddingStatus: () => staticMemoryIndexApi.getStatus(),
   setRuntimePreferredChatModel: setRuntimePreferredChatModelApi,
   getRuntimePreferredChatModel: getRuntimePreferredChatModelApi,
+  listPendingWorkspaceWrites: listPendingWorkspaceWritesTool,
+  approvePendingWorkspaceWrite: approvePendingWorkspaceWriteTool,
+  denyPendingWorkspaceWrite: denyPendingWorkspaceWriteTool,
   sessionState,
   constants: {
     OPENCLAW_ENABLED,
@@ -3395,7 +3369,14 @@ const routeHandlers = createPennyRouteHandlers({
 });
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  let url;
+  try {
+    url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  } catch {
+    sendJson(res, 400, { ok: false, error: 'Invalid request URL.' });
+    return;
+  }
+  if (apiSecurity.handleApiSecurity({ req, res, url })) return;
   if (await routeHandlers.handleApiRoute({ req, res, url })) return;
 
   const targetPath = url.pathname === '/' ? '/index.html' : url.pathname;
@@ -3406,7 +3387,7 @@ const server = http.createServer(async (req, res) => {
     res.end('Forbidden');
     return;
   }
-  serveFile(res, filePath);
+  serveFile(res, filePath, { headers: apiSecurity.staticSecurityHeaders(req) });
 });
 
 function listLanIPv4Addresses() {
@@ -3438,18 +3419,20 @@ function purgeTestSessionsFromStore() {
 function startServer(options = {}) {
   const requestedPort = Number(options.port);
   const port = Number.isFinite(requestedPort) ? requestedPort : PORT;
+  const host = apiSecurity.resolveBindHost({ host: options.host });
   const silent = options.silent === true;
   purgeTestSessionsFromStore();
-  return server.listen(port, () => {
+  return server.listen(port, host, () => {
     if (silent) return;
     const address = server.address();
     const boundPort = address && typeof address === 'object' ? address.port : port;
-    console.log(`Penny companion prototype running at http://localhost:${boundPort} (LM Studio chat timeout ${LMSTUDIO_TIMEOUT_MS}ms)`);
-    const addrs = listLanIPv4Addresses();
-    if (addrs.length) {
+    console.log(`Penny companion running at http://localhost:${boundPort} (LM Studio chat timeout ${LMSTUDIO_TIMEOUT_MS}ms)`);
+    if (PENNY_LAN_SHARE) {
+      const addrs = listLanIPv4Addresses();
       console.log('Same Wi-Fi / LAN - open on your phone:');
       for (const ip of addrs) console.log(`  http://${ip}:${boundPort}`);
     }
+    for (const line of apiSecurity.startupSecurityLines({ port: boundPort })) console.log(line);
   });
 }
 

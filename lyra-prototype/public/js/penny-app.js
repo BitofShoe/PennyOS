@@ -76,6 +76,8 @@ const state = {
   memoryInspector: null,
 };
 
+const API_TOKEN_STORAGE_KEY = 'penny:api-token';
+
 const els = {
   chat: document.getElementById('chat'),
   composer: document.getElementById('composer'),
@@ -110,6 +112,10 @@ const els = {
   refreshMemory: document.getElementById('refreshMemory'),
   clearAllMemories: document.getElementById('clearAllMemories'),
   modelSelect: document.getElementById('modelSelect'),
+  apiTokenInput: document.getElementById('apiTokenInput'),
+  saveApiToken: document.getElementById('saveApiToken'),
+  clearApiToken: document.getElementById('clearApiToken'),
+  apiTokenStatus: document.getElementById('apiTokenStatus'),
   imageInput: document.getElementById('imageInput'),
   imageBtn: document.getElementById('imageBtn'),
   imagePreview: document.getElementById('imagePreview'),
@@ -132,6 +138,46 @@ function setComposerNotice(text = '', tone = 'muted') {
   els.composerNotice.textContent = text;
   els.composerNotice.dataset.tone = tone;
   els.composerNotice.hidden = !text;
+}
+
+function getApiAccessToken() {
+  try {
+    return String(localStorage.getItem(API_TOKEN_STORAGE_KEY) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function setApiAccessToken(token = '') {
+  try {
+    const value = String(token || '').trim();
+    if (value) localStorage.setItem(API_TOKEN_STORAGE_KEY, value);
+    else localStorage.removeItem(API_TOKEN_STORAGE_KEY);
+  } catch {}
+}
+
+function apiHeaders(headers = {}) {
+  const merged = { ...headers };
+  const token = getApiAccessToken();
+  if (token) merged['X-Penny-Access-Token'] = token;
+  return merged;
+}
+
+function apiFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: apiHeaders(options.headers || {}),
+  });
+}
+
+function renderApiTokenControls() {
+  const token = getApiAccessToken();
+  if (els.apiTokenInput && els.apiTokenInput.value !== token) els.apiTokenInput.value = token;
+  if (els.apiTokenStatus) {
+    els.apiTokenStatus.textContent = token
+      ? 'Access token saved for this browser.'
+      : 'Local browsers receive a loopback session cookie automatically.';
+  }
 }
 const attachmentUi = createAttachmentUi({ els, setComposerNotice });
 const chatRequestGuard = createChatRequestGuard();
@@ -541,13 +587,13 @@ function reportMemoryIssue(action, error) {
 }
 
 async function memoryRequest(method, body, query = '') {
-  const res = await fetch(`/api/penny/memory${query}`, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const res = await apiFetch(`/api/penny/memory${query}`, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   if (!res.ok) throw new Error(`Memory request failed: ${res.status}`);
   return res.json();
 }
 
 async function memoryInspectorRequest(pathname, method = 'GET', body = null) {
-  const res = await fetch(pathname, {
+  const res = await apiFetch(pathname, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
@@ -604,7 +650,7 @@ async function syncMemoryToDisk() {
 async function loadDurableMemory() {
   state.syncingMemory = true; updateTheme();
   try {
-    const res = await fetch(`/api/penny/memory?sessionId=${encodeURIComponent(state.memory.sessionId)}`);
+    const res = await apiFetch(`/api/penny/memory?sessionId=${encodeURIComponent(state.memory.sessionId)}`);
     if (!res.ok) throw new Error('load failed');
     const data = await res.json();
     applyMemory(data.memory); renderMemory(); saveState();
@@ -627,7 +673,7 @@ async function patchMemory(patch) {
 
 async function loadBackendStatus() {
   try {
-    const res = await fetch('/api/penny/status');
+    const res = await apiFetch('/api/penny/status');
     if (!res.ok) throw new Error(`Status failed: ${res.status}`);
     const data = await res.json();
     updateBackendStatusUi(data);
@@ -649,7 +695,7 @@ async function loadAvailableModels(preloadedStatus = null) {
   if (!els.modelSelect) return;
   try {
     const data = preloadedStatus || await (async () => {
-      const res = await fetch('/api/penny/lmstudio/status');
+      const res = await apiFetch('/api/penny/lmstudio/status');
       if (!res.ok) return null;
       return res.json();
     })();
@@ -680,7 +726,7 @@ els.modelSelect?.addEventListener('change', async () => {
   const model = els.modelSelect.value;
   if (!model) return;
   try {
-    const res = await fetch('/api/penny/lmstudio/model', {
+    const res = await apiFetch('/api/penny/lmstudio/model', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model }),
@@ -698,7 +744,7 @@ async function consolidateMemory() {
   if (state.consolidating) return;
   state.consolidating = true; updateTheme();
   try {
-    const res = await fetch('/api/penny/consolidate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: state.memory.sessionId, messages: serializeMessagesForApi(8), memories: buildChatMemoryPayload(state.memory) }) });
+    const res = await apiFetch('/api/penny/consolidate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: state.memory.sessionId, messages: serializeMessagesForApi(8), memories: buildChatMemoryPayload(state.memory) }) });
     if (!res.ok) throw new Error('Consolidation failed');
     const data = await res.json();
     applyMemory(data.memory); renderMemory(); saveState();
@@ -745,7 +791,7 @@ async function sendMessage() {
     const body = { sessionId: state.memory.sessionId, messages: serializeMessagesForApi(), memories: buildChatMemoryPayload(state.memory), stream: true };
     if (imageData) body.image = imageData;
     if (fileData) body.file = fileData;
-    const res = await fetch('/api/penny/chat?stream=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+    const res = await apiFetch('/api/penny/chat?stream=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
     if (!chatRequestGuard.isActive(requestId)) return;
     const contentType = res.headers.get('content-type') || '';
     if (!res.ok) {
@@ -901,6 +947,16 @@ els.brainModeLocal?.addEventListener('change', async () => {
   renderMemory();
   await syncMemoryToDisk();
 });
+els.saveApiToken?.addEventListener('click', () => {
+  setApiAccessToken(els.apiTokenInput?.value || '');
+  renderApiTokenControls();
+  loadBackendStatus();
+});
+els.clearApiToken?.addEventListener('click', () => {
+  setApiAccessToken('');
+  renderApiTokenControls();
+  loadBackendStatus();
+});
 els.refreshMemory.addEventListener('click', loadDurableMemory);
 els.clearAllMemories?.addEventListener('click', async () => { await patchMemory({ memories: [] }); });
 els.memoryInspectorToolbar?.addEventListener('click', async (event) => {
@@ -981,6 +1037,7 @@ startIdleDecorScreensaver();
 renderMemory();
 updateTheme();
 updateBrainModeUi();
+renderApiTokenControls();
 loadDurableMemory();
 loadBackendStatus();
   loadExpressionPackManifest().then(() => {

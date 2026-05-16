@@ -68,7 +68,7 @@ const TOOL_CAPABILITY_TEMPLATES = {
     outputCostShape: 'constant',
     sourceShape: 'workspace-source',
     defaultOutputBound: null,
-    planningHint: 'Write receipt only; advisory cost metadata does not authorize writes.',
+    planningHint: 'Stages a pending workspace write by default; only direct-write mode or approval applies bytes to disk.',
   },
   replace_in_project_file: {
     label: 'replace in project file',
@@ -77,7 +77,7 @@ const TOOL_CAPABILITY_TEMPLATES = {
     outputCostShape: 'constant',
     sourceShape: 'workspace-source',
     defaultOutputBound: null,
-    planningHint: 'Edit receipt only; behavior is governed by tool arguments and write guards.',
+    planningHint: 'Stages a pending workspace edit by default; only direct-write mode or approval applies bytes to disk.',
   },
   insert_in_project_file: {
     label: 'insert in project file',
@@ -86,7 +86,7 @@ const TOOL_CAPABILITY_TEMPLATES = {
     outputCostShape: 'constant',
     sourceShape: 'workspace-source',
     defaultOutputBound: null,
-    planningHint: 'Insert receipt only; advisory cost metadata does not change write behavior.',
+    planningHint: 'Stages a pending workspace insert by default; only direct-write mode or approval applies bytes to disk.',
   },
   run_node_check: {
     label: 'run node check',
@@ -344,9 +344,18 @@ function createToolRegistry({
     if (name === 'read_project_file_around_match') return `read ${result.path || args.path || 'file'} around ${result.query || args.query || 'match'}`;
     if (name === 'list_project_files') return `listed ${result.root || args.path || '.'}`;
     if (name === 'search_project_text') return `searched "${args.query || result.query || ''}"`;
-    if (name === 'write_project_file') return `${result.action || 'wrote'} ${result.path || args.path || 'file'}`;
-    if (name === 'replace_in_project_file') return `edited ${result.path || args.path || 'file'}`;
-    if (name === 'insert_in_project_file') return `inserted text into ${result.path || args.path || 'file'}`;
+    if (name === 'write_project_file') {
+      if (result.pendingApproval === true || result.applied === false) return `staged ${result.path || args.path || 'file'}`;
+      return `${result.action || 'wrote'} ${result.path || args.path || 'file'}`;
+    }
+    if (name === 'replace_in_project_file') {
+      if (result.pendingApproval === true || result.applied === false) return `staged edit for ${result.path || args.path || 'file'}`;
+      return `edited ${result.path || args.path || 'file'}`;
+    }
+    if (name === 'insert_in_project_file') {
+      if (result.pendingApproval === true || result.applied === false) return `staged insert for ${result.path || args.path || 'file'}`;
+      return `inserted text into ${result.path || args.path || 'file'}`;
+    }
     if (name === 'run_node_check') return `checked syntax for ${result.path || args.path || 'file'}`;
     if (name === 'get_git_status') return 'checked git status';
     if (name === 'read_git_diff') return `checked diff${result.path ? ` for ${result.path}` : ''}`;

@@ -266,6 +266,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     PENNY_MEMORY_ARCHIVE_FILE: process.env.PENNY_MEMORY_ARCHIVE_FILE,
     PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
     PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-test-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -285,6 +286,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
   process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
   process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
   process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -340,7 +342,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
 
     const updatedModel = await requestJson(`http://127.0.0.1:${address.port}/api/penny/lmstudio/model`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer route-test-token' },
       body: JSON.stringify({ model: 'google/gemma-4-31b' }),
     });
     assert.equal(updatedModel.statusCode, 200);
@@ -448,6 +450,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
     if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
     if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
+    if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -687,6 +690,7 @@ test('direct write route survives semantic-render gating on side-effecting turns
     PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
     PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+    PENNY_ENABLE_DIRECT_WORKSPACE_WRITES: process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-write-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -703,6 +707,7 @@ test('direct write route survives semantic-render gating on side-effecting turns
   process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
   process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+  process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES = '1';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -746,6 +751,7 @@ test('direct write route survives semantic-render gating on side-effecting turns
     if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
     if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
     if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
+    if (originalEnv.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES == null) delete process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES; else process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES = originalEnv.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
     if (fs.existsSync(repoTempFile)) fs.rmSync(repoTempFile, { force: true });
     fs.rmSync(tmpDir, { recursive: true, force: true });

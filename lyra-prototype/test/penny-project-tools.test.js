@@ -22,7 +22,7 @@ function formatBytes(value = 0) {
   return `${Number(value || 0)}b`;
 }
 
-function buildApi({ pathAliases = {} } = {}) {
+function buildApi({ pathAliases = {}, directWorkspaceWritesEnabled = false } = {}) {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-project-tools-'));
   const api = createProjectToolsApi({
     projectRoot,
@@ -39,6 +39,7 @@ function buildApi({ pathAliases = {} } = {}) {
     TOOL_SEARCH_MAX_HITS: 16,
     TOOL_COMMAND_TIMEOUT_MS: 1000,
     execFileText: async () => ({ stdout: '', stderr: '' }),
+    directWorkspaceWritesEnabled,
   });
   return {
     api,
@@ -105,6 +106,7 @@ test('project path aliases resolve scoped external roots', () => {
     pathAliases: {
       'obsidian-vault': vaultRoot,
     },
+    directWorkspaceWritesEnabled: true,
   });
   try {
     fs.mkdirSync(path.join(vaultRoot, 'Shared Notes'), { recursive: true });
@@ -128,5 +130,52 @@ test('project path aliases resolve scoped external roots', () => {
   } finally {
     cleanup();
     fs.rmSync(vaultRoot, { recursive: true, force: true });
+  }
+});
+
+test('workspace writes stage pending patches by default and approval applies them', () => {
+  const { api, projectRoot, cleanup } = buildApi();
+  try {
+    const staged = api.writeProjectFileTool({
+      path: 'src/staged.js',
+      content: 'console.log("staged");\n',
+    });
+    assert.equal(staged.pendingApproval, true);
+    assert.equal(staged.applied, false);
+    assert.match(staged.patch, /staged/);
+    assert.equal(fs.existsSync(path.join(projectRoot, 'src', 'staged.js')), false);
+
+    const listed = api.listPendingWorkspaceWritesTool();
+    assert.equal(listed.count, 1);
+    assert.equal(listed.pending[0].id, staged.id);
+
+    const approved = api.approvePendingWorkspaceWriteTool({ id: staged.id });
+    assert.equal(approved.applied, true);
+    assert.equal(fs.readFileSync(path.join(projectRoot, 'src', 'staged.js'), 'utf8'), 'console.log("staged");\n');
+    assert.equal(api.listPendingWorkspaceWritesTool().count, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test('pending workspace writes can be denied and conflict if the base file changes', () => {
+  const { api, projectRoot, cleanup } = buildApi();
+  try {
+    fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'src', 'app.js'), 'one\n');
+
+    const denied = api.replaceInProjectFileTool({ path: 'src/app.js', find: 'one', replace: 'two' });
+    const deniedResult = api.denyPendingWorkspaceWriteTool({ id: denied.id });
+    assert.equal(deniedResult.denied, true);
+    assert.equal(fs.readFileSync(path.join(projectRoot, 'src', 'app.js'), 'utf8'), 'one\n');
+
+    const staged = api.replaceInProjectFileTool({ path: 'src/app.js', find: 'one', replace: 'three' });
+    fs.writeFileSync(path.join(projectRoot, 'src', 'app.js'), 'changed elsewhere\n');
+    assert.throws(
+      () => api.approvePendingWorkspaceWriteTool({ id: staged.id }),
+      /changed after the pending write was staged/i,
+    );
+  } finally {
+    cleanup();
   }
 });

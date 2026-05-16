@@ -3,6 +3,9 @@ qa-composer-visual/
 .qa-pw/
 output/
 tmp/
+artifacts/
+test-results/
+logs/
 sillytavern-character-memory/
 *.log
 .lyra-server.pid
@@ -13,3 +16,11 @@ data/penny-open-loops*.json
 !data/penny-memory.seed.json
 !data/penny-memory-books.seed.json
 .playwright-cli/
+.codex/
+AGENTS.md
+MEMORY.md
+SOUL.md
+USER.md
+Personality *.md
+Penny's Playground/
+qa-*.png

@@ -40,6 +40,14 @@ const {
   normalizeFrameBudgetReceipt,
 } = require('./penny-frame-budget');
 
+function isAppliedWorkspaceWriteResult(result = {}) {
+  if (!result || result.ok !== true) return false;
+  const data = result.data && typeof result.data === 'object' ? result.data : {};
+  if (data.pendingApproval === true || data.applied === false) return false;
+  if (data.applied === true || data.directWrite === true || data.approved === true) return true;
+  return data.applied == null && data.pendingApproval == null;
+}
+
 const RUNTIME_ARTIFACT_VERSION = 'penny-runtime-artifact.v1';
 const TOOL_EVIDENCE_RECEIPT_SCHEMA = 'penny-tool-evidence-receipt.v1';
 const TOOL_EVIDENCE_PATHS = new Set([
@@ -2001,7 +2009,11 @@ function buildToolArtifactState(toolRecords = [], toolsUsed = []) {
     }
     if (urlValue) artifacts.push({ type: 'web-url', value: urlValue });
     if (result.ok && ['write_project_file', 'replace_in_project_file', 'insert_in_project_file'].includes(name) && pathValue) {
-      sideEffects.push({ type: 'file-write', target: pathValue, status: 'verified' });
+      sideEffects.push({
+        type: 'file-write',
+        target: pathValue,
+        status: isAppliedWorkspaceWriteResult(result) ? 'verified' : 'pending-approval',
+      });
     }
     if (result.ok && name === 'run_node_check' && pathValue) {
       sideEffects.push({ type: 'syntax-check', target: pathValue, status: 'verified' });

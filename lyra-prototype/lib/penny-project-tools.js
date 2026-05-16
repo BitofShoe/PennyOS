@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 function createProjectToolsApi({
   projectRoot,
   pathAliases = {},
@@ -13,6 +15,9 @@ function createProjectToolsApi({
   TOOL_SEARCH_MAX_HITS,
   TOOL_COMMAND_TIMEOUT_MS,
   execFileText,
+  directWorkspaceWritesEnabled = false,
+  pendingWriteTtlMs = 30 * 60 * 1000,
+  now = () => Date.now(),
 } = {}) {
   const DEFAULT_IGNORED_NAMES = new Set([
     '.git',
@@ -40,6 +45,7 @@ function createProjectToolsApi({
   if (typeof execFileText !== 'function') throw new TypeError('createProjectToolsApi requires execFileText');
 
   const normalizedProjectRoot = path.resolve(projectRoot);
+  const pendingWorkspaceWrites = new Map();
   const normalizedPathAliases = Object.entries(pathAliases || {})
     .map(([name, root]) => {
       const alias = String(name || '').trim().replace(/\\/g, '/');
@@ -256,23 +262,150 @@ function createProjectToolsApi({
     }
   }
 
-  function writeProjectFileTool(args = {}) {
-    const filePath = resolveProjectPath(args.path || '');
-    ensureWritableTextPath(filePath);
-    const content = String(args.content || '').replace(/\r\n/g, '\n');
+  function sha256Text(text = '') {
+    return crypto.createHash('sha256').update(String(text || ''), 'utf8').digest('hex');
+  }
+
+  function readExistingTextForWrite(filePath) {
+    if (!fs.existsSync(filePath)) return { existed: false, content: '' };
+    return { existed: true, content: readUtf8ProjectFile(filePath) };
+  }
+
+  function countLines(text = '') {
+    return text ? String(text).split('\n').length : 0;
+  }
+
+  function buildPendingPatchPreview(filePath, before = '', after = '') {
+    const beforeLines = String(before || '').replace(/\r\n/g, '\n').split('\n');
+    const afterLines = String(after || '').replace(/\r\n/g, '\n').split('\n');
+    let prefix = 0;
+    while (prefix < beforeLines.length && prefix < afterLines.length && beforeLines[prefix] === afterLines[prefix]) {
+      prefix += 1;
+    }
+    let suffix = 0;
+    while (
+      suffix + prefix < beforeLines.length
+      && suffix + prefix < afterLines.length
+      && beforeLines[beforeLines.length - 1 - suffix] === afterLines[afterLines.length - 1 - suffix]
+    ) {
+      suffix += 1;
+    }
+    const beforeChanged = beforeLines.slice(prefix, beforeLines.length - suffix);
+    const afterChanged = afterLines.slice(prefix, afterLines.length - suffix);
+    const contextBefore = beforeLines.slice(Math.max(0, prefix - 3), prefix).map((line) => ` ${line}`);
+    const contextAfter = afterLines.slice(afterLines.length - suffix, Math.min(afterLines.length, afterLines.length - suffix + 3)).map((line) => ` ${line}`);
+    const hunk = [
+      `--- a/${toProjectRelative(filePath)}`,
+      `+++ b/${toProjectRelative(filePath)}`,
+      `@@ line ${prefix + 1} @@`,
+      ...contextBefore,
+      ...beforeChanged.map((line) => `-${line}`),
+      ...afterChanged.map((line) => `+${line}`),
+      ...contextAfter,
+    ].join('\n');
+    return truncateText(hunk, 6000);
+  }
+
+  function pruneExpiredPendingWorkspaceWrites() {
+    const timestamp = now();
+    for (const [id, pending] of pendingWorkspaceWrites.entries()) {
+      if (Number(pending.expiresAt || 0) <= timestamp) pendingWorkspaceWrites.delete(id);
+    }
+  }
+
+  function publicPendingWorkspaceWrite(pending) {
+    return {
+      id: pending.id,
+      path: pending.path,
+      action: pending.action,
+      operation: pending.operation,
+      bytes: pending.bytes,
+      lines: pending.lines,
+      createdAt: pending.createdAt,
+      expiresAt: pending.expiresAt,
+      baseHash: pending.baseHash,
+      nextHash: pending.nextHash,
+      patch: pending.patch,
+      summary: pending.summary,
+      directWritesEnabled: false,
+      ...(pending.metadata || {}),
+    };
+  }
+
+  function stagePendingWorkspaceWrite({
+    filePath,
+    operation,
+    before = '',
+    after = '',
+    action = 'updated',
+    metadata = {},
+  } = {}) {
+    const bytes = Buffer.byteLength(after, 'utf8');
+    if (bytes > MAX_TOOL_WRITE_BYTES) {
+      throw new Error(`Refusing to write ${formatBytes(bytes)} to ${toProjectRelative(filePath)}. Keep tool writes under ${formatBytes(MAX_TOOL_WRITE_BYTES)}.`);
+    }
+    const createdAt = now();
+    const id = crypto.randomBytes(16).toString('hex');
+    const pending = {
+      id,
+      filePath,
+      path: toProjectRelative(filePath),
+      action,
+      operation,
+      before,
+      after,
+      baseHash: sha256Text(before),
+      nextHash: sha256Text(after),
+      bytes,
+      lines: countLines(after),
+      createdAt,
+      expiresAt: createdAt + Math.max(1000, Number(pendingWriteTtlMs) || 0),
+      patch: buildPendingPatchPreview(filePath, before, after),
+      summary: `${operation} pending approval for ${toProjectRelative(filePath)}`,
+      metadata,
+    };
+    pendingWorkspaceWrites.set(id, pending);
+    return {
+      ...publicPendingWorkspaceWrite(pending),
+      pendingApproval: true,
+      applied: false,
+    };
+  }
+
+  function directWriteWorkspaceFile({ filePath, content, action = 'updated', metadata = {} } = {}) {
     const bytes = Buffer.byteLength(content, 'utf8');
     if (bytes > MAX_TOOL_WRITE_BYTES) {
       throw new Error(`Refusing to write ${formatBytes(bytes)} to ${toProjectRelative(filePath)}. Keep tool writes under ${formatBytes(MAX_TOOL_WRITE_BYTES)}.`);
     }
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const existed = fs.existsSync(filePath);
     fs.writeFileSync(filePath, content, 'utf8');
     return {
       path: toProjectRelative(filePath),
-      action: existed ? 'updated' : 'created',
+      action,
       bytes,
-      lines: content ? content.split('\n').length : 0,
+      lines: countLines(content),
+      applied: true,
+      directWrite: true,
+      ...metadata,
     };
+  }
+
+  function writeProjectFileTool(args = {}) {
+    const filePath = resolveProjectPath(args.path || '');
+    ensureWritableTextPath(filePath);
+    const content = String(args.content || '').replace(/\r\n/g, '\n');
+    const { existed, content: before } = readExistingTextForWrite(filePath);
+    const action = existed ? 'updated' : 'created';
+    if (directWorkspaceWritesEnabled === true) {
+      return directWriteWorkspaceFile({ filePath, content, action });
+    }
+    return stagePendingWorkspaceWrite({
+      filePath,
+      operation: 'write_project_file',
+      before,
+      after: content,
+      action,
+    });
   }
 
   function replaceInProjectFileTool(args = {}) {
@@ -294,12 +427,21 @@ function createProjectToolsApi({
     if (bytes > MAX_TOOL_WRITE_BYTES) {
       throw new Error(`Refusing to write ${formatBytes(bytes)} to ${toProjectRelative(filePath)}. Keep tool writes under ${formatBytes(MAX_TOOL_WRITE_BYTES)}.`);
     }
-    fs.writeFileSync(filePath, next, 'utf8');
-    return {
-      path: toProjectRelative(filePath),
+    const metadata = {
       replaced: replaceAll ? occurrences : 1,
       remainingMatches: replaceAll ? 0 : Math.max(0, occurrences - 1),
     };
+    if (directWorkspaceWritesEnabled === true) {
+      return directWriteWorkspaceFile({ filePath, content: next, action: 'updated', metadata });
+    }
+    return stagePendingWorkspaceWrite({
+      filePath,
+      operation: 'replace_in_project_file',
+      before: content,
+      after: next,
+      action: 'updated',
+      metadata,
+    });
   }
 
   function insertInProjectFileTool(args = {}) {
@@ -347,15 +489,71 @@ function createProjectToolsApi({
     if (bytes > MAX_TOOL_WRITE_BYTES) {
       throw new Error(`Refusing to write ${formatBytes(bytes)} to ${toProjectRelative(filePath)}. Keep tool writes under ${formatBytes(MAX_TOOL_WRITE_BYTES)}.`);
     }
-    fs.writeFileSync(filePath, next, 'utf8');
-    return {
-      path: toProjectRelative(filePath),
+    const metadata = {
       inserted: text.split('\n').length,
       textPreview: truncateText(text.replace(/^\n+/, '').replace(/\n+$/, ''), 1200),
       position,
       anchor: anchor || null,
       anchorMatches,
       lineAware,
+    };
+    if (directWorkspaceWritesEnabled === true) {
+      return directWriteWorkspaceFile({ filePath, content: next, action: 'updated', metadata });
+    }
+    return stagePendingWorkspaceWrite({
+      filePath,
+      operation: 'insert_in_project_file',
+      before: content,
+      after: next,
+      action: 'updated',
+      metadata,
+    });
+  }
+
+  function listPendingWorkspaceWritesTool() {
+    pruneExpiredPendingWorkspaceWrites();
+    return {
+      pending: [...pendingWorkspaceWrites.values()].map(publicPendingWorkspaceWrite),
+      count: pendingWorkspaceWrites.size,
+      directWritesEnabled: directWorkspaceWritesEnabled === true,
+    };
+  }
+
+  function approvePendingWorkspaceWriteTool(args = {}) {
+    pruneExpiredPendingWorkspaceWrites();
+    const id = String(args.id || args.pendingWriteId || '').trim();
+    if (!id) throw new Error('approve_pending_workspace_write needs an id.');
+    const pending = pendingWorkspaceWrites.get(id);
+    if (!pending) throw new Error(`Pending workspace write ${id} was not found or has expired.`);
+    const current = readExistingTextForWrite(pending.filePath);
+    const currentHash = sha256Text(current.content);
+    if (currentHash !== pending.baseHash) {
+      throw new Error(`${pending.path} changed after the pending write was staged. Review and restage the edit.`);
+    }
+    fs.mkdirSync(path.dirname(pending.filePath), { recursive: true });
+    fs.writeFileSync(pending.filePath, pending.after, 'utf8');
+    pendingWorkspaceWrites.delete(id);
+    return {
+      ...publicPendingWorkspaceWrite(pending),
+      pendingApproval: false,
+      applied: true,
+      approved: true,
+      currentExisted: current.existed,
+    };
+  }
+
+  function denyPendingWorkspaceWriteTool(args = {}) {
+    pruneExpiredPendingWorkspaceWrites();
+    const id = String(args.id || args.pendingWriteId || '').trim();
+    if (!id) throw new Error('deny_pending_workspace_write needs an id.');
+    const pending = pendingWorkspaceWrites.get(id);
+    if (!pending) throw new Error(`Pending workspace write ${id} was not found or has expired.`);
+    pendingWorkspaceWrites.delete(id);
+    return {
+      ...publicPendingWorkspaceWrite(pending),
+      pendingApproval: false,
+      applied: false,
+      denied: true,
     };
   }
 
@@ -396,6 +594,9 @@ function createProjectToolsApi({
     writeProjectFileTool,
     replaceInProjectFileTool,
     insertInProjectFileTool,
+    listPendingWorkspaceWritesTool,
+    approvePendingWorkspaceWriteTool,
+    denyPendingWorkspaceWriteTool,
     runNodeCheckTool,
   };
 }

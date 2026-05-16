@@ -76,6 +76,23 @@ async function collectUiDebug(page) {
   }, STORAGE_KEY);
 }
 
+async function waitForPagePredicate(page, predicate, arg, options = {}) {
+  const timeout = Number(options.timeout || 30000);
+  const interval = Number(options.interval || 100);
+  const started = Date.now();
+  let lastError = null;
+  while (Date.now() - started <= timeout) {
+    try {
+      if (await page.evaluate(predicate, arg)) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await page.waitForTimeout(interval);
+  }
+  const message = lastError?.message ? ` Last error: ${lastError.message}` : '';
+  throw new Error(`Timed out after ${timeout}ms waiting for browser smoke predicate.${message}`);
+}
+
 function ensurePlaywright() {
   if (fs.existsSync(PW_READY)) return;
   ensureDir(PW_DIR);
@@ -483,7 +500,7 @@ async function main() {
       console.log('Checking expression lock apply...');
       await page.click('.tab[data-panel="settings"]');
       await page.selectOption('#expressionOverrideSelect', 'flirty');
-      await page.waitForFunction(() => {
+      await waitForPagePredicate(page, () => {
         const note = document.querySelector('#expressionDecisionNote')?.textContent || '';
         const select = document.querySelector('#expressionOverrideSelect');
         return select?.value === 'flirty' && /manual override/i.test(note);
@@ -497,7 +514,7 @@ async function main() {
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(1000);
       await page.click('.tab[data-panel="settings"]');
-      await page.waitForFunction(() => {
+      await waitForPagePredicate(page, () => {
         const note = document.querySelector('#expressionDecisionNote')?.textContent || '';
         const select = document.querySelector('#expressionOverrideSelect');
         return select?.value === 'flirty' && /flirty/i.test(note);
@@ -509,7 +526,7 @@ async function main() {
       persistReport(report);
       console.log('Checking expression auto-clear...');
       await page.selectOption('#expressionOverrideSelect', '');
-      await page.waitForFunction(() => {
+      await waitForPagePredicate(page, () => {
         const note = document.querySelector('#expressionDecisionNote')?.textContent || '';
         const select = document.querySelector('#expressionOverrideSelect');
         return select?.value === '' && /manual override cleared|returned to the last auto mood/i.test(note);
@@ -525,7 +542,7 @@ async function main() {
       persistReport(report);
       console.log('Checking memory inspector recency and queue details...');
       await page.click('.tab[data-panel="memory"]');
-      await page.waitForFunction(() => {
+      await waitForPagePredicate(page, () => {
         const panel = document.querySelector('#memoryInspectorPanel');
         const text = panel?.textContent || '';
         return /Recency protection/i.test(text) && /thread /i.test(text);
@@ -541,7 +558,7 @@ async function main() {
       const turnsBefore = Number(await page.textContent('#turnsValue')) || 0;
       const started = Date.now();
       await page.click('#send');
-      await page.waitForFunction(({ storageKey, minTurns }) => {
+      await waitForPagePredicate(page, ({ storageKey, minTurns }) => {
         const raw = window.localStorage.getItem(storageKey);
         if (!raw) return false;
         let snapshot;
@@ -583,7 +600,7 @@ async function main() {
     persistReport(report);
     console.log('Checking image upload prep and reply path...');
     await page.setInputFiles('#imageInput', imageFixturePath);
-    await page.waitForFunction(() => {
+    await waitForPagePredicate(page, () => {
       const preview = document.querySelector('#imagePreview');
       const previewImg = document.querySelector('#imagePreviewImg');
       const notice = document.querySelector('#composerNotice')?.textContent || '';
@@ -602,7 +619,7 @@ async function main() {
     await page.click('#send');
     report.currentStep = 'image_upload_turn_user_message_persists';
     persistReport(report);
-    await page.waitForFunction(({ storageKey, minTurns }) => {
+    await waitForPagePredicate(page, ({ storageKey, minTurns }) => {
       const raw = window.localStorage.getItem(storageKey);
       if (!raw) return false;
       let snapshot;
@@ -639,7 +656,7 @@ async function main() {
 
     report.currentStep = 'image_upload_turn_assistant_reply';
     persistReport(report);
-    await page.waitForFunction(({ storageKey, minTurns }) => {
+    await waitForPagePredicate(page, ({ storageKey, minTurns }) => {
       const raw = window.localStorage.getItem(storageKey);
       if (!raw) return false;
       let snapshot;
@@ -696,7 +713,7 @@ async function main() {
     persistReport(report);
     console.log('Checking runtime artifact visibility...');
     await page.click('.tab[data-panel="memory"]');
-    await page.waitForFunction(() => {
+    await waitForPagePredicate(page, () => {
       const panel = document.querySelector('#memoryInspectorPanel');
       return /penny-runtime-artifact\.v1/i.test(panel?.textContent || '');
     }, undefined, { timeout: 10000 });
@@ -708,7 +725,7 @@ async function main() {
     console.log('Checking new-chat reset...');
     await page.click('.tab[data-panel="settings"]');
     await page.click('#newChat');
-    await page.waitForFunction(() => {
+    await waitForPagePredicate(page, () => {
       const chat = document.querySelector('#chat');
       const turns = document.querySelector('#turnsValue')?.textContent || '';
       return !chat?.textContent?.trim() && turns === '0';
@@ -722,7 +739,7 @@ async function main() {
     await page.selectOption('#expressionOverrideSelect', 'smug');
     await page.waitForTimeout(300);
     await page.click('#clearMemory');
-    await page.waitForFunction(() => {
+    await waitForPagePredicate(page, () => {
       const select = document.querySelector('#expressionOverrideSelect');
       const turns = document.querySelector('#turnsValue')?.textContent || '';
       return select?.value === '' && turns === '0';
