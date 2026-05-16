@@ -126,6 +126,9 @@ const {
 const PORT = process.env.PORT || 4317;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
+const PENNY_OBSIDIAN_VAULT_ROOT = process.env.PENNY_OBSIDIAN_VAULT_ROOT
+  ? path.resolve(__dirname, process.env.PENNY_OBSIDIAN_VAULT_ROOT)
+  : '';
 const PENNY_VOICE_DIR = path.join(__dirname, 'penny-voice');
 const MEMORY_FILE = process.env.PENNY_MEMORY_FILE
   ? path.resolve(__dirname, process.env.PENNY_MEMORY_FILE)
@@ -189,6 +192,7 @@ const PENNY_LMSTUDIO_CHAT_MODEL = process.env.PENNY_LMSTUDIO_CHAT_MODEL
   || 'google/gemma-4-31b';
 const PENNY_LMSTUDIO_TOOL_MODEL = process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b';
 const PENNY_LMSTUDIO_EMBED_MODEL = normalizeEmbedModelId(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5');
+const PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK = isEnabledEnv(process.env.PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK);
 const PENNY_ARCHIVE_SCORING_PROFILE = process.env.PENNY_ARCHIVE_SCORING_PROFILE || 'baseline';
 const PENNY_ENABLE_BACKGROUND_CHAT_VECTORS = !['0', 'false', 'off', 'no'].includes(String(process.env.PENNY_ENABLE_BACKGROUND_CHAT_VECTORS || '').trim().toLowerCase());
 const PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT = Math.max(0, Number(process.env.PENNY_BACKGROUND_CHAT_VECTOR_BATCH_LIMIT || 2));
@@ -810,6 +814,7 @@ const lmStudioStatusApi = createLmStudioStatusApi({
   LOCAL_LLM_TRANSPORT,
   PENNY_LMSTUDIO_CHAT_MODEL,
   PENNY_LMSTUDIO_TOOL_MODEL,
+  PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK,
 });
 const {
   getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
@@ -894,6 +899,9 @@ const {
 } = memoryBooksApi;
 const projectToolsApi = createProjectToolsApi({
   projectRoot: __dirname,
+  pathAliases: {
+    'obsidian-vault': PENNY_OBSIDIAN_VAULT_ROOT,
+  },
   fs,
   path,
   TEXT_FILE_EXTENSIONS,
@@ -1588,11 +1596,11 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'list_project_files',
-      description: 'List files or folders inside the Penny project with bounded traversal. Defaults ignore generated or heavy folders like .git, node_modules, output, tmp, and logs.',
+      description: 'List files or folders inside the Penny project or configured path aliases such as obsidian-vault/... with bounded traversal. Defaults ignore generated or heavy folders like .git, node_modules, output, tmp, and logs.',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'Project-relative folder path. Defaults to the repo root.' },
+          path: { type: 'string', description: 'Project-relative or configured alias folder path. Defaults to the repo root.' },
           recursive: { type: 'boolean', description: 'Whether to recurse into child folders.' },
           maxDepth: { type: 'integer', description: 'Optional traversal depth cap when recursive mode is on.' },
           pattern: { type: 'string', description: 'Optional case-insensitive substring filter for returned file names.' },
@@ -1606,11 +1614,11 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'read_project_file',
-      description: 'Read a bounded excerpt from a text file in the Penny project. This stays inside the repo root and only reads allowed text/code files.',
+      description: 'Read a bounded excerpt from a text file in the Penny project or configured path aliases such as obsidian-vault/.... Reads stay inside the repo root or alias root and only allow text/code files.',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'Project-relative file path.' },
+          path: { type: 'string', description: 'Project-relative or configured alias file path.' },
           startLine: { type: 'integer', description: '1-based starting line number.' },
           endLine: { type: 'integer', description: '1-based ending line number.' },
         },
@@ -1623,11 +1631,11 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'read_project_file_around_match',
-      description: 'Read a focused bounded excerpt from one project file around the first line that matches a query.',
+      description: 'Read a focused bounded excerpt from one project or configured alias file around the first line that matches a query.',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'Project-relative file path.' },
+          path: { type: 'string', description: 'Project-relative or configured alias file path.' },
           query: { type: 'string', description: 'Case-insensitive text to look for inside the file.' },
           beforeLines: { type: 'integer', description: 'How many lines to include before the match.' },
           afterLines: { type: 'integer', description: 'How many lines to include after the match.' },
@@ -1641,12 +1649,12 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'search_project_text',
-      description: 'Search project text files for a phrase with bounded traversal. Returns hits with path, line, and text; read a promising hit with read_project_file_around_match or read_project_file before finalizing exact code details.',
+      description: 'Search project or configured alias text files for a phrase with bounded traversal. Returns hits with path, line, and text; read a promising hit with read_project_file_around_match or read_project_file before finalizing exact code details.',
       parameters: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Case-insensitive text to search for.' },
-          path: { type: 'string', description: 'Optional project-relative folder or file path to narrow the search.' },
+          path: { type: 'string', description: 'Optional project-relative or configured alias folder/file path to narrow the search.' },
           maxDepth: { type: 'integer', description: 'Optional traversal depth cap for folder searches.' },
           limit: { type: 'integer', description: 'Maximum number of matches to return.' },
         },
@@ -1659,11 +1667,11 @@ const PENNY_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'write_project_file',
-      description: 'Create or fully rewrite an allowed text/code file inside the Penny project. Runtime write-size caps still apply.',
+      description: 'Create or fully rewrite an allowed text/code file inside the Penny project or configured path aliases such as obsidian-vault/.... Runtime write-size caps still apply.',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'Project-relative text/code file path.' },
+          path: { type: 'string', description: 'Project-relative or configured alias text/code file path.' },
           content: { type: 'string', description: 'Complete UTF-8 file contents to write.' },
         },
         required: ['path', 'content'],

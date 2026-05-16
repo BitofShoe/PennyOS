@@ -541,7 +541,7 @@ test('runLmStudioToolLoop records prompt-visible raw-json evidence facts for nat
     outputCostShape: 'bounded-list',
     sourceShape: 'workspace-source',
     defaultOutputBound: 120,
-    planningHint: 'Bounded line excerpt from one workspace file; prefer ranges over whole-file reads.',
+    planningHint: 'Bounded line excerpt from one workspace or configured-alias file; prefer ranges over whole-file reads.',
   });
   assert.deepEqual(result.toolEvidenceFacts, [
     {
@@ -1201,6 +1201,77 @@ test('runLmStudioManualToolLoop corrects fake commit and push claims without git
   assert.match(result.text, /do not have a git receipt/i);
   assert.equal(api.toolCalls.length, 0);
   assert.match(JSON.stringify(api.payloads[1].messages), /git-action-without-receipt/);
+});
+
+test('runLmStudioManualToolLoop requests JSON object mode for manual planner replies', async () => {
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: 'final',
+                text: 'clean json, tiny miracle.\n[MOOD:pleased]',
+              }),
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const result = await api.runLmStudioManualToolLoop({
+    userText: 'Say a tiny thing.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.match(result.text, /clean json/i);
+  assert.deepEqual(api.payloads[0].response_format, { type: 'json_object' });
+});
+
+test('runLmStudioManualToolLoop attaches planner diagnostics to loop-limit errors', async () => {
+  const api = buildToolLoopApi({
+    maxToolSteps: 2,
+    responses: [
+      {
+        choices: [
+          {
+            message: {
+              content: 'not json at all',
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: 'still not json',
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  await assert.rejects(async () => {
+    await api.runLmStudioManualToolLoop({
+      userText: 'Use tools if needed, then answer.',
+      messages: [],
+      memories: {},
+      laneRuntime: {},
+    });
+  }, (error) => {
+    assert.match(error?.message || '', /manual tool loop hit the limit/i);
+    assert.equal(error?.code, 'manual_tool_loop_limit');
+    assert.equal(error?.toolOutcomeDebug?.manualFallback?.lastPlannerStatus, 'invalid-planner-json');
+    assert.equal(error?.toolOutcomeDebug?.manualFallback?.invalidReplyCount, 2);
+    assert.match(error?.toolOutcomeDebug?.manualFallback?.lastAssistantText || '', /still not json/i);
+    return true;
+  });
 });
 
 test('runLmStudioManualToolLoop refuses final planner replies until a real write tool succeeds', async () => {

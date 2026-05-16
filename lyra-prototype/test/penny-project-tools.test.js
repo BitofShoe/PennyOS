@@ -22,10 +22,11 @@ function formatBytes(value = 0) {
   return `${Number(value || 0)}b`;
 }
 
-function buildApi() {
+function buildApi({ pathAliases = {} } = {}) {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-project-tools-'));
   const api = createProjectToolsApi({
     projectRoot,
+    pathAliases,
     fs,
     path,
     TEXT_FILE_EXTENSIONS: new Set(['.js', '.json', '.md', '.txt', '.mjs', '.cjs']),
@@ -95,5 +96,37 @@ test('project tool guards reject root escapes and oversized writes', () => {
     fs.rmSync(outsideFile, { force: true });
   } finally {
     cleanup();
+  }
+});
+
+test('project path aliases resolve scoped external roots', () => {
+  const vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-local-notes-'));
+  const { api, cleanup } = buildApi({
+    pathAliases: {
+      'obsidian-vault': vaultRoot,
+    },
+  });
+  try {
+    fs.mkdirSync(path.join(vaultRoot, 'Shared Notes'), { recursive: true });
+    fs.writeFileSync(path.join(vaultRoot, 'Shared Notes', 'LOCAL NOTE.md'), '# Local Note\n\nActual vault copy.\n');
+
+    const read = api.readProjectFileTool({ path: 'obsidian-vault/Shared Notes/LOCAL NOTE.md' });
+    assert.equal(read.path, 'obsidian-vault/Shared Notes/LOCAL NOTE.md');
+    assert.match(read.excerpt, /Actual vault copy/);
+
+    const written = api.writeProjectFileTool({
+      path: 'obsidian-vault/Shared Notes/REWRITE.md',
+      content: 'rewritten\n',
+    });
+    assert.equal(written.path, 'obsidian-vault/Shared Notes/REWRITE.md');
+    assert.equal(fs.readFileSync(path.join(vaultRoot, 'Shared Notes', 'REWRITE.md'), 'utf8'), 'rewritten\n');
+
+    assert.throws(
+      () => api.readProjectFileTool({ path: 'obsidian-vault/../outside.md' }),
+      /inside the obsidian-vault alias/i,
+    );
+  } finally {
+    cleanup();
+    fs.rmSync(vaultRoot, { recursive: true, force: true });
   }
 });

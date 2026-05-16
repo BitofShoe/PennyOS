@@ -16,6 +16,7 @@ function createLmStudioStatusApi({
   LOCAL_LLM_TRANSPORT,
   PENNY_LMSTUDIO_CHAT_MODEL,
   PENNY_LMSTUDIO_TOOL_MODEL,
+  PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK = false,
 } = {}) {
   if (typeof fetch !== 'function') throw new TypeError('createLmStudioStatusApi requires fetch');
   if (!fs || typeof fs.existsSync !== 'function' || typeof fs.readFileSync !== 'function') {
@@ -28,6 +29,8 @@ function createLmStudioStatusApi({
   const TOOL_FALLBACK_MODEL = 'google/gemma-4-e4b';
   const chatConfiguredModel = String(PENNY_LMSTUDIO_CHAT_MODEL || '').trim() || CHAT_FALLBACK_MODEL;
   const toolConfiguredModel = String(PENNY_LMSTUDIO_TOOL_MODEL || '').trim() || TOOL_FALLBACK_MODEL;
+  const modelFallbackDisabled = PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK === true
+    || ['1', 'true', 'yes', 'on'].includes(String(PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK || '').trim().toLowerCase());
 
   let lmStudioStatusCache = { expiresAt: 0, value: null };
   let runtimePreferredChatModel = '';
@@ -144,9 +147,12 @@ function createLmStudioStatusApi({
   }
 
   function getPreferredModelForLane(lane = 'chat') {
-    return lane === 'tool'
-      ? toolConfiguredModel
-      : (runtimePreferredChatModel || chatConfiguredModel);
+    if (lane === 'tool') {
+      return modelFallbackDisabled && runtimePreferredChatModel
+        ? runtimePreferredChatModel
+        : toolConfiguredModel;
+    }
+    return runtimePreferredChatModel || chatConfiguredModel;
   }
 
   function rankLmStudioModel(model = {}, preferredKey = '', runtimeKey = '') {
@@ -259,6 +265,16 @@ function createLmStudioStatusApi({
     return sortLmStudioModelCandidates(models, { preferredModel, runtimeModel }).map(item => item.id);
   }
 
+  function buildStrictLaneCandidates(models = [], preferredModel = '', runtimeModel = '') {
+    const preferred = String(preferredModel || '').trim();
+    if (!preferred) return [];
+    return buildLaneCandidates(
+      models.filter(item => modelsLookEquivalent(item?.id, preferred)),
+      preferred,
+      runtimeModel,
+    );
+  }
+
   function trimIso(value = '') {
     const text = String(value || '').trim();
     if (!text) return '';
@@ -361,33 +377,52 @@ function createLmStudioStatusApi({
       const chatPreferredModel = getPreferredModelForLane('chat');
       const toolPreferredModel = getPreferredModelForLane('tool');
       const fallbackModels = [];
-      for (const fallbackId of [chatPreferredModel, toolPreferredModel]) {
-        const id = String(fallbackId || '').trim();
-        if (!id) continue;
-        if (loadedLaneModelEntries.some(item => modelsLookEquivalent(item.id, id))) continue;
-        if (runtimeLaneModels.some(item => modelsLookEquivalent(item.id, id))) continue;
-        if (fallbackModels.some(item => modelsLookEquivalent(item.id, id))) continue;
-        fallbackModels.push({ id });
+      if (!modelFallbackDisabled) {
+        for (const fallbackId of [chatPreferredModel, toolPreferredModel]) {
+          const id = String(fallbackId || '').trim();
+          if (!id) continue;
+          if (loadedLaneModelEntries.some(item => modelsLookEquivalent(item.id, id))) continue;
+          if (runtimeLaneModels.some(item => modelsLookEquivalent(item.id, id))) continue;
+          if (fallbackModels.some(item => modelsLookEquivalent(item.id, id))) continue;
+          fallbackModels.push({ id });
+        }
       }
 
-      const loadedChatCandidates = buildLaneCandidates(loadedLaneModelEntries, chatPreferredModel, runtimePreferredChatModel);
-      const runtimeChatCandidates = buildLaneCandidates(runtimeLaneModels, chatPreferredModel, runtimePreferredChatModel);
-      const fallbackChatCandidates = buildLaneCandidates(fallbackModels, chatPreferredModel, runtimePreferredChatModel);
-      const loadedToolCandidates = buildLaneCandidates(loadedLaneModelEntries, toolPreferredModel, '');
-      const runtimeToolCandidates = buildLaneCandidates(runtimeLaneModels, toolPreferredModel, '');
-      const fallbackToolCandidates = buildLaneCandidates(fallbackModels, toolPreferredModel, '');
+      const selectableLoadedModels = buildLaneCandidates(loadedLaneModelEntries, chatPreferredModel, runtimePreferredChatModel);
+      const selectableRuntimeModels = runtimeLaneModels.map(item => item.id);
+      const availableModels = mergeUniqueModelIds(selectableLoadedModels, selectableRuntimeModels);
 
-      const resolvedChatModel = loadedChatCandidates[0] || runtimeChatCandidates[0] || '';
-      const resolvedToolModel = loadedToolCandidates[0] || runtimeToolCandidates[0] || '';
-      const availableModels = loadedChatCandidates.length
-        ? loadedChatCandidates
-        : runtimeLaneModels.map(item => item.id);
-      const candidateModels = loadedChatCandidates.length
-        ? loadedChatCandidates
-        : runtimeChatCandidates;
-      const toolCandidateModels = loadedToolCandidates.length
-        ? loadedToolCandidates
-        : runtimeToolCandidates;
+      let candidateModels;
+      let toolCandidateModels;
+      if (modelFallbackDisabled) {
+        candidateModels = buildStrictLaneCandidates(
+          [...loadedLaneModelEntries, ...runtimeLaneModels],
+          chatPreferredModel,
+          runtimePreferredChatModel,
+        );
+        toolCandidateModels = buildStrictLaneCandidates(
+          [...loadedLaneModelEntries, ...runtimeLaneModels],
+          toolPreferredModel,
+          '',
+        );
+      } else {
+        const loadedChatCandidates = buildLaneCandidates(loadedLaneModelEntries, chatPreferredModel, runtimePreferredChatModel);
+        const runtimeChatCandidates = buildLaneCandidates(runtimeLaneModels, chatPreferredModel, runtimePreferredChatModel);
+        const loadedToolCandidates = buildLaneCandidates(loadedLaneModelEntries, toolPreferredModel, '');
+        const runtimeToolCandidates = buildLaneCandidates(runtimeLaneModels, toolPreferredModel, '');
+        candidateModels = loadedChatCandidates.length
+          ? loadedChatCandidates
+          : runtimeChatCandidates;
+        toolCandidateModels = loadedToolCandidates.length
+          ? loadedToolCandidates
+          : runtimeToolCandidates;
+      }
+
+      const resolvedChatModel = candidateModels[0] || '';
+      const resolvedToolModel = toolCandidateModels[0] || '';
+      const strictChatHint = modelFallbackDisabled && chatPreferredModel && !resolvedChatModel
+        ? `Chat model ${chatPreferredModel} is not currently exposed by ${LMSTUDIO_BASE}; model fallback is disabled.`
+        : '';
 
       value = {
         ok: true,
@@ -409,10 +444,11 @@ function createLmStudioStatusApi({
         nativeAvailableModels: runtimeModelIds,
         installedModels: mergeUniqueModelIds(availableModels, installedModels, runtimeModelIds),
         desktopLocalServiceEnabled: settings?.enableLocalService ?? null,
-        hint: resolvedChatModel ? '' : 'LM Studio is reachable, but no usable chat model is currently loaded.',
+        hint: resolvedChatModel ? '' : (strictChatHint || 'LM Studio is reachable, but no usable chat model is currently loaded.'),
         error: '',
         localTransport: LOCAL_LLM_TRANSPORT,
-        routingMode: 'auto',
+        routingMode: modelFallbackDisabled ? 'strict' : 'auto',
+        modelFallbackDisabled,
       };
     } catch (error) {
       const rawMsg = String(error?.message || 'LM Studio is unreachable.');
@@ -450,7 +486,8 @@ function createLmStudioStatusApi({
         hint: buildLmStudioLaunchHint(),
         error: detail,
         localTransport: LOCAL_LLM_TRANSPORT,
-        routingMode: 'auto',
+        routingMode: modelFallbackDisabled ? 'strict' : 'auto',
+        modelFallbackDisabled,
       };
     } finally {
       clearTimeout(timer);
@@ -486,10 +523,12 @@ function createLmStudioStatusApi({
     if (lane === 'tool') {
       const candidates = Array.isArray(status.toolCandidateModels) ? status.toolCandidateModels : [];
       if (candidates.length) return candidates;
+      if (modelFallbackDisabled) return [];
       return [getPreferredModelForLane('tool')].filter(Boolean);
     }
     const candidates = Array.isArray(status.candidateModels) ? status.candidateModels : [];
     if (candidates.length) return candidates;
+    if (modelFallbackDisabled) return [];
     return [getPreferredModelForLane('chat')].filter(Boolean);
   }
 
@@ -551,6 +590,13 @@ function createLmStudioStatusApi({
       }
       const candidates = resolveLaneCandidates(status, lane);
       let lastMissingModelError = null;
+
+      if (!candidates.length) {
+        const preferredModel = getPreferredModelForLane(lane);
+        if (modelFallbackDisabled && preferredModel) {
+          throw new Error(`${lane} lane model ${preferredModel} is not available from ${LMSTUDIO_BASE}; model fallback is disabled.`);
+        }
+      }
 
       for (const model of candidates) {
         const meta = {

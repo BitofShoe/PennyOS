@@ -32,7 +32,7 @@ const TOOL_CAPABILITY_TEMPLATES = {
     outputCostShape: 'bounded-list',
     sourceShape: 'workspace-source',
     defaultOutputBound: 24,
-    planningHint: 'Bounded workspace listing; use path, pattern, and limit to keep output narrow.',
+    planningHint: 'Bounded workspace or configured-alias listing; use path, pattern, and limit to keep output narrow.',
   },
   read_project_file: {
     label: 'read project file',
@@ -41,7 +41,7 @@ const TOOL_CAPABILITY_TEMPLATES = {
     outputCostShape: 'bounded-list',
     sourceShape: 'workspace-source',
     defaultOutputBound: 120,
-    planningHint: 'Bounded line excerpt from one workspace file; prefer ranges over whole-file reads.',
+    planningHint: 'Bounded line excerpt from one workspace or configured-alias file; prefer ranges over whole-file reads.',
   },
   read_project_file_around_match: {
     label: 'read project file around match',
@@ -59,7 +59,7 @@ const TOOL_CAPABILITY_TEMPLATES = {
     outputCostShape: 'linear-corpus',
     sourceShape: 'workspace-source',
     defaultOutputBound: 12,
-    planningHint: 'Workspace corpus scan with bounded hits; narrow path and query before reading files.',
+    planningHint: 'Workspace or configured-alias corpus scan with bounded hits; narrow path and query before reading files.',
   },
   write_project_file: {
     label: 'write project file',

@@ -2,7 +2,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createLmStudioStatusApi } = require('../lib/penny-lmstudio-status');
 
-function makeStatusApi({ models = [], loadedModels = [], installedDetailed = [] } = {}) {
+function makeStatusApi({
+  models = [],
+  loadedModels = [],
+  installedDetailed = [],
+  chatModel = 'google/gemma-4-31b',
+  toolModel = 'google/gemma-4-e4b',
+  disableModelFallback = false,
+} = {}) {
   const fetch = async () => ({
     ok: true,
     status: 200,
@@ -34,8 +41,9 @@ function makeStatusApi({ models = [], loadedModels = [], installedDetailed = [] 
     LMSTUDIO_STATUS_ERROR_CACHE_MS: 10,
     LMSTUDIO_MODELS_PROBE_MS: 5000,
     LOCAL_LLM_TRANSPORT: 'auto',
-    PENNY_LMSTUDIO_CHAT_MODEL: 'google/gemma-4-31b',
-    PENNY_LMSTUDIO_TOOL_MODEL: 'google/gemma-4-e4b',
+    PENNY_LMSTUDIO_CHAT_MODEL: chatModel,
+    PENNY_LMSTUDIO_TOOL_MODEL: toolModel,
+    PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK: disableModelFallback,
   });
 }
 
@@ -245,6 +253,68 @@ test('LM Studio status keeps local OpenAI runtime model ids visible for the web 
   assert.equal(status.resolvedChatModel, 'unsloth/gemma-4-31b-it');
   assert.ok(status.installedModels.includes('unsloth/qwen3.6-35b-a3b@ud-q4_k_xl'));
   assert.ok(status.installedModels.includes('google/embedding-gemma-300m'));
+});
+
+test('LM Studio strict model selection honors the runtime-picked chat model over a loaded default', async () => {
+  const api = makeStatusApi({
+    models: [
+      'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl',
+      'unsloth/gemma-4-31b-it',
+      'google/embedding-gemma-300m',
+    ],
+    loadedModels: ['unsloth/gemma-4-31b-it', 'google/embedding-gemma-300m'],
+    chatModel: 'unsloth/gemma-4-31b-it',
+    toolModel: 'unsloth/gemma-4-31b-it',
+    disableModelFallback: true,
+  });
+
+  api.setRuntimePreferredChatModel('unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  const status = await api.getLmStudioConnectionStatus({ force: true });
+
+  assert.equal(status.modelFallbackDisabled, true);
+  assert.equal(status.chatPreferredModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.equal(status.toolPreferredModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.equal(status.resolvedChatModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.equal(status.resolvedToolModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.deepEqual(status.candidateModels, ['unsloth/qwen3.6-35b-a3b@ud-q4_k_xl']);
+  assert.deepEqual(status.toolCandidateModels, ['unsloth/qwen3.6-35b-a3b@ud-q4_k_xl']);
+  assert.ok(status.availableModels.includes('unsloth/gemma-4-31b-it'));
+  assert.ok(status.availableModels.includes('unsloth/qwen3.6-35b-a3b@ud-q4_k_xl'));
+
+  const runtime = {};
+  const chosen = await api.withLmStudioLaneModel('chat', async (model) => model, runtime);
+
+  assert.equal(chosen, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.equal(runtime.requestedModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.equal(runtime.resolvedModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.equal(runtime.laneFallback, false);
+
+  const toolRuntime = {};
+  const toolChosen = await api.withLmStudioLaneModel('tool', async (model) => model, toolRuntime);
+
+  assert.equal(toolChosen, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.equal(toolRuntime.requestedModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.equal(toolRuntime.resolvedModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.equal(toolRuntime.laneFallback, false);
+});
+
+test('LM Studio strict model selection fails closed instead of falling back to a loaded model', async () => {
+  const api = makeStatusApi({
+    models: ['unsloth/gemma-4-31b-it'],
+    loadedModels: ['unsloth/gemma-4-31b-it'],
+    chatModel: 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl',
+    disableModelFallback: true,
+  });
+
+  const status = await api.getLmStudioConnectionStatus({ force: true });
+
+  assert.equal(status.modelFallbackDisabled, true);
+  assert.equal(status.resolvedChatModel, '');
+  assert.deepEqual(status.candidateModels, []);
+  await assert.rejects(
+    () => api.withLmStudioLaneModel('chat', async (model) => model, {}),
+    /fallback is disabled/i,
+  );
 });
 
 test('LM Studio status treats UD quant suffixes as aliases for the same model family', () => {

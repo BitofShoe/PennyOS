@@ -1,5 +1,6 @@
 function createProjectToolsApi({
   projectRoot,
+  pathAliases = {},
   fs,
   path,
   TEXT_FILE_EXTENSIONS,
@@ -38,16 +39,53 @@ function createProjectToolsApi({
   if (typeof formatBytes !== 'function') throw new TypeError('createProjectToolsApi requires formatBytes');
   if (typeof execFileText !== 'function') throw new TypeError('createProjectToolsApi requires execFileText');
 
+  const normalizedProjectRoot = path.resolve(projectRoot);
+  const normalizedPathAliases = Object.entries(pathAliases || {})
+    .map(([name, root]) => {
+      const alias = String(name || '').trim().replace(/\\/g, '/');
+      const rootPath = String(root || '').trim();
+      if (!alias || alias === '.' || alias === '..' || alias.includes('/')) return null;
+      if (!rootPath) return null;
+      return {
+        alias,
+        root: path.resolve(rootPath),
+      };
+    })
+    .filter(Boolean);
+  const pathAliasByName = new Map(normalizedPathAliases.map((item) => [item.alias, item]));
+
+  function isPathInsideRoot(candidatePath, rootPath) {
+    const resolved = path.resolve(candidatePath);
+    const root = path.resolve(rootPath);
+    return resolved === root || resolved.startsWith(`${root}${path.sep}`);
+  }
+
   function toProjectRelative(filePath) {
-    const rel = path.relative(projectRoot, filePath).replace(/\\/g, '/');
+    const resolved = path.resolve(filePath);
+    for (const { alias, root } of normalizedPathAliases) {
+      if (!isPathInsideRoot(resolved, root)) continue;
+      const rel = path.relative(root, resolved).replace(/\\/g, '/');
+      return rel ? `${alias}/${rel}` : alias;
+    }
+    const rel = path.relative(normalizedProjectRoot, resolved).replace(/\\/g, '/');
     return rel || '.';
   }
 
   function resolveProjectPath(inputPath = '.') {
     const raw = String(inputPath || '.').trim() || '.';
-    const resolved = path.resolve(projectRoot, raw);
-    const normalizedRoot = path.resolve(projectRoot);
-    if (resolved !== normalizedRoot && !resolved.startsWith(`${normalizedRoot}${path.sep}`)) {
+    const aliasPath = raw.replace(/\\/g, '/').replace(/^(\.\/)+/, '');
+    const aliasName = aliasPath.split('/')[0];
+    const alias = pathAliasByName.get(aliasName);
+    if (alias) {
+      const tail = aliasPath === aliasName ? '.' : aliasPath.slice(aliasName.length + 1);
+      const resolvedAliasPath = path.resolve(alias.root, tail || '.');
+      if (!isPathInsideRoot(resolvedAliasPath, alias.root)) {
+        throw new Error(`Path must stay inside the ${alias.alias} alias.`);
+      }
+      return resolvedAliasPath;
+    }
+    const resolved = path.resolve(normalizedProjectRoot, raw);
+    if (!isPathInsideRoot(resolved, normalizedProjectRoot)) {
       throw new Error('Path must stay inside the Penny project.');
     }
     return resolved;

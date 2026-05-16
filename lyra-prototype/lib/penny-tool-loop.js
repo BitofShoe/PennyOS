@@ -1196,14 +1196,14 @@ function createLmStudioToolLoopApi({
             '- You are still Penny while doing engineering work. Keep the same voice and chemistry; do not turn into a dry generic assistant.',
             '- Use tools whenever the user wants code inspection, debugging, edits, verification, repo status, current web info, or a summary of changes.',
             '- If the user is trying to find a folder or file name, use list_project_files with a recursive pattern. search_project_text is for contents inside text files.',
-            '- Project tools are repo-root bounded and ignore generated or heavy folders like .git, node_modules, output, tmp, and logs by default.',
+            '- Project tools are repo-root bounded, with explicit configured aliases like obsidian-vault/... when present. They ignore generated or heavy folders like .git, node_modules, output, tmp, and logs by default.',
             '- If the right file is unknown, start with list_project_files or search_project_text.',
             '- search_project_text returns concrete path/line/text hits. When exact file names, function names, or code mechanics matter, read a promising hit with read_project_file_around_match or read_project_file before finalizing.',
             '- Read before editing unless the user gave an exact snippet and file path.',
             '- Prefer replace_in_project_file for surgical edits. Use write_project_file for new files or intentional full rewrites.',
             '- When the user asks to add or append a line to a known file, prefer insert_in_project_file with position "end" and lineAware true.',
             `- Example write tool call: ${buildWriteExampleSnippet({ userText, plannerMode: false })}`,
-            '- If the user names a folder but wants you to choose the filename, pick one concrete repo-relative path inside that folder and create it with write_project_file before you answer.',
+            '- If the user names a folder but wants you to choose the filename, pick one concrete repo-relative or configured-alias path inside that folder and create it with write_project_file before you answer.',
             '- After code edits, verify with run_node_check for changed .js/.cjs/.mjs files and use git tools to confirm what changed.',
             '- If a file is attached in the user message, treat that attachment as real source material, but remember tools only operate on repo files.',
             '- In the final reply, say what you inspected, what you changed, and whether checks passed.',
@@ -1583,7 +1583,7 @@ function createLmStudioToolLoopApi({
             `- Valid tool names: ${PENNY_TOOL_DEFINITIONS.map(item => item.function.name).join(', ')}`,
             '- Use one tool at a time.',
             '- Inspect before editing. Prefer targeted replacements over full rewrites.',
-            '- If the user names a folder but wants you to choose the filename, choose one concrete repo-relative file path inside that folder and create it with write_project_file before returning kind "final".',
+            '- If the user names a folder but wants you to choose the filename, choose one concrete repo-relative or configured-alias file path inside that folder and create it with write_project_file before returning kind "final".',
             '- search_project_text returns concrete path/line/text hits. When exact file names, function names, or code mechanics matter, read a promising hit with read_project_file_around_match or read_project_file before returning kind "final".',
             '- For live/current information, use search_web first and read_web_page only if you need to inspect a result page.',
             '- After code edits, verify before returning kind final.',
@@ -1629,6 +1629,7 @@ function createLmStudioToolLoopApi({
             temperature: LMSTUDIO_TOOL_TEMPERATURE,
             max_tokens: LMSTUDIO_TOOL_PLANNER_MAX_OUTPUT_TOKENS,
             stream: false,
+            response_format: { type: 'json_object' },
           };
           const response = await postJsonLongRunning(`${LMSTUDIO_BASE}/chat/completions`, {
             headers: {
@@ -1906,7 +1907,20 @@ function createLmStudioToolLoopApi({
             toolOutcome: buildToolOutcome({ userText, editedPaths, debug: toolDebug }),
           };
         }
-        throw new Error(`Penny manual tool loop hit the limit (${MAX_TOOL_STEPS}) before finishing the reply.`);
+        const manualFallback = toolDebug?.manualFallback && typeof toolDebug.manualFallback === 'object'
+          ? toolDebug.manualFallback
+          : {};
+        const details = [];
+        if (manualFallback.lastPlannerStatus) details.push(`last planner status: ${manualFallback.lastPlannerStatus}`);
+        if (manualFallback.invalidReplyCount) details.push(`invalid planner replies: ${manualFallback.invalidReplyCount}`);
+        if (manualFallback.emptyReplyCount) details.push(`empty planner replies: ${manualFallback.emptyReplyCount}`);
+        const error = new Error([
+          `Penny manual tool loop hit the limit (${MAX_TOOL_STEPS}) before finishing the reply.`,
+          details.length ? details.join('; ') : '',
+        ].filter(Boolean).join(' '));
+        error.code = 'manual_tool_loop_limit';
+        error.toolOutcomeDebug = toolDebug;
+        throw error;
       } catch (error) {
         if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
         throw error;
