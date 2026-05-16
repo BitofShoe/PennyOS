@@ -22,8 +22,15 @@ function normalizeRel(filePath) {
 
 function isGeneratedOrPrivateTrackedFile(rel) {
   if (!rel) return false;
+  if (/^lyra-prototype\//.test(rel)) return true;
+  if (/^obsidian-vault\//.test(rel)) return true;
   if (/^(?:output|artifacts|test-results|tmp|logs|node_modules)\//.test(rel)) return true;
-  if (/^(?:AGENTS|MEMORY|SOUL|USER)\.md$/i.test(rel)) return true;
+  if (/^(?:AGENTS|BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE|HEARTBEAT|IDENTITY|MEMORY|SOUL|TOOLS|USER)\.md$/i.test(rel)) return true;
+  if (/^(?:LITBITS|LYRA)(?:_MASTER_BRAIN|_OPENCLAW_COMPANION|_MASTER_BRAIN_OPENCLAW)?\.md$/i.test(rel)) return true;
+  if (/^PENNY'S_BRAIN\.md$/i.test(rel)) return true;
+  if (/^Personality_Reference\.md$/i.test(rel)) return true;
+  if (/^(?:High and Finally Recovered|The Recovery Report|hiiiii Penny!!!! how|hiiiii penny my best pt 2) - 2026-04-09 /i.test(rel)) return true;
+  if (/^penny fav \d+\.(?:png|jpg|jpeg|webp)$/i.test(rel)) return true;
   if (/^Penny's Playground\//.test(rel)) return true;
   if (/^Personality .+\.md$/i.test(rel)) return true;
   if (/^qa-.+\.png$/i.test(rel)) return true;

@@ -21,6 +21,16 @@ const {
 
 const ROOT = path.resolve(__dirname, '..');
 const TMP = path.join(ROOT, 'tmp', 'sidecar-section-tests');
+const RELEASE_MATRIX_FIXTURE = path.join(
+  ROOT,
+  'fixtures',
+  'sidecar-trials',
+  'section-completion-matrix.all-harness.fixture.json',
+);
+
+function readReleaseMatrixFixture() {
+  return JSON.parse(fs.readFileSync(RELEASE_MATRIX_FIXTURE, 'utf8'));
+}
 
 function runScript(script, args = []) {
   return execFileSync(process.execPath, [path.join(ROOT, script), ...args], {
@@ -96,7 +106,7 @@ test('completion gate passes all sections when every section is HARNESS_VERIFIED
 });
 
 test('completion gate validates the checked section-completion matrix for sections 2-7 only', () => {
-  const matrix = JSON.parse(fs.readFileSync(path.join(ROOT, 'artifacts', 'sidecar-trials', 'section-completion-matrix.json'), 'utf8'));
+  const matrix = readReleaseMatrixFixture();
   const result = evaluateSectionCompletionMatrix(matrix);
 
   assert.deepEqual(matrix.required_sections, [2, 3, 4, 5, 6, 7]);
@@ -116,18 +126,19 @@ test('completion gate validates the checked section-completion matrix for sectio
   assert.deepEqual(result.failures, []);
 });
 
-test('checked section artifacts parse and match matrix schema/status claims', () => {
-  const matrix = JSON.parse(fs.readFileSync(path.join(ROOT, 'artifacts', 'sidecar-trials', 'section-completion-matrix.json'), 'utf8'));
+test('checked section fixture matrix keeps generated artifacts out of the release tree', () => {
+  const matrix = readReleaseMatrixFixture();
 
   for (const section of matrix.sections) {
-    const artifact = JSON.parse(fs.readFileSync(path.join(ROOT, section.artifact_path), 'utf8'));
-    assert.equal(artifact.schema_version, 1, section.artifact_path);
-    assert.equal(artifact.artifact_schema, section.artifact_schema, section.artifact_path);
-    assert.equal(artifact.section_id, section.section_id, section.artifact_path);
-    assert.equal(artifact.status, section.status, section.artifact_path);
-    assert.equal(artifact.runtime_changed, false, section.artifact_path);
-    assert.equal(artifact.default_model_changed, false, section.artifact_path);
-    assert.equal(artifact.prompttruth_changed, false, section.artifact_path);
+    assert.match(section.artifact_path, /^artifacts\/sidecar-trials\//, section.artifact_path);
+    assert.equal(fs.existsSync(path.join(ROOT, section.artifact_path)), false, section.artifact_path);
+    assert.equal(section.status, 'HARNESS_VERIFIED', section.artifact_path);
+    assert.equal(section.harness_status, 'HARNESS_VERIFIED', section.artifact_path);
+    assert.equal(section.proof.no_memory_write, true, section.artifact_path);
+    assert.equal(section.proof.no_runtime_change, true, section.artifact_path);
+    assert.equal(section.proof.no_default_model_change, true, section.artifact_path);
+    assert.equal(section.proof.no_prompttruth_merge, true, section.artifact_path);
+    assert.equal(section.proof.no_public_or_home_action, true, section.artifact_path);
   }
 });
 
