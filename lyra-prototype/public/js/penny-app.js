@@ -38,6 +38,7 @@ import {
   escapeHtml as escapeHtmlRuntime,
   getMoodAvatarSrc as getMoodAvatarSrcRuntime,
   getMoodSpriteVariant as getMoodSpriteVariantRuntime,
+  getMoodSpriteVariants as getMoodSpriteVariantsRuntime,
   getMoodPresentationProfile as getMoodPresentationProfileRuntime,
   chatDecorSrcs as chatDecorSrcsRuntime,
   buildCompanionFaceHtml as buildCompanionFaceHtmlRuntime,
@@ -270,17 +271,24 @@ window.addEventListener('resize', () => {
   idleDecorRuntime.handleResize();
 });
 
-function companionFaceHtml(mood) {
-  const profile = getMoodPresentationProfileRuntime({
+function getCurrentMoodPresentationProfile(mood) {
+  const variantCount = getMoodSpriteVariantsRuntime(activeExpressionPack, mood).length;
+  return getMoodPresentationProfileRuntime({
     mood,
     intensity: getIntensity(),
     previousMood: _lastRenderedMood,
+    variantCount,
+    cycleSeed: state.turns,
   });
+}
+
+function companionFaceHtml(mood, profile = null) {
+  const presentationProfile = profile || getCurrentMoodPresentationProfile(mood);
   return buildCompanionFaceHtmlRuntime({
     pack: activeExpressionPack,
     mood,
-    variantIndex: profile.variantIndex,
-    presentationProfile: profile,
+    variantIndex: presentationProfile.variantIndex,
+    presentationProfile,
     escapeHtmlFn: escapeHtml,
   });
 }
@@ -339,17 +347,13 @@ function renderSprite(mood, palette) {
   const containers = [els.coreFace, els.mobileCoreFace].filter(Boolean);
   if (!containers.length) return;
   const intensity = getIntensity();
-  const profile = getMoodPresentationProfileRuntime({
-    mood,
-    intensity,
-    previousMood: _lastRenderedMood,
-  });
+  const profile = getCurrentMoodPresentationProfile(mood);
   const variant = getMoodSpriteVariantRuntime(activeExpressionPack, mood, profile.variantIndex);
   const spriteKey = `${mood}:${intensity}:${profile.variantIndex}:${profile.closeUp ? 'close' : 'wide'}:${variant?.src || 'default'}`;
   const hasMissingSprite = containers.some((container) => !container.querySelector('.penny-display'));
   if (spriteKey === _lastSpriteKey && !hasMissingSprite) return;
 
-  const html = companionFaceHtml(mood);
+  const html = companionFaceHtml(mood, profile);
   const isFirstRender = hasMissingSprite;
 
   if (isFirstRender) {

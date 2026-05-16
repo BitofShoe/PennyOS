@@ -26,12 +26,26 @@
           "label": "RIGHT HERE",
           "pill": "KNOWING",
           "pos": "50% 48%"
+        }
+      ],
+      "extraVariants": [
+        {
+          "src": "/sprites/packs/pen2/pen2-calm-composed.png",
+          "label": "COMPOSED",
+          "pill": "STEADY",
+          "pos": "50% 50%"
         },
         {
-          "src": "/sprites/decor/chibi-penny-think.png",
-          "label": "SETTLE IN",
-          "pill": "SETTLED",
-          "pos": "50% 44%"
+          "src": "/sprites/packs/pen2/pen2-calm-ready.png",
+          "label": "ON STANDBY",
+          "pill": "READY",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-calm-sleepy.png",
+          "label": "LOW POWER",
+          "pill": "SOFT",
+          "pos": "50% 50%"
         }
       ],
       "secondaryVariants": [
@@ -63,12 +77,26 @@
           "label": "CHARM MODE",
           "pill": "CHARMED",
           "pos": "50% 48%"
+        }
+      ],
+      "extraVariants": [
+        {
+          "src": "/sprites/packs/pen2/pen2-happy-fists.png",
+          "label": "LIT UP",
+          "pill": "BRIGHT",
+          "pos": "50% 50%"
         },
         {
-          "src": "/sprites/decor/chibi-penny-heart.png",
-          "label": "SOFT SPOT",
-          "pill": "SOFT",
-          "pos": "50% 43%"
+          "src": "/sprites/packs/pen2/pen2-happy-bright.png",
+          "label": "BIG SMILE",
+          "pill": "GLOW",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-happy-sparkle.png",
+          "label": "SPARKLE HANDS",
+          "pill": "CUTE",
+          "pos": "50% 50%"
         }
       ],
       "secondaryVariants": [
@@ -108,6 +136,26 @@
           "pos": "50% 48%"
         }
       ],
+      "extraVariants": [
+        {
+          "src": "/sprites/packs/pen2/pen2-excited-cheer.png",
+          "label": "FULL SEND",
+          "pill": "HYPED",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-excited-reach.png",
+          "label": "YES, THAT",
+          "pill": "YES",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-excited-motion.png",
+          "label": "MOVE MOVE",
+          "pill": "GO",
+          "pos": "50% 50%"
+        }
+      ],
       "secondaryVariants": [
         {
           "src": "/sprites/penny-mood-excited.png",
@@ -137,12 +185,44 @@
           "label": "LOCKED IN",
           "pill": "LOCKED IN",
           "pos": "50% 48%"
+        }
+      ],
+      "extraVariants": [
+        {
+          "src": "/sprites/packs/pen2/pen2-thinking-point.png",
+          "label": "CHECKING IT",
+          "pill": "FOCUSED",
+          "pos": "50% 50%"
         },
         {
-          "src": "/sprites/decor/chibi-penny-think.png",
-          "label": "DOING THE MATH",
-          "pill": "FOCUSED",
-          "pos": "50% 44%"
+          "src": "/sprites/packs/pen2/pen2-thinking-scheme.png",
+          "label": "PLOTTING",
+          "pill": "PLOTTING",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-thinking-loading.png",
+          "label": "LOADING",
+          "pill": "THINKING",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-thinking-laptop-base.png",
+          "label": "DEBUG MODE",
+          "pill": "DEBUG",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-thinking-laptop-close.png",
+          "label": "DEEP DEBUG",
+          "pill": "LOCKED",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-thinking-laptop-trace.png",
+          "label": "TRACE WINDOW",
+          "pill": "TRACE",
+          "pos": "50% 50%"
         }
       ],
       "secondaryVariants": [
@@ -165,21 +245,35 @@
     "surprised": {
       "label": "surprised",
       "avatar": {
-        "src": "/sprites/decor/chibi-avatar-surprised.png",
+        "src": "/sprites/decor/chibi-penny-peace.png",
         "alt": "Penny surprised expression"
       },
       "variants": [
-        {
-          "src": "/sprites/decor/chibi-avatar-surprised.png",
-          "label": "WAIT, WHAT?",
-          "pill": "STARTLED",
-          "pos": "50% 48%"
-        },
         {
           "src": "/sprites/decor/chibi-penny-peace.png",
           "label": "DID NOT SEE THAT COMING",
           "pill": "WHOA",
           "pos": "50% 48%"
+        }
+      ],
+      "extraVariants": [
+        {
+          "src": "/sprites/packs/pen2/pen2-surprised-alert.png",
+          "label": "OH?",
+          "pill": "STARTLED",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-surprised-worried.png",
+          "label": "UH OH",
+          "pill": "WHOOPS",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-surprised-pop.png",
+          "label": "WHAT",
+          "pill": "ALERT",
+          "pos": "50% 50%"
         }
       ],
       "secondaryVariants": [
@@ -211,12 +305,38 @@
           "label": "COME HERE",
           "pill": "TEASING",
           "pos": "50% 48%"
+        }
+      ],
+      "extraVariants": [
+        {
+          "src": "/sprites/packs/pen2/pen2-flirty-soft-tease.png",
+          "label": "SOFT TEASE",
+          "pill": "TEASING",
+          "pos": "50% 50%"
         },
         {
-          "src": "/sprites/decor/chibi-penny-heart.png",
-          "label": "YOU ASKED FOR THIS",
+          "src": "/sprites/packs/pen2/pen2-flirty-finger-guns.png",
+          "label": "FINGER GUNS",
+          "pill": "PLAYING",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-flirty-close.png",
+          "label": "TRY ME",
           "pill": "DANGEROUS",
-          "pos": "50% 43%"
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-flirty-wink.png",
+          "label": "WINK",
+          "pill": "WINK",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-flirty-transparent-guns.png",
+          "label": "NICE AIM",
+          "pill": "SMOOTH",
+          "pos": "50% 50%"
         }
       ],
       "secondaryVariants": [
@@ -248,12 +368,44 @@
           "label": "TOLD YOU",
           "pill": "SMUG",
           "pos": "50% 48%"
+        }
+      ],
+      "extraVariants": [
+        {
+          "src": "/sprites/packs/pen2/pen2-smug-cool-stance.png",
+          "label": "KNEW IT",
+          "pill": "SMUG",
+          "pos": "50% 50%"
         },
         {
-          "src": "/sprites/decor/chibi-penny-wink.png",
+          "src": "/sprites/packs/pen2/pen2-smug-presenting.png",
+          "label": "OBVIOUSLY",
+          "pill": "CALLED IT",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-smug-glasses.png",
+          "label": "SCHEMING",
+          "pill": "SCHEME",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-smug-grin.png",
           "label": "TOO EASY",
-          "pill": "TOO EASY",
-          "pos": "50% 48%"
+          "pill": "SMUG",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-smug-point.png",
+          "label": "POINT MADE",
+          "pill": "GOT IT",
+          "pos": "50% 50%"
+        },
+        {
+          "src": "/sprites/packs/pen2/pen2-smug-sunglasses.png",
+          "label": "COOL MODE",
+          "pill": "COOL",
+          "pos": "50% 50%"
         }
       ],
       "secondaryVariants": [
@@ -285,12 +437,20 @@
           "label": "REALLY NOW?",
           "pill": "ANNOYED",
           "pos": "50% 48%"
+        }
+      ],
+      "extraVariants": [
+        {
+          "src": "/sprites/packs/pen2/pen2-annoyed-side-eye.png",
+          "label": "REALLY",
+          "pill": "ANNOYED",
+          "pos": "50% 50%"
         },
         {
-          "src": "/sprites/decor/chibi-penny-think.png",
-          "label": "TRY ME",
-          "pill": "TRY ME",
-          "pos": "50% 44%"
+          "src": "/sprites/packs/pen2/pen2-annoyed-fire.png",
+          "label": "TRY AGAIN",
+          "pill": "SPICY",
+          "pos": "50% 50%"
         }
       ],
       "secondaryVariants": [

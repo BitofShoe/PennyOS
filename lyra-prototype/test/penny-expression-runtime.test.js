@@ -1,7 +1,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const helpersPromise = import('../public/js/penny-expression-runtime.mjs');
+
+const BAKED_CHECKERBOARD_CHIBIS = [
+  '/sprites/decor/chibi-avatar-surprised.png',
+  '/sprites/decor/chibi-penny-heart.png',
+  '/sprites/decor/chibi-penny-think.png',
+  '/sprites/decor/chibi-penny-wink.png',
+];
 
 test('default expression pack keeps the eight-mood contract and calm fallback', async () => {
   const { createDefaultExpressionPack, MOOD_TAGS } = await helpersPromise;
@@ -10,7 +19,7 @@ test('default expression pack keeps the eight-mood contract and calm fallback', 
   assert.deepEqual(pack.contract, MOOD_TAGS);
   assert.equal(pack.fallbackMood, 'calm');
   assert.equal(Object.keys(pack.moods).length, 8);
-  assert.equal(pack.moods.calm.variants.length, 2);
+  assert.equal(pack.moods.calm.variants.length, 1);
   assert.equal(pack.moods.calm.secondaryVariants.length, 2);
 });
 
@@ -45,6 +54,86 @@ test('manifest normalization preserves the contract and merges mood overrides sa
   assert.equal(pack.moods.flirty.secondaryVariants[0].src, '/sprites/custom-flirty.png');
 });
 
+test('default manifest appends Pen2 variants that can be selected for every mood', async () => {
+  const {
+    createDefaultExpressionPack,
+    normalizeExpressionPackManifest,
+    MOOD_TAGS,
+    getMoodSpriteVariants,
+    getMoodSpriteVariant,
+    getMoodPresentationProfile,
+    buildCompanionFaceHtml,
+  } = await helpersPromise;
+  const manifestPath = path.join(__dirname, '..', 'public', 'sprites', 'packs', 'default', 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const pack = normalizeExpressionPackManifest(manifest, createDefaultExpressionPack());
+
+  for (const mood of MOOD_TAGS) {
+    const variants = getMoodSpriteVariants(pack, mood);
+    assert.equal(
+      variants.some((variant) => variant.src.includes('/sprites/penny-mood-')),
+      false,
+      `${mood} main sprite rotation should not include legacy wide mood panels`,
+    );
+    assert.equal(
+      variants.some((variant) => BAKED_CHECKERBOARD_CHIBIS.includes(variant.src)),
+      false,
+      `${mood} main sprite rotation should not include baked-checkerboard chibi sprites`,
+    );
+    assert.ok(
+      variants.some((variant) => variant.src.includes('/sprites/decor/chibi-')),
+      `${mood} should keep at least one old chibi sprite in rotation`,
+    );
+    const pen2Variants = variants.filter((variant) => variant.src.includes('/sprites/packs/pen2/'));
+    assert.ok(pen2Variants.length > 0, `${mood} should include at least one Pen2 sprite`);
+
+    const selectedSrcs = new Set();
+    for (let seed = 0; seed < variants.length; seed += 1) {
+      const profile = getMoodPresentationProfile({
+        mood,
+        intensity: 0,
+        variantCount: variants.length,
+        cycleSeed: seed,
+      });
+      selectedSrcs.add(getMoodSpriteVariant(pack, mood, profile.variantIndex).src);
+    }
+
+    for (const variant of pen2Variants) {
+      assert.ok(selectedSrcs.has(variant.src), `${mood} should be able to select ${variant.src}`);
+    }
+  }
+
+  const smugVariants = getMoodSpriteVariants(pack, 'smug');
+  const smugPen2Index = smugVariants.findIndex((variant) => variant.src.includes('/sprites/packs/pen2/'));
+  const html = buildCompanionFaceHtml({
+    pack,
+    mood: 'smug',
+    variantIndex: smugPen2Index,
+  });
+  assert.match(html, /\/sprites\/packs\/pen2\/pen2-smug-/);
+});
+
+test('decor chibi pools exclude baked-checkerboard assets', async () => {
+  const {
+    CHAT_DECOR_CHIBI,
+    IDLE_DECOR_CHIBI_POOL,
+    createDefaultExpressionPack,
+    getMoodAvatarSrc,
+    normalizeExpressionPackManifest,
+  } = await helpersPromise;
+  const manifestPath = path.join(__dirname, '..', 'public', 'sprites', 'packs', 'default', 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const pack = normalizeExpressionPackManifest(manifest, createDefaultExpressionPack());
+  const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+
+  for (const src of BAKED_CHECKERBOARD_CHIBIS) {
+    assert.equal(CHAT_DECOR_CHIBI.includes(src), false, `${src} should not be used as chat decor`);
+    assert.equal(IDLE_DECOR_CHIBI_POOL.includes(src), false, `${src} should not be used as idle decor`);
+    assert.equal(indexHtml.includes(src), false, `${src} should not be hardcoded into index decor`);
+  }
+  assert.equal(BAKED_CHECKERBOARD_CHIBIS.includes(getMoodAvatarSrc(pack, 'surprised')), false);
+});
+
 test('mood helpers pick the latest tag, theme, avatar, and decor sources', async () => {
   const {
     createDefaultExpressionPack,
@@ -72,7 +161,7 @@ test('mood helpers pick the latest tag, theme, avatar, and decor sources', async
   assert.equal(variant.sceneHint, 'focused');
   assert.equal(variant.backgroundHint, '/sprites/penny-mood-thinking.png');
   assert.equal(variant.secondaryVariantCount, 2);
-  assert.equal(label, 'HOLD ON');
+  assert.equal(label, 'LOCKED IN');
   assert.deepEqual(chatDecorSrcs(0, 'user'), ['/sprites/decor/pixel-monitor.png']);
   assert.deepEqual(chatDecorSrcs(0, 'assistant'), ['/sprites/decor/chibi-penny-peace.png', '/sprites/decor/pixel-crystal.png']);
   assert.equal(classifyIdleDecorClass('/sprites/decor/pixel-crystal.png'), 'decor-cyber');
@@ -83,6 +172,7 @@ test('presentation profiles sharpen mood contrast without changing the mood cont
 
   const calm = getMoodPresentationProfile({ mood: 'calm', intensity: 0 });
   const surprised = getMoodPresentationProfile({ mood: 'surprised', intensity: 2, previousMood: 'calm' });
+  const cycled = getMoodPresentationProfile({ mood: 'happy', intensity: 0, variantCount: 5, cycleSeed: 4 });
 
   assert.equal(calm.impact, 'soft');
   assert.equal(calm.closeUp, false);
@@ -90,6 +180,7 @@ test('presentation profiles sharpen mood contrast without changing the mood cont
   assert.equal(surprised.closeUp, true);
   assert.ok(surprised.burstCount > calm.burstCount);
   assert.ok(surprised.glitchMs > calm.glitchMs);
+  assert.equal(cycled.variantIndex, 4);
 });
 
 test('expression pack runtime loads a manifest and falls back cleanly on failure', async () => {

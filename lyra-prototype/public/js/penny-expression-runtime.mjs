@@ -23,20 +23,25 @@ export const CHIBI_AVATARS = {
   happy: '/sprites/decor/chibi-avatar-happy.png',
   excited: '/sprites/decor/chibi-avatar-excited.png',
   thinking: '/sprites/decor/chibi-avatar-thinking.png',
-  surprised: '/sprites/decor/chibi-avatar-surprised.png',
+  surprised: '/sprites/decor/chibi-penny-peace.png',
   flirty: '/sprites/decor/chibi-avatar-flirty.png',
   smug: '/sprites/decor/chibi-avatar-smug.png',
   annoyed: '/sprites/decor/chibi-avatar-annoyed.png',
 };
 
+export const BAKED_CHECKERBOARD_CHIBIS = new Set([
+  '/sprites/decor/chibi-avatar-surprised.png',
+  '/sprites/decor/chibi-penny-heart.png',
+  '/sprites/decor/chibi-penny-think.png',
+  '/sprites/decor/chibi-penny-wink.png',
+]);
+
 export const MOOD_SPRITES = {
   calm: [
     { src: '/sprites/decor/chibi-avatar-calm.png', label: 'RIGHT HERE', pill: 'KNOWING', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-think.png', label: 'SETTLE IN', pill: 'SETTLED', pos: '50% 44%' },
   ],
   happy: [
     { src: '/sprites/decor/chibi-avatar-happy.png', label: 'CHARM MODE', pill: 'CHARMED', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-heart.png', label: 'SOFT SPOT', pill: 'SOFT', pos: '50% 43%' },
   ],
   excited: [
     { src: '/sprites/decor/chibi-avatar-excited.png', label: 'SPARKED UP', pill: 'SPARKED', pos: '50% 48%' },
@@ -44,31 +49,26 @@ export const MOOD_SPRITES = {
   ],
   thinking: [
     { src: '/sprites/decor/chibi-avatar-thinking.png', label: 'LOCKED IN', pill: 'LOCKED IN', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-think.png', label: 'DOING THE MATH', pill: 'FOCUSED', pos: '50% 44%' },
   ],
   surprised: [
-    { src: '/sprites/decor/chibi-avatar-surprised.png', label: 'WAIT, WHAT?', pill: 'STARTLED', pos: '50% 48%' },
     { src: '/sprites/decor/chibi-penny-peace.png', label: 'DID NOT SEE THAT COMING', pill: 'WHOA', pos: '50% 48%' },
   ],
   flirty: [
     { src: '/sprites/decor/chibi-avatar-flirty.png', label: 'COME HERE', pill: 'TEASING', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-heart.png', label: 'YOU ASKED FOR THIS', pill: 'DANGEROUS', pos: '50% 43%' },
   ],
   smug: [
     { src: '/sprites/decor/chibi-avatar-smug.png', label: 'TOLD YOU', pill: 'SMUG', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-wink.png', label: 'TOO EASY', pill: 'TOO EASY', pos: '50% 48%' },
   ],
   annoyed: [
     { src: '/sprites/decor/chibi-avatar-annoyed.png', label: 'REALLY NOW?', pill: 'ANNOYED', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-think.png', label: 'TRY ME', pill: 'TRY ME', pos: '50% 44%' },
   ],
 };
 
 export const CHAT_DECOR_CHIBI = [
-  '/sprites/decor/chibi-penny-wink.png',
+  '/sprites/decor/chibi-avatar-calm.png',
   '/sprites/decor/chibi-penny-peace.png',
-  '/sprites/decor/chibi-penny-think.png',
-  '/sprites/decor/chibi-penny-heart.png',
+  '/sprites/decor/chibi-avatar-happy.png',
+  '/sprites/decor/chibi-avatar-flirty.png',
 ];
 
 export const CHAT_DECOR_TECH = [
@@ -92,7 +92,8 @@ export const IDLE_DECOR_TEXT = [
   'VECTOR',
 ];
 
-export const IDLE_DECOR_CHIBI_POOL = [...new Set([...Object.values(CHIBI_AVATARS), ...CHAT_DECOR_CHIBI])];
+export const IDLE_DECOR_CHIBI_POOL = [...new Set([...Object.values(CHIBI_AVATARS), ...CHAT_DECOR_CHIBI])]
+  .filter((src) => !BAKED_CHECKERBOARD_CHIBIS.has(src));
 export const IDLE_DECOR_TECH_POOL = [...new Set(CHAT_DECOR_TECH)];
 
 function cloneValue(value) {
@@ -250,17 +251,24 @@ export function normalizeMoodEntry(mood, entry = {}, fallbackEntry = createDefau
   });
   const avatar = normalizeSpriteDescriptor(entry.avatar || entry.primary || entry.image, fallbackAvatar);
   const variants = normalizeVariantList(entry.variants, fallbackEntry.variants || []);
+  const extraVariants = normalizeVariantList(entry.extraVariants || entry.variantAdditions, []);
   const secondaryVariants = normalizeVariantList(entry.secondaryVariants, fallbackEntry.secondaryVariants || []);
   const backgroundHint = normalizeString(
     typeof entry.backgroundHint === 'string' ? entry.backgroundHint : entry.background?.src || entry.background || fallbackEntry.backgroundHint || '',
     fallbackEntry.backgroundHint || '',
   );
+  const seenVariantSrcs = new Set();
+  const mergedVariants = [...variants, ...extraVariants].filter((variant) => {
+    if (!variant?.src || BAKED_CHECKERBOARD_CHIBIS.has(variant.src) || seenVariantSrcs.has(variant.src)) return false;
+    seenVariantSrcs.add(variant.src);
+    return true;
+  });
 
   return {
     ...fallbackEntry,
     ...entry,
     avatar,
-    variants: variants.length ? variants : (fallbackEntry.variants || []),
+    variants: mergedVariants.length ? mergedVariants : (fallbackEntry.variants || []),
     secondaryVariants,
     sceneHint: normalizeString(entry.sceneHint, fallbackEntry.sceneHint || ''),
     backgroundHint,
@@ -352,7 +360,7 @@ export function getActiveMoodEntry(pack, mood = 'calm') {
 
 export function getMoodSpriteVariants(pack, mood) {
   const entry = getActiveMoodEntry(pack, mood);
-  return [...(entry.variants || []), ...(entry.secondaryVariants || [])];
+  return entry.variants || [];
 }
 
 export function getMoodAvatarSrc(pack, mood = 'calm') {
@@ -378,6 +386,8 @@ export function getMoodPresentationProfile({
   mood = 'calm',
   intensity = 0,
   previousMood = '',
+  variantCount = 0,
+  cycleSeed = 0,
 } = {}) {
   const safeMood = MOOD_TAGS.includes(mood) ? mood : 'calm';
   const safePreviousMood = MOOD_TAGS.includes(previousMood) ? previousMood : '';
@@ -482,7 +492,12 @@ export function getMoodPresentationProfile({
     },
   };
   const profile = profiles[safeMood] || profiles.calm;
-  const variantIndex = profile.variantByIntensity?.[safeIntensity] ?? 0;
+  const preferredVariantIndex = profile.variantByIntensity?.[safeIntensity] ?? 0;
+  const safeVariantCount = Math.max(0, Math.floor(Number(variantCount) || 0));
+  const safeCycleSeed = Math.max(0, Math.floor(Number(cycleSeed) || 0));
+  const variantIndex = safeVariantCount > 0
+    ? (preferredVariantIndex + safeCycleSeed) % safeVariantCount
+    : preferredVariantIndex;
   const burstCount = (profile.burstCount?.[safeIntensity] ?? 12) + (changed ? 4 : 0);
   const closeUp = safeIntensity >= Number(profile.closeUpAt ?? 2) || (changed && safeIntensity >= 1);
 
