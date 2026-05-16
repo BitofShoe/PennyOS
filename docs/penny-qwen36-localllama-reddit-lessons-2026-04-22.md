@@ -82,7 +82,7 @@ Owner seams:
 - `scripts/eval-penny-runtime-fit.js`
 - `lib/penny-lmstudio-status.js`
 - `lib/penny-lmstudio-transports.js`
-- `PENNY_MODEL_EVAL.md`
+- `docs/PENNY_MODEL_EVAL.md`
 
 ### 2. Add a Penny "agent harness reliability" eval slice
 
@@ -225,7 +225,7 @@ Owner seams:
 
 ## Owner Seams
 
-- Model compare and runtime fit: `scripts/eval-penny-models.js`, `scripts/eval-penny-runtime-fit.js`, `PENNY_MODEL_EVAL.md`
+- Model compare and runtime fit: `scripts/eval-penny-models.js`, `scripts/eval-penny-runtime-fit.js`, `docs/PENNY_MODEL_EVAL.md`
 - LM Studio model/transport/status facts: `lib/penny-lmstudio-status.js`, `lib/penny-lmstudio-transports.js`, `scripts/penny-preflight.js`
 - Tool-loop reliability: `lib/penny-tool-loop.js`, `lib/penny-direct-tool-assist.js`, `lib/penny-tool-registry.js`, `lib/penny-runtime-artifacts.js`
 - Trust/pressure/action receipts: `lib/penny-qa-trust.js`, `scripts/qa-penny-voice-redo.js`, `test/penny-qa-trust.test.js`
@@ -297,7 +297,7 @@ Owners:
 
 - `scripts/eval-penny-models.js`
 - `scripts/eval-penny-runtime-fit.js`
-- `PENNY_MODEL_EVAL.md`
+- `docs/PENNY_MODEL_EVAL.md`
 - possibly `lib/penny-lmstudio-status.js` only if model identity/metadata receipts are insufficient
 
 Verification:

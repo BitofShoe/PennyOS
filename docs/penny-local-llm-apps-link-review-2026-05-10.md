@@ -396,7 +396,7 @@ That is exactly the wrong gravitational pull for Penny. Penny's core should stay
 
 ## Owner Seams
 
-- Model/runtime compare: `scripts/eval-penny-models.js`, `scripts/eval-penny-runtime-fit.js`, `PENNY_MODEL_EVAL.md`
+- Model/runtime compare: `scripts/eval-penny-models.js`, `scripts/eval-penny-runtime-fit.js`, `docs/PENNY_MODEL_EVAL.md`
 - Existing Qwen compare plan: `docs/plans/penny-q6-e4b-vs-qwen-single-model-compare-2026-04-20.md`
 - LM Studio model/status/transport facts: `lib/penny-lmstudio-status.js`, `lib/penny-lmstudio-transports.js`, `scripts/penny-preflight.js`
 - Runtime watch: `lib/penny-gemma-runtime-watch.js`, or a future neutral `lib/penny-model-runtime-watch.js`

@@ -34,7 +34,7 @@ Important caveat:
 
 This pass used:
 
-- direct local Penny repo review against [README.md](../README.md), [CODEBASE.md](../CODEBASE.md), [ARCHITECTURE.md](../ARCHITECTURE.md), [PENNY_MEMORY_NEXT_BRANCH_HANDOFF.md](../PENNY_MEMORY_NEXT_BRANCH_HANDOFF.md), and current memory/runtime modules under `lib/` and `public/js/`
+- direct local Penny repo review against [README.md](../README.md), [CODEBASE.md](../CODEBASE.md), [ARCHITECTURE.md](../ARCHITECTURE.md), [PENNY_MEMORY_NEXT_BRANCH_HANDOFF.md](./archive/PENNY_MEMORY_NEXT_BRANCH_HANDOFF.md), and current memory/runtime modules under `lib/` and `public/js/`
 - a six-lane read-only research split across source clusters
 - consolidation against current Penny state so repeated ideas are tagged as:
   - `already-landed`

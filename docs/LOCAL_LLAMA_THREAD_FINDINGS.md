@@ -39,9 +39,9 @@ The `penny-voice/` folder is basically the thread's "document first, compress co
 
 Files that show this clearly:
 
-- `[penny-voice/README.md](./penny-voice/README.md)`
-- `[penny-voice/canon-sources.md](./penny-voice/canon-sources.md)`
-- `[penny-voice/runtime/penny-operational-blend.md](./penny-voice/runtime/penny-operational-blend.md)`
+- `[penny-voice/README.md](../penny-voice/README.md)`
+- `[penny-voice/canon-sources.md](../penny-voice/canon-sources.md)`
+- `[penny-voice/runtime/penny-operational-blend.md](../penny-voice/runtime/penny-operational-blend.md)`
 
 This is worth copying as a pattern for backend/runtime architecture too, not just voice.
 
@@ -49,10 +49,10 @@ This is worth copying as a pattern for backend/runtime architecture too, not jus
 
 There is real evidence of intentional QA and comparison work:
 
-- `[scripts/eval-penny-models.js](./scripts/eval-penny-models.js)`
+- `[scripts/eval-penny-models.js](../scripts/eval-penny-models.js)`
 - `[PENNY_MODEL_EVAL.md](./PENNY_MODEL_EVAL.md)`
 - `[OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)`
-- UI QA scripts like `[qa-mood-audit.mjs](./qa-mood-audit.mjs)` and `[qa-composer-round.mjs](./qa-composer-round.mjs)`
+- UI QA scripts like `[qa-mood-audit.mjs](../qa-mood-audit.mjs)` and `[qa-composer-round.mjs](../qa-composer-round.mjs)`
 
 That lines up with the thread's repeated advice to test, compare, and review instead of blindly trusting the model.
 
@@ -87,7 +87,7 @@ One of the better comments in the thread suggested creating architecture docs fo
 
 There is also a telling comparison point:
 
-- `[checkpoints/good-enough-penny-2026-04-08/server.js](./checkpoints/good-enough-penny-2026-04-08/server.js)` is only 455 lines
+- `[checkpoints/good-enough-penny-2026-04-08/server.snapshot.txt](../checkpoints/good-enough-penny-2026-04-08/server.snapshot.txt)` is only 455 lines
 
 So the current shape is not just "big because the product is big." It also reflects rapid feature accretion into one file.
 

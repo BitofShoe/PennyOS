@@ -1,15 +1,25 @@
 {
-  "name": "penny-local-companion",
+  "name": "pennyos",
   "version": "0.1.0",
   "private": false,
-  "description": "Local-first Penny companion app for LM Studio.",
+  "description": "Local-first PennyOS companion runtime for LM Studio.",
   "license": "UNLICENSED",
   "packageManager": "npm@11.12.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BitofShoe/PennyOS.git"
+  },
+  "homepage": "https://github.com/BitofShoe/PennyOS#readme",
+  "bugs": {
+    "url": "https://github.com/BitofShoe/PennyOS/issues"
+  },
   "keywords": [
+    "pennyos",
     "local-first",
     "companion",
     "lm-studio",
-    "penny"
+    "penny",
+    "local-ai"
   ],
   "files": [
     "server.js",

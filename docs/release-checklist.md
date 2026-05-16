@@ -11,6 +11,14 @@ Run before cutting a public release branch or package:
 - `node scripts/check-release-artifacts.js`
 - `node scripts/check-frontend-privacy.js`
 
+GitHub release-page checks:
+
+- Root README presents the project as `PennyOS`, not as an internal branch note.
+- README preview image renders from a tracked `public/sprites/` asset.
+- `package.json` repository, homepage, bugs URL, description, and keywords point at `BitofShoe/PennyOS`.
+- Historical handoffs and chat-era notes live under `docs/archive/`, not at repo root.
+- `docs/README.md` labels archived, public, historical, generated, and current-law docs clearly.
+
 Expected release properties:
 
 - default bind host is loopback

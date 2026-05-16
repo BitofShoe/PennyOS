@@ -1,4 +1,4 @@
-# Install Penny Local Companion
+# Install PennyOS
 
 ## Requirements
 
@@ -18,6 +18,8 @@ npm start
 ```
 
 Then open `http://localhost:4317`.
+
+On macOS/Linux, use `cp .env.example .env` instead of PowerShell `copy`. The durable background launcher is currently a Windows PowerShell helper; `npm start` is the portable foreground path.
 
 ## LAN / Phone Access
 

@@ -17,7 +17,7 @@ The reviewed source set came from `Agent-Shared/Opie Links.md`, with deep focus 
 - [Standing Orders](https://docs.openclaw.ai/automation/standing-orders)
 - [apply_patch Tool](https://docs.openclaw.ai/tools/apply-patch)
 
-This pass used the repo-local [penny-link-review](../.codex/skills/penny-link-review/SKILL.md) workflow, direct source-health checks, and three read-only subagent passes:
+This pass used the repo-local `penny-link-review` workflow, direct source-health checks, and three read-only subagent passes:
 
 - Codex Harness + apply_patch tooling.
 - Memory Wiki + Docs Directory.
@@ -88,7 +88,7 @@ The source links are OpenClaw docs. They can pressure Penny's workflow and futur
 
 ## Already Landed
 
-- Penny already has a repo-local source-batch workflow through [penny-link-review](../.codex/skills/penny-link-review/SKILL.md), including source health, landed/now/later/reject buckets, license/privacy/platform risks, current-law conflicts, owner seams, verification commands, and artifact limits.
+- Penny already has a repo-local source-batch workflow through `penny-link-review`, including source health, landed/now/later/reject buckets, license/privacy/platform risks, current-law conflicts, owner seams, verification commands, and artifact limits.
 - Penny already separates docs authority in [docs/README.md](./README.md): current law, strong guidance, product philosophy, implementation plans, historical evidence, public explanation, raw/source material, generated artifacts, and deprecated docs are not the same thing.
 - Penny already has repo-local skills under `.codex/skills/`, plus tests that enforce the expected skill pack shape.
 - Penny already has semantic IDs, predicates, domains, claims, source-audit checks, rendered-claim labels, local semantic export, dynamic links, and candidate-survival artifacts. That covers much of the Memory Wiki "structured claims/provenance" lesson without adopting a wiki plugin, graph DB, or hosted source warehouse.
@@ -113,7 +113,7 @@ These are small, Penny-native improvements that fit the current repo shape.
    - Verification: `node --test test/penny-skill-pack.test.js`, `git diff --check`.
 
 3. Add a Codex Harness retest condition to OpenClaw shadow guidance.
-   - Owner: `OPENCLAW_SHADOW_EVAL.md`.
+   - Owner: `docs/OPENCLAW_SHADOW_EVAL.md`.
    - Suggested wording: revisit shadow only when gateway health plus a disposable Codex-harness smoke can prove `codex/*` model routing, fallback behavior, tool availability, and a real browser/exec/background-task capability win without touching Penny memory or live LM Studio.
    - Verification: `git diff --check`.
 
@@ -208,7 +208,7 @@ These are small, Penny-native improvements that fit the current repo shape.
   - `public/js/penny-memory-panel.mjs`
 
 - OpenClaw shadow retest:
-  - `OPENCLAW_SHADOW_EVAL.md`
+  - `docs/OPENCLAW_SHADOW_EVAL.md`
   - `server.js` only if a later approved implementation changes `runOpenClawShadow`
   - route tests only if shadow behavior changes
 
@@ -254,7 +254,7 @@ npm run qa:memory:candidate-survival-fixture
 OpenClaw-shadow follow-up, only if explicitly approved later:
 
 ```bash
-rg -n "OpenClaw|Codex Harness|apply_patch|runOpenClawShadow|PENNY_OPENCLAW_ENABLED" README.md ARCHITECTURE.md CODEBASE.md docs OPENCLAW_SHADOW_EVAL.md server.js
+rg -n "OpenClaw|Codex Harness|apply_patch|runOpenClawShadow|PENNY_OPENCLAW_ENABLED" README.md ARCHITECTURE.md CODEBASE.md docs docs/OPENCLAW_SHADOW_EVAL.md server.js
 ```
 
 Not run for this docs-only pass:
@@ -287,7 +287,7 @@ This note is not:
 The smallest useful next slice is docs/skill hygiene, not runtime:
 
 1. Add OpenClaw-specific skill intake questions to the repo skill guidance or planning template.
-2. Add a one-paragraph OpenClaw shadow retest condition to `OPENCLAW_SHADOW_EVAL.md`.
+2. Add a one-paragraph OpenClaw shadow retest condition to `docs/OPENCLAW_SHADOW_EVAL.md`.
 3. Verify with `node --test test/penny-skill-pack.test.js` if skill docs changed, plus `git diff --check`.
 
 Explicit non-goals:

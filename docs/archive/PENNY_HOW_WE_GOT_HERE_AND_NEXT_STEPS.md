@@ -4,7 +4,7 @@
 > Authority: Deprecated/superseded
 > Status: Superseded
 > Use this for: project-history context and older intent framing.
-> Do not use this for: the current first-read handoff. Prefer [README.md](./README.md), [CODEBASE.md](./CODEBASE.md), [ARCHITECTURE.md](./ARCHITECTURE.md), [docs/README.md](./docs/README.md), and [docs/penny-progress-handoff-2026-04-17.md](./docs/penny-progress-handoff-2026-04-17.md).
+> Do not use this for: the current first-read handoff. Prefer [README.md](../../README.md), [CODEBASE.md](../../CODEBASE.md), [ARCHITECTURE.md](../../ARCHITECTURE.md), [docs/README.md](../README.md), and [docs/penny-progress-handoff-2026-04-17.md](../penny-progress-handoff-2026-04-17.md).
 
 This file is the current handoff for Penny as of 2026-04-13.
 

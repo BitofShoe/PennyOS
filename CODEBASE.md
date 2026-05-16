@@ -34,11 +34,11 @@ Quick run/use notes.
 Runtime architecture overview.
 - [frontend-section-map.md](./frontend-section-map.md)
 Current-state map for the browser-side orchestration split.
-- [LOCAL_LLAMA_THREAD_FINDINGS.md](./LOCAL_LLAMA_THREAD_FINDINGS.md)
+- [docs/LOCAL_LLAMA_THREAD_FINDINGS.md](./docs/LOCAL_LLAMA_THREAD_FINDINGS.md)
 Outside-eye review notes on maintainability patterns that do and do not fit this repo.
-- [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)
+- [docs/OPENCLAW_SHADOW_EVAL.md](./docs/OPENCLAW_SHADOW_EVAL.md)
 Current verdict on shadow mode.
-- [PENNY_MODEL_EVAL.md](./PENNY_MODEL_EVAL.md)
+- [docs/PENNY_MODEL_EVAL.md](./docs/PENNY_MODEL_EVAL.md)
 Model and QA harness notes.
 - [server-js-section-map.md](./server-js-section-map.md)
 `server.js` function-to-responsibility bands, route table, and suggested module split order.
@@ -55,10 +55,11 @@ Delegation note:
 These are useful for project continuity, but they are not runtime code:
 
 - `Today's Plan.md`
-- `PENNY_HOW_WE_GOT_HERE_AND_NEXT_STEPS.md`
-- `PENNY_REDESIGN_PLAN.md`
-- `PENNY_UI_HANDOFF.md`
-- `LOCAL_LLAMA_THREAD_FINDINGS.md`
+- `docs/archive/PENNY_HOW_WE_GOT_HERE_AND_NEXT_STEPS.md`
+- `docs/archive/PENNY_MEMORY_NEXT_BRANCH_HANDOFF.md`
+- `docs/archive/PENNY_REDESIGN_PLAN.md`
+- `docs/archive/PENNY_UI_HANDOFF.md`
+- `docs/archive/Notes on Penny's Code From a Project Manager.md`
 - `docs/penny-document-chunking-notes.md`
 
 ## Main directories
@@ -148,12 +149,14 @@ This is not the live runtime prompt stack. It is source/reference material.
 
 High-signal files in this folder:
 
-- [PENNY'S_BRAIN.md](./Penny's Playground/PENNY'S_BRAIN.md)
-- [Operational system prompt source](./Penny's Playground/PENNY — OPERATIONAL SYSTEM PROMPT.md)
-- [Romantic overlay source](./Penny's Playground/PENNY — ROMANTIC OVERLAY.md)
-- [High-intensity overlay source](./Penny's Playground/PENNY — HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md)
-- [Personality Reference (1).md](./Penny's Playground/Personality Reference (1).md)
-- [BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md](./Penny's Playground/BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md)
+- `Penny's Playground/PENNY'S_BRAIN.md`
+- `Penny's Playground/PENNY - OPERATIONAL SYSTEM PROMPT.md`
+- `Penny's Playground/PENNY - ROMANTIC OVERLAY.md`
+- `Penny's Playground/PENNY - HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md`
+- `Penny's Playground/Personality Reference (1).md`
+
+These raw source files are private/local material and are not shipped in the public release tree.
+- `BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md` if present in an older workspace snapshot
 
 Touch this area when:
 
@@ -461,7 +464,7 @@ Start here:
 - `lib/penny-memory-suggestion-queue.js`
 - `scripts/qa-penny-session-reflection.js`
 - `scripts/eval-penny-session-reflection-compare.js`
-- `PENNY_MODEL_EVAL.md`
+- `docs/PENNY_MODEL_EVAL.md`
 
 `scripts/qa-penny-memory.js` now also carries semantic-correction grading, source-sensitive fixture cases, candidate-survival fixture/archive-unit modes, structured candidate-contract checks, and `runIdentity` harness canaries; treat those traces as first-pass environment drift checks, not as a new benchmark platform. `lib/penny-memory-archive.js` owns archive retrieval, `lib/penny-memory-archive-policy.js` owns ranking policy, `lib/penny-candidate-survival-qa.js` owns candidate-survival artifact interpretation and structured candidate-contract QA, `lib/penny-context-pressure-qa.js` owns context-pressure/source-sensitive answer fixtures, `lib/penny-semantic-source-audit.js` owns source-ID continuity artifacts, and `scripts/qa-penny-memory.js` / `scripts/qa-penny-semantic-source-audit.js` are the QA runners. `eval:runtime-fit:context-pressure`, `qa:memory:source-sensitive`, `qa:memory:candidate-survival-fixture`, `qa:memory:candidate-survival`, and `qa:semantic:source-audit` are cheap fixture/archive-unit artifact runs; they define and record fields, may use fixture-assumed semantic readiness, and do not prove live LM Studio answer drift without a separate isolated runtime-fit run.
 
@@ -492,7 +495,7 @@ Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-re
 Start here:
 
 - `server.js`
-- `OPENCLAW_SHADOW_EVAL.md`
+- `docs/OPENCLAW_SHADOW_EVAL.md`
 - `README.md`
 
 ## Runtime vs source-of-truth
@@ -541,7 +544,7 @@ If you are trying to change Penny's personality, read in this order:
 If you are trying to improve performance or routing, read in this order:
 
 1. `server.js`
-2. `PENNY_MODEL_EVAL.md`
+2. `docs/PENNY_MODEL_EVAL.md`
 3. `scripts/qa-penny-voice-redo.js`
 4. `scripts/eval-penny-models.js`
 

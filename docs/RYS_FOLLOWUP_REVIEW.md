@@ -159,9 +159,9 @@ Unless Penny is about to become meaningfully multilingual or gain a more formal 
 
 The repo now has good docs acknowledging the backend monolith, but the monolith itself kept growing:
 
-- [`ARCHITECTURE.md:265`](./ARCHITECTURE.md#L265) explicitly says the biggest debt is that `server.js` is doing too many jobs
-- [`ARCHITECTURE.md:269`](./ARCHITECTURE.md#L269) lists the mixed responsibilities
-- [`server.js`](./server.js) is now about 4,897 lines
+- [`ARCHITECTURE.md:265`](../ARCHITECTURE.md#L265) explicitly says the biggest debt is that `server.js` is doing too many jobs
+- [`ARCHITECTURE.md:269`](../ARCHITECTURE.md#L269) lists the mixed responsibilities
+- [`server.js`](../server.js) is now about 4,897 lines
 
 At the last review, `server.js` was about 4,747 lines. So the advice was **recognized**, but the runtime code moved further in the opposite direction.
 
@@ -171,14 +171,14 @@ Verdict: **partially followed in docs, ignored in implementation**
 
 The repo has QA/eval scripts, which is good, but `package.json` still exposes no `test` script or normal automated verification entrypoint:
 
-- [`package.json:6`](./package.json#L6) through [`package.json:12`](./package.json#L12)
+- [`package.json:6`](../package.json#L6) through [`package.json:12`](../package.json#L12)
 
 Meanwhile, important correctness logic still lives in handwritten heuristics inside `server.js`, for example:
 
-- [`server.js:320`](./server.js#L320) `selectMemoriesForPrompt`
-- [`server.js:653`](./server.js#L653) `looksLikeActionableToolRequest`
-- [`server.js:669`](./server.js#L669) `shouldOfferLocalTools`
-- [`server.js:2605`](./server.js#L2605) `executeDirectProjectInspectIntent`
+- [`server.js:320`](../server.js#L320) `selectMemoriesForPrompt`
+- [`server.js:653`](../server.js#L653) `looksLikeActionableToolRequest`
+- [`server.js:669`](../server.js#L669) `shouldOfferLocalTools`
+- [`server.js:2605`](../server.js#L2605) `executeDirectProjectInspectIntent`
 
 These are exactly the kinds of functions that should have fast unit tests.
 
@@ -188,14 +188,14 @@ Verdict: **mostly ignored**
 
 The repo now has a much better map of what is source versus artifact:
 
-- [`CODEBASE.md:175`](./CODEBASE.md#L175) calls `output/` generated artifacts
-- [`CODEBASE.md:187`](./CODEBASE.md#L187) says it is noisy
-- [`CODEBASE.md:267`](./CODEBASE.md#L267) through [`CODEBASE.md:270`](./CODEBASE.md#L270) explicitly call out large files and noisy root layout
+- [`CODEBASE.md:175`](../CODEBASE.md#L175) calls `output/` generated artifacts
+- [`CODEBASE.md:187`](../CODEBASE.md#L187) says it is noisy
+- [`CODEBASE.md:267`](../CODEBASE.md#L267) through [`CODEBASE.md:270`](../CODEBASE.md#L270) explicitly call out large files and noisy root layout
 
 But the mechanical policy is still weak:
 
-- [`package.json`](./package.json) has no cleanup/archive scripts
-- [`.gitignore:1`](./.gitignore#L1) through [`.gitignore:3`](./.gitignore#L3) only ignore three directories
+- [`package.json`](../package.json) has no cleanup/archive scripts
+- [`.gitignore:1`](../.gitignore#L1) through [`.gitignore:3`](../.gitignore#L3) only ignore three directories
 - `output/`, `.playwright-cli/`, live server metadata files, logs, screenshots, and handoff docs are still easy to accumulate in-place
 
 So the repo now **knows** the file-management problem exists, but it has not really been systematized yet.
@@ -210,7 +210,7 @@ These are real follow-through items:
 
 This was one of the clearest recommendations last time, and it was done well:
 
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+- [`ARCHITECTURE.md`](../ARCHITECTURE.md)
 
 It is honest about current debt, explains the real runtime shape, and is actually useful.
 
@@ -220,7 +220,7 @@ Verdict: **followed**
 
 Also a direct follow-through from the last review:
 
-- [`CODEBASE.md`](./CODEBASE.md)
+- [`CODEBASE.md`](../CODEBASE.md)
 
 This is a meaningful improvement for future contributors and other agents.
 

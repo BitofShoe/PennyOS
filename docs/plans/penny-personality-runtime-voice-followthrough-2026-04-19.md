@@ -68,7 +68,7 @@
   - `penny-voice/runtime/penny-chat-directives.md`
   - `penny-voice/runtime/penny-voice-examples.md`
   - `lib/penny-prompt-stack.js`
-  - `PENNY_MODEL_EVAL.md`
+  - `docs/PENNY_MODEL_EVAL.md`
 - Commands to run:
   - `git diff -- penny-voice/runtime`
   - `npm run qa:voice:tiebreak` only after the bounded patch lands, if the change is large enough to justify it
@@ -105,7 +105,7 @@
   Stronger companion-presence anchor without changing the overall blend.
 
 - File or doc:
-  `PENNY_MODEL_EVAL.md` or a small adjacent QA note, only if needed
+  `docs/PENNY_MODEL_EVAL.md` or a small adjacent QA note, only if needed
 - Reason:
   If a runtime patch lands, future QA should explicitly check the newly targeted moods.
 - Expected impact:

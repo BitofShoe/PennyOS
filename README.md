@@ -1,11 +1,11 @@
+# PennyOS
+
 <p align="center">
-  <img width="220" alt="Penny local companion" src="public/sprites/packs/pen2/pen2-happy-sparkle.png" />
+  <img width="240" alt="Penny presenting herself in the shipped pixel-anime expression pack." src="public/sprites/packs/pen2/pen2-smug-presenting.png" />
 </p>
 
-<h1 align="center">Penny Local Companion</h1>
-
 <p align="center">
-  A full-fat local-first companion app: expressive browser UI, durable memory, LM Studio chat and tool lanes, bounded project tools, and release-safe defaults.
+  A local-first AI companion runtime for LM Studio: expressive browser UI, durable memory, bounded tools, authored voice, and release-safe defaults.
 </p>
 
 <p align="center">
@@ -15,7 +15,22 @@
   <img src="https://img.shields.io/badge/Node-24.x-2563EB?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 24">
 </p>
 
-Penny is not a demo shell. This branch keeps the real local companion app and makes the GitHub-facing repo safer to inspect, install, and package: private workspace residue is out, default network exposure is loopback-only, write tools stage patches for approval, and generated artifacts are guarded before release.
+PennyOS packages Penny's browser UI, Node backend, local memory, model lanes, bounded tools, and prompt-facing runtime voice into one source-available local app repo.
+
+Penny is not a hosted chatbot skin. She is a single-user local companion app with a strong character layer, durable local memory, expressive sprite presentation, and practical tools that stay bounded by local safety defaults.
+
+## Release Posture
+
+This branch is shaped as a public GitHub/package release candidate:
+
+- source-available under the all-rights-reserved terms in [LICENSE](./LICENSE)
+- local-first by default; no hosted model API calls or telemetry
+- designed for LM Studio's OpenAI-compatible local server
+- localhost-only unless LAN sharing is explicitly enabled
+- release guards for private/generated files and frontend third-party asset calls
+- public seed memory only; live memory files stay ignored
+
+The current target repository name is `BitofShoe/PennyOS`.
 
 ## Runtime Snapshot
 
@@ -28,25 +43,6 @@ Penny is not a demo shell. This branch keeps the real local companion app and ma
 | Web reading | Search/read helpers with redirects and byte caps | Private, loopback, link-local, metadata, multicast, and reserved targets are blocked unless explicitly allowed |
 | Release guardrails | Package allowlist, privacy scan, artifact scan, CI check, browser smoke, and package dry-run path | Fails closed when private/generated residue is tracked |
 
-## Quick Start
-
-Requirements:
-
-- Node.js 24.x
-- npm 11.x
-- LM Studio with an OpenAI-compatible server at `http://127.0.0.1:1234/v1`
-
-```powershell
-npm ci
-copy .env.example .env
-npm run lmstudio:prepare
-npm start
-```
-
-Open `http://localhost:4317`.
-
-For the full setup path, see [INSTALL.md](./INSTALL.md).
-
 ## Preview
 
 <table>
@@ -57,48 +53,78 @@ For the full setup path, see [INSTALL.md](./INSTALL.md).
 </tr>
 </table>
 
+## Quick Start
+
+Requirements:
+
+- Node.js `>=24 <25`
+- npm `>=11 <12`
+- LM Studio with an OpenAI-compatible local server at `http://127.0.0.1:1234/v1`
+
+Windows PowerShell:
+
+```powershell
+npm ci
+copy .env.example .env
+npm run lmstudio:prepare
+npm start
+```
+
+macOS/Linux shell:
+
+```bash
+npm ci
+cp .env.example .env
+npm start
+```
+
+Open `http://localhost:4317`.
+
+`npm run lmstudio:prepare` is the friendliest path when LM Studio CLI integration is available. If it cannot prepare the local preset on your machine, keep LM Studio's local server running and set model overrides in `.env`.
+
+Use [INSTALL.md](./INSTALL.md) for LAN/phone mode, runtime state, and workspace-write notes.
+
 ## Three-Minute Proof Loop
 
 ```powershell
 npm run check
 npm run qa:browser:smoke
-npm pack --dry-run --ignore-scripts --json
+npm pack --dry-run --ignore-scripts
 ```
 
 `npm run check` runs the release artifact guard, frontend privacy guard, server syntax check, and full test suite. `qa:browser:smoke` opens the actual browser UI against a mock LM Studio server and verifies chat, image upload, memory inspector, expression state, and reset flows.
 
-## Local-First Boundaries
+## Safety Defaults
 
 - Penny binds to `127.0.0.1` by default.
-- `PENNY_LAN_SHARE=1` is required before binding for LAN/phone access.
-- LAN API access requires the Penny access token on every `/api/*` request.
-- Sensitive local mutations require a token even outside LAN mode.
-- Workspace writes stage pending patches by default.
-- Direct writes require `PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=1`.
-- Web fetches block local/private/internal network targets unless `PENNY_WEB_ALLOW_PRIVATE_NET=1`.
+- LAN sharing requires `PENNY_LAN_SHARE=1`.
+- LAN API access requires `PENNY_API_TOKEN`.
+- Sensitive workspace writes stage pending patches by default.
+- Direct workspace writes require `PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=1`.
+- Web reading blocks loopback, private, link-local, multicast, reserved, and metadata-style targets by default.
 - Browser assets are local; the shipped UI does not call Google Fonts or CDNs.
 
 See [SECURITY.md](./SECURITY.md) and [PRIVACY.md](./PRIVACY.md).
 
 ## Repository Map
 
-- `server.js` - local backend entrypoint and route orchestration.
-- `public/` - browser UI, client modules, CSS, and Penny sprite assets.
-- `lib/` - memory, LM Studio transport, route, tool, safety, QA, and runtime helper modules.
-- `penny-voice/runtime/` - shipped runtime voice assets.
-- `data/*.seed.json` - public seed data only.
-- `scripts/` - setup, release checks, QA, local evals, and sidecar helpers.
-- `docs/` - implementation notes, public docs, plans, and sidecar references.
-- `test/` - Node test suite.
+- `server.js` - local backend entrypoint and route orchestration
+- `public/` - browser UI, sprites, styles, and client modules
+- `lib/` - runtime helpers for memory, tools, route handling, LM Studio transports, safety gates, and artifacts
+- `penny-voice/runtime/` - the shipped Penny runtime voice assets
+- `data/*.seed.json` - public seed data only; live memory files are ignored
+- `scripts/` - setup, checks, QA, local eval helpers, and sidecar trial tools
+- `docs/` - contributor docs, public explainers, release checklist, and archived historical notes
+- `test/` - Node test suite
 
-## Packaging
+## Docs To Read Next
 
-The npm package uses a `files` allowlist and release guards so generated output, local memory, private notes, and test artifacts do not ship.
-
-```powershell
-npm run check
-npm pack --dry-run --ignore-scripts --json
-```
+- [INSTALL.md](./INSTALL.md) - install and local operation
+- [docs/README.md](./docs/README.md) - documentation authority map
+- [CODEBASE.md](./CODEBASE.md) - repo map and source/generated boundaries
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - current runtime architecture
+- [docs/penny-public/README.md](./docs/penny-public/README.md) - outward-facing Penny explainers
+- [docs/release-checklist.md](./docs/release-checklist.md) - pre-release verification
 
 ## Current Runtime Note
 

@@ -1,7 +1,7 @@
 # `server.js` section map
 
-**Purpose:** current-state map for the remaining `server.js` monolith after the 2026-04-13 direct-intent/tool extraction pass and the automatic dual-lane LM Studio split.  
-**Companion docs:** [ARCHITECTURE.md](./ARCHITECTURE.md), [CODEBASE.md](./CODEBASE.md), [Notes on Penny's Code From a Project Manager.md](./Notes%20on%20Penny's%20Code%20From%20a%20Project%20Manager.md), [docs/penny-module-ownership.md](./docs/penny-module-ownership.md), [docs/penny-memory-archive-audit.md](./docs/penny-memory-archive-audit.md)
+**Purpose:** current-state map for the remaining `server.js` monolith after the 2026-04-13 direct-intent/tool extraction pass and the automatic dual-lane LM Studio split.
+**Companion docs:** [ARCHITECTURE.md](./ARCHITECTURE.md), [CODEBASE.md](./CODEBASE.md), [archived project-manager review](./docs/archive/Notes%20on%20Penny's%20Code%20From%20a%20Project%20Manager.md), [docs/penny-module-ownership.md](./docs/penny-module-ownership.md), [docs/penny-memory-archive-audit.md](./docs/penny-memory-archive-audit.md)
 
 This map is for backend ownership only. During the boring-sprint cleanup, new backend behavior should go into the smallest named `lib/` owner or a new route-specific module before it grows inside `server.js`.
 

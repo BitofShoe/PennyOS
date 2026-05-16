@@ -12,18 +12,18 @@ It is intentionally blunt about what is "real architecture" versus "current mono
 Practical repo map and "where to touch what" guide.
 - [frontend-section-map.md](./frontend-section-map.md)
 Current browser-side ownership map for the orchestration shell.
-- [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)
+- [docs/OPENCLAW_SHADOW_EVAL.md](./docs/OPENCLAW_SHADOW_EVAL.md)
 Current verdict on whether shadow mode is actually worth keeping around.
-- [LOCAL_LLAMA_THREAD_FINDINGS.md](./LOCAL_LLAMA_THREAD_FINDINGS.md)
+- [docs/LOCAL_LLAMA_THREAD_FINDINGS.md](./docs/LOCAL_LLAMA_THREAD_FINDINGS.md)
 Outside review notes pulled from the LocalLLaMA maintainability discussion and compared against this repo.
-- [PENNY'S_BRAIN.md](./Penny's Playground/PENNY'S_BRAIN.md)
-Higher-level Penny intent and personality source material.
-- [Operational system prompt source](./Penny's Playground/PENNY — OPERATIONAL SYSTEM PROMPT.md)
-Legacy/source operational prompt material.
-- [Romantic overlay source](./Penny's Playground/PENNY — ROMANTIC OVERLAY.md)
-Legacy/source romantic blend material.
-- [High-intensity overlay source](./Penny's Playground/PENNY — HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md)
-Legacy/source high-intensity overlay material.
+- `Penny's Playground/PENNY'S_BRAIN.md`
+Higher-level Penny intent and personality source material. This raw source file is private/local material and is not shipped in the public release tree.
+- `Penny's Playground/PENNY - OPERATIONAL SYSTEM PROMPT.md`
+Legacy/source operational prompt material. Private/local source, not a public release file.
+- `Penny's Playground/PENNY - ROMANTIC OVERLAY.md`
+Legacy/source romantic blend material. Private/local source, not a public release file.
+- `Penny's Playground/PENNY - HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md`
+Legacy/source high-intensity overlay material. Private/local source, not a public release file.
 
 ## Delegation note
 
@@ -95,7 +95,7 @@ There are two runtime brain families:
 - In the current implementation, the shadow path is just a prompt handoff to `openclaw/main`.
 - It does not currently expose the richer OpenClaw browser/exec/task features through Penny's main runtime path.
 
-See also: [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)
+See also: [docs/OPENCLAW_SHADOW_EVAL.md](./docs/OPENCLAW_SHADOW_EVAL.md)
 
 ## Request flow
 
@@ -138,8 +138,8 @@ Raw source docs and distilled sidecars are for refinement work, not normal runti
 If you need the older canon/source stack that informed the runtime blend, start with:
 
 - [penny-voice/canon-sources.md](./penny-voice/canon-sources.md)
-- [Personality Reference (1).md](./Penny's Playground/Personality Reference (1).md)
-- [BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md](./Penny's Playground/BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md)
+- `Penny's Playground/Personality Reference (1).md`
+- `BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md` if present in an older workspace snapshot
 
 ### 2. Durable memory
 

@@ -8,14 +8,13 @@ If a document is persuasive but the code, tests, or runtime artifacts disagree, 
 
 If you are a new agent or contributor, use this order:
 
-1. [../AGENTS.md](../AGENTS.md)
-2. [../README.md](../README.md)
-3. [../CODEBASE.md](../CODEBASE.md)
-4. [../ARCHITECTURE.md](../ARCHITECTURE.md)
-5. [penny-runtime-authority-contract-2026-04-17.md](./penny-runtime-authority-contract-2026-04-17.md)
-6. [penny-prompttruth-contract-2026-04-19.md](./penny-prompttruth-contract-2026-04-19.md) if your question is specifically about prompt visibility, rendered-vs-candidate truth, or holdback semantics
-7. [../server-js-section-map.md](../server-js-section-map.md), [../frontend-section-map.md](../frontend-section-map.md), and [penny-module-ownership.md](./penny-module-ownership.md) if you are editing orchestration or ownership boundaries
-8. Only then open handoffs, plans, reviews, public explainers, or raw source material
+1. [../README.md](../README.md)
+2. [../CODEBASE.md](../CODEBASE.md)
+3. [../ARCHITECTURE.md](../ARCHITECTURE.md)
+4. [penny-runtime-authority-contract-2026-04-17.md](./penny-runtime-authority-contract-2026-04-17.md)
+5. [penny-prompttruth-contract-2026-04-19.md](./penny-prompttruth-contract-2026-04-19.md) if your question is specifically about prompt visibility, rendered-vs-candidate truth, or holdback semantics
+6. [../server-js-section-map.md](../server-js-section-map.md), [../frontend-section-map.md](../frontend-section-map.md), and [penny-module-ownership.md](./penny-module-ownership.md) if you are editing orchestration or ownership boundaries
+7. Only then open handoffs, plans, reviews, public explainers, or raw source material
 
 If you want outward-facing or layperson docs instead of repo law, start with [penny-public/README.md](./penny-public/README.md).
 If you need the recurring product instinct behind Penny's bounded slices after you finish current-law docs, read [penny-secret-third-thing-bounded-third-option-design.md](./penny-secret-third-thing-bounded-third-option-design.md).
@@ -50,8 +49,8 @@ If you need the recurring product instinct behind Penny's bounded slices after y
 - Some docs describe intended truth more cleanly than the runtime currently implements. Treat those as `Needs verification` or `Aspirational / not fully code-verified`, not as proof.
 - Persuasive prose never outranks prompt-time receipts, runtime artifacts, passing tests, or the current code path.
 - Candidate-survival artifacts are retrieval-path evidence, not PromptTruth and not answer-quality proof. Use [../README.md](../README.md), [../ARCHITECTURE.md](../ARCHITECTURE.md), and [../CODEBASE.md](../CODEBASE.md) for the current operator interpretation before changing retrieval, ranking, PromptTruth, embedding defaults, or rendered-context limits.
-- External link batches should use [penny-link-review](../.codex/skills/penny-link-review/SKILL.md) to keep source health, landed work, strengthen-now ideas, later ideas, rejected imports, license/privacy/platform risks, current-law conflicts, owner seams, verification commands, and artifact limits separate.
-- April 22 Codex environment source-tools guidance is recorded in [penny-codex-env-source-tools-note-2026-04-22.md](./penny-codex-env-source-tools-note-2026-04-22.md). It can guide Context7, Codex-skill, delegation, and local operator-tool habits for agents helping code Penny, but it is not dependency approval, runtime law, memory-ingestion permission, PromptTruth/toolEvidenceReceipt expansion, or hosted automation approval. The durable follow-through lives in [../AGENTS.md](../AGENTS.md), [plans/TEMPLATE.md](./plans/TEMPLATE.md), and the repo skill pack as task-receipt, cloud/local-boundary, review-guideline, and subagent-closeout checklists.
+- External link batches should use the local `penny-link-review` workflow, when available, to keep source health, landed work, strengthen-now ideas, later ideas, rejected imports, license/privacy/platform risks, current-law conflicts, owner seams, verification commands, and artifact limits separate.
+- April 22 Codex environment source-tools guidance is recorded in [penny-codex-env-source-tools-note-2026-04-22.md](./penny-codex-env-source-tools-note-2026-04-22.md). It can guide Context7, Codex-skill, delegation, and local operator-tool habits for agents helping code Penny, but it is not dependency approval, runtime law, memory-ingestion permission, PromptTruth/toolEvidenceReceipt expansion, or hosted automation approval. The public follow-through lives in [plans/TEMPLATE.md](./plans/TEMPLATE.md); local operator instructions and repo-local skill packs are intentionally not shipped as public release files.
 - April 21 link-batch follow-through is now status-labeled in the source note and master plan: pressure-watch trust work landed as QA/eval coverage, Gemma runtime watch landed as fixture/status artifacts, and token/output-cost descriptors landed as advisory metadata. None of that is a license to change runtime voice, expand PromptTruth, enable default thinking, raise default context, switch embedding providers, or import external dependencies.
 - Static embedding live sidecar docs describe an opt-in local experiment, not default law. Normal repo posture is static mode unset/`off` or QA-only shadow comparison; `PENNY_STATIC_EMBED_MODE=live-advisory` is local experimental mode with the static-only render cap, authority gates, unchanged prompt limits, and no PromptTruth / `toolEvidenceReceipt` expansion.
 - Open-loop tracker docs describe advisory continuity state, not explicit memory or autonomous initiative. The state/store/lifecycle code has landed, but the live prompt bridge remains bounded by `PENNY_ENABLE_OPEN_LOOP_PROMPT`, max-one rendering, token caps, expiry/dismissal/completion controls, and compare evidence; O8 made local opt-in eligible, not default law, PromptTruth expansion, prompt-limit expansion, or permission to surface unrelated follow-ups.
@@ -83,7 +82,7 @@ This section keeps current law first, then follows the interpretive order from [
 
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
-| [../AGENTS.md](../AGENTS.md) | Repo contract and guardrails | Binding/current law | Current | session ritual, repo truths, guardrails | detailed architecture history |
+| [../README.md](../README.md), [../CODEBASE.md](../CODEBASE.md), [../ARCHITECTURE.md](../ARCHITECTURE.md) | Public repo orientation and guardrails | Binding/current law | Current | install, repo truths, runtime shape, source/generated boundaries | detailed architecture history |
 | [../README.md](../README.md) | Contributor/operator entrypoint | Binding/current law | Current | current runtime shape, runbook, memory/runtime overview | public marketing or historical archaeology |
 | [../CODEBASE.md](../CODEBASE.md) | Repo map and source-vs-generated boundary | Binding/current law | Current | where code lives, what is generated, edit boundaries | product philosophy |
 | [../ARCHITECTURE.md](../ARCHITECTURE.md) | Current engineering architecture | Binding/current law | Current | present-tense architecture and subsystem behavior | public-facing explanation |
@@ -96,7 +95,7 @@ This section keeps current law first, then follows the interpretive order from [
 | --- | --- | --- | --- | --- | --- |
 | [../server-js-section-map.md](../server-js-section-map.md), [../frontend-section-map.md](../frontend-section-map.md), [penny-module-ownership.md](./penny-module-ownership.md) | Ownership and orchestration boundaries | Strong guidance | Current | who owns what when editing shells and subsystems | product-law disputes without code checks |
 | [penny-lan-phone-reset-runbook-2026-04-21.md](./penny-lan-phone-reset-runbook-2026-04-21.md) | Local operations runbook | Strong guidance | Current | phone/LAN access resets, Windows-vs-WSL port truth, stale listener cleanup, and `start-lyra.ps1` launcher traps | broad LAN security posture or model-quality diagnosis |
-| [../OPENCLAW_SHADOW_EVAL.md](../OPENCLAW_SHADOW_EVAL.md) | Shadow-mode verdict | Strong guidance | Current | current keep/park policy for shadow mode | general runtime law beyond shadow scope |
+| [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md) | Shadow-mode verdict | Strong guidance | Current | current keep/park policy for shadow mode | general runtime law beyond shadow scope |
 | [penny-docs-and-live-qa-agent-brief.md](./penny-docs-and-live-qa-agent-brief.md) | Interpretive brief | Strong guidance | Needs verification | docs interpretation and recent QA framing | current repo law or exact repo snapshot truth |
 
 ### 3. Product philosophy and design-instinct docs
@@ -130,12 +129,14 @@ This section keeps current law first, then follows the interpretive order from [
 | [penny-qwen36-localllama-reddit-lessons-2026-04-22.md](./penny-qwen36-localllama-reddit-lessons-2026-04-22.md) | Qwen3.6 LocalLLaMA Reddit lessons note | Historical evidence | Current | Reddit-derived Qwen3.6, agent-harness, tool-loop, local-runtime, security, and Penny model-eval follow-through ideas | current runtime law, default model approval, OpenClaw/Hermes adoption, default thinking/context changes, PromptTruth/toolEvidenceReceipt expansion, memory ingestion, or broad agent platform imports |
 | [penny-local-llm-apps-link-review-2026-05-10.md](./penny-local-llm-apps-link-review-2026-05-10.md) | Local LLM apps and sidecar review | Historical evidence | Current with scaffold follow-through | app-first local-LLM sidecar ideas, OpenCode/Pi/Open WebUI/Qwen-vs-Gemma/endpoint-watch follow-through seams | dependency approval, license approval, runtime law, model proof, sidecar authority, memory ingestion, PromptTruth/toolEvidence expansion, default thinking/context/model changes |
 | [penny-memory-agent-link-review-2026-05-12.md](./penny-memory-agent-link-review-2026-05-12.md) | Memory-system and agent-workflow link review | Historical evidence | Current source review | Medium/Reddit memory-system lessons, Impeccable sidecar UI-review ideas, and bounded Penny/coding-agent follow-through slices | runtime law, dependency approval, license approval, model proof, memory ingestion, PromptTruth/toolEvidenceReceipt expansion, default context changes, or platformization |
+| [LOCAL_LLAMA_THREAD_FINDINGS.md](./LOCAL_LLAMA_THREAD_FINDINGS.md) and [RYS_FOLLOWUP_REVIEW.md](./RYS_FOLLOWUP_REVIEW.md) | Root-era research notes | Historical evidence | Historical | maintainability and probe-first evaluation lessons that shaped later Penny work | current runtime law without checking newer code, tests, and docs |
 
 ### 6. Review/audit docs
 
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
 | [penny-review-2026-04-18.md](./penny-review-2026-04-18.md), [penny-review-commit-5c08ac0.md](./penny-review-commit-5c08ac0.md), and [penny-memory-archive-audit.md](./penny-memory-archive-audit.md) | Review snapshots | Historical evidence | Historical | bugs, risks, and pressure-test findings tied to a snapshot | standing law |
+| [PENNY_MODEL_EVAL.md](./PENNY_MODEL_EVAL.md) | Model eval runbook | Strong guidance | Current | local model comparison process and QA harness entrypoints | proof of current model quality without fresh isolated QA artifacts |
 
 ### 7. Bounded implementation plans
 
@@ -167,14 +168,20 @@ This section keeps current law first, then follows the interpretive order from [
 
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
-| [../Penny's Playground/](../Penny's%20Playground), [../penny-voice/distilled/](../penny-voice/distilled), root `Personality *.md` files | Voice and canon source inputs | Raw/source material | Needs verification | voice refinement, source instincts, historical canon | live runtime authority |
+| private/local `Penny's Playground/`, [../penny-voice/distilled/](../penny-voice/distilled), and private/local root `Personality *.md` files | Voice and canon source inputs | Raw/source material | Needs verification | voice refinement, source instincts, historical canon | live runtime authority |
 
-### 10. Generated/temporary material
+### 10. Archived/superseded material
+
+| Document | Category | Authority level | Current status | Use this for | Do not use this for |
+| --- | --- | --- | --- | --- | --- |
+| [archive/](./archive/) | Archived handoffs, stale UI plans, and chat-era reviews | Deprecated/superseded | Superseded | historical archaeology when a newer doc points you there | first-read onboarding, current runtime law, or public-facing explanation |
+
+### 11. Generated/temporary material
 
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
 | [2506.06941v3.agent.md](./2506.06941v3.agent.md) | Machine-extracted source text | Generated/temporary | Generated | source extraction for research work | project policy or law |
-| [../output/](../output), [../tmp/](../tmp), [../logs/](../logs), [../data/](../data), [../test-results/](../test-results) | Runtime and QA artifacts | Generated/temporary | Generated | QA evidence, runtime state, debugging | governing documentation |
+| private/local `output/`, `tmp/`, `logs/`, [../data/](../data), and private/local `test-results/` | Runtime and QA artifacts | Generated/temporary | Generated | QA evidence, runtime state, debugging | governing documentation |
 
 ## High-risk docs that should not outrank current law
 
@@ -186,8 +193,11 @@ Treat these as evidence or continuity helpers unless and until their claims are 
 - [penny-cl4ritas-frontier-prompt-lessons-2026-04-20.md](./penny-cl4ritas-frontier-prompt-lessons-2026-04-20.md)
 - [penny_runtime_voice_memory_bounded_ambiguity_master_2026-04-17.md](./penny_runtime_voice_memory_bounded_ambiguity_master_2026-04-17.md)
 - [penny-sillytavern-charmemory-mnemosyne-note-2026-04-20.md](./penny-sillytavern-charmemory-mnemosyne-note-2026-04-20.md)
-- [../PENNY_HOW_WE_GOT_HERE_AND_NEXT_STEPS.md](../PENNY_HOW_WE_GOT_HERE_AND_NEXT_STEPS.md)
-- [../PENNY_MEMORY_NEXT_BRANCH_HANDOFF.md](../PENNY_MEMORY_NEXT_BRANCH_HANDOFF.md)
+- [archive/PENNY_HOW_WE_GOT_HERE_AND_NEXT_STEPS.md](./archive/PENNY_HOW_WE_GOT_HERE_AND_NEXT_STEPS.md)
+- [archive/PENNY_MEMORY_NEXT_BRANCH_HANDOFF.md](./archive/PENNY_MEMORY_NEXT_BRANCH_HANDOFF.md)
+- [archive/PENNY_REDESIGN_PLAN.md](./archive/PENNY_REDESIGN_PLAN.md)
+- [archive/PENNY_UI_HANDOFF.md](./archive/PENNY_UI_HANDOFF.md)
+- [archive/Notes on Penny's Code From a Project Manager.md](./archive/Notes%20on%20Penny's%20Code%20From%20a%20Project%20Manager.md)
 - [../Today's Plan.md](../Today's%20Plan.md)
 
 The point of this guide is not to turn the docs folder into another doctrine pile. It is to make authority obvious enough that future agents stop repeating the right slogans while enforcing the wrong layer.

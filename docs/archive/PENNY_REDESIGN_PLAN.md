@@ -84,4 +84,4 @@ Replace the SVG path system in `public/app.js`:
 - Character art assets: `public/sprites/` (to be created)
 - Main renderer: `public/app.js`
 - Styles/animation: `public/styles.css`
-- This plan: `lyra-prototype/PENNY_REDESIGN_PLAN.md`
+- This plan: `docs/archive/PENNY_REDESIGN_PLAN.md`

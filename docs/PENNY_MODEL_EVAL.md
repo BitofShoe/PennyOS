@@ -1,6 +1,6 @@
 # Penny Model Eval
 
-Repeatable local model testing for Penny lives in [scripts/eval-penny-models.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/scripts/eval-penny-models.js:1).
+Repeatable local model testing for Penny lives in [scripts/eval-penny-models.js](../scripts/eval-penny-models.js).
 
 ## What It Tests
 
@@ -15,11 +15,11 @@ The harness starts a disposable Penny server with isolated durable memory, then 
 - Agentic edit behavior
 - Load time and reply latency
 
-Each run writes a timestamped JSON report into [output](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/output:1).
+Each run writes a timestamped JSON report into local `output/`.
 
 ## Run It
 
-From [lyra-prototype](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype:1):
+From [lyra-prototype](../):
 
 ```powershell
 npm run preset:lmstudio
@@ -108,13 +108,13 @@ Use this order so future reruns stay apples-to-apples:
 npm run eval:models
 ```
 
-6. Open the new JSON artifact in [output](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/output:1).
+6. Open the new JSON artifact in local `output/`.
 7. Compare the new run against the last good run on:
    - believable Penny voice
    - memory capture and recall
    - agentic usefulness
    - latency
-8. If you changed [server.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/server.js:1), treat older runs as stale until you rerun them.
+8. If you changed [server.js](../server.js), treat older runs as stale until you rerun them.
 
 By default the model-eval script now compares:
 
@@ -138,7 +138,7 @@ npm run eval:models
 
 The main artifact looks like:
 
-- [output/model-eval-*.json](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/output:1)
+- `output/model-eval-*.json`
 
 The harness also writes disposable server logs:
 
@@ -202,7 +202,7 @@ The script tries to keep LM Studio aligned with Penny by:
 
 Important caveat:
 
-Penny's API-side character still comes primarily from [server.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/server.js:2517), because raw LM Studio API calls do not reliably inherit the UI preset on their own. In other words: the server prompt is the source of truth for evals, not the visible dropdown state in the LM Studio chat UI.
+Penny's API-side character still comes primarily from [server.js](../server.js), because raw LM Studio API calls do not reliably inherit the UI preset on their own. In other words: the server prompt is the source of truth for evals, not the visible dropdown state in the LM Studio chat UI.
 
 ## Performance Hygiene
 
@@ -227,7 +227,7 @@ Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 4317,4342 }
 
 - The harness is good for comparative signal, not absolute truth.
 - Prompt wording matters a lot. If a prompt accidentally matches Penny's deterministic direct-intent parser, it can benchmark the routing layer instead of the model.
-- If you change Penny's prompt stack in [server.js](/C:/Users/malac/.openclaw/workspace-main/lyra-prototype/server.js:2481), re-run the eval before trusting older JSON reports.
+- If you change Penny's prompt stack in [server.js](../server.js), re-run the eval before trusting older JSON reports.
 
 ## Next-Level Extensions
 

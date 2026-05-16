@@ -237,7 +237,7 @@ What the research reinforces here:
   - Read: if tool availability needs to vary, route through a stable dispatcher or narrow router tool instead of injecting a freshly changing giant catalog into the prompt.
 - `Stack-aware model and transport policy`
   - External evidence: `#66`, `#67`, `#68`, `#69`, `#70`, `#71`, `#72`, `#73`
-  - Penny touchpoints: [lib/penny-lmstudio-transports.js](../lib/penny-lmstudio-transports.js), [lib/penny-lmstudio-status.js](../lib/penny-lmstudio-status.js), [PENNY_MODEL_EVAL.md](../PENNY_MODEL_EVAL.md)
+  - Penny touchpoints: [lib/penny-lmstudio-transports.js](../lib/penny-lmstudio-transports.js), [lib/penny-lmstudio-status.js](../lib/penny-lmstudio-status.js), [PENNY_MODEL_EVAL.md](./PENNY_MODEL_EVAL.md)
   - Read: function-calling quality, tool reliability, and latency depend on transport/template/serving choices as much as on the model name. Penny should keep evaluating the whole stack, not just model families.
 
 What the research reinforces here:
@@ -274,15 +274,15 @@ What the research reinforces here:
 
 - `Small role files and repo-local skills`
   - External evidence: `#8`, `#20`, `#42`, `#43`, `#44`, `#55`
-  - Penny touchpoints: [docs/plans/TEMPLATE.md](./plans/TEMPLATE.md), [.codex/skills/README.md](../.codex/skills/README.md)
+  - Penny touchpoints: [docs/plans/TEMPLATE.md](./plans/TEMPLATE.md), local `.codex/skills/README.md` when present
   - Read: repeated workflow knowledge should live in skill/runbook files with gotchas, not in giant inline prompts that drift every turn.
 - `Coordinator plus short-lived workers`
   - External evidence: `#9`, `#21`, `#22`, `#26`, `#46`, `#57`
-  - Penny touchpoints: [OPENCLAW_SHADOW_EVAL.md](../OPENCLAW_SHADOW_EVAL.md), [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - Penny touchpoints: [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md), [ARCHITECTURE.md](../ARCHITECTURE.md)
   - Read: if Penny ever expands risky execution, the safer shape is a persistent coordinator with bounded workers, not one persistent executor with broad implicit authority.
 - `Keep OpenClaw optional until it has a distinct capability win`
   - External evidence: `#19`, `#21`, `#22`, `#55`, `#57`
-  - Penny touchpoints: [OPENCLAW_SHADOW_EVAL.md](../OPENCLAW_SHADOW_EVAL.md)
+  - Penny touchpoints: [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md)
   - Read: the sources do not justify keeping a shadow lane alive if it is only a prompt handoff. It needs browser/exec/scheduled-task leverage or it should stay experimental.
 
 What the research reinforces here:
@@ -297,7 +297,7 @@ What the research reinforces here:
 
 - `Interaction logs -> offline improvement loop`
   - External evidence: `#13`, `#16`, `#17`, `#51`, `#65`
-  - Penny touchpoints: [output](../output), [scripts/qa-penny-memory.js](../scripts/qa-penny-memory.js), [scripts/eval-penny-models.js](../scripts/eval-penny-models.js)
+  - Penny touchpoints: local `output/`, [scripts/qa-penny-memory.js](../scripts/qa-penny-memory.js), [scripts/eval-penny-models.js](../scripts/eval-penny-models.js)
   - Read: if Penny later learns from real interactions, it should happen offline, on top of clear traces and task-shaped evals, with live inference kept simple.
 - `Only verifiable subproblems`
   - External evidence: `#12`, `#13`, `#16`, `#17`, `#65`

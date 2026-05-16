@@ -2,8 +2,8 @@
 
 **Reviewer stance:** senior software engineer / technical program lead.
 
-**Scope:** `lyra-prototype/` as the application repo, with light context from parent `workspace-main/`.  
-**Date:** 2026-04-09  
+**Scope:** `lyra-prototype/` as the application repo, with light context from parent `workspace-main/`.
+**Date:** 2026-04-09
 **Constraint assumed:** small team, local-first prototype—not a funded startup shipping to millions.
 
 This document is deliberately blunt. “Ruthless” here means: name risks, stale surfaces, and structural debt with reasons—not performative negativity.
@@ -252,4 +252,4 @@ The encouraging part: you have already proven you can document decisions well; n
 - Parent `AGENTS.md` (workspace context)
 - Spot check: `checkpoints/` layout
 
-Follow-up delivered: **[server-js-section-map.md](./server-js-section-map.md)** — line-banded sections, HTTP route table, `module.exports`, suggested extraction order, and overlap with `lib/`.
+Follow-up delivered: **[server-js-section-map.md](../../server-js-section-map.md)** — line-banded sections, HTTP route table, `module.exports`, suggested extraction order, and overlap with `lib/`.
