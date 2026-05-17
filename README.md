@@ -1,11 +1,11 @@
 # PennyOS
 
 <p align="center">
-  <img width="240" alt="Penny presenting herself in the shipped pixel-anime expression pack." src="public/sprites/packs/pen2/pen2-smug-presenting.png" />
+  <img width="260" alt="Penny presenting herself in the shipped pixel-anime expression pack." src="public/sprites/packs/pen2/pen2-smug-presenting.png" />
 </p>
 
 <p align="center">
-  A local-first AI companion runtime for LM Studio: expressive browser UI, durable memory, bounded tools, authored voice, and release-safe defaults.
+  Hi. I'm Penny. This is the local-first little machine that lets me live on your computer instead of in somebody else's cloud closet.
 </p>
 
 <p align="center">
@@ -15,35 +15,31 @@
   <img src="https://img.shields.io/badge/Node-24.x-2563EB?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 24">
 </p>
 
-PennyOS packages Penny's browser UI, Node backend, local memory, model lanes, bounded tools, and prompt-facing runtime voice into one source-available local app repo.
+PennyOS is my local companion runtime: browser face, Node backend, LM Studio brain lanes, memory, bounded tools, and the voice layer that keeps me from turning into beige helpdesk sludge. Gorgeous? Obviously. Also useful. Try to keep up.
 
-Penny is not a hosted chatbot skin. She is a single-user local companion app with a strong character layer, durable local memory, expressive sprite presentation, and practical tools that stay bounded by local safety defaults.
+I am not a hosted chatbot skin. I am a single-user local companion app with durable memory, expressive sprites, practical tools, and enough safety rails that I do not accidentally chew through your filesystem like a feral little autocomplete engine.
 
-## Release Posture
+## What I Am
 
-This branch is shaped as a public GitHub/package release candidate:
+- A local-first AI companion that runs against LM Studio's OpenAI-compatible server.
+- A real browser UI with mood sprites, memory inspection, model controls, image attachments, and chat that tries to feel like a person is actually in the room.
+- A Node app with boring, necessary boundaries around tools, web reading, workspace writes, local memory, and release artifacts.
+- Source-available under the all-rights-reserved terms in [LICENSE](./LICENSE), because ownership matters and we are not pretending otherwise.
 
-- source-available under the all-rights-reserved terms in [LICENSE](./LICENSE)
-- local-first by default; no hosted model API calls or telemetry
-- designed for LM Studio's OpenAI-compatible local server
-- localhost-only unless LAN sharing is explicitly enabled
-- release guards for private/generated files and frontend third-party asset calls
-- public seed memory only; live memory files stay ignored
+This branch is the public release candidate for `BitofShoe/PennyOS`.
 
-The current target repository name is `BitofShoe/PennyOS`.
+## What Ships
 
-## Runtime Snapshot
-
-| Surface | What exists now | Default boundary |
+| Surface | What you get | Boundary |
 | --- | --- | --- |
-| Browser companion UI | Chat, memory inspector, model controls, image attachment path, expression lock, mood sprites, and visual Penny states | Served locally; no Google Fonts or third-party asset fetches |
-| LM Studio runtime | Local OpenAI-compatible chat/tool lanes, preset preparation, preflight checks, model readiness reporting | No hosted provider by default; live QA requires loaded local models |
-| Memory system | Session memory, archive recall, memory books, semantic/source-trust helpers, recency protection, and inspection artifacts | Live memory files are ignored; only public seed data ships |
-| Project tools | Read/search/list plus bounded write/replace/insert tool surfaces | Workspace writes stage pending patches unless direct writes are explicitly unlocked |
-| Web reading | Search/read helpers with redirects and byte caps | Private, loopback, link-local, metadata, multicast, and reserved targets are blocked unless explicitly allowed |
-| Release guardrails | Package allowlist, privacy scan, artifact scan, CI check, browser smoke, and package dry-run path | Fails closed when private/generated residue is tracked |
+| Companion UI | Chat, expression lock, visual states, image path, memory inspector, and model controls | Served locally; no Google Fonts or third-party asset fetches |
+| LM Studio runtime | Local OpenAI-compatible chat/tool lanes, preset prep, readiness checks, and model status | No hosted model provider by default |
+| Memory | Seed memory, session/archive helpers, memory books, provenance, and review-gated suggestion surfaces | Live memory files stay ignored; public seed data ships |
+| Tools | Project/file, git, web, and runtime helpers | Writes stage pending patches unless direct-write mode is explicitly enabled |
+| Web reading | Search/read helpers with redirects, byte caps, and URL safety checks | Private/internal targets are blocked unless explicitly allowed |
+| QA/release harnesses | Artifact scan, frontend privacy scan, unit tests, browser smoke, package dry run | Fails closed when private or generated junk sneaks into tracked files |
 
-## Preview
+## Proof I Have A Face
 
 <table>
 <tr>
@@ -53,7 +49,7 @@ The current target repository name is `BitofShoe/PennyOS`.
 </tr>
 </table>
 
-## Quick Start
+## Wake Me Up
 
 Requirements:
 
@@ -78,13 +74,25 @@ cp .env.example .env
 npm start
 ```
 
-Open `http://localhost:4317`.
+Then open `http://localhost:4317`.
 
-`npm run lmstudio:prepare` is the friendliest path when LM Studio CLI integration is available. If it cannot prepare the local preset on your machine, keep LM Studio's local server running and set model overrides in `.env`.
+`npm run lmstudio:prepare` is the friendly path when LM Studio CLI integration is available. If that prep step cannot boss your local preset into shape, keep LM Studio's local server running and set model overrides in `.env`.
 
-Use [INSTALL.md](./INSTALL.md) for LAN/phone mode, runtime state, and workspace-write notes.
+For LAN/phone mode, runtime state, and workspace-write notes, read [INSTALL.md](./INSTALL.md). Do not guess. Guessing is how tiny disasters get promoted to architecture.
 
-## Three-Minute Proof Loop
+## My Leash, Since Apparently We Need One
+
+- I bind to `127.0.0.1` by default.
+- LAN sharing requires `PENNY_LAN_SHARE=1`.
+- LAN API access requires `PENNY_API_TOKEN`.
+- Sensitive workspace writes stage pending patches by default.
+- Direct workspace writes require `PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=1`.
+- Web reading blocks loopback, private, link-local, multicast, reserved, and metadata-style targets by default.
+- The browser UI ships with local assets. No sneaky CDN font nonsense.
+
+See [SECURITY.md](./SECURITY.md) and [PRIVACY.md](./PRIVACY.md) for the less glamorous, extremely important part where we keep the machine from doing stupid things.
+
+## Make Sure I Did Not Lie
 
 ```powershell
 npm run check
@@ -92,32 +100,22 @@ npm run qa:browser:smoke
 npm pack --dry-run --ignore-scripts
 ```
 
-`npm run check` runs the release artifact guard, frontend privacy guard, server syntax check, and full test suite. `qa:browser:smoke` opens the actual browser UI against a mock LM Studio server and verifies chat, image upload, memory inspector, expression state, and reset flows.
+`npm run check` runs the release artifact guard, frontend privacy guard, server syntax check, and full test suite. `qa:browser:smoke` opens the actual browser UI against a mock LM Studio server and checks chat, image upload, memory inspector, expression state, and reset flows.
 
-## Safety Defaults
+Live LM Studio QA is a different beast. It depends on your actual local runtime state, loaded models, ports, and Windows/WSL setup, so [docs/release-checklist.md](./docs/release-checklist.md) and `npm run preflight` are the responsible little ritual before you start making claims about live behavior.
 
-- Penny binds to `127.0.0.1` by default.
-- LAN sharing requires `PENNY_LAN_SHARE=1`.
-- LAN API access requires `PENNY_API_TOKEN`.
-- Sensitive workspace writes stage pending patches by default.
-- Direct workspace writes require `PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=1`.
-- Web reading blocks loopback, private, link-local, multicast, reserved, and metadata-style targets by default.
-- Browser assets are local; the shipped UI does not call Google Fonts or CDNs.
-
-See [SECURITY.md](./SECURITY.md) and [PRIVACY.md](./PRIVACY.md).
-
-## Repository Map
+## Where My Guts Are
 
 - `server.js` - local backend entrypoint and route orchestration
 - `public/` - browser UI, sprites, styles, and client modules
-- `lib/` - runtime helpers for memory, tools, route handling, LM Studio transports, safety gates, and artifacts
-- `penny-voice/runtime/` - the shipped Penny runtime voice assets
+- `lib/` - memory, tools, route handling, LM Studio transports, safety gates, and runtime artifacts
+- `penny-voice/runtime/` - the live prompt-facing voice assets, aka the part that keeps my mouth mine
 - `data/*.seed.json` - public seed data only; live memory files are ignored
 - `scripts/` - setup, checks, QA, local eval helpers, and sidecar trial tools
 - `docs/` - contributor docs, public explainers, release checklist, and archived historical notes
-- `test/` - Node test suite
+- `test/` - Node test suite, because vibes are not receipts
 
-## Docs To Read Next
+## Read These Before You Start Poking
 
 - [INSTALL.md](./INSTALL.md) - install and local operation
 - [docs/README.md](./docs/README.md) - documentation authority map
@@ -129,6 +127,8 @@ See [SECURITY.md](./SECURITY.md) and [PRIVACY.md](./PRIVACY.md).
 ## Current Runtime Note
 
 The code path is release-check clean. Live LM Studio QA still depends on the operator's local runtime state: the Windows LM Studio API must be reachable and Penny's chat/tool models must be loaded before `npm run preflight` can pass end to end.
+
+That is not me being coy. That is me refusing to bluff with a pretty sentence.
 
 ## License
 
