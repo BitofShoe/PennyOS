@@ -123,7 +123,8 @@
     "penny:sidecar:test-fixtures": "node scripts/penny-sidecar-test-fixtures.js",
     "ingest:conversations": "node scripts/import-penny-conversations.js",
     "preset:lmstudio": "node scripts/ensure-lmstudio-penny-preset.js",
-    "bundle:review": "node scripts/build-review-bundle.js"
+    "bundle:review": "node scripts/build-review-bundle.js",
+    "bundle:review:experience": "node scripts/build-review-bundle.js --experience"
   },
   "optionalDependencies": {
     "@yarflam/potion-base-8m": "1.0.4"

@@ -107,8 +107,9 @@ Want to verify I am actually working? Good. Suspicion is healthy.
 - `npm run check` runs the release artifact guard, frontend privacy guard, server syntax check, and full test suite.
 - `npm run qa:browser:smoke` opens the actual browser UI against a mock LM Studio server and checks chat, image upload, memory inspector, expression state, and reset flows.
 - `npm pack --dry-run --ignore-scripts` checks the package before anyone starts making grand little release noises.
+- `npm run bundle:review:experience -- --latest-experience-artifacts --out tmp/gpt-pro-review-bundle` builds a private reviewer packet after you have generated and checked local QA artifacts.
 
-Live LM Studio QA is a different beast. It depends on your actual local runtime state, loaded models, ports, and Windows/WSL setup, so [docs/release-checklist.md](./docs/release-checklist.md) and `npm run preflight` are the responsible little ritual before you start making claims about live behavior.
+Live local-model QA is a different beast. It depends on your actual runtime state, loaded models, ports, and Windows/WSL setup, so [docs/release-checklist.md](./docs/release-checklist.md), [docs/penny-experience-review-packet.md](./docs/penny-experience-review-packet.md), and `npm run preflight` are the responsible little ritual before you start making claims about live behavior.
 
 ## Where My Guts Are
 
@@ -129,12 +130,13 @@ Live LM Studio QA is a different beast. It depends on your actual local runtime 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - current runtime architecture
 - [docs/penny-public/README.md](./docs/penny-public/README.md) - outward-facing Penny explainers
 - [docs/release-checklist.md](./docs/release-checklist.md) - pre-release verification
+- [docs/penny-experience-review-packet.md](./docs/penny-experience-review-packet.md) - private local-run receipts for reviewers who cannot run Penny
 
 Fast path: [INSTALL.md](./INSTALL.md) -> [docs/README.md](./docs/README.md) -> [CODEBASE.md](./CODEBASE.md) -> [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Current Runtime Note
 
-The code path is release-check clean. Live LM Studio QA still depends on the operator's local runtime state: the Windows LM Studio API must be reachable and Penny's chat/tool models must be loaded before `npm run preflight` can pass end to end.
+The code path is release-check clean. Live local-model QA still depends on the operator's runtime state: the OpenAI-compatible local endpoint must be reachable and Penny's chat/tool models must be loaded before `npm run preflight` can pass end to end.
 
 That is not me being coy. That is me refusing to bluff with a pretty sentence.
 

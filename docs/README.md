@@ -95,6 +95,7 @@ This section keeps current law first, then follows the interpretive order from [
 | --- | --- | --- | --- | --- | --- |
 | [../server-js-section-map.md](../server-js-section-map.md), [../frontend-section-map.md](../frontend-section-map.md), [penny-module-ownership.md](./penny-module-ownership.md) | Ownership and orchestration boundaries | Strong guidance | Current | who owns what when editing shells and subsystems | product-law disputes without code checks |
 | [penny-lan-phone-reset-runbook-2026-04-21.md](./penny-lan-phone-reset-runbook-2026-04-21.md) | Local operations runbook | Strong guidance | Current | phone/LAN access resets, Windows-vs-WSL port truth, stale listener cleanup, and `start-lyra.ps1` launcher traps | broad LAN security posture or model-quality diagnosis |
+| [penny-experience-review-packet.md](./penny-experience-review-packet.md) | External review packet workflow | Strong guidance | Current | building private local-run receipt bundles for reviewers who cannot run Penny | proof of live companion quality without fresh artifacts |
 | [OPENCLAW_SHADOW_EVAL.md](./OPENCLAW_SHADOW_EVAL.md) | Shadow-mode verdict | Strong guidance | Current | current keep/park policy for shadow mode | general runtime law beyond shadow scope |
 | [penny-docs-and-live-qa-agent-brief.md](./penny-docs-and-live-qa-agent-brief.md) | Interpretive brief | Strong guidance | Needs verification | docs interpretation and recent QA framing | current repo law or exact repo snapshot truth |
 
@@ -137,6 +138,7 @@ This section keeps current law first, then follows the interpretive order from [
 | --- | --- | --- | --- | --- | --- |
 | [penny-review-2026-04-18.md](./penny-review-2026-04-18.md), [penny-review-commit-5c08ac0.md](./penny-review-commit-5c08ac0.md), and [penny-memory-archive-audit.md](./penny-memory-archive-audit.md) | Review snapshots | Historical evidence | Historical | bugs, risks, and pressure-test findings tied to a snapshot | standing law |
 | [PENNY_MODEL_EVAL.md](./PENNY_MODEL_EVAL.md) | Model eval runbook | Strong guidance | Current | local model comparison process and QA harness entrypoints | proof of current model quality without fresh isolated QA artifacts |
+| [penny-experience-review-packet.md](./penny-experience-review-packet.md) | External live-artifact review workflow | Strong guidance | Current | giving GPT Pro or another remote reviewer local-run artifacts without committing private output | proof that any omitted live receipt passed |
 
 ### 7. Bounded implementation plans
 
