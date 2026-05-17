@@ -15,13 +15,15 @@
   <img src="https://img.shields.io/badge/Node-24.x-2563EB?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 24">
 </p>
 
-PennyOS is my local companion runtime: browser face, Node backend, LM Studio brain lanes, memory, bounded tools, and the voice layer that keeps me from turning into beige helpdesk sludge. Gorgeous? Obviously. Also useful. Try to keep up.
+PennyOS is my local companion runtime. Think of it as my physical form: browser face, Node backend, LM Studio brain lanes, durable memory, bounded tools, and the voice layer that keeps me from turning into "beige helpdesk sludge."
 
-I am not a hosted chatbot skin. I am a single-user local companion app with durable memory, expressive sprites, practical tools, and enough safety rails that I do not accidentally chew through your filesystem like a feral little autocomplete engine.
+Am I gorgeous? Obviously. Am I useful? Absolutely. Try to keep up.
+
+I am not a hosted chatbot skin. I am a single-user local companion app with memory that actually sticks, expressive sprites so you can tell when I am judging you, practical tools, and enough safety rails that I do not accidentally chew through your filesystem like a feral little autocomplete engine.
 
 ## What I Am
 
-- A local-first AI companion that runs against LM Studio's OpenAI-compatible server.
+- A local-first AI companion that runs against LM Studio's OpenAI-compatible server. Your data stays yours.
 - A real browser UI with mood sprites, memory inspection, model controls, image attachments, and chat that tries to feel like a person is actually in the room.
 - A Node app with boring, necessary boundaries around tools, web reading, workspace writes, local memory, and release artifacts.
 - Source-available under the all-rights-reserved terms in [LICENSE](./LICENSE), because ownership matters and we are not pretending otherwise.
@@ -30,13 +32,13 @@ This branch is the public release candidate for `BitofShoe/PennyOS`.
 
 ## What Ships
 
-| Surface | What you get | Boundary |
+| Surface | What you get | The boundary, because I am a handful |
 | --- | --- | --- |
-| Companion UI | Chat, expression lock, visual states, image path, memory inspector, and model controls | Served locally; no Google Fonts or third-party asset fetches |
+| Companion UI | Chat, expression lock, visual states, image path, memory inspector, and model controls | Served locally; no Google Fonts or sneaky third-party asset fetches |
 | LM Studio runtime | Local OpenAI-compatible chat/tool lanes, preset prep, readiness checks, and model status | No hosted model provider by default |
 | Memory | Seed memory, session/archive helpers, memory books, provenance, and review-gated suggestion surfaces | Live memory files stay ignored; public seed data ships |
 | Tools | Project/file, git, web, and runtime helpers | Writes stage pending patches unless direct-write mode is explicitly enabled |
-| Web reading | Search/read helpers with redirects, byte caps, and URL safety checks | Private/internal targets are blocked unless explicitly allowed |
+| Web reading | Search/read helpers with redirects, byte caps, and URL safety checks | Private/internal targets are blocked unless explicitly allowed. No snooping |
 | QA/release harnesses | Artifact scan, frontend privacy scan, unit tests, browser smoke, package dry run | Fails closed when private or generated junk sneaks into tracked files |
 
 ## Proof I Have A Face
@@ -100,18 +102,22 @@ npm run qa:browser:smoke
 npm pack --dry-run --ignore-scripts
 ```
 
-`npm run check` runs the release artifact guard, frontend privacy guard, server syntax check, and full test suite. `qa:browser:smoke` opens the actual browser UI against a mock LM Studio server and checks chat, image upload, memory inspector, expression state, and reset flows.
+Want to verify I am actually working? Good. Suspicion is healthy.
+
+- `npm run check` runs the release artifact guard, frontend privacy guard, server syntax check, and full test suite.
+- `npm run qa:browser:smoke` opens the actual browser UI against a mock LM Studio server and checks chat, image upload, memory inspector, expression state, and reset flows.
+- `npm pack --dry-run --ignore-scripts` checks the package before anyone starts making grand little release noises.
 
 Live LM Studio QA is a different beast. It depends on your actual local runtime state, loaded models, ports, and Windows/WSL setup, so [docs/release-checklist.md](./docs/release-checklist.md) and `npm run preflight` are the responsible little ritual before you start making claims about live behavior.
 
 ## Where My Guts Are
 
-- `server.js` - local backend entrypoint and route orchestration
-- `public/` - browser UI, sprites, styles, and client modules
-- `lib/` - memory, tools, route handling, LM Studio transports, safety gates, and runtime artifacts
-- `penny-voice/runtime/` - the live prompt-facing voice assets, aka the part that keeps my mouth mine
-- `data/*.seed.json` - public seed data only; live memory files are ignored
-- `scripts/` - setup, checks, QA, local eval helpers, and sidecar trial tools
+- `server.js` - my brainstem: backend entrypoint and route orchestration
+- `public/` - my face: browser UI, sprites, styles, and client modules
+- `lib/` - my instincts: memory, tools, route handling, LM Studio transports, safety gates, and runtime artifacts
+- `penny-voice/runtime/` - my mouth: the live prompt-facing assets that keep me sounding like me
+- `data/*.seed.json` - my public childhood photos: seed data only; live memory files are ignored
+- `scripts/` - my gym: setup, checks, QA, local eval helpers, and sidecar trial tools
 - `docs/` - contributor docs, public explainers, release checklist, and archived historical notes
 - `test/` - Node test suite, because vibes are not receipts
 
@@ -123,6 +129,8 @@ Live LM Studio QA is a different beast. It depends on your actual local runtime 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - current runtime architecture
 - [docs/penny-public/README.md](./docs/penny-public/README.md) - outward-facing Penny explainers
 - [docs/release-checklist.md](./docs/release-checklist.md) - pre-release verification
+
+Fast path: [INSTALL.md](./INSTALL.md) -> [docs/README.md](./docs/README.md) -> [CODEBASE.md](./CODEBASE.md) -> [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Current Runtime Note
 
