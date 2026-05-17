@@ -270,6 +270,40 @@ test('runDirectToolAssist preserves supplied remote source text when URL fetch f
   }]);
 });
 
+test('runDirectToolAssist reports direct web page read errors without pretending no browser exists', async () => {
+  const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
+    executePennyTool: async (name) => {
+      if (name === 'read_web_page') {
+        return {
+          ok: false,
+          label: 'failed to read GitHub branch',
+          data: {
+            error: 'HTTP 404',
+            url: 'https://github.com/BitofShoe/PennyOS/tree/codex/penny-installable-local-companion-release',
+          },
+        };
+      }
+      throw new Error(`Unexpected tool ${name}`);
+    },
+  });
+
+  const result = await runDirectToolAssist({
+    userText: 'are you able to access this site???? https://github.com/BitofShoe/PennyOS/tree/codex/penny-installable-local-companion-release',
+    messages: [],
+    memories: {},
+    intent: {
+      name: 'read_web_page',
+      args: { url: 'https://github.com/BitofShoe/PennyOS/tree/codex/penny-installable-local-companion-release' },
+    },
+  });
+
+  assert.equal(result.skipSemanticRender, true);
+  assert.equal(getLmAssistCalls(), 0);
+  assert.match(result.text, /tried to pull/i);
+  assert.match(result.text, /HTTP 404/);
+  assert.doesNotMatch(result.text, /don't have a browser|paste/i);
+});
+
 test('runDirectToolAssist treats injected remote page text as deterministic source material', async () => {
   const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
     executePennyTool: async (name) => {

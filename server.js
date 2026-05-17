@@ -184,6 +184,15 @@ function normalizeEmbedModelId(value = '') {
   if (/^(?:google\/)?embedding[-_]?gemma[-_]?300m$/i.test(text)) return 'google/embedding-gemma-300m';
   return text;
 }
+function isEmbeddingOnlyModelId(value = '') {
+  const text = String(value || '').trim();
+  return /\b(embed|embedding|rerank)\b/i.test(text) || /embeddinggemma/i.test(text);
+}
+function normalizeRuntimePreferredChatModel(value = '') {
+  const text = String(value || '').trim();
+  if (!text || isEmbeddingOnlyModelId(text)) return '';
+  return text;
+}
 function isEnabledEnv(value = '') {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 }
@@ -193,6 +202,69 @@ function boundedEnvInteger(value, fallback, min, max) {
   return Math.max(min, Math.min(max, number));
 }
 const LMSTUDIO_NATIVE_BASE = (process.env.PENNY_LMSTUDIO_NATIVE_BASE || deriveLmStudioNativeBase(LMSTUDIO_BASE)).replace(/\/$/, '');
+const LEGACY_LYRA_MODEL_PREFERENCE_FILE = path.join(__dirname, '.lyra-local-preferences.json');
+const LOCAL_MODEL_PREFERENCE_FILE = process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE
+  ? path.resolve(__dirname, process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE)
+  : process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE
+    ? path.resolve(__dirname, process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE)
+    : path.join(__dirname, '.penny-local-preferences.json');
+function getLocalModelPreferenceFilesForRead() {
+  if (process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE || process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE) {
+    return [LOCAL_MODEL_PREFERENCE_FILE];
+  }
+  return [LOCAL_MODEL_PREFERENCE_FILE, LEGACY_LYRA_MODEL_PREFERENCE_FILE];
+}
+function readRuntimePreferredChatModel() {
+  for (const preferenceFile of getLocalModelPreferenceFilesForRead()) {
+    try {
+      if (!preferenceFile || !fs.existsSync(preferenceFile)) continue;
+      const parsed = JSON.parse(fs.readFileSync(preferenceFile, 'utf8'));
+      const preferredModel = normalizeRuntimePreferredChatModel(
+        parsed?.localModel?.runtimePreferredChatModel
+          || parsed?.lmStudio?.runtimePreferredChatModel
+          || parsed?.runtimePreferredChatModel
+          || '',
+      );
+      if (preferredModel) return preferredModel;
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+function persistRuntimePreferredChatModel(model = '') {
+  if (!LOCAL_MODEL_PREFERENCE_FILE) return '';
+  const runtimePreferredChatModel = normalizeRuntimePreferredChatModel(model);
+  let existing = {};
+  try {
+    existing = JSON.parse(fs.readFileSync(LOCAL_MODEL_PREFERENCE_FILE, 'utf8'));
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) existing = {};
+  } catch {
+    existing = {};
+  }
+  const localModel = existing.localModel && typeof existing.localModel === 'object' && !Array.isArray(existing.localModel)
+    ? existing.localModel
+    : {};
+  writeJsonFileAtomicSync({
+    fs,
+    path,
+    filePath: LOCAL_MODEL_PREFERENCE_FILE,
+    value: {
+      ...existing,
+      localModel: {
+        ...localModel,
+        runtimePreferredChatModel,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  });
+  return runtimePreferredChatModel;
+}
+const PENNY_LOCAL_RUNTIME_PREFERRED_MODEL = normalizeRuntimePreferredChatModel(
+  process.env.PENNY_LOCAL_RUNTIME_PREFERRED_MODEL
+    || process.env.PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL
+    || readRuntimePreferredChatModel(),
+);
 const PENNY_LMSTUDIO_CHAT_MODEL = process.env.PENNY_LMSTUDIO_CHAT_MODEL
   || process.env.PENNY_LMSTUDIO_MODEL
   || 'google/gemma-4-31b';
@@ -827,6 +899,7 @@ const lmStudioStatusApi = createLmStudioStatusApi({
   LOCAL_LLM_TRANSPORT,
   PENNY_LMSTUDIO_CHAT_MODEL,
   PENNY_LMSTUDIO_TOOL_MODEL,
+  PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL: PENNY_LOCAL_RUNTIME_PREFERRED_MODEL,
   PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK,
 });
 const {
@@ -840,6 +913,14 @@ const {
   shouldPreferLmStudioChatCompletions: shouldPreferLmStudioChatCompletionsApi,
   modelsLookEquivalent: modelsLookEquivalentApi,
 } = lmStudioStatusApi;
+function setRuntimePreferredChatModelPersisted(model = '') {
+  if (isEmbeddingOnlyModelId(model)) {
+    throw createHttpError(400, 'Embedding models cannot be used for Penny chat generation. Pick a chat/instruct model instead.');
+  }
+  const runtimePreferredChatModel = setRuntimePreferredChatModelApi(model);
+  persistRuntimePreferredChatModel(runtimePreferredChatModel);
+  return runtimePreferredChatModel;
+}
 const memoryArchiveApi = createMemoryArchiveApi({
   fs,
   path,
@@ -3345,7 +3426,7 @@ const routeHandlers = createPennyRouteHandlers({
   getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,
   getSemanticMemoryStatus: getSemanticMemoryStatusApi,
   getStaticEmbeddingStatus: () => staticMemoryIndexApi.getStatus(),
-  setRuntimePreferredChatModel: setRuntimePreferredChatModelApi,
+  setRuntimePreferredChatModel: setRuntimePreferredChatModelPersisted,
   getRuntimePreferredChatModel: getRuntimePreferredChatModelApi,
   listPendingWorkspaceWrites: listPendingWorkspaceWritesTool,
   approvePendingWorkspaceWrite: approvePendingWorkspaceWriteTool,

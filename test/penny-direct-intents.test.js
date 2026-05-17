@@ -257,6 +257,15 @@ test('resolveDirectToolIntent upgrades natural top-stories site asks into search
   assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.WEB_SEARCH);
 });
 
+test('resolveDirectToolIntent treats access-this-site URL phrasing as a web page read', () => {
+  const url = 'https://github.com/BitofShoe/PennyOS/tree/codex/penny-installable-local-companion-release';
+  const intent = resolveDirectToolIntent(`heeeyyy Penny! so are you able to access this site????\n${url}`);
+  assert.ok(intent);
+  assert.equal(intent.name, 'read_web_page');
+  assert.equal(intent.args.url, url);
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.WEB_PAGE);
+});
+
 test('composeDirectWebSearchReply adds a Penny-shaped take before the verified result pile', () => {
   const text = composeDirectWebSearchReply({
     query: 'Digital Foundry top stories today',

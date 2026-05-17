@@ -8,6 +8,7 @@ function makeStatusApi({
   installedDetailed = [],
   chatModel = 'google/gemma-4-31b',
   toolModel = 'google/gemma-4-e4b',
+  runtimePreferredModel = '',
   disableModelFallback = false,
 } = {}) {
   const fetch = async () => ({
@@ -43,6 +44,7 @@ function makeStatusApi({
     LOCAL_LLM_TRANSPORT: 'auto',
     PENNY_LMSTUDIO_CHAT_MODEL: chatModel,
     PENNY_LMSTUDIO_TOOL_MODEL: toolModel,
+    PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL: runtimePreferredModel,
     PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK: disableModelFallback,
   });
 }
@@ -296,6 +298,30 @@ test('LM Studio strict model selection honors the runtime-picked chat model over
   assert.equal(toolRuntime.requestedModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
   assert.equal(toolRuntime.resolvedModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
   assert.equal(toolRuntime.laneFallback, false);
+});
+
+test('LM Studio strict model selection can start from a persisted runtime preference', async () => {
+  const api = makeStatusApi({
+    models: [
+      'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl',
+      'unsloth/gemma-4-31b-it',
+      'google/embedding-gemma-300m',
+    ],
+    chatModel: 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl',
+    toolModel: 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl',
+    runtimePreferredModel: 'unsloth/gemma-4-31b-it',
+    disableModelFallback: true,
+  });
+
+  const status = await api.getLmStudioConnectionStatus({ force: true });
+
+  assert.equal(status.modelFallbackDisabled, true);
+  assert.equal(status.configuredChatModel, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
+  assert.equal(status.runtimePreferredModel, 'unsloth/gemma-4-31b-it');
+  assert.equal(status.chatPreferredModel, 'unsloth/gemma-4-31b-it');
+  assert.equal(status.toolPreferredModel, 'unsloth/gemma-4-31b-it');
+  assert.equal(status.resolvedChatModel, 'unsloth/gemma-4-31b-it');
+  assert.equal(status.resolvedToolModel, 'unsloth/gemma-4-31b-it');
 });
 
 test('LM Studio strict model selection fails closed instead of falling back to a loaded model', async () => {
