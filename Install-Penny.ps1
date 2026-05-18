@@ -61,13 +61,21 @@ function Get-MajorVersion {
   return [int]$match.Groups[1].Value
 }
 
+function Get-LastNativeExitCode {
+  if (Test-Path 'variable:global:LASTEXITCODE') {
+    return [int]$global:LASTEXITCODE
+  }
+  return 0
+}
+
 function Invoke-CaptureNative {
   param(
     [string]$FilePath,
     [string[]]$Arguments
   )
   $output = & $FilePath @Arguments 2>&1
-  if ($LASTEXITCODE -ne 0) {
+  $exitCode = Get-LastNativeExitCode
+  if ($exitCode -ne 0) {
     Stop-Install "$FilePath $($Arguments -join ' ') failed: $($output -join "`n")"
   }
   return (($output -join "`n").Trim())
@@ -80,8 +88,9 @@ function Invoke-LoggedNative {
   )
   Write-Step "$FilePath $($Arguments -join ' ')"
   & $FilePath @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    Stop-Install "$FilePath $($Arguments -join ' ') failed with exit code $LASTEXITCODE."
+  $exitCode = Get-LastNativeExitCode
+  if ($exitCode -ne 0) {
+    Stop-Install "$FilePath $($Arguments -join ' ') failed with exit code $exitCode."
   }
 }
 
