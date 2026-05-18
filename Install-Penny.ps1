@@ -61,11 +61,33 @@ function Get-MajorVersion {
   return [int]$match.Groups[1].Value
 }
 
-function Get-LastNativeExitCode {
-  if (Test-Path 'variable:global:LASTEXITCODE') {
-    return [int]$global:LASTEXITCODE
+function Invoke-NativeProcess {
+  param(
+    [string]$FilePath,
+    [string[]]$Arguments
+  )
+
+  $stdoutFile = [System.IO.Path]::GetTempFileName()
+  $stderrFile = [System.IO.Path]::GetTempFileName()
+  try {
+    $proc = Start-Process `
+      -FilePath $FilePath `
+      -ArgumentList $Arguments `
+      -WorkingDirectory $root `
+      -Wait `
+      -PassThru `
+      -RedirectStandardOutput $stdoutFile `
+      -RedirectStandardError $stderrFile
+    $stdout = if (Test-Path $stdoutFile) { Get-Content -Raw $stdoutFile } else { '' }
+    $stderr = if (Test-Path $stderrFile) { Get-Content -Raw $stderrFile } else { '' }
+    return [pscustomobject]@{
+      ExitCode = [int]$proc.ExitCode
+      Stdout = [string]$stdout
+      Stderr = [string]$stderr
+    }
+  } finally {
+    Remove-Item $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
   }
-  return 0
 }
 
 function Invoke-CaptureNative {
@@ -73,12 +95,12 @@ function Invoke-CaptureNative {
     [string]$FilePath,
     [string[]]$Arguments
   )
-  $output = & $FilePath @Arguments 2>&1
-  $exitCode = Get-LastNativeExitCode
-  if ($exitCode -ne 0) {
-    Stop-Install "$FilePath $($Arguments -join ' ') failed: $($output -join "`n")"
+  $result = Invoke-NativeProcess -FilePath $FilePath -Arguments $Arguments
+  $output = (@($result.Stdout, $result.Stderr) -join "`n").Trim()
+  if ($result.ExitCode -ne 0) {
+    Stop-Install "$FilePath $($Arguments -join ' ') failed: $output"
   }
-  return (($output -join "`n").Trim())
+  return $output
 }
 
 function Invoke-LoggedNative {
@@ -87,10 +109,11 @@ function Invoke-LoggedNative {
     [string[]]$Arguments
   )
   Write-Step "$FilePath $($Arguments -join ' ')"
-  & $FilePath @Arguments
-  $exitCode = Get-LastNativeExitCode
-  if ($exitCode -ne 0) {
-    Stop-Install "$FilePath $($Arguments -join ' ') failed with exit code $exitCode."
+  $result = Invoke-NativeProcess -FilePath $FilePath -Arguments $Arguments
+  if ($result.Stdout) { Write-Host $result.Stdout.TrimEnd() }
+  if ($result.Stderr) { Write-Host $result.Stderr.TrimEnd() }
+  if ($result.ExitCode -ne 0) {
+    Stop-Install "$FilePath $($Arguments -join ' ') failed with exit code $($result.ExitCode)."
   }
 }
 

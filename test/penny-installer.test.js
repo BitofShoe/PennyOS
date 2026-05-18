@@ -20,9 +20,10 @@ test('PowerShell installer performs the novice install contract', () => {
   const script = fs.readFileSync(path.join(ROOT, 'Install-Penny.ps1'), 'utf8');
   assert.match(script, /Node\.js 24\.x/);
   assert.match(script, /npm 11\.x/);
-  assert.match(script, /function Get-LastNativeExitCode/);
-  assert.match(script, /variable:global:LASTEXITCODE/);
-  assert.match(script, /\$exitCode = Get-LastNativeExitCode/);
+  assert.match(script, /function Invoke-NativeProcess/);
+  assert.match(script, /Start-Process/);
+  assert.match(script, /RedirectStandardOutput/);
+  assert.match(script, /RedirectStandardError/);
   assert.match(script, /Copy-Item \$envExample \$envFile -Force/);
   assert.match(script, /Invoke-LoggedNative -FilePath \$npmExe -Arguments @\('ci'\)/);
   assert.match(script, /PennyOS Start\.lnk/);
