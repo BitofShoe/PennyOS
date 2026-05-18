@@ -1,7 +1,7 @@
 param(
   [switch]$Shadow,
   [int]$ShadowTimeoutMs = 20000,
-  [int]$Port = 4317,
+  [int]$Port = 0,
   [int]$ReadyTimeoutMs = 30000
 )
 
@@ -13,16 +13,41 @@ $pidFile = Join-Path $root '.penny-server.pid'
 $stdoutLog = Join-Path $root 'penny-server.out.log'
 $stderrLog = Join-Path $root 'penny-server.err.log'
 $metaFile = Join-Path $root '.penny-server.meta.json'
+$envFile = Join-Path $root '.env'
 $localEnvFile = Join-Path $root '.penny-local-env.ps1'
 $legacyLocalEnvFile = Join-Path $root '.lyra-local-env.ps1'
 $prepareScript = Join-Path $root 'scripts\penny-lmstudio-prepare.js'
-$readyUrl = "http://127.0.0.1:$Port/api/penny/status"
 $nodeCommand = Get-Command 'node.exe' -ErrorAction SilentlyContinue
 $nodeExe = if ($nodeCommand) { $nodeCommand.Source } else { Join-Path $env:ProgramFiles 'nodejs\node.exe' }
 
 if (-not (Test-Path $nodeExe)) {
   throw "Could not find node.exe. Install Node.js or add node.exe to PATH."
 }
+
+function Import-PennyDotEnv {
+  param([string]$Path)
+  if (-not (Test-Path $Path)) { return }
+  Write-Host "Loading Penny .env from $Path"
+  foreach ($line in Get-Content $Path) {
+    $trimmed = $line.Trim()
+    if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+    $entry = $trimmed -replace '^export\s+', ''
+    $equals = $entry.IndexOf('=')
+    if ($equals -le 0) { continue }
+    $key = $entry.Substring(0, $equals).Trim()
+    if ($key -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { continue }
+    if ($null -ne [Environment]::GetEnvironmentVariable($key, 'Process')) { continue }
+    $value = $entry.Substring($equals + 1).Trim()
+    if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+      $value = $value.Substring(1, $value.Length - 2)
+    } else {
+      $value = ($value -replace '\s+#.*$', '').Trim()
+    }
+    [Environment]::SetEnvironmentVariable($key, $value, 'Process')
+  }
+}
+
+Import-PennyDotEnv -Path $envFile
 
 if (Test-Path $localEnvFile) {
   Write-Host "Loading Penny local environment overlay from $localEnvFile"
@@ -31,6 +56,20 @@ if (Test-Path $localEnvFile) {
   Write-Host "Loading legacy Lyra local environment overlay from $legacyLocalEnvFile"
   . $legacyLocalEnvFile
 }
+
+$envPort = 0
+if ($env:PORT) {
+  [void][int]::TryParse($env:PORT, [ref]$envPort)
+}
+$effectivePort = if ($PSBoundParameters.ContainsKey('Port') -and $Port -gt 0) {
+  $Port
+} elseif ($envPort -gt 0) {
+  $envPort
+} else {
+  4317
+}
+$env:PORT = [string]$effectivePort
+$readyUrl = "http://127.0.0.1:$effectivePort/api/penny/status"
 
 function Wait-PennyReady {
   param(
@@ -90,7 +129,7 @@ if ($env:PENNY_SKIP_LMSTUDIO_PREP -ne '1') {
   }
 }
 
-$commandParts = @('set "PORT=' + $Port + '"')
+$commandParts = @('set "PORT=' + $effectivePort + '"')
 if ($Shadow) {
   $commandParts += 'set "PENNY_OPENCLAW_ENABLED=1"'
   $commandParts += 'set "PENNY_OPENCLAW_TIMEOUT_MS=' + $ShadowTimeoutMs + '"'
@@ -118,7 +157,7 @@ $serverPid | Set-Content $pidFile
 $meta = [ordered]@{
   pid = $serverPid
   wrapperPid = $proc.Id
-  port = $Port
+  port = $effectivePort
   shadow = [bool]$Shadow
   shadowTimeoutMs = $ShadowTimeoutMs
   startedAt = (Get-Date).ToString('o')
@@ -137,7 +176,7 @@ if (-not (Wait-PennyReady -Url $readyUrl -TimeoutMs $ReadyTimeoutMs)) {
 }
 
 if ($Shadow) {
-  Write-Host "Penny started at http://localhost:$Port (PID $serverPid) [shadow ON, timeout ${ShadowTimeoutMs}ms]"
+  Write-Host "Penny started at http://localhost:$effectivePort (PID $serverPid) [shadow ON, timeout ${ShadowTimeoutMs}ms]"
 } else {
-  Write-Host "Penny started at http://localhost:$Port (PID $serverPid) [shadow OFF]"
+  Write-Host "Penny started at http://localhost:$effectivePort (PID $serverPid) [shadow OFF]"
 }

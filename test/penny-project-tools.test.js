@@ -199,3 +199,40 @@ test('project read tools refuse secret-bearing files but allow env example', () 
     cleanup();
   }
 });
+
+test('project write tools refuse secret-bearing files before staging patch previews', async () => {
+  const { api, projectRoot, cleanup } = buildApi({
+    textExtensions: new Set(['', '.env', '.example', '.txt', '.md', '.js', '.json']),
+  });
+  try {
+    fs.writeFileSync(path.join(projectRoot, '.env'), 'PENNY_API_TOKEN=supersecret\nOTHER=1\n');
+    fs.writeFileSync(path.join(projectRoot, '.env.example'), 'PENNY_API_TOKEN=\n');
+
+    assert.throws(
+      () => api.writeProjectFileTool({ path: '.env', content: 'PENNY_API_TOKEN=newsecret\nOTHER=2\n' }),
+      /secret-bearing|cannot be edited/i,
+    );
+    assert.throws(
+      () => api.replaceInProjectFileTool({ path: '.env', find: 'supersecret', replace: 'newsecret' }),
+      /secret-bearing|cannot be edited/i,
+    );
+    assert.throws(
+      () => api.insertInProjectFileTool({ path: '.env', position: 'end', text: 'PENNY_WEB_SEARCH_ENABLED=1\n' }),
+      /secret-bearing|cannot be edited/i,
+    );
+    await assert.rejects(
+      () => api.runNodeCheckTool({ path: '.env' }),
+      /secret-bearing|cannot be edited/i,
+    );
+
+    const pending = api.listPendingWorkspaceWritesTool();
+    assert.equal(pending.count, 0);
+    assert.equal(JSON.stringify(pending).includes('supersecret'), false);
+
+    const example = api.writeProjectFileTool({ path: '.env.example', content: 'PENNY_API_TOKEN=\nPENNY_WEB_SEARCH_ENABLED=0\n' });
+    assert.equal(example.pendingApproval, true);
+    assert.match(example.patch, /PENNY_WEB_SEARCH_ENABLED=0/);
+  } finally {
+    cleanup();
+  }
+});

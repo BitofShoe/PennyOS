@@ -27,8 +27,22 @@ test('PowerShell installer performs the novice install contract', () => {
   assert.match(script, /http:\/\/localhost:\$Port\//);
 });
 
+test('PowerShell start script lets .env drive default port unless -Port is passed', () => {
+  const script = fs.readFileSync(path.join(ROOT, 'start-penny.ps1'), 'utf8');
+  assert.match(script, /Import-PennyDotEnv/);
+  assert.match(script, /\$PSBoundParameters\.ContainsKey\('Port'\)/);
+  assert.match(script, /\$effectivePort/);
+  assert.match(script, /set "PORT=' \+ \$effectivePort \+ '"/);
+});
+
 test('cmd installer wrapper invokes PowerShell installer with execution policy bypass', () => {
   const wrapper = fs.readFileSync(path.join(ROOT, 'Install-Penny.cmd'), 'utf8');
   assert.match(wrapper, /powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-Penny\.ps1" %\*/);
   assert.match(wrapper, /pause/);
+});
+
+test('release scripts enforce the declared runtime and syntax gate', () => {
+  assert.match(packageJson.scripts['check:release'], /check:engine/);
+  assert.match(packageJson.scripts.prepack, /check:engine/);
+  assert.match(packageJson.scripts.prepack, /node --check server\.js/);
 });

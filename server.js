@@ -6,6 +6,13 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { URL } = require('url');
+const { loadPennyEnvFile } = require('./lib/penny-env-loader');
+
+loadPennyEnvFile({
+  envFile: process.env.PENNY_ENV_FILE || path.join(__dirname, '.env'),
+  env: process.env,
+});
+
 const { writeJsonFileAtomicSync } = require('./lib/penny-atomic-json');
 const {
   MEMORY_PROMPT_LIMIT,
@@ -130,6 +137,7 @@ const {
   buildEpistemicPromptBlock,
 } = require('./lib/penny-epistemics');
 const PORT = process.env.PORT || 4317;
+const HOST = process.env.PENNY_HOST || process.env.HOST || '';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
 const PENNY_OBSIDIAN_VAULT_ROOT = process.env.PENNY_OBSIDIAN_VAULT_ROOT
@@ -3503,7 +3511,7 @@ function purgeTestSessionsFromStore() {
 function startServer(options = {}) {
   const requestedPort = Number(options.port);
   const port = Number.isFinite(requestedPort) ? requestedPort : PORT;
-  const host = apiSecurity.resolveBindHost({ host: options.host });
+  const host = apiSecurity.resolveBindHost({ host: options.host ?? HOST });
   const silent = options.silent === true;
   purgeTestSessionsFromStore();
   return server.listen(port, host, () => {

@@ -487,6 +487,125 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
   }
 });
 
+test('server loads runtime settings from PENNY_ENV_FILE before constants are read', async () => {
+  const envKeys = [
+    'PORT',
+    'HOST',
+    'PENNY_ENV_FILE',
+    'PENNY_MEMORY_FILE',
+    'PENNY_MEMORY_ARCHIVE_FILE',
+    'PENNY_MEMORY_EMBEDDINGS_FILE',
+    'PENNY_MEMORY_BOOKS_FILE',
+    'PENNY_LMSTUDIO_BASE',
+    'PENNY_LMSTUDIO_NATIVE_BASE',
+    'PENNY_LOCAL_LLM_TRANSPORT',
+    'PENNY_LMSTUDIO_MODELS_PROBE_MS',
+    'PENNY_LMSTUDIO_CHAT_MODEL',
+    'PENNY_LMSTUDIO_TOOL_MODEL',
+    'PENNY_LMSTUDIO_EMBED_MODEL',
+    'PENNY_LOCAL_MODEL_PREFERENCE_FILE',
+    'PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE',
+    'PENNY_LOCAL_RUNTIME_PREFERRED_MODEL',
+    'PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL',
+    'PENNY_LAN_SHARE',
+    'PENNY_API_TOKEN',
+    'PENNY_WEB_SEARCH_ENABLED',
+    'PENNY_ENABLE_DIRECT_WORKSPACE_WRITES',
+  ];
+  const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-env-route-'));
+  const envFile = path.join(tmpDir, '.env');
+  const repoTempFile = path.join(__dirname, '..', 'tmp', 'env-loader-direct-write.js');
+  const mockLmStudio = await createMockLmStudioServer();
+
+  try {
+    for (const key of envKeys) delete process.env[key];
+    fs.mkdirSync(path.dirname(repoTempFile), { recursive: true });
+    if (fs.existsSync(repoTempFile)) fs.rmSync(repoTempFile, { force: true });
+    fs.writeFileSync(envFile, [
+      'PORT=0',
+      'HOST=127.0.0.1',
+      `PENNY_MEMORY_FILE=${path.join(tmpDir, 'penny-memory.test.json')}`,
+      `PENNY_MEMORY_ARCHIVE_FILE=${path.join(tmpDir, 'penny-memory-archive.test.json')}`,
+      `PENNY_MEMORY_EMBEDDINGS_FILE=${path.join(tmpDir, 'penny-memory-embeddings.test.json')}`,
+      `PENNY_MEMORY_BOOKS_FILE=${path.join(tmpDir, 'penny-memory-books.test.json')}`,
+      `PENNY_LMSTUDIO_BASE=${mockLmStudio.baseUrl}`,
+      `PENNY_LMSTUDIO_NATIVE_BASE=${mockLmStudio.nativeBaseUrl}`,
+      'PENNY_LOCAL_LLM_TRANSPORT=chat',
+      'PENNY_LMSTUDIO_MODELS_PROBE_MS=1500',
+      'PENNY_LMSTUDIO_CHAT_MODEL=google/gemma-4-31b',
+      'PENNY_LMSTUDIO_TOOL_MODEL=google/gemma-4-e4b',
+      'PENNY_LMSTUDIO_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5',
+      `PENNY_LOCAL_MODEL_PREFERENCE_FILE=${path.join(tmpDir, 'penny-local-preferences.test.json')}`,
+      'PENNY_LAN_SHARE=1',
+      'PENNY_API_TOKEN=env-route-token',
+      'PENNY_WEB_SEARCH_ENABLED=1',
+      'PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=1',
+    ].join('\n'));
+    process.env.PENNY_ENV_FILE = envFile;
+
+    const modulePath = require.resolve('../server.js');
+    delete require.cache[modulePath];
+    const serverModule = require('../server.js');
+    const started = serverModule.startServer({ port: 0, silent: true });
+
+    try {
+      await new Promise((resolve, reject) => {
+        if (started.listening) {
+          resolve();
+          return;
+        }
+        started.once('listening', resolve);
+        started.once('error', reject);
+      });
+
+      const address = started.address();
+      const statusUrl = `http://127.0.0.1:${address.port}/api/penny/status`;
+      const unauthorized = await requestJson(statusUrl);
+      assert.equal(unauthorized.statusCode, 401);
+      assert.equal(unauthorized.json.code, 'token_required');
+
+      const authorized = await requestJson(statusUrl, {
+        headers: { Authorization: 'Bearer env-route-token' },
+      });
+      assert.equal(authorized.statusCode, 200);
+      assert.equal(authorized.json.webSearchEnabled, true);
+      assert.equal(authorized.json.lmStudioBase, mockLmStudio.baseUrl);
+      assert.equal(authorized.json.lmStudio.configuredChatModel, 'google/gemma-4-31b');
+      assert.equal(authorized.json.lmStudio.chatPreferredModel, 'google/gemma-4-31b');
+      assert.equal(authorized.json.lmStudio.toolPreferredModel, 'google/gemma-4-e4b');
+
+      const writeTurn = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer env-route-token',
+        },
+        body: JSON.stringify({
+          sessionId: 'env-loader-direct-write',
+          messages: [
+            { role: 'user', content: 'Write tmp/env-loader-direct-write.js with exactly this line: console.log("env loaded");' },
+          ],
+          memories: { brainMode: 'local' },
+        }),
+      });
+      assert.equal(writeTurn.statusCode, 200);
+      assert.equal(fs.existsSync(repoTempFile), true);
+    } finally {
+      await new Promise((resolve) => started.close(() => resolve()));
+      delete require.cache[modulePath];
+    }
+  } finally {
+    await mockLmStudio.close();
+    if (fs.existsSync(repoTempFile)) fs.rmSync(repoTempFile, { force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test('chat route injects the turn-state prompt bridge only when the flag is enabled', async () => {
   const originalEnv = {
     PORT: process.env.PORT,

@@ -34,6 +34,9 @@ test('API bind host defaults to loopback unless LAN sharing is enabled', () => {
   assert.equal(resolveBindHost({ lanShare: false }), '127.0.0.1');
   assert.equal(resolveBindHost({ lanShare: true }), '0.0.0.0');
   assert.equal(resolveBindHost({ lanShare: true, host: '127.0.0.1' }), '127.0.0.1');
+  assert.equal(resolveBindHost({ lanShare: false, host: '0.0.0.0' }), '127.0.0.1');
+  assert.equal(resolveBindHost({ lanShare: false, host: '192.168.1.50' }), '127.0.0.1');
+  assert.equal(resolveBindHost({ lanShare: false, host: 'localhost' }), 'localhost');
 });
 
 test('API security rejects unexpected host and origin headers', () => {
