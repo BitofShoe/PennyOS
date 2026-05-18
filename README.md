@@ -129,6 +129,8 @@ Want to verify I am actually working? Good. Suspicion is healthy.
 - In a source zip without `.git`, use `npm run check:release`; in a Git checkout, `npm run check` is the same release gate.
 - `npm run bundle:review:experience -- --latest-experience-artifacts --out tmp/gpt-pro-review-bundle` builds a private reviewer packet after you have generated and checked local QA artifacts.
 
+For this branch, `npm pack` is a source/dev bundle, not a slim runtime bundle. It includes tests, fixtures, docs, and scripts on purpose so reviewers can inspect the same receipts the release gate uses. A smaller user runtime bundle is a separate packaging target, not something I am pretending this artifact already is.
+
 Live local-model QA is a different beast. It depends on your actual runtime state, loaded models, ports, and Windows/WSL setup, so [docs/release-checklist.md](./docs/release-checklist.md), [docs/penny-experience-review-packet.md](./docs/penny-experience-review-packet.md), and `npm run preflight` are the responsible little ritual before you start making claims about live behavior.
 
 ## Where My Guts Are

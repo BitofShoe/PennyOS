@@ -177,9 +177,18 @@ test('skips unsupported, non-local, approval-required, missing-runner, and over-
 });
 
 test('missed and failed jobs do not claim completion', async () => {
+  let timeoutCallback = null;
+  let timeoutCleared = false;
+  let releaseSlowJob = null;
   const { queue } = makeManualQueue({
     defaultDeadlineMs: 5,
     maxDeadlineMs: 10,
+    scheduleTask: (fn) => {
+      timeoutCallback = fn;
+      return {
+        unref() {},
+      };
+    },
   });
 
   queue.queueBackgroundFrameJob({
@@ -188,10 +197,10 @@ test('missed and failed jobs do not claim completion', async () => {
     deadlineMs: 5,
     fallback: 'Try again next background frame.',
     run: async ({ signal }) => new Promise((resolve) => {
-      const handle = setTimeout(() => resolve({ status: 'late' }), 25);
+      releaseSlowJob = () => resolve({ status: 'late' });
       if (signal) {
         signal.addEventListener('abort', () => {
-          clearTimeout(handle);
+          timeoutCleared = true;
         }, { once: true });
       }
     }),
@@ -205,7 +214,13 @@ test('missed and failed jobs do not claim completion', async () => {
     },
   });
 
-  const drained = await queue.drainBackgroundFrameQueue();
+  const drainPromise = queue.drainBackgroundFrameQueue();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typeof timeoutCallback, 'function');
+  timeoutCallback();
+  releaseSlowJob();
+
+  const drained = await drainPromise;
   const slow = drained.receipts.find((receipt) => receipt.id === 'slow-static-index');
   const failed = drained.receipts.find((receipt) => receipt.id === 'bad-artifact-summary');
 
@@ -213,6 +228,7 @@ test('missed and failed jobs do not claim completion', async () => {
   assert.equal(slow.runAttempted, true);
   assert.equal(slow.completionClaimed, false);
   assert.equal(slow.frameBudgetSidecar.status, 'missed');
+  assert.equal(timeoutCleared, true);
   assert.match(slow.fallback, /Try again/);
   assert.equal(failed.status, BACKGROUND_FRAME_JOB_STATUSES.FAILED);
   assert.equal(failed.runAttempted, true);

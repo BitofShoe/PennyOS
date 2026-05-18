@@ -35,6 +35,26 @@ test('PowerShell start script lets .env drive default port unless -Port is passe
   assert.match(script, /set "PORT=' \+ \$effectivePort \+ '"/);
 });
 
+test('.env.example exposes background vectorization and transport-default rationale', () => {
+  const envExample = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8');
+  assert.match(envExample, /PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=1/);
+  assert.match(envExample, /background chat vectorization/i);
+  assert.match(envExample, /raw server default/i);
+  assert.match(envExample, /auto/i);
+  assert.match(envExample, /generated \.env/i);
+  assert.match(envExample, /chat/i);
+});
+
+test('release docs distinguish the source package from a future runtime bundle', () => {
+  const decisions = fs.readFileSync(path.join(ROOT, 'docs', 'penny-release-decisions-2026-05-18.md'), 'utf8');
+  const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  assert.match(decisions, /source\/dev bundle/i);
+  assert.match(decisions, /runtime bundle/i);
+  assert.match(decisions, /tests, fixtures, docs, and scripts/i);
+  assert.match(readme, /source\/dev bundle/i);
+  assert.match(readme, /not a slim runtime bundle/i);
+});
+
 test('cmd installer wrapper invokes PowerShell installer with execution policy bypass', () => {
   const wrapper = fs.readFileSync(path.join(ROOT, 'Install-Penny.cmd'), 'utf8');
   assert.match(wrapper, /powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-Penny\.ps1" %\*/);

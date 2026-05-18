@@ -38,6 +38,22 @@ Acceptance criteria for a later consumer installer:
 - Memory files, logs, and `.env` stay local and ignored.
 - The source release still works with plain `npm start`.
 
+## Package Artifact Shape
+
+Decision: `npm pack` is a source/dev bundle for this release, not a slim runtime bundle.
+
+What that means:
+
+- It intentionally includes tests, fixtures, docs, and scripts so reviewers can audit the release checks from the same artifact.
+- It is still marked `private: true` so nobody accidentally treats npm publish as the distribution path.
+- The GitHub source ZIP and the local `npm pack` artifact are installable developer/source artifacts, not a polished consumer installer.
+
+Acceptance criteria for a later runtime bundle:
+
+- Include runtime code, installer/start/stop helpers, core docs, sprites, seed data, security/privacy docs, and `.env.example`.
+- Exclude test suites, eval fixtures, historical docs, generated QA output, and developer-only review scaffolding unless explicitly requested.
+- Keep the source/dev bundle available for public review, because Penny's whole "receipts, babe" thing gets very awkward if we hide the receipts.
+
 ## Pending Workspace Writes
 
 Decision: pending workspace writes remain process-memory only for this release.

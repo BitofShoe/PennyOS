@@ -16,9 +16,16 @@ const {
   buildLmStudioChatSamplingWatch,
   normalizeLmStudioTransportForWatch,
 } = require('../lib/penny-lmstudio-transports');
+const {
+  loadPennyEnvFile,
+} = require('../lib/penny-env-loader');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PACKAGE_JSON_PATH = path.join(ROOT_DIR, 'package.json');
+loadPennyEnvFile({
+  envFile: process.env.PENNY_ENV_FILE || path.join(ROOT_DIR, '.env'),
+  env: process.env,
+});
 const DEFAULT_LMSTUDIO_BASE = (process.env.PENNY_LMSTUDIO_BASE || 'http://127.0.0.1:1234/v1').replace(/\/$/, '');
 const DEFAULT_LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 
@@ -169,6 +176,53 @@ function summarizeRuntimePosture(env = process.env) {
   ];
 }
 
+function buildPreflightFixes({
+  checks = [],
+  report = {},
+  baseUrl = DEFAULT_LMSTUDIO_BASE,
+  port = process.env.PORT || 4317,
+} = {}) {
+  const byName = new Map((Array.isArray(checks) ? checks : []).map((check) => [check.name, check]));
+  const blockers = Array.isArray(report.blockers) ? report.blockers.join(' ') : '';
+  const warnings = Array.isArray(report.warnings) ? report.warnings.join(' ') : '';
+  const requestedChat = String(report.requestedChatModel || process.env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim();
+  const requestedTool = String(report.requestedToolModel || process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b').trim();
+  const requestedEmbed = String(report.requestedEmbedModel || process.env.PENNY_LMSTUDIO_EMBED_MODEL || '').trim();
+  const hasFailures = (Array.isArray(checks) ? checks : []).some((check) => check?.ok === false) || Boolean(blockers.trim());
+  const fixes = [];
+  const add = (text) => {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (clean && !fixes.includes(clean)) fixes.push(clean);
+  };
+
+  if (byName.get('node')?.ok === false) {
+    add('Install Node.js 24.x from https://nodejs.org/, reopen your terminal, then rerun npm run doctor.');
+  }
+  if (byName.get('npm')?.ok === false) {
+    add('Use npm 11.x with Node.js 24.x; reinstall Node 24 or run npm install -g npm@11, then rerun npm run doctor.');
+  }
+  if (byName.get('lms-cli')?.ok === false) {
+    add('LM Studio CLI is missing or not on PATH. Penny can still use the HTTP server, but npm run lmstudio:prepare needs the lms command.');
+  }
+  if (byName.get('lmstudio-api')?.ok === false) {
+    add(`Start LM Studio, enable the local server, verify it serves ${baseUrl}, then rerun npm run doctor.`);
+  }
+  if (/no usable models|load penny|not loaded|wrong model|model id|missing/i.test(blockers)) {
+    add(`Load the configured Penny models in LM Studio, or edit .env so PENNY_LMSTUDIO_CHAT_MODEL=${requestedChat} and PENNY_LMSTUDIO_TOOL_MODEL=${requestedTool} match model IDs shown by LM Studio.`);
+  }
+  if (/embedding model|semantic memory|embed/i.test(warnings) && requestedEmbed) {
+    add(`The embedding model ${requestedEmbed} is optional; install/load it for semantic memory, or leave it missing and Penny will use keyword/archive fallback.`);
+  }
+  if (byName.get('lan-token')?.ok === false) {
+    add('Set PENNY_API_TOKEN in .env before enabling PENNY_LAN_SHARE=1, then restart Penny.');
+  }
+  if (hasFailures) {
+    add(`If Penny startup says the port is busy, run npm run stop or set PORT to another value in .env; current expected port ${port}.`);
+  }
+
+  return fixes;
+}
+
 async function checkLmStudioApi({
   baseUrl = DEFAULT_LMSTUDIO_BASE,
   apiKey = DEFAULT_LMSTUDIO_API_KEY,
@@ -242,7 +296,8 @@ async function runPreflight({
   const checks = [];
   const nodeCheck = checkNodeVersion(packageJson?.engines?.node || '', nodeVersion);
   checks.push(summarizeCheck('node', nodeCheck.ok, nodeCheck.detail, nodeCheck.ok ? 'pass' : 'fail'));
-  checks.push(checkNpmVersion({ spawnSyncImpl, packageJson }));
+  const npmCheck = checkNpmVersion({ spawnSyncImpl, packageJson });
+  checks.push(npmCheck);
   checks.push(checkLmsCli(spawnSyncImpl));
 
   const lmStudioApi = await checkLmStudioApi({
@@ -300,6 +355,12 @@ async function runPreflight({
     presetIssues.length ? 'warn' : 'pass',
   ));
   checks.push(...summarizeRuntimePosture(env));
+  const fixes = buildPreflightFixes({
+    checks,
+    report,
+    baseUrl,
+    port: env.PORT || process.env.PORT || 4317,
+  });
 
   const gemmaRuntimeWatch = buildGemmaRuntimeWatchForPreflight({
     preflightReport: {
@@ -316,7 +377,7 @@ async function runPreflight({
     `If LM Studio is unreachable, start its local server at ${baseUrl}, then rerun: npm run doctor.`,
   ];
   return {
-    ok: nodeCheck.ok && lmStudioApi.ok && report.blockers.length === 0,
+    ok: nodeCheck.ok && npmCheck.ok && lmStudioApi.ok && report.blockers.length === 0,
     checks,
     assumptions,
     report,
@@ -325,6 +386,7 @@ async function runPreflight({
     loadedModels,
     readinessSummary,
     gemmaRuntimeWatch,
+    fixes,
   };
 }
 
@@ -336,6 +398,9 @@ async function main() {
   }
   for (const note of report.assumptions) {
     process.stdout.write(`[NOTE] ${note}\n`);
+  }
+  for (const fix of report.fixes || []) {
+    process.stdout.write(`[FIX] ${fix}\n`);
   }
   if (!report.ok) process.exitCode = 1;
 }
@@ -354,6 +419,7 @@ module.exports = {
   checkNpmVersion,
   checkLmsCli,
   summarizeRuntimePosture,
+  buildPreflightFixes,
   checkLmStudioApi,
   buildGemmaRuntimeWatchForPreflight,
   runPreflight,

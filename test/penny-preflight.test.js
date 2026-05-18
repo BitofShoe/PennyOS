@@ -7,6 +7,7 @@ const http = require('node:http');
 
 const {
   buildGemmaRuntimeWatchForPreflight,
+  buildPreflightFixes,
   runPreflight,
 } = require('../scripts/penny-preflight');
 
@@ -35,8 +36,9 @@ function createEnvFixture({ presetReady = true } = {}) {
   return { env };
 }
 
-function makeSpawnSyncImpl({ installed, loaded }) {
+function makeSpawnSyncImpl({ installed, loaded, npmVersion = '11.12.1' }) {
   return function spawnSyncImpl(command, args) {
+    if (command === 'npm') return { status: 0, stdout: npmVersion, stderr: '' };
     assert.equal(command, 'lms');
     if (args[0] === '--help') return { status: 0, stdout: 'ok', stderr: '' };
     if (args[0] === 'ls') return { status: 0, stdout: JSON.stringify(installed), stderr: '' };
@@ -65,8 +67,8 @@ test('runPreflight passes with dual-lane models ready and preset wiring present'
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const address = server.address();
-    const report = await runPreflight({
-      packageJson: { engines: { node: '>=24 <25' } },
+      const report = await runPreflight({
+      packageJson: { engines: { node: '>=24 <25', npm: '>=11 <12' } },
       nodeVersion: '24.14.0',
       baseUrl: `http://127.0.0.1:${address.port}/v1`,
       env: fixture.env,
@@ -137,8 +139,8 @@ test('runPreflight fails clearly when LM Studio reports zero loaded models', asy
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const address = server.address();
-    const report = await runPreflight({
-      packageJson: { engines: { node: '>=24 <25' } },
+      const report = await runPreflight({
+      packageJson: { engines: { node: '>=24 <25', npm: '>=11 <12' } },
       nodeVersion: '24.14.0',
       baseUrl: `http://127.0.0.1:${address.port}/v1`,
       env: fixture.env,
@@ -172,8 +174,8 @@ test('runPreflight warns when preset wiring is missing but fallback-ready models
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const address = server.address();
-    const report = await runPreflight({
-      packageJson: { engines: { node: '>=24 <25' } },
+      const report = await runPreflight({
+      packageJson: { engines: { node: '>=24 <25', npm: '>=11 <12' } },
       nodeVersion: '24.14.0',
       baseUrl: `http://127.0.0.1:${address.port}/v1`,
       env: fixture.env,
@@ -214,8 +216,8 @@ test('runPreflight reports semantic memory fallback when embedding model is not 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const address = server.address();
-    const report = await runPreflight({
-      packageJson: { engines: { node: '>=24 <25' } },
+      const report = await runPreflight({
+      packageJson: { engines: { node: '>=24 <25', npm: '>=11 <12' } },
       nodeVersion: '24.14.0',
       baseUrl: `http://127.0.0.1:${address.port}/v1`,
       env: fixture.env,
@@ -232,4 +234,70 @@ test('runPreflight reports semantic memory fallback when embedding model is not 
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test('runPreflight fails overall and suggests npm repair when npm is outside the release range', async () => {
+  const fixture = createEnvFixture({ presetReady: true });
+  const installed = [
+    { type: 'llm', modelKey: 'google/gemma-4-31b', selectedVariant: 'google/gemma-4-31b@q8_0' },
+    { type: 'llm', modelKey: 'google/gemma-4-e4b', selectedVariant: 'google/gemma-4-e4b@q8_0' },
+  ];
+  const loaded = ['google/gemma-4-31b', 'google/gemma-4-e4b'];
+
+  const server = http.createServer((req, res) => {
+    if (req.url === '/v1/models') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: loaded.map(id => ({ id })) }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    const report = await runPreflight({
+      packageJson: { engines: { node: '>=24 <25', npm: '>=11 <12' } },
+      nodeVersion: '24.14.0',
+      baseUrl: `http://127.0.0.1:${address.port}/v1`,
+      env: fixture.env,
+      spawnSyncImpl: makeSpawnSyncImpl({ installed, loaded, npmVersion: '10.9.0' }),
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.checks.find(check => check.name === 'npm').ok, false);
+    assert.ok(report.fixes.some((line) => /npm 11\.x/i.test(line)));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('buildPreflightFixes gives novice-friendly next steps for common release blockers', () => {
+  const fixes = buildPreflightFixes({
+    checks: [
+      { name: 'node', ok: false, detail: 'Node 22.0.0 detected' },
+      { name: 'npm', ok: false, detail: 'npm 10.0.0 detected' },
+      { name: 'lms-cli', ok: false, detail: 'LM Studio CLI is not available' },
+      { name: 'lmstudio-api', ok: false, detail: 'Could not reach LM Studio at http://127.0.0.1:1234/v1' },
+      { name: 'lan-token', ok: false, detail: 'LAN sharing is on but no API token is configured.' },
+    ],
+    report: {
+      requestedChatModel: 'google/gemma-4-31b',
+      requestedToolModel: 'google/gemma-4-e4b',
+      requestedEmbedModel: 'text-embedding-nomic-embed-text-v1.5',
+      blockers: ['No usable models are currently loaded. Load Penny\'s chat/tool models.'],
+      warnings: ['Embedding model text-embedding-nomic-embed-text-v1.5 is not installed.'],
+    },
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    port: 4317,
+  });
+
+  assert.ok(fixes.some((line) => /Install Node\.js 24\.x/i.test(line)));
+  assert.ok(fixes.some((line) => /npm 11\.x/i.test(line)));
+  assert.ok(fixes.some((line) => /LM Studio CLI/i.test(line)));
+  assert.ok(fixes.some((line) => /Start LM Studio/i.test(line)));
+  assert.ok(fixes.some((line) => /load.*google\/gemma-4-31b/i.test(line)));
+  assert.ok(fixes.some((line) => /embedding model.*optional/i.test(line)));
+  assert.ok(fixes.some((line) => /PENNY_API_TOKEN/i.test(line)));
+  assert.ok(fixes.some((line) => /port 4317/i.test(line)));
 });
