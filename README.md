@@ -94,7 +94,7 @@ npm start
 
 Then open `http://localhost:4317`.
 
-`npm run lmstudio:prepare` is the friendly path when LM Studio CLI integration is available. If that prep step cannot boss your local preset into shape, keep LM Studio's local server running and set model overrides in `.env`.
+`npm run lmstudio:prepare` is the friendly path when LM Studio CLI integration is available. If that prep step cannot boss your local preset into shape, keep LM Studio's local server running, open Settings -> First-run local brain setup, and pick the chat/tool lanes from the models Penny can actually see. `.env` overrides still exist for people who enjoy doing surgery with a text editor.
 
 For LAN/phone mode, runtime state, and workspace-write notes, read [INSTALL.md](./INSTALL.md). Do not guess. Guessing is how tiny disasters get promoted to architecture.
 

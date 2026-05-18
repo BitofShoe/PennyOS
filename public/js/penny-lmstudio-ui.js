@@ -9,6 +9,26 @@ export function fillModelSelectOptions(selectEl, modelIds, selectedId) {
   }
 }
 
+function isEmbeddingLikeModelId(value = '') {
+  return /\b(embed|embedding|rerank)\b/i.test(String(value || '').trim());
+}
+
+function selectableModelIdsFromStatus(lmStudio = {}, {
+  lane = 'chat',
+} = {}) {
+  const preferredKey = lane === 'tool' ? 'toolPreferredModel' : 'chatPreferredModel';
+  const runtimeKey = lane === 'tool' ? 'runtimePreferredToolModel' : 'runtimePreferredChatModel';
+  const resolvedKey = lane === 'tool' ? 'resolvedToolModel' : 'resolvedChatModel';
+  const candidateKey = lane === 'tool' ? 'toolCandidateModels' : 'candidateModels';
+  return mergeDistinctModelIds(
+    (lmStudio.availableModels || []).filter(id => !isEmbeddingLikeModelId(id)),
+    (lmStudio.installedModels || []).filter(id => !isEmbeddingLikeModelId(id)),
+    (lmStudio[candidateKey] || []).filter(id => !isEmbeddingLikeModelId(id)),
+    [lmStudio[runtimeKey], lmStudio[resolvedKey], lmStudio[preferredKey], lmStudio.configuredModel, lmStudio.configuredChatModel, lmStudio.configuredToolModel]
+      .filter(id => id && !isEmbeddingLikeModelId(id)),
+  );
+}
+
 function normalizeModelPickKey(value = '') {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -98,6 +118,73 @@ export function formatLastLane(meta = null) {
   const lane = meta.localLane === 'tool' ? 'tool lane' : 'chat lane';
   const suffix = meta.laneFallback ? ' (fallback)' : '';
   return `${lane}${suffix}`;
+}
+
+export function buildFirstRunModelSetupViewModel(status = null) {
+  const lmStudio = status?.lmStudio || status || {};
+  const readiness = status?.readiness || lmStudio.readiness || {};
+  const semantic = status?.semanticMemory || lmStudio.semanticMemory || {};
+  const reachable = lmStudio.reachable === true;
+  const chatReady = reachable && !!String(lmStudio.resolvedChatModel || lmStudio.resolvedModel || '').trim();
+  const toolReady = reachable && !!String(lmStudio.resolvedToolModel || '').trim();
+  const fallbackEnabled = lmStudio.modelFallbackDisabled !== true;
+  const chatModels = selectableModelIdsFromStatus(lmStudio, { lane: 'chat' });
+  const toolModels = selectableModelIdsFromStatus(lmStudio, { lane: 'tool' });
+  const configuredEmbed = String(semantic.configuredModel || lmStudio.embedPreferredModel || '').trim();
+  const semanticReady = semantic.ready === true;
+  const severity = !reachable
+    ? 'offline'
+    : (chatReady && toolReady ? 'ready' : 'needs-setup');
+  const visible = severity !== 'ready';
+  const statusText = !reachable
+    ? 'LM Studio is offline or not serving Penny yet.'
+    : (chatReady && toolReady
+      ? 'Local brain ready. Chat and tool lanes have models.'
+      : 'LM Studio is reachable; Penny needs model lanes picked or loaded.');
+  const laneHints = [];
+  if (!chatReady) laneHints.push('load one in LM Studio, then pick a chat model here');
+  if (!toolReady) laneHints.push('pick a tool model for file/project work');
+  const rawHint = String(lmStudio.error || lmStudio.hint || '').trim();
+  const hintText = laneHints.length
+    ? `${rawHint ? `${rawHint} ` : ''}${laneHints.join('; ')}.`
+    : (rawHint || 'You can swap lanes here without editing .env.');
+  const embeddingText = semanticReady
+    ? `Semantic memory ready${configuredEmbed ? ` on ${configuredEmbed}` : ''}${semantic.mode ? ` (${semantic.mode})` : ''}.`
+    : `Embeddings are optional; Penny can run with keyword fallback${configuredEmbed ? ` while ${configuredEmbed} is missing or unloaded` : ''}.`;
+
+  return {
+    visible,
+    severity,
+    reachable,
+    chatReady,
+    toolReady,
+    fallbackEnabled,
+    statusText,
+    hintText,
+    embeddingText,
+    chatModels,
+    toolModels,
+    selectedChatModel: findBestModelMatch(chatModels, lmStudio.runtimePreferredChatModel, lmStudio.runtimePreferredModel, lmStudio.resolvedChatModel, lmStudio.resolvedModel, lmStudio.chatPreferredModel, lmStudio.configuredChatModel, lmStudio.configuredModel)
+      || chatModels[0]
+      || '',
+    selectedToolModel: findBestModelMatch(toolModels, lmStudio.runtimePreferredToolModel, lmStudio.resolvedToolModel, lmStudio.toolPreferredModel, lmStudio.configuredToolModel)
+      || toolModels[0]
+      || '',
+  };
+}
+
+export function updateModelSetupUi({ els, status = null } = {}) {
+  const viewModel = buildFirstRunModelSetupViewModel(status);
+  if (els?.modelSetupPanel) {
+    els.modelSetupPanel.hidden = false;
+    els.modelSetupPanel.dataset.severity = viewModel.severity;
+    els.modelSetupPanel.className = `setup-card setup-${viewModel.severity}`;
+  }
+  if (els?.modelSetupStatus) els.modelSetupStatus.textContent = viewModel.statusText;
+  if (els?.modelSetupHint) els.modelSetupHint.textContent = viewModel.hintText;
+  if (els?.modelSetupEmbedding) els.modelSetupEmbedding.textContent = viewModel.embeddingText;
+  if (els?.modelSetupFallback) els.modelSetupFallback.checked = viewModel.fallbackEnabled;
+  return viewModel;
 }
 
 function formatCacheAge(cacheAgeMs = 0) {

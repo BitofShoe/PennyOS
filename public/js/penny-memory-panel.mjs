@@ -27,13 +27,21 @@ export function ensureMemoryInspectorUi(els = {}) {
   const host = els.memoryList?.parentElement;
   if (!host) return null;
 
+  const details = host.ownerDocument.createElement('details');
+  details.className = 'memory-diagnostics-details';
+  details.innerHTML = `
+    <summary>
+      Advanced diagnostics
+      <small>Review suggestions, corrections, and Prompt/runtime receipts</small>
+    </summary>
+  `;
   const toolbar = host.ownerDocument.createElement('div');
   toolbar.className = 'memory-toolbar';
   toolbar.innerHTML = `
     <div>
-      <div class="section-label">Hybrid memory inspector</div>
+      <div class="section-label">Prompt/runtime receipts</div>
       <div class="memory-toolbar-note">
-        Latest reply first. Scope pills show which compact sections follow the selected snapshot versus latest/current or session-wide inspector state.
+        Default Memory above is the ordinary user view. This advanced inspector is for review suggestions, corrections, forget controls, diagnostics, and receipts.
       </div>
     </div>
     <div class="memory-toolbar-actions">
@@ -47,7 +55,9 @@ export function ensureMemoryInspectorUi(els = {}) {
   panel.id = 'memoryInspectorPanel';
   panel.className = 'list-block empty';
   panel.textContent = 'Inspector data will appear here once Penny has a chat to archive.';
-  host.append(toolbar, panel);
+  details.append(toolbar, panel);
+  host.append(details);
+  els.memoryDiagnosticsDetails = details;
   els.memoryInspectorToolbar = toolbar;
   els.memoryInspectorPanel = panel;
   return panel;

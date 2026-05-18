@@ -1768,6 +1768,42 @@ select.input-lite option {
   gap: 8px;
 }
 
+.memory-diagnostics-details {
+  margin-top: 1rem;
+}
+
+.memory-diagnostics-details summary {
+  cursor: pointer;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  padding: 0.9rem 1rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.memory-diagnostics-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.memory-diagnostics-details summary::before {
+  content: "+";
+  margin-right: 8px;
+}
+
+.memory-diagnostics-details[open] summary::before {
+  content: "-";
+}
+
+.memory-diagnostics-details summary small {
+  color: var(--muted-soft);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
 .inner-title,
 .settings-title {
   font-family: "Segoe UI", system-ui, sans-serif;
@@ -2308,8 +2344,47 @@ select.input-lite option {
 
 .mode-block,
 .storage-block,
+.setup-card,
 .diagnostics {
   margin-top: 1.2rem;
+}
+
+.setup-card {
+  display: grid;
+  gap: 12px;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.setup-card.setup-needs-setup {
+  border-color: rgba(255, 214, 102, 0.24);
+  background: rgba(255, 214, 102, 0.045);
+}
+
+.setup-card.setup-offline {
+  border-color: rgba(255, 111, 145, 0.28);
+  background: rgba(255, 111, 145, 0.045);
+}
+
+.setup-card.setup-ready {
+  border-color: rgba(92, 255, 190, 0.18);
+  background: rgba(92, 255, 190, 0.035);
+}
+
+.setup-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+
+.setup-status,
+.setup-hint {
+  margin: 0.35rem 0 0;
+  color: var(--muted-soft);
+  line-height: 1.45;
 }
 
 .diagnostics {

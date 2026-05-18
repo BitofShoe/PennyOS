@@ -194,6 +194,46 @@ test('buildMemoryPanelViewModel normalizes explicit memory rows', async () => {
   assert.equal(viewModel.memories[0].kind, 'fact');
 });
 
+test('ensureMemoryInspectorUi makes receipts an advanced diagnostics section', async () => {
+  const { ensureMemoryInspectorUi } = await helpersPromise;
+  const appended = [];
+  const documentStub = {
+    createElement(tagName) {
+      return {
+        tagName,
+        className: '',
+        id: '',
+        innerHTML: '',
+        textContent: '',
+        open: false,
+        append(...children) {
+          this.children = [...(this.children || []), ...children];
+        },
+      };
+    },
+  };
+  const host = {
+    ownerDocument: documentStub,
+    append(...children) {
+      appended.push(...children);
+    },
+  };
+  const els = {
+    memoryList: {
+      parentElement: host,
+    },
+  };
+
+  const panel = ensureMemoryInspectorUi(els);
+
+  assert.equal(panel.id, 'memoryInspectorPanel');
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].tagName, 'details');
+  assert.match(appended[0].innerHTML, /Advanced diagnostics/i);
+  assert.match(appended[0].innerHTML, /Prompt\/runtime receipts/i);
+  assert.equal(els.memoryInspectorPanel, panel);
+});
+
 test('buildMemoryInspectorViewModel exposes books, compression, contradictions, routing, and queue slices', async () => {
   const { buildMemoryInspectorViewModel } = await helpersPromise;
   const viewModel = buildMemoryInspectorViewModel({

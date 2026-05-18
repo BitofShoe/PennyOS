@@ -3,6 +3,7 @@ import {
   mergeDistinctModelIds as mergeDistinctModelIdsUi,
   findBestModelMatch as findBestModelMatchUi,
   updateBackendStatusUi as updateBackendStatusUiHelper,
+  updateModelSetupUi as updateModelSetupUiHelper,
   formatLastLane,
 } from './penny-lmstudio-ui.js';
 import {
@@ -108,6 +109,14 @@ const els = {
   backendToolModel: document.getElementById('backendToolModel'),
   backendWebReading: document.getElementById('backendWebReading'),
   backendLastLane: document.getElementById('backendLastLane'),
+  modelSetupPanel: document.getElementById('modelSetupPanel'),
+  modelSetupStatus: document.getElementById('modelSetupStatus'),
+  modelSetupHint: document.getElementById('modelSetupHint'),
+  modelSetupEmbedding: document.getElementById('modelSetupEmbedding'),
+  modelSetupFallback: document.getElementById('modelSetupFallback'),
+  toolModelSelect: document.getElementById('toolModelSelect'),
+  saveModelSetup: document.getElementById('saveModelSetup'),
+  refreshModelSetup: document.getElementById('refreshModelSetup'),
   newChat: document.getElementById('newChat'),
   clearMemory: document.getElementById('clearMemory'),
   refreshMemory: document.getElementById('refreshMemory'),
@@ -464,6 +473,10 @@ function updateBackendStatusUi(status = null) {
   updateBackendStatusUiHelper({ els, state, status });
 }
 
+function updateModelSetupUi(status = null) {
+  return updateModelSetupUiHelper({ els, status });
+}
+
 function pennyAvatarSrc(mood = state.mood) {
   return getMoodAvatarSrcRuntime(activeExpressionPack, mood);
 }
@@ -678,7 +691,7 @@ async function loadBackendStatus() {
     if (!res.ok) throw new Error(`Status failed: ${res.status}`);
     const data = await res.json();
     updateBackendStatusUi(data);
-    await loadAvailableModels(data.lmStudio || null);
+    await loadAvailableModels(data);
     if (!data.shadowEnabled && state.memory.brainMode === 'shadow') {
       state.memory.brainMode = 'local';
       renderMemory();
@@ -688,7 +701,9 @@ async function loadBackendStatus() {
       }
     }
   } catch {
-    updateBackendStatusUi({ reachable: false, error: 'Unable to reach Penny status route.' });
+    const offlineStatus = { reachable: false, error: 'Unable to reach Penny status route.' };
+    updateBackendStatusUi(offlineStatus);
+    updateModelSetupUi({ lmStudio: offlineStatus });
   }
 }
 
@@ -701,45 +716,82 @@ async function loadAvailableModels(preloadedStatus = null) {
       return res.json();
     })();
     if (!data) return;
+    const lmData = data.lmStudio || data;
     const isEmbed = (id) => /\b(embed|embedding|rerank)\b/i.test(id);
-    const available = (data.availableModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
-    const installed = (data.installedModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
-    const candidates = Array.isArray(data.candidateModels)
-      ? data.candidateModels.filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id))
+    const available = (lmData.availableModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
+    const installed = (lmData.installedModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
+    const candidates = Array.isArray(lmData.candidateModels)
+      ? lmData.candidateModels.filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id))
       : [];
-    const configured = data.chatPreferredModel && !isEmbed(data.chatPreferredModel)
-      ? [String(data.chatPreferredModel).trim()]
+    const configured = lmData.chatPreferredModel && !isEmbed(lmData.chatPreferredModel)
+      ? [String(lmData.chatPreferredModel).trim()]
+      : [];
+    const toolConfigured = lmData.toolPreferredModel && !isEmbed(lmData.toolPreferredModel)
+      ? [String(lmData.toolPreferredModel).trim()]
       : [];
     const models = mergeDistinctModelIdsUi(available, installed, candidates, configured);
     if (!models.length) {
       els.modelSelect.innerHTML = '<option value="">no models loaded</option>';
-      return;
+    } else {
+      const resolved = lmData.resolvedChatModel || lmData.resolvedModel || '';
+      const runtime = lmData.runtimePreferredChatModel || lmData.runtimePreferredModel || lmData.chatPreferredModel || '';
+      const selected = findBestModelMatchUi(models, runtime, resolved, lmData.configuredChatModel, lmData.configuredModel)
+        || models[0];
+      fillModelSelectOptionsUi(els.modelSelect, models, selected);
     }
-    const resolved = data.resolvedChatModel || data.resolvedModel || '';
-    const runtime = data.runtimePreferredModel || data.chatPreferredModel || '';
-    const selected = findBestModelMatchUi(models, runtime, resolved, data.configuredModel)
-      || models[0];
-    fillModelSelectOptionsUi(els.modelSelect, models, selected);
+    if (els.toolModelSelect) {
+      const toolCandidates = Array.isArray(lmData.toolCandidateModels)
+        ? lmData.toolCandidateModels.filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id))
+        : [];
+      const toolModels = mergeDistinctModelIdsUi(available, installed, toolCandidates, toolConfigured);
+      if (!toolModels.length) {
+        els.toolModelSelect.innerHTML = '<option value="">no models loaded</option>';
+      } else {
+        const selectedTool = findBestModelMatchUi(
+          toolModels,
+          lmData.runtimePreferredToolModel,
+          lmData.resolvedToolModel,
+          lmData.toolPreferredModel,
+          lmData.configuredToolModel,
+        ) || toolModels[0];
+        fillModelSelectOptionsUi(els.toolModelSelect, toolModels, selectedTool);
+      }
+    }
+    updateModelSetupUi(data.lmStudio ? data : { ...data, lmStudio: lmData });
   } catch {}
 }
 
-els.modelSelect?.addEventListener('change', async () => {
-  const model = els.modelSelect.value;
-  if (!model) return;
+async function saveModelSetupFromControls() {
+  const chatModel = els.modelSelect?.value || '';
+  const toolModel = els.toolModelSelect?.value || '';
+  const payload = {
+    disableModelFallback: els.modelSetupFallback ? !els.modelSetupFallback.checked : false,
+  };
+  if (chatModel) payload.chatModel = chatModel;
+  if (toolModel) payload.toolModel = toolModel;
+  if (!payload.chatModel && !payload.toolModel && !Object.prototype.hasOwnProperty.call(payload, 'disableModelFallback')) return;
   try {
     const res = await apiFetch('/api/penny/lmstudio/model', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (data.resolvedModel && els.backendModel) {
-      els.backendModel.textContent = data.resolvedModel;
-    }
+    if (!res.ok) throw new Error(data.error || `Model setup failed: ${res.status}`);
+    if (data.resolvedChatModel && els.backendModel) els.backendModel.textContent = data.resolvedChatModel;
+    if (data.resolvedToolModel && els.backendToolModel) els.backendToolModel.textContent = data.resolvedToolModel;
     if (els.backendLastLane) els.backendLastLane.textContent = 'pending';
-    loadBackendStatus();
-  } catch {}
-});
+    await loadBackendStatus();
+  } catch (error) {
+    console.warn(`[penny model setup] ${error?.message || error}`);
+  }
+}
+
+els.modelSelect?.addEventListener('change', saveModelSetupFromControls);
+els.toolModelSelect?.addEventListener('change', saveModelSetupFromControls);
+els.modelSetupFallback?.addEventListener('change', saveModelSetupFromControls);
+els.saveModelSetup?.addEventListener('click', saveModelSetupFromControls);
+els.refreshModelSetup?.addEventListener('click', () => loadBackendStatus());
 
 async function consolidateMemory() {
   if (state.consolidating) return;

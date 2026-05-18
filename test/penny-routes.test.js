@@ -265,9 +265,12 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     PENNY_LMSTUDIO_TOOL_MODEL: process.env.PENNY_LMSTUDIO_TOOL_MODEL,
     PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
     PENNY_LOCAL_RUNTIME_PREFERRED_MODEL: process.env.PENNY_LOCAL_RUNTIME_PREFERRED_MODEL,
+    PENNY_LOCAL_RUNTIME_PREFERRED_TOOL_MODEL: process.env.PENNY_LOCAL_RUNTIME_PREFERRED_TOOL_MODEL,
     PENNY_LOCAL_MODEL_PREFERENCE_FILE: process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE,
     PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL: process.env.PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL,
+    PENNY_LMSTUDIO_RUNTIME_PREFERRED_TOOL_MODEL: process.env.PENNY_LMSTUDIO_RUNTIME_PREFERRED_TOOL_MODEL,
     PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE: process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE,
+    PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK: process.env.PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK,
     PENNY_MEMORY_ARCHIVE_FILE: process.env.PENNY_MEMORY_ARCHIVE_FILE,
     PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
     PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
@@ -297,7 +300,10 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
   process.env.PENNY_LOCAL_RUNTIME_PREFERRED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
   process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE = localPreferenceFile;
   delete process.env.PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL;
+  delete process.env.PENNY_LOCAL_RUNTIME_PREFERRED_TOOL_MODEL;
+  delete process.env.PENNY_LMSTUDIO_RUNTIME_PREFERRED_TOOL_MODEL;
   delete process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE;
+  delete process.env.PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK;
   delete process.env.PENNY_WEB_SEARCH_ENABLED;
   process.env.PENNY_API_TOKEN = 'route-test-token';
 
@@ -363,10 +369,31 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     });
     assert.equal(updatedModel.statusCode, 200);
     assert.equal(updatedModel.json.runtimePreferredModel, 'google/gemma-4-31b');
+    assert.equal(updatedModel.json.runtimePreferredChatModel, 'google/gemma-4-31b');
     assert.equal(updatedModel.json.chatPreferredModel, 'google/gemma-4-31b');
     assert.equal(updatedModel.json.toolPreferredModel, 'google/gemma-4-e4b');
     const savedPreference = JSON.parse(fs.readFileSync(localPreferenceFile, 'utf8'));
     assert.equal(savedPreference.localModel.runtimePreferredChatModel, 'google/gemma-4-31b');
+
+    const updatedSetup = await requestJson(`http://127.0.0.1:${address.port}/api/penny/lmstudio/model`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer route-test-token' },
+      body: JSON.stringify({
+        chatModel: 'unsloth/gemma-4-31b-it',
+        toolModel: 'google/gemma-4-31b',
+        disableModelFallback: true,
+      }),
+    });
+    assert.equal(updatedSetup.statusCode, 200);
+    assert.equal(updatedSetup.json.runtimePreferredChatModel, 'unsloth/gemma-4-31b-it');
+    assert.equal(updatedSetup.json.runtimePreferredToolModel, 'google/gemma-4-31b');
+    assert.equal(updatedSetup.json.chatPreferredModel, 'unsloth/gemma-4-31b-it');
+    assert.equal(updatedSetup.json.toolPreferredModel, 'google/gemma-4-31b');
+    assert.equal(updatedSetup.json.modelFallbackDisabled, true);
+    const savedSetupPreference = JSON.parse(fs.readFileSync(localPreferenceFile, 'utf8'));
+    assert.equal(savedSetupPreference.localModel.runtimePreferredChatModel, 'unsloth/gemma-4-31b-it');
+    assert.equal(savedSetupPreference.localModel.runtimePreferredToolModel, 'google/gemma-4-31b');
+    assert.equal(savedSetupPreference.localModel.disableModelFallback, true);
 
     const rejectedEmbedModel = await requestJson(`http://127.0.0.1:${address.port}/api/penny/lmstudio/model`, {
       method: 'POST',
@@ -389,7 +416,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     });
     assert.equal(toolTurn.statusCode, 200);
     assert.equal(toolTurn.json.meta.localLane, 'tool');
-    assert.equal(toolTurn.json.meta.requestedModel, 'google/gemma-4-e4b');
+    assert.equal(toolTurn.json.meta.requestedModel, 'google/gemma-4-31b');
     assert.equal(toolTurn.json.meta.resolvedModel, '');
     assert.equal(toolTurn.json.meta.executionPath, 'deterministic-tool');
     assert.equal(toolTurn.json.meta.researchLedgerRendered, false);
@@ -475,9 +502,12 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     if (originalEnv.PENNY_LMSTUDIO_TOOL_MODEL == null) delete process.env.PENNY_LMSTUDIO_TOOL_MODEL; else process.env.PENNY_LMSTUDIO_TOOL_MODEL = originalEnv.PENNY_LMSTUDIO_TOOL_MODEL;
     if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
     if (originalEnv.PENNY_LOCAL_RUNTIME_PREFERRED_MODEL == null) delete process.env.PENNY_LOCAL_RUNTIME_PREFERRED_MODEL; else process.env.PENNY_LOCAL_RUNTIME_PREFERRED_MODEL = originalEnv.PENNY_LOCAL_RUNTIME_PREFERRED_MODEL;
+    if (originalEnv.PENNY_LOCAL_RUNTIME_PREFERRED_TOOL_MODEL == null) delete process.env.PENNY_LOCAL_RUNTIME_PREFERRED_TOOL_MODEL; else process.env.PENNY_LOCAL_RUNTIME_PREFERRED_TOOL_MODEL = originalEnv.PENNY_LOCAL_RUNTIME_PREFERRED_TOOL_MODEL;
     if (originalEnv.PENNY_LOCAL_MODEL_PREFERENCE_FILE == null) delete process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE; else process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE = originalEnv.PENNY_LOCAL_MODEL_PREFERENCE_FILE;
     if (originalEnv.PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL == null) delete process.env.PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL; else process.env.PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL = originalEnv.PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL;
+    if (originalEnv.PENNY_LMSTUDIO_RUNTIME_PREFERRED_TOOL_MODEL == null) delete process.env.PENNY_LMSTUDIO_RUNTIME_PREFERRED_TOOL_MODEL; else process.env.PENNY_LMSTUDIO_RUNTIME_PREFERRED_TOOL_MODEL = originalEnv.PENNY_LMSTUDIO_RUNTIME_PREFERRED_TOOL_MODEL;
     if (originalEnv.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE == null) delete process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE; else process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE = originalEnv.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE;
+    if (originalEnv.PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK == null) delete process.env.PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK; else process.env.PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK = originalEnv.PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK;
     if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
     if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
     if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;

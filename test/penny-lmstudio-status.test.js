@@ -76,6 +76,34 @@ test('LM Studio status keeps chat override separate from tool preference', async
   assert.equal(runtime.performance.modelResolution.source, 'lmstudio-status');
 });
 
+test('LM Studio status allows runtime setup to choose chat, tool, and strict fallback independently', async () => {
+  const api = makeStatusApi({
+    models: ['google/gemma-4-31b', 'google/gemma-4-e4b', 'unsloth/gemma-4-31b-it'],
+  });
+
+  api.setRuntimePreferredChatModel('unsloth/gemma-4-31b-it');
+  api.setRuntimePreferredToolModel('google/gemma-4-31b');
+  api.setRuntimeModelFallbackDisabled(true);
+  const status = await api.getLmStudioConnectionStatus({ force: true });
+
+  assert.equal(status.modelFallbackDisabled, true);
+  assert.equal(status.runtimePreferredModel, 'unsloth/gemma-4-31b-it');
+  assert.equal(status.runtimePreferredChatModel, 'unsloth/gemma-4-31b-it');
+  assert.equal(status.runtimePreferredToolModel, 'google/gemma-4-31b');
+  assert.equal(status.chatPreferredModel, 'unsloth/gemma-4-31b-it');
+  assert.equal(status.toolPreferredModel, 'google/gemma-4-31b');
+  assert.equal(status.resolvedChatModel, 'unsloth/gemma-4-31b-it');
+  assert.equal(status.resolvedToolModel, 'google/gemma-4-31b');
+
+  const toolRuntime = {};
+  const toolChosen = await api.withLmStudioLaneModel('tool', async (model) => model, toolRuntime);
+
+  assert.equal(toolChosen, 'google/gemma-4-31b');
+  assert.equal(toolRuntime.requestedModel, 'google/gemma-4-31b');
+  assert.equal(toolRuntime.resolvedModel, 'google/gemma-4-31b');
+  assert.equal(toolRuntime.laneFallback, false);
+});
+
 test('LM Studio tool lane surfaces fallback when E4B is unavailable', async () => {
   const api = makeStatusApi({
     models: ['google/gemma-4-31b'],

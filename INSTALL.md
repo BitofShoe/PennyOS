@@ -41,6 +41,16 @@ On macOS/Linux, use `cp .env.example .env` instead of PowerShell `copy`. The dur
 
 `npm run doctor` is the same local environment check as `npm run preflight`. It reports Node/npm posture, LM Studio reachability, selected models, semantic-memory fallback, web-reading state, and LAN/token posture.
 
+## First-Run Model Setup
+
+After Penny opens, go to Settings -> First-run local brain setup. Penny will detect the LM Studio model list, show whether the chat/tool lanes are actually ready, and let you pick:
+
+- the chat model
+- the tool model
+- whether Penny may fall back to another compatible loaded model when the preferred model is missing
+
+Those picks are saved in the local ignored preferences file, so you do not have to crack open `.env` just because LM Studio calls your model something slightly different. Embeddings are shown there too, but they are optional: when the embedding model is missing or unloaded, Penny should say so and use keyword fallback instead of faceplanting.
+
 ## Web Reading
 
 Web reading is off by default. To let Penny fetch public web pages:

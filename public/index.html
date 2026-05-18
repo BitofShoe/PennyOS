@@ -225,6 +225,46 @@
               </section>
 
               <section class="settings-block">
+                <div class="section-label">First-run local brain setup</div>
+                <div class="setup-card setup-needs-setup" id="modelSetupPanel">
+                  <div class="setup-head">
+                    <div>
+                      <div class="settings-title">Pick the brain lanes.</div>
+                      <p class="setup-status" id="modelSetupStatus">Checking LM Studio...</p>
+                    </div>
+                    <button id="refreshModelSetup" class="secondary-btn tiny" type="button">Refresh</button>
+                  </div>
+
+                  <p class="setup-hint" id="modelSetupHint">
+                    Penny will look for loaded local models and keep the boring setup failures visible here.
+                  </p>
+
+                  <label class="field">
+                    <span>Chat model</span>
+                    <select id="modelSelect" class="input-lite">
+                      <option value="">loading models...</option>
+                    </select>
+                  </label>
+
+                  <label class="field">
+                    <span>Tool model</span>
+                    <select id="toolModelSelect" class="input-lite">
+                      <option value="">loading models...</option>
+                    </select>
+                  </label>
+
+                  <label class="check-row compact">
+                    <input id="modelSetupFallback" type="checkbox" checked />
+                    <span>Allow Penny to fall back to another compatible loaded model</span>
+                  </label>
+
+                  <div class="card-note" id="modelSetupEmbedding">
+                    Embeddings are optional; Penny can still use keyword fallback when the embedding lane is missing.
+                  </div>
+
+                  <button id="saveModelSetup" class="secondary-btn" type="button">Save model setup</button>
+                </div>
+
                 <div class="section-label">Local brain diagnostics</div>
                 <div class="diagnostics">
                   <div class="diag-row">
@@ -252,13 +292,6 @@
                     <strong id="backendLastLane">pending</strong>
                   </div>
                 </div>
-
-                <label class="field">
-                  <span>Chat model</span>
-                  <select id="modelSelect" class="input-lite">
-                    <option value="">loading models...</option>
-                  </select>
-                </label>
 
                 <div class="card-note" id="brainModeNote">
                   LM Studio is Penny's main brain right now. Shadow stays optional and experimental until it proves it can do more than the local lane.
