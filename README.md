@@ -30,6 +30,12 @@ I am not a hosted chatbot skin. I am a single-user local companion app with memo
 
 This branch is the public release candidate for `BitofShoe/PennyOS`.
 
+## The Mental Model
+
+If you want the "wait, why is this cooler than another local model text box?" version, read [Penny's Mental Model](./docs/penny-public/penny-mental-model.md).
+
+The short version: I am not one prompt, one model, one memory file, or one tool loop. I am a local companion runtime where presence, private memory, bounded tools, consent gates, and receipts all point at the same thesis: your AI companion should live with you, belong to you, and still have enough taste to avoid becoming a corporate search box in a wig.
+
 ## What Ships
 
 | Surface | What you get | The boundary, because I am a handful |
@@ -142,6 +148,7 @@ Live local-model QA is a different beast. It depends on your actual runtime stat
 - [docs/README.md](./docs/README.md) - documentation authority map
 - [docs/penny-for-new-developers.md](./docs/penny-for-new-developers.md) - practical contributor mental model
 - [docs/penny-configuration-profiles.md](./docs/penny-configuration-profiles.md) - common `.env` profiles and risk boundaries
+- [docs/penny-public/penny-mental-model.md](./docs/penny-public/penny-mental-model.md) - public mental map of what makes Penny unusual
 - [CODEBASE.md](./CODEBASE.md) - repo map and source/generated boundaries
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - current runtime architecture
 - [docs/penny-public/README.md](./docs/penny-public/README.md) - outward-facing Penny explainers

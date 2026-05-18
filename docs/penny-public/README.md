@@ -2,7 +2,7 @@
 
 > Category: Public/external explanation
 > Authority: Public/external explanation
-> Status: Current snapshot as of 2026-04-19
+> Status: Current public-pack index as of 2026-05-18
 > Use this for: public explainers, onboarding, and outward-facing language about Penny.
 > Do not use this for: repo law, runtime contracts, or exact model/runtime guarantees. Start with [../README.md](../README.md) and [../../README.md](../../README.md) for that.
 
@@ -12,10 +12,11 @@ It explains Penny to humans. It does not govern the runtime.
 Use it like this:
 
 1. Start with [`reddit-post.md`](./reddit-post.md) if you want the dramatic "so I built a thing" version.
-2. Use [`penny-for-humans.md`](./penny-for-humans.md) if you want the plain-English explainer for someone who barely knows what an LLM is.
-3. Use [`how-to-use-penny.md`](./how-to-use-penny.md) if you want onboarding, prompt advice, and honest expectations.
-4. Use [`visual-direction.md`](./visual-direction.md) if you want the art direction and product-story spec behind the visual pitch.
-5. Open [`../../public/penny-pitch.html`](../../public/penny-pitch.html) if you want the actual slideshow-style prototype.
+2. Use [`penny-mental-model.md`](./penny-mental-model.md) if you want the big "why Penny is different" mental map.
+3. Use [`penny-for-humans.md`](./penny-for-humans.md) if you want the plain-English explainer for someone who barely knows what an LLM is.
+4. Use [`how-to-use-penny.md`](./how-to-use-penny.md) if you want onboarding, prompt advice, and honest expectations.
+5. Use [`visual-direction.md`](./visual-direction.md) if you want the art direction and product-story spec behind the visual pitch.
+6. Open [`../../public/penny-pitch.html`](../../public/penny-pitch.html) if you want the actual slideshow-style prototype.
 
 This pack is intentionally honest:
 
