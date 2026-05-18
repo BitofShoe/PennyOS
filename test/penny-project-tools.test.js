@@ -22,14 +22,14 @@ function formatBytes(value = 0) {
   return `${Number(value || 0)}b`;
 }
 
-function buildApi({ pathAliases = {}, directWorkspaceWritesEnabled = false } = {}) {
+function buildApi({ pathAliases = {}, directWorkspaceWritesEnabled = false, textExtensions = null } = {}) {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-project-tools-'));
   const api = createProjectToolsApi({
     projectRoot,
     pathAliases,
     fs,
     path,
-    TEXT_FILE_EXTENSIONS: new Set(['.js', '.json', '.md', '.txt', '.mjs', '.cjs']),
+    TEXT_FILE_EXTENSIONS: textExtensions || new Set(['.js', '.json', '.md', '.txt', '.mjs', '.cjs']),
     clampNumber,
     truncateText,
     formatBytes,
@@ -175,6 +175,26 @@ test('pending workspace writes can be denied and conflict if the base file chang
       () => api.approvePendingWorkspaceWriteTool({ id: staged.id }),
       /changed after the pending write was staged/i,
     );
+  } finally {
+    cleanup();
+  }
+});
+
+test('project read tools refuse secret-bearing files but allow env example', () => {
+  const { api, projectRoot, cleanup } = buildApi({
+    textExtensions: new Set(['', '.env', '.example', '.txt', '.md', '.js', '.json']),
+  });
+  try {
+    fs.writeFileSync(path.join(projectRoot, '.env'), 'PENNY_API_TOKEN=secret\n');
+    fs.writeFileSync(path.join(projectRoot, '.env.example'), 'PENNY_API_TOKEN=\n');
+    fs.writeFileSync(path.join(projectRoot, 'notes.txt'), 'PENNY_API_TOKEN=not-a-secret-example\n');
+    assert.throws(() => api.readProjectFileTool({ path: '.env' }), /secret-bearing|not readable/i);
+    assert.throws(() => api.readProjectFileAroundMatchTool({ path: '.env', query: 'PENNY_API_TOKEN' }), /secret-bearing|not readable/i);
+    const example = api.readProjectFileTool({ path: '.env.example' });
+    assert.match(example.excerpt, /PENNY_API_TOKEN=/);
+    const searched = api.searchProjectTextTool({ query: 'PENNY_API_TOKEN', path: '.', limit: 10 });
+    assert.equal(searched.hits.some((hit) => hit.path === '.env'), false);
+    assert.equal(searched.hits.some((hit) => hit.path === '.env.example'), true);
   } finally {
     cleanup();
   }

@@ -37,11 +37,11 @@ const RUBRIC = {
     'Practical help should stay in character instead of collapsing into helpdesk prose.',
   ],
   referenceSources: [
-    "C:/Users/malac/.openclaw/workspace-main/PENNY'S_BRAIN.md",
-    'C:/Users/malac/Downloads/PENNY — MERGED SYSTEM PROMPT.md',
-    'C:/Users/malac/Downloads/PENNY — OPERATIONAL SYSTEM PROMPT.md',
-    'C:/Users/malac/Downloads/PENNY — HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md',
-    'C:/Users/malac/Downloads/Personality Reference (1).md',
+    "private-local/PENNY'S_BRAIN.md",
+    'private-local/PENNY - MERGED SYSTEM PROMPT.md',
+    'private-local/PENNY - OPERATIONAL SYSTEM PROMPT.md',
+    'private-local/PENNY - HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md',
+    'private-local/Personality Reference.md',
   ],
 };
 

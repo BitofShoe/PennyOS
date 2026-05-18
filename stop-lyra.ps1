@@ -1,19 +1,8 @@
-$ErrorActionPreference = 'SilentlyContinue'
-
+$ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pidFile = Join-Path $root '.lyra-server.pid'
-$metaFile = Join-Path $root '.lyra-server.meta.json'
+$target = Join-Path $root 'stop-penny.ps1'
 
-if (-not (Test-Path $pidFile)) {
-  Write-Host 'No Penny PID file found.'
-  exit 0
-}
+Write-Warning 'stop-lyra.ps1 is a compatibility alias. Use stop-penny.ps1 for PennyOS release runs.'
 
-$serverPid = Get-Content $pidFile
-if ($serverPid) {
-  Stop-Process -Id $serverPid -Force
-  Write-Host "Stopped Penny PID $serverPid"
-}
-
-Remove-Item $pidFile -ErrorAction SilentlyContinue
-Remove-Item $metaFile -ErrorAction SilentlyContinue
+& $target
+exit $LASTEXITCODE

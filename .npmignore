@@ -12,6 +12,9 @@ logs/
 .codex/
 .github/
 .lyra-*
+.penny-server.*
+.penny-local-env.ps1
+.openclaw/
 *.log
 qa-*.png
 data/penny-memory*.json

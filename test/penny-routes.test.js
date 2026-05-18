@@ -271,6 +271,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     PENNY_MEMORY_EMBEDDINGS_FILE: process.env.PENNY_MEMORY_EMBEDDINGS_FILE,
     PENNY_MEMORY_BOOKS_FILE: process.env.PENNY_MEMORY_BOOKS_FILE,
     PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
+    PENNY_WEB_SEARCH_ENABLED: process.env.PENNY_WEB_SEARCH_ENABLED,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-test-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -295,6 +296,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
   process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE = localPreferenceFile;
   delete process.env.PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL;
   delete process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE;
+  delete process.env.PENNY_WEB_SEARCH_ENABLED;
   process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const modulePath = require.resolve('../server.js');
@@ -319,6 +321,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(response.json.ok, true);
     assert.equal(response.json.name, 'Penny');
     assert.equal(response.json.backend, 'local-lmstudio');
+    assert.equal(response.json.webSearchEnabled, false);
     assert.ok(response.json.lmStudio);
     assert.ok(Object.prototype.hasOwnProperty.call(response.json.lmStudio, 'reachable'));
     assert.ok(response.json.performance && typeof response.json.performance === 'object');
@@ -413,7 +416,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
 
     const seededCleanupMemory = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer route-test-token' },
       body: JSON.stringify({
         sessionId: 'route-cleanup-probe',
         memory: {
@@ -473,6 +476,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     if (originalEnv.PENNY_MEMORY_ARCHIVE_FILE == null) delete process.env.PENNY_MEMORY_ARCHIVE_FILE; else process.env.PENNY_MEMORY_ARCHIVE_FILE = originalEnv.PENNY_MEMORY_ARCHIVE_FILE;
     if (originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE == null) delete process.env.PENNY_MEMORY_EMBEDDINGS_FILE; else process.env.PENNY_MEMORY_EMBEDDINGS_FILE = originalEnv.PENNY_MEMORY_EMBEDDINGS_FILE;
     if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
+    if (originalEnv.PENNY_WEB_SEARCH_ENABLED == null) delete process.env.PENNY_WEB_SEARCH_ENABLED; else process.env.PENNY_WEB_SEARCH_ENABLED = originalEnv.PENNY_WEB_SEARCH_ENABLED;
     if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -1533,6 +1537,7 @@ test('memory inspector tracks archived turns and review approval promotes a pend
     PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
     PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-archive-'));
   const mockLmStudio = await createMockLmStudioServer();
@@ -1546,6 +1551,7 @@ test('memory inspector tracks archived turns and review approval promotes a pend
   process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
   process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -1600,7 +1606,7 @@ test('memory inspector tracks archived turns and review approval promotes a pend
     const queueId = inspector.json.inspector.archive.global.promotionQueue[0].id;
     const review = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/review`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer route-test-token' },
       body: JSON.stringify({
         sessionId: 'archive-route-test',
         queueId,
@@ -1625,6 +1631,7 @@ test('memory inspector tracks archived turns and review approval promotes a pend
     if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
     if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
+    if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

@@ -18,6 +18,7 @@ If you are a new agent or contributor, use this order:
 
 If you want outward-facing or layperson docs instead of repo law, start with [penny-public/README.md](./penny-public/README.md).
 If you need the recurring product instinct behind Penny's bounded slices after you finish current-law docs, read [penny-secret-third-thing-bounded-third-option-design.md](./penny-secret-third-thing-bounded-third-option-design.md).
+If you are new to the codebase, read [penny-for-new-developers.md](./penny-for-new-developers.md). If you are configuring a local run, use [penny-configuration-profiles.md](./penny-configuration-profiles.md).
 
 ## Authority levels
 
@@ -83,6 +84,7 @@ This section keeps current law first, then follows the interpretive order from [
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
 | [../README.md](../README.md), [../CODEBASE.md](../CODEBASE.md), [../ARCHITECTURE.md](../ARCHITECTURE.md) | Public repo orientation and guardrails | Binding/current law | Current | install, repo truths, runtime shape, source/generated boundaries | detailed architecture history |
+| [penny-for-new-developers.md](./penny-for-new-developers.md) and [penny-configuration-profiles.md](./penny-configuration-profiles.md) | New developer and configuration guide | Binding/current law | Current | practical onboarding, env profiles, current release defaults | historical plan status |
 | [../README.md](../README.md) | Contributor/operator entrypoint | Binding/current law | Current | current runtime shape, runbook, memory/runtime overview | public marketing or historical archaeology |
 | [../CODEBASE.md](../CODEBASE.md) | Repo map and source-vs-generated boundary | Binding/current law | Current | where code lives, what is generated, edit boundaries | product philosophy |
 | [../ARCHITECTURE.md](../ARCHITECTURE.md) | Current engineering architecture | Binding/current law | Current | present-tense architecture and subsystem behavior | public-facing explanation |
@@ -200,6 +202,6 @@ Treat these as evidence or continuity helpers unless and until their claims are 
 - [archive/PENNY_REDESIGN_PLAN.md](./archive/PENNY_REDESIGN_PLAN.md)
 - [archive/PENNY_UI_HANDOFF.md](./archive/PENNY_UI_HANDOFF.md)
 - [archive/Notes on Penny's Code From a Project Manager.md](./archive/Notes%20on%20Penny's%20Code%20From%20a%20Project%20Manager.md)
-- [../Today's Plan.md](../Today's%20Plan.md)
+- [archive/Todays Plan.md](./archive/Todays%20Plan.md)
 
 The point of this guide is not to turn the docs folder into another doctrine pile. It is to make authority obvious enough that future agents stop repeating the right slogans while enforcing the wrong layer.

@@ -118,6 +118,57 @@ function checkLmsCli(spawnSyncImpl = spawnSync) {
   }
 }
 
+function checkNpmVersion({ spawnSyncImpl = spawnSync, packageJson = loadPackageJson() } = {}) {
+  try {
+    const result = spawnSyncImpl('npm', ['-v'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      windowsHide: true,
+    });
+    if (result?.error || result?.status !== 0) {
+      const detail = result?.error?.message || result?.stderr || result?.stdout || 'npm -v failed';
+      return summarizeCheck('npm', false, `npm version check failed: ${String(detail).trim()}`);
+    }
+    const actual = String(result.stdout || '').trim();
+    const expectedMajor = parseExpectedMajor(packageJson?.engines?.npm || '');
+    const actualMajor = Number((actual.match(/^(\d+)/) || [])[1]);
+    const ok = !expectedMajor || actualMajor === expectedMajor;
+    return summarizeCheck('npm', ok, ok
+      ? `npm ${actual} matches release range ${packageJson?.engines?.npm || '(unspecified)'}.`
+      : `npm ${actual} does not match release range ${packageJson?.engines?.npm || '(unspecified)'}.`);
+  } catch (error) {
+    return summarizeCheck('npm', false, `npm version check failed: ${String(error?.message || error).trim()}`);
+  }
+}
+
+function enabledEnv(value = '') {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
+
+function summarizeRuntimePosture(env = process.env) {
+  const webEnabled = env.PENNY_WEB_SEARCH_ENABLED === '1';
+  const lanEnabled = enabledEnv(env.PENNY_LAN_SHARE);
+  const tokenConfigured = Boolean(String(env.PENNY_API_TOKEN || env.PENNY_ACCESS_TOKEN || env.PENNY_LOCAL_API_TOKEN || '').trim());
+  return [
+    summarizeCheck(
+      'web-reading',
+      true,
+      webEnabled
+        ? 'Web reading is ON; Penny may fetch public pages, while private-network targets stay blocked unless explicitly allowed.'
+        : 'Web reading is OFF. Set PENNY_WEB_SEARCH_ENABLED=1 to allow public web reads.',
+      webEnabled ? 'warn' : 'pass',
+    ),
+    summarizeCheck(
+      'lan-token',
+      !lanEnabled || tokenConfigured,
+      lanEnabled
+        ? (tokenConfigured ? 'LAN sharing is on and an API token is configured.' : 'LAN sharing is on but no API token is configured. Set PENNY_API_TOKEN before sharing.')
+        : 'LAN sharing is off; Penny should stay on loopback.',
+      lanEnabled && !tokenConfigured ? 'fail' : (lanEnabled ? 'warn' : 'pass'),
+    ),
+  ];
+}
+
 async function checkLmStudioApi({
   baseUrl = DEFAULT_LMSTUDIO_BASE,
   apiKey = DEFAULT_LMSTUDIO_API_KEY,
@@ -191,6 +242,7 @@ async function runPreflight({
   const checks = [];
   const nodeCheck = checkNodeVersion(packageJson?.engines?.node || '', nodeVersion);
   checks.push(summarizeCheck('node', nodeCheck.ok, nodeCheck.detail, nodeCheck.ok ? 'pass' : 'fail'));
+  checks.push(checkNpmVersion({ spawnSyncImpl, packageJson }));
   checks.push(checkLmsCli(spawnSyncImpl));
 
   const lmStudioApi = await checkLmStudioApi({
@@ -247,6 +299,7 @@ async function runPreflight({
     presetIssues.length ? presetIssues.join(' ') : `Preset ${presetIdentifier} is wired for the active LM Studio targets.`,
     presetIssues.length ? 'warn' : 'pass',
   ));
+  checks.push(...summarizeRuntimePosture(env));
 
   const gemmaRuntimeWatch = buildGemmaRuntimeWatchForPreflight({
     preflightReport: {
@@ -260,6 +313,7 @@ async function runPreflight({
   const assumptions = [
     'QA scripts assume local Windows + PowerShell launcher behavior.',
     'Voice QA and probes expect LM Studio to be running before they start.',
+    `If LM Studio is unreachable, start its local server at ${baseUrl}, then rerun: npm run doctor.`,
   ];
   return {
     ok: nodeCheck.ok && lmStudioApi.ok && report.blockers.length === 0,
@@ -297,7 +351,9 @@ module.exports = {
   parseExpectedMajor,
   summarizeCheck,
   checkNodeVersion,
+  checkNpmVersion,
   checkLmsCli,
+  summarizeRuntimePosture,
   checkLmStudioApi,
   buildGemmaRuntimeWatchForPreflight,
   runPreflight,

@@ -106,6 +106,7 @@ const els = {
   backendReachability: document.getElementById('backendReachability'),
   backendModel: document.getElementById('backendModel'),
   backendToolModel: document.getElementById('backendToolModel'),
+  backendWebReading: document.getElementById('backendWebReading'),
   backendLastLane: document.getElementById('backendLastLane'),
   newChat: document.getElementById('newChat'),
   clearMemory: document.getElementById('clearMemory'),

@@ -10,7 +10,7 @@ const IMAGE_RULES = {
 const FILE_RULES = {
   maxInputBytes: 220 * 1024,
   maxPayloadChars: 180000,
-  allowedExtensions: ['.txt', '.md', '.json', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.css', '.html', '.svg', '.yml', '.yaml', '.log', '.ps1', '.sh', '.env'],
+  allowedExtensions: ['.txt', '.md', '.json', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.css', '.html', '.svg', '.yml', '.yaml', '.log', '.ps1', '.sh', '.example'],
 };
 
 export function formatBytes(bytes = 0) {

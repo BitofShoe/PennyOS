@@ -19,6 +19,8 @@ const SERVER_STDOUT_PATH = path.join(OUTPUT_DIR, `penny-browser-smoke-${STAMP}.s
 const SERVER_STDERR_PATH = path.join(OUTPUT_DIR, `penny-browser-smoke-${STAMP}.server.err.log`);
 const STORAGE_KEY = 'penny:v3';
 const SESSION_ID = `penny-browser-smoke-${Date.now().toString(36)}`;
+const INSTALL_BROWSER_ONLY = process.argv.includes('--install-browser');
+const PLAYWRIGHT_VERSION = '1.60.0';
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -94,23 +96,65 @@ async function waitForPagePredicate(page, predicate, arg, options = {}) {
 }
 
 function ensurePlaywright() {
-  if (fs.existsSync(PW_READY)) return;
   ensureDir(PW_DIR);
-  if (!fs.existsSync(PW_PKG)) {
-    fs.writeFileSync(PW_PKG, `${JSON.stringify({
-      name: 'qa-pw',
-      private: true,
-      dependencies: {
-        playwright: '1.49.1',
-      },
-    }, null, 2)}\n`);
+  const manifest = {
+    name: 'qa-pw',
+    private: true,
+    dependencies: {
+      playwright: PLAYWRIGHT_VERSION,
+    },
+  };
+  let needsInstall = !fs.existsSync(PW_READY);
+  try {
+    const current = JSON.parse(fs.readFileSync(PW_PKG, 'utf8'));
+    if (current?.dependencies?.playwright !== PLAYWRIGHT_VERSION) {
+      needsInstall = true;
+    }
+  } catch {
+    needsInstall = true;
   }
+  if (!fs.existsSync(PW_PKG) || needsInstall) {
+    fs.writeFileSync(PW_PKG, `${JSON.stringify(manifest, null, 2)}\n`);
+  }
+  if (fs.existsSync(PW_READY)) {
+    try {
+      const installed = JSON.parse(fs.readFileSync(PW_READY, 'utf8'));
+      if (installed?.version !== PLAYWRIGHT_VERSION) {
+        needsInstall = true;
+      }
+    } catch {
+      needsInstall = true;
+    }
+  }
+  if (!needsInstall) return;
   execSync('npm install --omit=dev', { cwd: PW_DIR, stdio: 'inherit' });
+}
+
+function installPlaywrightChromium() {
+  ensurePlaywright();
+  const cli = path.join(PW_DIR, 'node_modules', 'playwright', 'cli.js');
+  execSync(`"${process.execPath}" "${cli}" install chromium`, { cwd: ROOT_DIR, stdio: 'inherit' });
 }
 
 function loadPlaywright() {
   ensurePlaywright();
   return require(path.join(PW_DIR, 'node_modules', 'playwright'));
+}
+
+async function launchChromium(chromium) {
+  try {
+    return await chromium.launch({ headless: true });
+  } catch (error) {
+    const message = String(error?.message || error || '');
+    if (/Executable doesn't exist|playwright install/i.test(message)) {
+      throw new Error([
+        'Playwright Chromium is not installed for Penny browser smoke.',
+        'Run: npm run qa:browser:install',
+        'Then retry: npm run qa:browser:smoke',
+      ].join('\n'));
+    }
+    throw error;
+  }
 }
 
 function readRequestBody(req) {
@@ -388,6 +432,12 @@ async function seedArchiveTurns(count = 8) {
 }
 
 async function main() {
+  if (INSTALL_BROWSER_ONLY) {
+    installPlaywrightChromium();
+    console.log('Playwright Chromium is installed for Penny browser smoke.');
+    return;
+  }
+
   ensureDir(OUTPUT_DIR);
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-browser-smoke-'));
   const imageFixturePath = createTinyPngFixture(tmpDir);
@@ -439,7 +489,7 @@ async function main() {
     report.currentStep = 'launch_browser';
     persistReport(report);
     console.log('Launching browser...');
-    browser = await chromium.launch({ headless: true });
+    browser = await launchChromium(chromium);
     page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.addInitScript(({ storageKey, snapshot }) => {
       if (!window.localStorage.getItem(storageKey)) {

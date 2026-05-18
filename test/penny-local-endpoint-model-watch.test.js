@@ -95,7 +95,7 @@ test('endpoint backend detection treats llama.cpp ownership as router truth befo
       data: [{
         id: 'unsloth/gemma-4-31b-it',
         owned_by: 'llamacpp',
-        status: { preset: 'model = C:\\Users\\malac\\.lmstudio\\models\\fixture.gguf' },
+        status: { preset: 'model = C:\\LocalModels\\fixture.gguf' },
       }],
     }),
     loadedModels: ['unsloth/gemma-4-31b-it'],

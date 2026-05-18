@@ -137,7 +137,7 @@
               <div class="composer-tools">
                 <input type="file" id="imageInput" accept="image/*" hidden />
                 <button id="imageBtn" class="image-btn" type="button" title="Send image">&#128247;</button>
-                <input type="file" id="fileInput" accept=".txt,.md,.json,.js,.mjs,.cjs,.ts,.tsx,.jsx,.css,.html,.svg,.yml,.yaml,.log,.ps1,.sh,.env,text/*,application/json,application/javascript" hidden />
+                <input type="file" id="fileInput" accept=".txt,.md,.json,.js,.mjs,.cjs,.ts,.tsx,.jsx,.css,.html,.svg,.yml,.yaml,.log,.ps1,.sh,.example,text/*,application/json,application/javascript" hidden />
                 <button id="fileBtn" class="file-btn" type="button" title="Attach file">&#128206;</button>
 
                 <div class="emoji-anchor">
@@ -240,6 +240,11 @@
                   <div class="diag-row">
                     <span>Tool lane default</span>
                     <strong id="backendToolModel">pending</strong>
+                  </div>
+
+                  <div class="diag-row">
+                    <span>Web reading</span>
+                    <strong id="backendWebReading">checking</strong>
                   </div>
 
                   <div class="diag-row">

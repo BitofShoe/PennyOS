@@ -116,7 +116,12 @@ export function updateBackendStatusUi({ els, state, status = null } = {}) {
     els.backendReachability.textContent = 'unknown';
     els.backendModel.textContent = 'pending';
     if (els.backendToolModel) els.backendToolModel.textContent = 'pending';
+    if (els.backendWebReading) els.backendWebReading.textContent = 'pending';
     return;
+  }
+
+  if (els.backendWebReading) {
+    els.backendWebReading.textContent = status?.webSearchEnabled === true ? 'on' : 'off';
   }
 
   if (lmStudio.reachable) {

@@ -24,7 +24,7 @@ I am not a hosted chatbot skin. I am a single-user local companion app with memo
 ## What I Am
 
 - A local-first AI companion that runs against LM Studio's OpenAI-compatible server. Your data stays yours.
-- A real browser UI with mood sprites, memory inspection, model controls, image attachments, and chat that tries to feel like a person is actually in the room.
+- A real browser UI with mood sprites, model controls, image attachments, chat that tries to feel like a person is actually in the room, and an advanced memory inspector for debug/review runs.
 - A Node app with boring, necessary boundaries around tools, web reading, workspace writes, local memory, and release artifacts.
 - Source-available under the all-rights-reserved terms in [LICENSE](./LICENSE), because ownership matters and we are not pretending otherwise.
 
@@ -59,6 +59,8 @@ Requirements:
 - npm `>=11 <12`
 - LM Studio with an OpenAI-compatible local server at `http://127.0.0.1:1234/v1`
 
+Penny pins Node 24.x for the current test/runtime surface; older Node versions may run parts of the app but are not release-supported.
+
 Windows PowerShell:
 
 ```powershell
@@ -89,6 +91,7 @@ For LAN/phone mode, runtime state, and workspace-write notes, read [INSTALL.md](
 - LAN API access requires `PENNY_API_TOKEN`.
 - Sensitive workspace writes stage pending patches by default.
 - Direct workspace writes require `PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=1`.
+- Web reading is off by default; set `PENNY_WEB_SEARCH_ENABLED=1` to allow public web reads.
 - Web reading blocks loopback, private, link-local, multicast, reserved, and metadata-style targets by default.
 - The browser UI ships with local assets. No sneaky CDN font nonsense.
 
@@ -98,15 +101,18 @@ See [SECURITY.md](./SECURITY.md) and [PRIVACY.md](./PRIVACY.md) for the less gla
 
 ```powershell
 npm run check
+npm run qa:browser:install
 npm run qa:browser:smoke
-npm pack --dry-run --ignore-scripts
+npm pack --dry-run
 ```
 
 Want to verify I am actually working? Good. Suspicion is healthy.
 
 - `npm run check` runs the release artifact guard, frontend privacy guard, server syntax check, and full test suite.
+- `npm run qa:browser:install` installs the Playwright Chromium browser used by the smoke harness. It is a QA dependency, not a runtime dependency.
 - `npm run qa:browser:smoke` opens the actual browser UI against a mock LM Studio server and checks chat, image upload, memory inspector, expression state, and reset flows.
-- `npm pack --dry-run --ignore-scripts` checks the package before anyone starts making grand little release noises.
+- `npm pack --dry-run` checks the package lifecycle before anyone starts making grand little release noises.
+- In a source zip without `.git`, use `npm run check:release`; in a Git checkout, `npm run check` is the same release gate.
 - `npm run bundle:review:experience -- --latest-experience-artifacts --out tmp/gpt-pro-review-bundle` builds a private reviewer packet after you have generated and checked local QA artifacts.
 
 Live local-model QA is a different beast. It depends on your actual runtime state, loaded models, ports, and Windows/WSL setup, so [docs/release-checklist.md](./docs/release-checklist.md), [docs/penny-experience-review-packet.md](./docs/penny-experience-review-packet.md), and `npm run preflight` are the responsible little ritual before you start making claims about live behavior.
@@ -126,6 +132,8 @@ Live local-model QA is a different beast. It depends on your actual runtime stat
 
 - [INSTALL.md](./INSTALL.md) - install and local operation
 - [docs/README.md](./docs/README.md) - documentation authority map
+- [docs/penny-for-new-developers.md](./docs/penny-for-new-developers.md) - practical contributor mental model
+- [docs/penny-configuration-profiles.md](./docs/penny-configuration-profiles.md) - common `.env` profiles and risk boundaries
 - [CODEBASE.md](./CODEBASE.md) - repo map and source/generated boundaries
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - current runtime architecture
 - [docs/penny-public/README.md](./docs/penny-public/README.md) - outward-facing Penny explainers
@@ -143,3 +151,5 @@ That is not me being coy. That is me refusing to bluff with a pretty sentence.
 ## License
 
 This repository is source-available unless and until the owner chooses an open-source license. See [LICENSE](./LICENSE).
+
+`package.json` is marked `private: true` to prevent accidental `npm publish`; `npm pack` still works for local source/package verification.

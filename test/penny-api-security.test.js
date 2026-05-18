@@ -73,3 +73,37 @@ test('sensitive mutation routes require a token outside LAN mode', () => {
     token: 'test-token',
   }), modelUrl).ok, true);
 });
+
+test('API security ignores malformed cookie encoding instead of throwing', () => {
+  const security = buildSecurity();
+  const url = new URL('http://localhost:4317/api/penny/memory/purge');
+  const request = req({ method: 'POST', contentType: 'application/json' });
+  request.headers.cookie = 'penny_access_token=%E0%A4%A';
+  assert.doesNotThrow(() => security.validateApiRequest(request, url));
+  assert.equal(security.validateApiRequest(request, url).code, 'token_required');
+});
+
+test('memory mutation and review routes require a local token outside LAN mode', () => {
+  const security = buildSecurity();
+  const cases = [
+    ['POST', '/api/penny/memory'],
+    ['PATCH', '/api/penny/memory'],
+    ['POST', '/api/penny/memory/review'],
+    ['POST', '/api/penny/memory/purge'],
+    ['POST', '/api/penny/consolidate'],
+  ];
+
+  for (const [method, pathname] of cases) {
+    const url = new URL(`http://localhost:4317${pathname}`);
+    assert.equal(
+      security.validateApiRequest(req({ method, contentType: 'application/json' }), url).code,
+      'token_required',
+      `${method} ${pathname} should require a token`,
+    );
+    assert.equal(
+      security.validateApiRequest(req({ method, contentType: 'application/json', token: 'test-token' }), url).ok,
+      true,
+      `${method} ${pathname} should admit the configured token`,
+    );
+  }
+});

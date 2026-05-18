@@ -19,3 +19,12 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm run check
+      - name: Source archive self-check
+        run: |
+          rm -rf /tmp/pennyos-source-archive
+          mkdir -p /tmp/pennyos-source-archive
+          git archive --format=tar HEAD | tar -x -C /tmp/pennyos-source-archive
+          cd /tmp/pennyos-source-archive
+          npm ci
+          npm run check:release
+          npm pack --dry-run

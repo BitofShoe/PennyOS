@@ -16,10 +16,13 @@ Browser snapshots strip raw uploaded image data before persistence.
 - no third-party font/CDN calls from the browser UI
 - no public telemetry
 - no cloud sync
+- no outbound web reading unless `PENNY_WEB_SEARCH_ENABLED=1`
 
 ## Web Reading
 
-Penny's web tools can fetch public pages when enabled, but they block private/internal/local network targets by default. Set `PENNY_WEB_ALLOW_PRIVATE_NET=1` only for deliberate local-network testing.
+Penny's web tools are off by default. When `PENNY_WEB_SEARCH_ENABLED=1`, they can fetch public pages, but they block private/internal/local network targets by default. Set `PENNY_WEB_ALLOW_PRIVATE_NET=1` only for deliberate local-network testing.
+
+The README uses remote badge images for GitHub display. The local Penny browser UI itself does not fetch third-party fonts, CDN assets, or telemetry.
 
 ## LAN Mode
 

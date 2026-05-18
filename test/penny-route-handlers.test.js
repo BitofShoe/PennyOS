@@ -58,6 +58,7 @@ function createToolReceiptRouteHarness({
   runResult = {},
   staticEmbeddingStatus = null,
   queryStaticMemoryIndex = null,
+  webSearchEnabled = true,
 } = {}) {
   const memoryStore = new Map();
   let response = null;
@@ -228,7 +229,7 @@ function createToolReceiptRouteHarness({
       MEMORY_FILE: 'data/penny-memory.json',
       MEMORY_ARCHIVE_FILE: 'data/penny-memory-archive.json',
       MEMORY_EMBEDDINGS_FILE: 'data/penny-memory-embeddings.json',
-      WEB_SEARCH_ENABLED: true,
+      WEB_SEARCH_ENABLED: webSearchEnabled,
     },
   });
 
@@ -306,6 +307,22 @@ test('status route exposes static embedding runtime status when provided', async
     lastQueryMs: 1.8,
     ready: true,
   });
+  assert.equal(response.json.webSearchEnabled, true);
+});
+
+test('status route exposes web reading disabled state', async () => {
+  const harness = createToolReceiptRouteHarness({ webSearchEnabled: false });
+
+  const handled = await harness.handlers.handleApiRoute({
+    req: { method: 'GET' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/status'),
+  });
+  const response = harness.getResponse();
+
+  assert.equal(handled, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.webSearchEnabled, false);
 });
 
 test('chat route leaves static memory sidecar queries to archive context owner', async () => {

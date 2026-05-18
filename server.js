@@ -347,7 +347,7 @@ const TOOL_MAX_RESULT_CHARS = Number(process.env.PENNY_TOOL_MAX_RESULT_CHARS || 
 const PENNY_LAN_SHARE = isEnabledEnv(process.env.PENNY_LAN_SHARE);
 const PENNY_WEB_ALLOW_PRIVATE_NET = isEnabledEnv(process.env.PENNY_WEB_ALLOW_PRIVATE_NET);
 const PENNY_ENABLE_DIRECT_WORKSPACE_WRITES = isEnabledEnv(process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES);
-const WEB_SEARCH_ENABLED = process.env.PENNY_WEB_SEARCH_ENABLED !== '0';
+const WEB_SEARCH_ENABLED = process.env.PENNY_WEB_SEARCH_ENABLED === '1';
 const WEB_SEARCH_TIMEOUT_MS = Number(process.env.PENNY_WEB_SEARCH_TIMEOUT_MS || 15000);
 const WEB_SEARCH_MAX_RESULTS = Number(process.env.PENNY_WEB_SEARCH_MAX_RESULTS || 6);
 const WEB_FETCH_MAX_CHARS = Number(process.env.PENNY_WEB_FETCH_MAX_CHARS || 12000);
@@ -355,8 +355,8 @@ const WEB_FETCH_MAX_BYTES = Number(process.env.PENNY_WEB_FETCH_MAX_BYTES || 900 
 const WEB_USER_AGENT = process.env.PENNY_WEB_USER_AGENT || 'Penny/0.1 (+local tool search)';
 const STREAM_KEEPALIVE_MS = Number(process.env.PENNY_STREAM_KEEPALIVE_MS || 15000);
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
-const TEXT_FILE_EXTENSIONS = new Set(['', '.js', '.cjs', '.mjs', '.json', '.md', '.txt', '.html', '.css', '.svg', '.yml', '.yaml', '.ps1', '.sh', '.ts', '.tsx', '.jsx', '.env', '.gitignore', '.log']);
-const TEXT_ATTACHMENT_EXTENSIONS = new Set(['.txt', '.md', '.json', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.css', '.html', '.svg', '.yml', '.yaml', '.log', '.ps1', '.sh', '.env']);
+const TEXT_FILE_EXTENSIONS = new Set(['', '.js', '.cjs', '.mjs', '.json', '.md', '.txt', '.html', '.css', '.svg', '.yml', '.yaml', '.ps1', '.sh', '.ts', '.tsx', '.jsx', '.example', '.gitignore', '.log']);
+const TEXT_ATTACHMENT_EXTENSIONS = new Set(['.txt', '.md', '.json', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.css', '.html', '.svg', '.yml', '.yaml', '.log', '.ps1', '.sh', '.example']);
 
 const sessionState = { turns: 0, lastMood: 'calm', memory: [] };
 const MIME_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.mjs': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };

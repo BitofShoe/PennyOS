@@ -485,10 +485,10 @@ This is intentionally dependency-light, but the tradeoff is that `public/js/penn
 
 Important scripts:
 
-- `start-lyra.ps1`
-Starts Penny in the background and writes PID / meta files.
-- `stop-lyra.ps1`
-Stops the background Penny server.
+- `start-penny.ps1`
+Starts Penny in the background and writes `.penny-server.*` PID / meta files.
+- `stop-penny.ps1`
+Stops the background Penny server. `start-lyra.ps1` and `stop-lyra.ps1` are compatibility aliases only.
 - `scripts/ensure-lmstudio-penny-preset.js`
 Reasserts the LM Studio preset/default state Penny expects.
 - `scripts/penny-lmstudio-prepare.js`

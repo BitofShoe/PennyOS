@@ -7,12 +7,17 @@ artifacts/
 test-results/
 logs/
 sillytavern-character-memory/
+lyra-prototype/
 *.log
 .lyra-server.pid
 .lyra-server.meta.json
 .lyra-local-env.ps1
 .lyra-local-preferences.json
+.penny-server.pid
+.penny-server.meta.json
+.penny-local-env.ps1
 .penny-local-preferences.json
+.openclaw/
 data/penny-memory*.json
 data/penny-open-loops*.json
 !data/penny-memory.seed.json

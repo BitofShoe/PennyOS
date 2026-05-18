@@ -21,10 +21,12 @@ This project is a single-user local Penny companion prototype:
 Main backend orchestration. This is still the operational center of gravity.
 - [package.json](./package.json)
 Minimal npm script entrypoints.
-- [start-lyra.ps1](./start-lyra.ps1)
-Background launcher with readiness gating.
-- [stop-lyra.ps1](./stop-lyra.ps1)
-Background stopper.
+- [start-penny.ps1](./start-penny.ps1)
+Windows PowerShell background launcher with readiness gating.
+- [stop-penny.ps1](./stop-penny.ps1)
+Windows PowerShell background stopper.
+- `start-lyra.ps1` / `stop-lyra.ps1`
+Compatibility aliases only.
 
 ### Current high-value docs
 
@@ -54,7 +56,7 @@ Delegation note:
 
 These are useful for project continuity, but they are not runtime code:
 
-- `Today's Plan.md`
+- `docs/archive/Todays Plan.md`
 - `docs/archive/PENNY_HOW_WE_GOT_HERE_AND_NEXT_STEPS.md`
 - `docs/archive/PENNY_MEMORY_NEXT_BRANCH_HANDOFF.md`
 - `docs/archive/PENNY_REDESIGN_PLAN.md`
@@ -469,6 +471,8 @@ Start here:
 `scripts/qa-penny-memory.js` now also carries semantic-correction grading, source-sensitive fixture cases, candidate-survival fixture/archive-unit modes, structured candidate-contract checks, and `runIdentity` harness canaries; treat those traces as first-pass environment drift checks, not as a new benchmark platform. `lib/penny-memory-archive.js` owns archive retrieval, `lib/penny-memory-archive-policy.js` owns ranking policy, `lib/penny-candidate-survival-qa.js` owns candidate-survival artifact interpretation and structured candidate-contract QA, `lib/penny-context-pressure-qa.js` owns context-pressure/source-sensitive answer fixtures, `lib/penny-semantic-source-audit.js` owns source-ID continuity artifacts, and `scripts/qa-penny-memory.js` / `scripts/qa-penny-semantic-source-audit.js` are the QA runners. `eval:runtime-fit:context-pressure`, `qa:memory:source-sensitive`, `qa:memory:candidate-survival-fixture`, `qa:memory:candidate-survival`, and `qa:semantic:source-audit` are cheap fixture/archive-unit artifact runs; they define and record fields, may use fixture-assumed semantic readiness, and do not prove live LM Studio answer drift without a separate isolated runtime-fit run.
 
 Static embedding live sidecar work is opt-in. Normal repo work should leave `PENNY_STATIC_EMBED_MODE` unset or `off`, while QA comparison can use `qa-shadow` / `npm run eval:static-embedding-live-compare`. Local experimental Penny runs may set `PENNY_STATIC_EMBED_MODE=live-advisory`; that lets static candidates enter archive selection under gates, but it does not make static retrieval truth authority, does not replace the LM Studio embedding default, does not raise prompt limits, and keeps static-only rendered items capped.
+
+The optional `@yarflam/potion-base-8m` package is the local static embedding provider for those experiments. It is exact-pinned, optional, and candidate-discovery-only; Penny runs without it.
 
 Open-loop continuity work is also opt-in at the live prompt bridge. The state/store/extraction/lifecycle helpers are real code, but normal runtime prompt injection requires `PENNY_ENABLE_OPEN_LOOP_PROMPT=1` and stays capped by `PENNY_OPEN_LOOP_MAX_RENDERED=1` plus `PENNY_OPEN_LOOP_MAX_TOKENS`. `npm run eval:open-loop-compare` is the current compare harness; passing it means eligible for local opt-in, not permission to raise prompt limits, expand PromptTruth, or let Penny surface unrelated follow-ups.
 
