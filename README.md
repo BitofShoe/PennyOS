@@ -64,6 +64,14 @@ Penny pins Node 24.x for the current test/runtime surface; older Node versions m
 Windows PowerShell:
 
 ```powershell
+.\Install-Penny.ps1
+```
+
+Or double-click `Install-Penny.cmd` from the extracted GitHub ZIP if PowerShell is not already open. The installer checks Node/npm, runs `npm ci`, creates `.env` from `.env.example`, and adds PennyOS Start/Stop/Open shortcuts.
+
+Manual Windows PowerShell:
+
+```powershell
 npm ci
 copy .env.example .env
 npm run lmstudio:prepare

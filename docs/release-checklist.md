@@ -11,6 +11,7 @@ Run before cutting a public release branch or package:
 - `npm pack --dry-run --json`
 - `npm pack --dry-run --ignore-scripts --json`
 - `git diff --check`
+- `node --test test/penny-installer.test.js`
 - `node scripts/check-release-artifacts.js`
 - `node scripts/check-frontend-privacy.js`
 - `node scripts/check-public-path-leaks.js`
@@ -37,6 +38,8 @@ GitHub release-page checks:
 
 Expected release properties:
 
+- GitHub source ZIP users get root `Install-Penny.ps1` and `Install-Penny.cmd`.
+- The installer checks Node 24/npm 11, creates `.env`, runs `npm ci`, and creates PennyOS shortcuts.
 - default bind host is loopback
 - LAN sharing requires `PENNY_LAN_SHARE=1`
 - LAN API access requires a token

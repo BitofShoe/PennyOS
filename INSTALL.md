@@ -11,6 +11,22 @@ Penny pins Node 24.x for the current release-supported test/runtime surface; use
 
 ## Setup
 
+For a GitHub source ZIP on Windows, extract the ZIP and run one of these from the extracted folder:
+
+```powershell
+.\Install-Penny.ps1
+```
+
+You can also double-click `Install-Penny.cmd`. The installer checks Node.js 24 and npm 11, runs `npm ci`, creates `.env` from `.env.example` without overwriting an existing `.env`, and creates PennyOS Start/Stop/Open shortcuts on the desktop and Start Menu.
+
+Add `-Start` to launch Penny after installation:
+
+```powershell
+.\Install-Penny.ps1 -Start
+```
+
+Manual setup:
+
 ```powershell
 npm ci
 copy .env.example .env

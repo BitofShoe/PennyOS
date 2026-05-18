@@ -23,7 +23,13 @@ Acceptance criteria for showing Memory by default later:
 
 ## Desktop Installer
 
-Decision: a Tauri/Electron-style desktop wrapper is deferred.
+Decision: a Tauri/Electron-style desktop wrapper is deferred, but the release ZIP now ships a Windows installer script.
+
+What ships now:
+
+- `Install-Penny.ps1` for PowerShell users.
+- `Install-Penny.cmd` for double-click source ZIP installs.
+- The installer checks Node.js 24 and npm 11, runs `npm ci`, creates `.env`, and creates PennyOS Start/Stop/Open shortcuts.
 
 Acceptance criteria for a later consumer installer:
 

@@ -44,6 +44,8 @@
     "PRIVACY.md",
     "SECURITY.md",
     "LICENSE",
+    "Install-Penny.ps1",
+    "Install-Penny.cmd",
     "start-penny.ps1",
     "stop-penny.ps1",
     "start-lyra.ps1",

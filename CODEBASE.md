@@ -25,6 +25,8 @@ Minimal npm script entrypoints.
 Windows PowerShell background launcher with readiness gating.
 - [stop-penny.ps1](./stop-penny.ps1)
 Windows PowerShell background stopper.
+- [Install-Penny.ps1](./Install-Penny.ps1) / [Install-Penny.cmd](./Install-Penny.cmd)
+Windows GitHub source ZIP installer entrypoints.
 - `start-lyra.ps1` / `stop-lyra.ps1`
 Compatibility aliases only.
 
