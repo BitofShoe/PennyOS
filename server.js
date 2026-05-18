@@ -171,6 +171,7 @@ const GATEWAY_TOKEN = process.env.PENNY_GATEWAY_TOKEN || (() => {
   }
 })();
 const LMSTUDIO_BASE = (process.env.PENNY_LMSTUDIO_BASE || 'http://127.0.0.1:1234/v1').replace(/\/$/, '');
+const LMSTUDIO_EMBED_BASE = (process.env.PENNY_LMSTUDIO_EMBED_BASE || LMSTUDIO_BASE).replace(/\/$/, '');
 function deriveLmStudioNativeBase(base) {
   const trimmed = String(base || '').replace(/\/$/, '');
   if (/\/api\/v1$/i.test(trimmed)) return trimmed;
@@ -928,6 +929,7 @@ const memoryArchiveApi = createMemoryArchiveApi({
   ARCHIVE_FILE: MEMORY_ARCHIVE_FILE,
   EMBEDDINGS_FILE: MEMORY_EMBEDDINGS_FILE,
   LMSTUDIO_BASE,
+  PENNY_LMSTUDIO_EMBED_BASE: LMSTUDIO_EMBED_BASE,
   LMSTUDIO_API_KEY,
   PENNY_LMSTUDIO_EMBED_MODEL,
   PENNY_ARCHIVE_SCORING_PROFILE,
@@ -3437,6 +3439,7 @@ const routeHandlers = createPennyRouteHandlers({
     OPENCLAW_TIMEOUT_MS,
     PENNY_LMSTUDIO_EMBED_MODEL,
     LMSTUDIO_BASE,
+    LMSTUDIO_EMBED_BASE,
     LMSTUDIO_NATIVE_BASE,
     LMSTUDIO_MODEL,
     LOCAL_LLM_TRANSPORT,

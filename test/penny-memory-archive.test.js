@@ -68,6 +68,7 @@ function buildArchiveApi({
   embeddingsFile,
   embedReady = true,
   embedModel = 'text-embedding-nomic-embed-text-v1.5',
+  embedBase = '',
   enableBackgroundChatVectors = false,
   backgroundChatVectorBatchLimit = 2,
   archiveScoringProfile = 'baseline',
@@ -104,6 +105,7 @@ function buildArchiveApi({
     ARCHIVE_FILE: archiveFile,
     EMBEDDINGS_FILE: embeddingsFile,
     LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+    PENNY_LMSTUDIO_EMBED_BASE: embedBase,
     LMSTUDIO_API_KEY: 'lm-studio-local',
     PENNY_LMSTUDIO_EMBED_MODEL: embedModel,
     PENNY_ARCHIVE_SCORING_PROFILE: archiveScoringProfile,
@@ -131,6 +133,48 @@ function buildArchiveApi({
   });
   return { api, getFetchCalls: () => fetchCalls };
 }
+
+test('semantic memory probes a dedicated embedding base when chat models omit embeddings', async () => {
+  const files = makeTempFiles();
+  const fetchUrls = [];
+  const { api, getFetchCalls } = buildArchiveApi({
+    ...files,
+    embedReady: false,
+    embedModel: 'zz/embedding-gemma-300m',
+    embedBase: 'http://127.0.0.1:18082/v1',
+    statusInstalledModels: [],
+    statusNativeAvailableModels: ['unsloth/gemma-4-31b-it'],
+    statusAvailableModels: ['unsloth/gemma-4-31b-it'],
+    fetchImpl: async (_url, _options, { input }) => {
+      fetchUrls.push(String(_url));
+      return {
+        ok: true,
+        async text() {
+          return JSON.stringify({
+            data: [
+              { embedding: buildEmbeddingVector(input) },
+            ],
+          });
+        },
+      };
+    },
+  });
+
+  try {
+    const status = await api.getSemanticMemoryStatus({ force: true });
+
+    assert.equal(status.ready, true);
+    assert.equal(status.mode, 'semantic');
+    assert.equal(status.configuredModel, 'zz/embedding-gemma-300m');
+    assert.equal(status.base, 'http://127.0.0.1:18082/v1');
+    assert.equal(status.installed, true);
+    assert.equal(status.loaded, true);
+    assert.equal(getFetchCalls(), 1);
+    assert.deepEqual(fetchUrls, ['http://127.0.0.1:18082/v1/embeddings']);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
 
 function buildAuditSlice({
   turnId = 'turn-1',

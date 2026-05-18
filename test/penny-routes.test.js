@@ -257,6 +257,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     PORT: process.env.PORT,
     PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
     PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
+    PENNY_LMSTUDIO_EMBED_BASE: process.env.PENNY_LMSTUDIO_EMBED_BASE,
     PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
     PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
@@ -286,6 +287,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
   process.env.PENNY_MEMORY_EMBEDDINGS_FILE = embeddingsFile;
   process.env.PENNY_MEMORY_BOOKS_FILE = booksFile;
   process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_EMBED_BASE = mockLmStudio.baseUrl;
   process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
   process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
@@ -321,6 +323,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(response.json.ok, true);
     assert.equal(response.json.name, 'Penny');
     assert.equal(response.json.backend, 'local-lmstudio');
+    assert.equal(response.json.lmStudioEmbedBase, mockLmStudio.baseUrl);
     assert.equal(response.json.webSearchEnabled, false);
     assert.ok(response.json.lmStudio);
     assert.ok(Object.prototype.hasOwnProperty.call(response.json.lmStudio, 'reachable'));
@@ -338,6 +341,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(lmStatus.json.chatPreferredModel, 'unsloth/gemma-4-31b-it');
     assert.equal(lmStatus.json.toolPreferredModel, 'google/gemma-4-e4b');
     assert.equal(lmStatus.json.embedPreferredModel, 'text-embedding-nomic-embed-text-v1.5');
+    assert.equal(lmStatus.json.embedBase, mockLmStudio.baseUrl);
     assert.equal(lmStatus.json.routingMode, 'auto');
     assert.ok(lmStatus.json.performance && typeof lmStatus.json.performance === 'object');
     assert.ok(lmStatus.json.readiness && typeof lmStatus.json.readiness === 'object');
@@ -463,6 +467,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     if (originalEnv.PORT == null) delete process.env.PORT; else process.env.PORT = originalEnv.PORT;
     if (originalEnv.PENNY_MEMORY_FILE == null) delete process.env.PENNY_MEMORY_FILE; else process.env.PENNY_MEMORY_FILE = originalEnv.PENNY_MEMORY_FILE;
     if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
+    if (originalEnv.PENNY_LMSTUDIO_EMBED_BASE == null) delete process.env.PENNY_LMSTUDIO_EMBED_BASE; else process.env.PENNY_LMSTUDIO_EMBED_BASE = originalEnv.PENNY_LMSTUDIO_EMBED_BASE;
     if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
     if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
