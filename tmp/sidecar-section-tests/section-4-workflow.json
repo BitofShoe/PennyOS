@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "artifact_schema": "penny-sidecar-section-4-workflow.v1",
+  "section_id": 4,
+  "section_title": "Workflow automation sidecars",
+  "primary_app": "n8n-style toy flow",
+  "candidate_apps": [
+    "n8n",
+    "Windmill",
+    "Activepieces"
+  ],
+  "status": "HARNESS_VERIFIED",
+  "generated_at": "2026-05-19T05:07:10.403Z",
+  "live_probe": {
+    "n8n": {
+      "ran": false,
+      "found": false,
+      "details": [
+        {
+          "url": "http://127.0.0.1:5678/healthz",
+          "checked": false,
+          "reason": "live probe not requested"
+        },
+        {
+          "url": "http://127.0.0.1:5678/rest/settings",
+          "checked": false,
+          "reason": "live probe not requested"
+        }
+      ]
+    },
+    "n8n_live_workflow_trial": {
+      "ran": false,
+      "found": false,
+      "mode": "docker_cli_import",
+      "container_name": "penny-n8n-trial",
+      "workflow_id": "penny-sidecar-local-toy-flow",
+      "workflow_name": "Penny Sidecar Local Toy Flow",
+      "workflow_object_created": false,
+      "workflow_imported": false,
+      "workflow_export_checked": false,
+      "local_only": true,
+      "dry_run": false,
+      "credentials_used": false,
+      "webhook_used": false,
+      "schedule_used": false,
+      "email_used": false,
+      "cloud_used": false,
+      "public_action": false,
+      "home_or_system_action": false,
+      "memory_write": false,
+      "errors": [],
+      "skipped_reason": "n8n workflow trial not requested"
+    },
+    "windmill": {
+      "ran": false,
+      "found": false,
+      "details": [
+        {
+          "url": "http://127.0.0.1:8000/api/version",
+          "checked": false,
+          "reason": "live probe not requested"
+        }
+      ]
+    },
+    "activepieces": {
+      "ran": false,
+      "found": false,
+      "details": [
+        {
+          "url": "http://127.0.0.1:8080/api/v1/flags",
+          "checked": false,
+          "reason": "live probe not requested"
+        }
+      ]
+    }
+  },
+  "toy_flow": {
+    "dry_run": true,
+    "local_only": true,
+    "input_kind": "fixture_text_payload",
+    "output_kind": "structured_summary",
+    "email_used": false,
+    "webhook_used": false,
+    "cloud_used": false,
+    "public_action": false,
+    "home_or_system_action": false,
+    "cron_or_schedule": false,
+    "side_effect_labels": [
+      "stdout_json",
+      "artifact_out_only_when_declared"
+    ]
+  },
+  "summary": {
+    "classification": "reviewable_admin_note",
+    "structured_fields": {
+      "title": "Toy local workflow summary",
+      "needs_review": true,
+      "extracted_topic": "local-only sidecar dry run"
+    }
+  },
+  "patterns_to_steal": [
+    "reviewable action queues",
+    "structured output contracts",
+    "dry-run mode",
+    "per-tool side-effect labels"
+  ],
+  "memory_write": false,
+  "runtime_changed": false,
+  "default_model_changed": false,
+  "prompttruth_changed": false,
+  "recommended_next_live_command": "N8N_BASE_URL=http://127.0.0.1:5678 N8N_CONTAINER_NAME=penny-n8n-trial npm run penny:sidecar:workflow -- --fixture --live-probe --n8n-workflow-trial --n8n-base-url http://127.0.0.1:5678 --n8n-container-name penny-n8n-trial"
+}

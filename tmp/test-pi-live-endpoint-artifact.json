@@ -1,0 +1,1 @@
+{"endpoint":"http://127.0.0.1:1234/v1","health_status":"available","backend_family":"llama_cpp","loaded_models":["qwen3-local-fixture"],"resolved_model_id":"qwen3-local-fixture"}

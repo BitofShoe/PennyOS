@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "artifact_schema": "penny-sidecar-section-5-research.v1",
+  "section_id": 5,
+  "section_title": "Local research/search sidecars",
+  "primary_app": "SearXNG",
+  "candidate_apps": [
+    "SearXNG",
+    "Local Deep Research",
+    "Perplexica",
+    "Morphic"
+  ],
+  "status": "HARNESS_VERIFIED",
+  "generated_at": "2026-05-19T05:07:10.459Z",
+  "live_probe": {
+    "ran": false,
+    "found": false,
+    "query_ran": false,
+    "details": [
+      {
+        "url": "http://127.0.0.1:8080/search?q=penny-local-sidecar&format=json",
+        "checked": false,
+        "reason": "live probe not requested"
+      },
+      {
+        "url": "http://127.0.0.1:8080/search?q=penny-local-sidecar",
+        "checked": false,
+        "reason": "live probe not requested"
+      },
+      {
+        "url": "http://127.0.0.1:8888/search?q=penny-local-sidecar&format=json",
+        "checked": false,
+        "reason": "live probe not requested"
+      },
+      {
+        "url": "http://127.0.0.1:8888/search?q=penny-local-sidecar",
+        "checked": false,
+        "reason": "live probe not requested"
+      }
+    ],
+    "json_output": {
+      "ran": false,
+      "found": false,
+      "query_ran": false,
+      "sources": [],
+      "details": []
+    }
+  },
+  "digest": {
+    "query": "Penny local sidecar review fixture",
+    "mode": "fixture",
+    "sources": [
+      {
+        "title": "Fixture Sidecar Boundary Note",
+        "url": "https://example.test/sidecar-boundary",
+        "source_type": "fixture",
+        "confidence": "medium"
+      },
+      {
+        "title": "Fixture Citation UX Note",
+        "url": "https://example.test/citation-ux",
+        "source_type": "fixture",
+        "confidence": "medium"
+      }
+    ],
+    "summary": "Fixture digest keeps sources separate from conclusions and leaves adoption decisions review-only.",
+    "claims": [
+      {
+        "claim": "Sidecar research digests should separate sources from conclusions.",
+        "source_indexes": [
+          0,
+          1
+        ],
+        "verified": false,
+        "confidence": "medium"
+      },
+      {
+        "claim": "A digest artifact is not Penny memory.",
+        "source_indexes": [
+          0
+        ],
+        "verified": false,
+        "confidence": "medium"
+      }
+    ],
+    "unknowns": [
+      "Live SearXNG availability is unknown until a local endpoint probe succeeds."
+    ],
+    "memory_write": false,
+    "requires_review": true
+  },
+  "patterns_to_steal": [
+    "citation-first summaries",
+    "source lists separated from conclusions",
+    "unknown/not verified as normal output",
+    "small digests reviewed before durable save"
+  ],
+  "runtime_changed": false,
+  "default_model_changed": false,
+  "prompttruth_changed": false,
+  "recommended_next_live_command": "docker run --rm -p 18089:8080 -v \"$PWD/fixtures/sidecar-trials/searxng-json-settings.yml:/etc/searxng/settings.yml:ro\" searxng/searxng:latest && SEARXNG_URL=http://127.0.0.1:18089 npm run penny:sidecar:research -- --fixture --live-probe --searxng-base-url http://127.0.0.1:18089"
+}
