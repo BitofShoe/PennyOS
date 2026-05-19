@@ -71,3 +71,18 @@ Acceptance criteria for persistence later:
 Decision: do not claim all memory behavior is solved by this release cleanup.
 
 Known local evidence from the handoff says semantic archive QA passed, while a mixed correction-drift hard case still needs follow-up. This branch should claim release packaging and security hardening, not perfect memory quality.
+
+## Web Fetch SSRF Follow-Up
+
+Decision: current web URL safety is acceptable for this release only because web reading stays opt-in and off by default.
+
+What ships now:
+
+- Web reading/search requires `PENNY_WEB_SEARCH_ENABLED=1`.
+- Private, loopback, link-local, multicast, reserved, and metadata-style targets are blocked by hostname/IP checks and DNS resolution before fetch.
+- Redirects are revalidated through the same URL safety path.
+
+Known remaining hardening work:
+
+- Close the DNS rebinding time-of-check/time-of-use gap before web reading becomes more prominent or default-on.
+- Prefer a fetch path that connects to a verified resolved address, preserves Host/SNI correctly, revalidates every redirect, and rejects private final socket addresses.

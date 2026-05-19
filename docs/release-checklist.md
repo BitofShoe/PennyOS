@@ -49,3 +49,27 @@ Expected release properties:
 - web fetches block private/internal targets unless explicitly allowed
 - generated artifacts, local memory, local logs, private notes, and secrets are not tracked
 - README, install, security, and privacy docs match the current code
+
+## Latest Local Release Receipt
+
+Date: 2026-05-18 local time / 2026-05-19 UTC.
+
+Scope: local static/package checks plus mock-browser QA for `codex/penny-installable-local-companion-release`. This does not claim a live LM Studio model-quality pass.
+
+Environment:
+
+- WSL shell: Node `v24.15.0`, npm `11.12.1`.
+- Windows `cmd.exe` probe: Node `v24.14.0`, npm `11.9.0`; `node scripts\check-release-engine.js` passed.
+- Browser smoke: disposable/mock QA server path, not the user's live loaded LM Studio model.
+
+Passed:
+
+- `npm ci` - added 1 package, audited 2 packages, 0 vulnerabilities.
+- `npm run check` - release checks passed; `990` tests, `987` pass, `3` todo.
+- `npm pack --dry-run` - prepack checks passed; dry-run tarball reported `370` files and about `89.6 MB` packaged.
+- `npm run qa:browser:install` - Playwright Chromium installed/available.
+- `npm run qa:browser:smoke` - passed; artifact: `output/playwright/penny-browser-smoke-2026-05-19T01-33-50-907Z.json`.
+
+Known local-live gap:
+
+- `npm run doctor` passed Node/npm and local policy checks, but failed in this WSL shell because the LM Studio CLI was not on WSL `PATH` and `http://127.0.0.1:1234/v1` was not reachable from WSL. Treat that as the remaining live Windows/LM Studio setup check, not as a source/package failure.

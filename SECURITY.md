@@ -30,6 +30,12 @@ Penny is a local companion app. It is not designed to be hosted on the public in
 
 Pending workspace edits are process-memory only for this release and disappear when Penny restarts.
 
+## Loopback Trust Boundary
+
+By default, Penny trusts localhost for non-mutating API reads. That means a local process on the same machine can read ordinary `/api/*` GET routes, including memory/status inspector surfaces, without presenting a token. LAN clients do not get that trust: `PENNY_LAN_SHARE=1` requires a token for every `/api/*` route.
+
+Sensitive local mutations still require the local token by default, and the browser gets that token through an HttpOnly loopback bootstrap cookie. If you do not want localhost reads trusted, set `PENNY_REQUIRE_API_TOKEN=1` so every `/api/*` route requires the token too. This protects against curious local processes better, but it also makes direct API poking less convenient.
+
 ## Reporting Issues
 
 Open a private security report with:

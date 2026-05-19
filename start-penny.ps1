@@ -17,11 +17,22 @@ $envFile = Join-Path $root '.env'
 $localEnvFile = Join-Path $root '.penny-local-env.ps1'
 $legacyLocalEnvFile = Join-Path $root '.lyra-local-env.ps1'
 $prepareScript = Join-Path $root 'scripts\penny-lmstudio-prepare.js'
+$engineCheckScript = Join-Path $root 'scripts\check-release-engine.js'
 $nodeCommand = Get-Command 'node.exe' -ErrorAction SilentlyContinue
 $nodeExe = if ($nodeCommand) { $nodeCommand.Source } else { Join-Path $env:ProgramFiles 'nodejs\node.exe' }
 
 if (-not (Test-Path $nodeExe)) {
   throw "Could not find node.exe. Install Node.js or add node.exe to PATH."
+}
+
+if (-not (Test-Path $engineCheckScript)) {
+  throw "Could not find Penny release engine check at $engineCheckScript."
+}
+
+Write-Host 'Checking Penny release runtime engine...'
+& $nodeExe $engineCheckScript
+if ($LASTEXITCODE -ne 0) {
+  throw 'Start-Penny.ps1 requires Node.js 24.x and npm 11.x. Install the supported runtime or fix PATH before launching Penny.'
 }
 
 function Import-PennyDotEnv {

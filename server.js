@@ -109,6 +109,9 @@ const {
   createPennyServerHttpApi,
 } = require('./lib/penny-server-http');
 const {
+  isPathInsideRoot,
+} = require('./lib/penny-path-safety');
+const {
   createPromptAssetLoader,
 } = require('./lib/penny-prompt-assets');
 const {
@@ -3528,9 +3531,9 @@ const server = http.createServer(async (req, res) => {
   if (await routeHandlers.handleApiRoute({ req, res, url })) return;
 
   const targetPath = url.pathname === '/' ? '/index.html' : url.pathname;
-  const normalizedPath = path.normalize(targetPath).replace(/^([.][.][/\\])+/, '');
-  const filePath = path.join(PUBLIC_DIR, normalizedPath);
-  if (!filePath.startsWith(PUBLIC_DIR)) {
+  const normalizedPath = path.normalize(targetPath).replace(/^([.][.][/\\])+/, '').replace(/^[/\\]+/, '');
+  const filePath = path.resolve(PUBLIC_DIR, normalizedPath);
+  if (!isPathInsideRoot(PUBLIC_DIR, filePath)) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Forbidden');
     return;

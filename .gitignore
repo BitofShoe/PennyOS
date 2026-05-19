@@ -1,4 +1,5 @@
 qa-transitions/
+node_modules/
 qa-composer-visual/
 .qa-pw/
 output/

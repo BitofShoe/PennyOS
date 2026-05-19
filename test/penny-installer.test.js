@@ -39,6 +39,14 @@ test('PowerShell start script lets .env drive default port unless -Port is passe
   assert.match(script, /set "PORT=' \+ \$effectivePort \+ '"/);
 });
 
+test('PowerShell start script fails fast on the declared release engine', () => {
+  const script = fs.readFileSync(path.join(ROOT, 'start-penny.ps1'), 'utf8');
+  assert.match(script, /\$engineCheckScript = Join-Path \$root 'scripts\\check-release-engine\.js'/);
+  assert.match(script, /Checking Penny release runtime engine/);
+  assert.match(script, /& \$nodeExe \$engineCheckScript/);
+  assert.match(script, /Start-Penny\.ps1 requires Node\.js 24\.x and npm 11\.x/);
+});
+
 test('.env.example exposes background vectorization and transport-default rationale', () => {
   const envExample = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8');
   assert.match(envExample, /PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=1/);
@@ -66,6 +74,8 @@ test('cmd installer wrapper invokes PowerShell installer with execution policy b
 });
 
 test('release scripts enforce the declared runtime and syntax gate', () => {
+  assert.match(packageJson.scripts.test, /scripts\/check-release-engine\.js/);
+  assert.match(packageJson.scripts.test, /node --test test\/\*\.test\.js/);
   assert.match(packageJson.scripts['check:release'], /check:engine/);
   assert.match(packageJson.scripts.prepack, /check:engine/);
   assert.match(packageJson.scripts.prepack, /node --check server\.js/);

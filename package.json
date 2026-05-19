@@ -64,7 +64,7 @@
     "lmstudio:prepare": "node scripts/penny-lmstudio-prepare.js",
     "preflight": "node scripts/penny-preflight.js",
     "doctor": "node scripts/penny-preflight.js",
-    "test": "node --test test/*.test.js",
+    "test": "node scripts/check-release-engine.js && node --test test/*.test.js",
     "check:required-files": "node scripts/check-required-release-files.js",
     "check:release-artifacts": "node scripts/check-release-artifacts.js",
     "check:frontend-privacy": "node scripts/check-frontend-privacy.js",

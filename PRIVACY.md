@@ -27,3 +27,7 @@ The README uses remote badge images for GitHub display. The local Penny browser 
 ## LAN Mode
 
 `PENNY_LAN_SHARE=1` exposes Penny on your local network. Use a long `PENNY_API_TOKEN`, enter it only on devices you control, and turn LAN mode off when you no longer need it.
+
+## Localhost Reads
+
+The default release posture treats loopback as trusted for non-mutating API reads. Other programs on your machine can reach ordinary local GET routes if they can connect to `127.0.0.1:4317`. Set `PENNY_REQUIRE_API_TOKEN=1` if you want every `/api/*` route token-gated.

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   checkRuntimeEngines,
   parseMajorVersion,
+  readNpmVersion,
 } = require('../lib/penny-engine-check');
 
 const packageJson = {
@@ -42,4 +43,25 @@ test('checkRuntimeEngines rejects older Node and npm majors', () => {
   assert.equal(result.failures.length, 2);
   assert.match(result.failures.join('\n'), /Node\.js 24\.x/);
   assert.match(result.failures.join('\n'), /npm 11\.x/);
+});
+
+test('readNpmVersion falls back through cmd.exe when Windows cannot exec npm.cmd directly', () => {
+  const calls = [];
+  const version = readNpmVersion({
+    env: {},
+    platform: 'win32',
+    comSpec: 'cmd.exe',
+    execFileSync: (file, args) => {
+      calls.push([file, args]);
+      if (file === 'npm.cmd') throw new Error('cannot exec cmd shim directly');
+      if (file === 'cmd.exe') return '11.9.0\r\n';
+      throw new Error(`unexpected executable ${file}`);
+    },
+  });
+
+  assert.equal(version, '11.9.0');
+  assert.deepEqual(calls, [
+    ['npm.cmd', ['--version']],
+    ['cmd.exe', ['/d', '/s', '/c', 'npm.cmd --version']],
+  ]);
 });
