@@ -8,6 +8,7 @@ const http = require('node:http');
 const {
   buildGemmaRuntimeWatchForPreflight,
   buildPreflightFixes,
+  checkNpmVersion,
   runPreflight,
 } = require('../scripts/penny-preflight');
 
@@ -46,6 +47,83 @@ function makeSpawnSyncImpl({ installed, loaded, npmVersion = '11.12.1' }) {
     return { status: 1, stdout: '', stderr: `Unexpected lms command: ${args.join(' ')}` };
   };
 }
+
+function makeNoLmsSpawnSyncImpl({ npmVersion = '11.12.1' } = {}) {
+  return function spawnSyncImpl(command) {
+    if (command === 'npm') return { status: 0, stdout: npmVersion, stderr: '' };
+    if (command === 'lms') {
+      const error = new Error('spawnSync lms ENOENT');
+      error.code = 'ENOENT';
+      return { status: null, stdout: '', stderr: '', error };
+    }
+    return { status: 1, stdout: '', stderr: `Unexpected command: ${command}` };
+  };
+}
+
+test('runPreflight accepts a llama.cpp OpenAI-compatible endpoint without the LM Studio CLI', async () => {
+  const fixture = createEnvFixture({ presetReady: false });
+  const loaded = ['unsloth/gemma-4-31b-it@q6_k'];
+
+  const server = http.createServer((req, res) => {
+    if (req.url === '/v1/models') {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        Server: 'llama.cpp',
+      });
+      res.end(JSON.stringify({
+        data: loaded.map(id => ({ id, object: 'model', owned_by: 'llamacpp' })),
+      }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    const report = await runPreflight({
+      packageJson: { engines: { node: '>=24 <25', npm: '>=11 <12' } },
+      nodeVersion: '24.14.0',
+      baseUrl: `http://127.0.0.1:${address.port}/v1`,
+      env: {
+        ...fixture.env,
+        PENNY_LOCAL_LLM_BACKEND: 'llama_cpp',
+      },
+      chatModel: 'unsloth/gemma-4-31b-it@q6_k',
+      toolModel: 'google/gemma-4-e4b',
+      embedModel: 'text-embedding-nomic-embed-text-v1.5',
+      spawnSyncImpl: makeNoLmsSpawnSyncImpl(),
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(report.status.backendFamily, 'llama_cpp');
+    assert.equal(report.checks.some(check => check.name === 'lms-cli' && check.ok === false), false);
+    assert.equal(report.checks.find(check => check.name === 'local-endpoint').ok, true);
+    assert.equal(report.checks.find(check => check.name === 'local-readiness').ok, true);
+    assert.equal(report.checks.some(check => check.name === 'lmstudio-preset'), false);
+    assert.match(report.checks.find(check => check.name === 'local-readiness').detail, /tool.*fallback/i);
+    assert.match(report.fixes.join('\n'), /PENNY_LMSTUDIO_TOOL_MODEL|first-run local brain setup/i);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('checkNpmVersion uses the Windows npm.cmd shim before failing npm checks', () => {
+  const calls = [];
+  const check = checkNpmVersion({
+    packageJson: { engines: { npm: '>=11 <12' } },
+    platform: 'win32',
+    spawnSyncImpl(command, args) {
+      calls.push([command, args]);
+      if (command === 'npm.cmd') return { status: 0, stdout: '11.9.0\r\n', stderr: '' };
+      return { status: 1, stdout: '', stderr: `unexpected ${command}` };
+    },
+  });
+
+  assert.equal(check.ok, true);
+  assert.equal(check.detail, 'npm 11.9.0 matches release range >=11 <12.');
+  assert.deepEqual(calls, [['npm.cmd', ['-v']]]);
+});
 
 test('runPreflight passes with dual-lane models ready and preset wiring present', async () => {
   const fixture = createEnvFixture({ presetReady: true });
@@ -300,4 +378,21 @@ test('buildPreflightFixes gives novice-friendly next steps for common release bl
   assert.ok(fixes.some((line) => /embedding model.*optional/i.test(line)));
   assert.ok(fixes.some((line) => /PENNY_API_TOKEN/i.test(line)));
   assert.ok(fixes.some((line) => /port 4317/i.test(line)));
+});
+
+test('buildPreflightFixes does not treat optional embedding fallback as chat/tool setup failure', () => {
+  const fixes = buildPreflightFixes({
+    checks: [],
+    report: {
+      requestedChatModel: 'unsloth/gemma-4-31b-it',
+      requestedToolModel: 'google/gemma-4-e4b',
+      requestedEmbedModel: 'text-embedding-nomic-embed-text-v1.5',
+      blockers: [],
+      warnings: ['Embedding model text-embedding-nomic-embed-text-v1.5 is not exposed by llama.cpp, so semantic memory will fall back to keyword retrieval.'],
+    },
+    runtimeLabel: 'llama.cpp',
+  });
+
+  assert.equal(fixes.some((line) => /First-run local brain setup|PENNY_LMSTUDIO_CHAT_MODEL/i.test(line)), false);
+  assert.equal(fixes.some((line) => /embedding model.*optional/i.test(line)), true);
 });

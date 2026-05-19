@@ -39,7 +39,17 @@ Then open `http://localhost:4317`.
 
 On macOS/Linux, use `cp .env.example .env` instead of PowerShell `copy`. The durable background launcher is currently a Windows PowerShell helper; `npm start` is the portable foreground path.
 
-`npm run doctor` is the same local environment check as `npm run preflight`. It reports Node/npm posture, LM Studio reachability, selected models, semantic-memory fallback, web-reading state, and LAN/token posture.
+`npm run doctor` is the same local environment check as `npm run preflight`. It reports Node/npm posture, local endpoint reachability, selected models, semantic-memory fallback, web-reading state, and LAN/token posture.
+
+For llama.cpp or another already-running OpenAI-compatible endpoint, set the endpoint and backend in `.env`:
+
+```dotenv
+PENNY_LMSTUDIO_BASE=http://127.0.0.1:18080/v1
+PENNY_LOCAL_LLM_BACKEND=llama_cpp
+PENNY_LOCAL_LLM_TRANSPORT=chat
+```
+
+In that mode, `npm run doctor` skips LM Studio CLI/preset checks and validates `/v1/models` plus Penny's configured chat/tool lanes. The `PENNY_LMSTUDIO_*` names are historical; they still point at the local OpenAI-compatible endpoint Penny uses.
 
 ## First-Run Model Setup
 
