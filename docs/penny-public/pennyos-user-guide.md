@@ -45,7 +45,7 @@ The installed Windows app includes:
 - Penny's Tauri window.
 - A bundled Penny Node sidecar.
 - The Penny server runtime tree.
-- The public UI, sprites, Settings screen, sidecar review panels, and seed memory files.
+- The public UI, sprites, Settings screen, and seed memory files.
 - Writable app-data state for packaged mode.
 
 It does not include:
@@ -202,16 +202,6 @@ Settings -> First-run local brain setup lets you pick:
 
 That saves a local preference so you do not have to edit `.env` just because LM Studio or llama.cpp reports a slightly different model id.
 
-### Sidecar Panels
-
-The Settings sidecar panels are review surfaces. They are not memory ingestion by default.
-
-- Search sidecar: review-only search digest.
-- Docs/RAG sidecar: fixture or explicit local docs review.
-- Speaches/TTS sidecar: audio/TTS review experiment.
-
-These do not rewrite Penny's memory, PromptTruth, default context, or runtime voice unless a separate future approval path says so.
-
 ### Voice
 
 The old browser read-aloud path used Windows/browser system voices. If it sounded like a dusty robot in a hallway, that is because it was not Penny's real voice.
@@ -219,8 +209,10 @@ The old browser read-aloud path used Windows/browser system voices. If it sounde
 For now, treat voice as parked:
 
 - Browser read-aloud is not Penny's voice.
-- Speaches/TTS is a sidecar experiment, not the runtime voice.
+- PennyOS does not ship a bundled TTS voice.
 - A real Penny voice needs a better local TTS path before it deserves to be a normal consumer feature.
+
+Source/dev sidecar harnesses for search, docs/RAG, and Speaches/TTS may exist in the repository for future work, but they are not exposed in the consumer Settings UI and are not part of the downloadable app runtime.
 
 ## FAQ
 

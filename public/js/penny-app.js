@@ -57,9 +57,6 @@ import {
   renderMemoryInspector as renderMemoryInspectorUi,
   buildBrainModeNote,
 } from './penny-memory-panel.mjs';
-import {
-  renderSidecarWorkflowResult,
-} from './penny-sidecar-panel.mjs';
 
 const state = {
   panel: 'chat',
@@ -127,19 +124,6 @@ const els = {
   saveApiToken: document.getElementById('saveApiToken'),
   clearApiToken: document.getElementById('clearApiToken'),
   apiTokenStatus: document.getElementById('apiTokenStatus'),
-  sidecarSearchQuery: document.getElementById('sidecarSearchQuery'),
-  sidecarSearchLive: document.getElementById('sidecarSearchLive'),
-  sidecarSearchRun: document.getElementById('sidecarSearchRun'),
-  sidecarSearchResult: document.getElementById('sidecarSearchResult'),
-  sidecarDocsQuestion: document.getElementById('sidecarDocsQuestion'),
-  sidecarDocsLive: document.getElementById('sidecarDocsLive'),
-  sidecarDocsRun: document.getElementById('sidecarDocsRun'),
-  sidecarDocsResult: document.getElementById('sidecarDocsResult'),
-  sidecarAudioText: document.getElementById('sidecarAudioText'),
-  sidecarAudioLive: document.getElementById('sidecarAudioLive'),
-  sidecarAudioTtsTrial: document.getElementById('sidecarAudioTtsTrial'),
-  sidecarAudioRun: document.getElementById('sidecarAudioRun'),
-  sidecarAudioResult: document.getElementById('sidecarAudioResult'),
   imageInput: document.getElementById('imageInput'),
   imageBtn: document.getElementById('imageBtn'),
   imagePreview: document.getElementById('imagePreview'),
@@ -802,191 +786,6 @@ els.modelSetupFallback?.addEventListener('change', saveModelSetupFromControls);
 els.saveModelSetup?.addEventListener('click', saveModelSetupFromControls);
 els.refreshModelSetup?.addEventListener('click', () => loadBackendStatus());
 
-async function runSearchSidecarWorkflow() {
-  if (!els.sidecarSearchRun || !els.sidecarSearchResult) return;
-  const query = String(els.sidecarSearchQuery?.value || '').trim() || 'penny-local-sidecar';
-  const liveRequested = els.sidecarSearchLive?.checked === true;
-  els.sidecarSearchRun.disabled = true;
-  els.sidecarSearchResult.hidden = false;
-  els.sidecarSearchResult.dataset.status = 'loading';
-  els.sidecarSearchResult.textContent = 'Running search digest...';
-  try {
-    const res = await apiFetch('/api/penny/sidecars/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query,
-        mode: liveRequested ? 'live' : 'fixture',
-        allowLiveProbe: liveRequested,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    const workflow = data.workflow || {
-      ok: false,
-      status: 'blocked',
-      kind: 'search',
-      failure: { message: data.error || `Search sidecar failed: ${res.status}` },
-      authority: {
-        memoryWrite: false,
-        promptTruthChanged: false,
-        toolEvidenceReceiptChanged: false,
-        defaultContextChanged: false,
-      },
-      review: { requiresReview: true, autoIngested: false },
-    };
-    renderSidecarWorkflowResult({
-      container: els.sidecarSearchResult,
-      workflow,
-      escapeHtmlFn: escapeHtml,
-    });
-  } catch (error) {
-    renderSidecarWorkflowResult({
-      container: els.sidecarSearchResult,
-      workflow: {
-        ok: false,
-        status: 'blocked',
-        kind: 'search',
-        failure: { message: error?.message || 'Search sidecar request failed.' },
-        authority: {
-          memoryWrite: false,
-          promptTruthChanged: false,
-          toolEvidenceReceiptChanged: false,
-          defaultContextChanged: false,
-        },
-        review: { requiresReview: true, autoIngested: false },
-      },
-      escapeHtmlFn: escapeHtml,
-    });
-  } finally {
-    els.sidecarSearchRun.disabled = false;
-  }
-}
-
-async function runDocsSidecarWorkflow() {
-  if (!els.sidecarDocsRun || !els.sidecarDocsResult) return;
-  const question = String(els.sidecarDocsQuestion?.value || '').trim() || 'What do the fixture docs say about sidecar memory boundaries?';
-  const liveRequested = els.sidecarDocsLive?.checked === true;
-  els.sidecarDocsRun.disabled = true;
-  els.sidecarDocsResult.hidden = false;
-  els.sidecarDocsResult.dataset.status = 'loading';
-  els.sidecarDocsResult.textContent = 'Running document answer...';
-  try {
-    const res = await apiFetch('/api/penny/sidecars/docs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question,
-        mode: liveRequested ? 'live' : 'fixture',
-        allowLiveProbe: liveRequested,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    const workflow = data.workflow || {
-      ok: false,
-      status: 'blocked',
-      kind: 'docs',
-      failure: { message: data.error || `Docs sidecar failed: ${res.status}` },
-      authority: {
-        memoryWrite: false,
-        promptTruthChanged: false,
-        toolEvidenceReceiptChanged: false,
-        defaultContextChanged: false,
-      },
-      review: { requiresReview: true, autoIngested: false },
-    };
-    renderSidecarWorkflowResult({
-      container: els.sidecarDocsResult,
-      workflow,
-      escapeHtmlFn: escapeHtml,
-    });
-  } catch (error) {
-    renderSidecarWorkflowResult({
-      container: els.sidecarDocsResult,
-      workflow: {
-        ok: false,
-        status: 'blocked',
-        kind: 'docs',
-        failure: { message: error?.message || 'Docs sidecar request failed.' },
-        authority: {
-          memoryWrite: false,
-          promptTruthChanged: false,
-          toolEvidenceReceiptChanged: false,
-          defaultContextChanged: false,
-        },
-        review: { requiresReview: true, autoIngested: false },
-      },
-      escapeHtmlFn: escapeHtml,
-    });
-  } finally {
-    els.sidecarDocsRun.disabled = false;
-  }
-}
-
-async function runAudioSidecarWorkflow() {
-  if (!els.sidecarAudioRun || !els.sidecarAudioResult) return;
-  const text = String(els.sidecarAudioText?.value || '').trim() || 'Penny sidecar audio fixture.';
-  const liveRequested = els.sidecarAudioLive?.checked === true;
-  const ttsTrialRequested = els.sidecarAudioTtsTrial?.checked === true;
-  els.sidecarAudioRun.disabled = true;
-  els.sidecarAudioResult.hidden = false;
-  els.sidecarAudioResult.dataset.status = 'loading';
-  els.sidecarAudioResult.textContent = 'Running audio review...';
-  try {
-    const res = await apiFetch('/api/penny/sidecars/audio', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        mode: liveRequested ? 'live' : 'fixture',
-        allowLiveProbe: liveRequested,
-        speachesTtsTrial: ttsTrialRequested,
-        allowSpeachesTtsTrial: ttsTrialRequested,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    const workflow = data.workflow || {
-      ok: false,
-      status: 'blocked',
-      kind: 'audio',
-      failure: { message: data.error || `Audio sidecar failed: ${res.status}` },
-      authority: {
-        memoryWrite: false,
-        promptTruthChanged: false,
-        toolEvidenceReceiptChanged: false,
-        defaultContextChanged: false,
-        runtimeVoiceChanged: false,
-      },
-      review: { requiresReview: true, autoIngested: false },
-    };
-    renderSidecarWorkflowResult({
-      container: els.sidecarAudioResult,
-      workflow,
-      escapeHtmlFn: escapeHtml,
-    });
-  } catch (error) {
-    renderSidecarWorkflowResult({
-      container: els.sidecarAudioResult,
-      workflow: {
-        ok: false,
-        status: 'blocked',
-        kind: 'audio',
-        failure: { message: error?.message || 'Audio sidecar request failed.' },
-        authority: {
-          memoryWrite: false,
-          promptTruthChanged: false,
-          toolEvidenceReceiptChanged: false,
-          defaultContextChanged: false,
-          runtimeVoiceChanged: false,
-        },
-        review: { requiresReview: true, autoIngested: false },
-      },
-      escapeHtmlFn: escapeHtml,
-    });
-  } finally {
-    els.sidecarAudioRun.disabled = false;
-  }
-}
-
 async function consolidateMemory() {
   if (state.consolidating) return;
   state.consolidating = true; updateTheme();
@@ -1212,9 +1011,6 @@ els.clearApiToken?.addEventListener('click', () => {
   renderApiTokenControls();
   loadBackendStatus();
 });
-els.sidecarSearchRun?.addEventListener('click', runSearchSidecarWorkflow);
-els.sidecarDocsRun?.addEventListener('click', runDocsSidecarWorkflow);
-els.sidecarAudioRun?.addEventListener('click', runAudioSidecarWorkflow);
 els.refreshMemory.addEventListener('click', loadDurableMemory);
 els.clearAllMemories?.addEventListener('click', async () => { await patchMemory({ memories: [] }); });
 els.memoryInspectorToolbar?.addEventListener('click', async (event) => {

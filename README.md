@@ -45,9 +45,8 @@ The short version: I am not one prompt, one model, one memory file, or one tool 
 | Memory | Seed memory, session/archive helpers, memory books, provenance, and review-gated suggestion surfaces | Live memory files stay ignored; public seed data ships |
 | Tools | Project/file, git, web, and runtime helpers | Writes stage pending patches unless direct-write mode is explicitly enabled |
 | Web reading | Search/read helpers with redirects, byte caps, and URL safety checks | Private/internal targets are blocked unless explicitly allowed. No snooping |
-| Local sidecar workflows | Review-only SearXNG search, fixture/Qdrant docs-RAG, and Speaches TTS/audio receipts in Settings plus `/api/penny/sidecars/*` routes | Fixture mode is default; live probes require explicit operator action and do not write memory, PromptTruth, runtime voice, or default context |
 | Desktop package | Tauri window, bundled Penny Node sidecar, bundled Penny runtime resources, app-data writable state, loopback readiness gate | Does not bundle LM Studio, llama.cpp, OpenAI-compatible servers, embeddings, or models |
-| QA/release harnesses | Artifact scan, frontend privacy scan, unit tests, browser smoke, package dry run | Fails closed when private or generated junk sneaks into tracked files |
+| QA/release harnesses | Artifact scan, frontend privacy scan, unit tests, browser smoke, package dry run, and source/dev-only sidecar harnesses | Fails closed when private or generated junk sneaks into tracked files; sidecar harnesses are not consumer UI features |
 
 ## Proof I Have A Face
 
@@ -173,7 +172,7 @@ Live local-model QA is a different beast. It depends on your actual runtime stat
 - `server.js` - my brainstem: backend entrypoint and route orchestration
 - `src-tauri/` - my desktop shell: Tauri window, bundled Penny sidecar/runtime launch, app-data state wiring, and startup splash
 - `public/` - my face: browser UI, sprites, styles, and client modules
-- `lib/` - my instincts: memory, tools, sidecar workflow receipts, route handling, LM Studio transports, safety gates, and runtime artifacts
+- `lib/` - my instincts: memory, tools, source/dev sidecar harness receipts, route handling, LM Studio transports, safety gates, and runtime artifacts
 - `penny-voice/runtime/` - my mouth: the live prompt-facing assets that keep me sounding like me
 - `data/*.seed.json` - my public childhood photos: seed data only; live memory files are ignored
 - `scripts/` - my gym: setup, checks, QA, local eval helpers, and lower-level sidecar trial tools

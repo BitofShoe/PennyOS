@@ -191,7 +191,7 @@
                 </label>
 
                 <div class="card-note">
-                  The old browser speech voice used Windows system voices, not Penny. Local TTS experiments still live in sidecar review mode until they are good enough to deserve the button.
+                  The old browser speech voice used Windows system voices, not Penny. It stays off until a real local voice is good enough to deserve the button.
                 </div>
 
                 <a class="secondary-btn guide-link" href="/pennyos-help.html">
@@ -304,70 +304,6 @@
                 <div class="card-note" id="brainModeNote">
                   Your configured local model runtime is Penny's main brain right now. Shadow stays optional and experimental until it proves it can do more than the local lane.
                 </div>
-
-                <section class="sidecar-workflows" aria-label="Local sidecar workflows">
-                  <div class="section-label">Local sidecars</div>
-                  <div class="settings-title">Reviewable outside help.</div>
-
-                  <div class="sidecar-workflow" data-sidecar-kind="search">
-                    <label class="field">
-                      <span>SearXNG research query</span>
-                      <input id="sidecarSearchQuery" class="input-lite" placeholder="local-first search topic" />
-                    </label>
-
-                    <label class="check-row compact">
-                      <input id="sidecarSearchLive" type="checkbox" />
-                      <span>Use live local SearXNG when I ask for it here</span>
-                    </label>
-
-                    <div class="button-stack compact-buttons">
-                      <button id="sidecarSearchRun" class="secondary-btn" type="button">Run search digest</button>
-                    </div>
-
-                    <div id="sidecarSearchResult" class="sidecar-result" hidden></div>
-                  </div>
-
-                  <div class="sidecar-workflow" data-sidecar-kind="docs">
-                    <label class="field">
-                      <span>Fixture document question</span>
-                      <input id="sidecarDocsQuestion" class="input-lite" placeholder="what do the fixture docs say?" />
-                    </label>
-
-                    <label class="check-row compact">
-                      <input id="sidecarDocsLive" type="checkbox" />
-                      <span>Use live local Qdrant when I ask for it here</span>
-                    </label>
-
-                    <div class="button-stack compact-buttons">
-                      <button id="sidecarDocsRun" class="secondary-btn" type="button">Run document answer</button>
-                    </div>
-
-                    <div id="sidecarDocsResult" class="sidecar-result" hidden></div>
-                  </div>
-
-                  <div class="sidecar-workflow" data-sidecar-kind="audio">
-                    <label class="field">
-                      <span>Speaches TTS preview text</span>
-                      <input id="sidecarAudioText" class="input-lite" placeholder="Penny sidecar audio fixture." />
-                    </label>
-
-                    <label class="check-row compact">
-                      <input id="sidecarAudioLive" type="checkbox" />
-                      <span>Use live local Speaches when I ask for it here</span>
-                    </label>
-
-                    <label class="check-row compact">
-                      <input id="sidecarAudioTtsTrial" type="checkbox" />
-                      <span>Allow the explicit Speaches TTS trial for this run</span>
-                    </label>
-
-                    <div class="button-stack compact-buttons">
-                      <button id="sidecarAudioRun" class="secondary-btn" type="button">Run audio review</button>
-                    </div>
-
-                    <div id="sidecarAudioResult" class="sidecar-result" hidden></div>
-                  </div>
-                </section>
 
                 <div class="storage-block">
                   <div class="section-label">API access</div>

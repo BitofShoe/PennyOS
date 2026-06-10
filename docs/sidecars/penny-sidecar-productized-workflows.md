@@ -1,22 +1,23 @@
-# Penny-Facing Sidecar Workflows
+# Source/Dev Sidecar Workflow Harnesses
 
-Penny stays the companion runtime. These sidecar workflows are local review surfaces that let Penny ask outside tools for bounded help without importing those outputs into memory, PromptTruth, runtime voice, or default prompt context.
+Penny stays the companion runtime. These sidecar workflows are source/dev harnesses for future local-tool experiments. They are not exposed in the consumer Settings UI, are disabled by default behind `PENNY_ENABLE_REVIEW_SIDECARS=1`, and are not bundled as sidecar fixture content in the Tauri consumer runtime.
 
 ## Shared Rules
 
 - Sidecar outputs are review artifacts.
 - No sidecar workflow writes Penny memory.
 - No sidecar workflow expands PromptTruth or `toolEvidenceReceipt`.
+- Consumer PennyOS does not expose the browser controls for these harnesses.
+- API activation requires `PENNY_ENABLE_REVIEW_SIDECARS=1`.
 - Live probes are optional and require an explicit operator action.
 - Fixture mode is the default safe path for tests and static verification.
 - LM Studio and llama.cpp model state is not started, stopped, loaded, unloaded, or swapped by these workflows.
 
 ## Search: SearXNG
 
-Activation paths:
+Source/dev activation path:
 
-- Browser: Settings -> Local sidecars -> SearXNG research query -> Run search digest.
-- API: `POST /api/penny/sidecars/search`
+- API: `POST /api/penny/sidecars/search` with `PENNY_ENABLE_REVIEW_SIDECARS=1`.
 
 Fixture payload:
 
@@ -51,11 +52,10 @@ Receipts:
 
 ## Docs/RAG: Qdrant and Fixture Docs
 
-Activation paths:
+Source/dev activation paths:
 
-- Browser: Settings -> Local sidecars -> Fixture document question -> Run document answer.
-- API: `POST /api/penny/sidecars/docs`
-- Compatibility API alias: `POST /api/penny/sidecars/rag`
+- API: `POST /api/penny/sidecars/docs` with `PENNY_ENABLE_REVIEW_SIDECARS=1`.
+- Compatibility API alias: `POST /api/penny/sidecars/rag` with `PENNY_ENABLE_REVIEW_SIDECARS=1`.
 
 Fixture payload:
 
@@ -106,11 +106,10 @@ Receipts:
 
 ## TTS/Audio: Speaches
 
-Activation paths:
+Source/dev activation paths:
 
-- Browser: Settings -> Local sidecars -> Speaches TTS preview text -> Run audio review.
-- API: `POST /api/penny/sidecars/audio`
-- Compatibility API alias: `POST /api/penny/sidecars/tts`
+- API: `POST /api/penny/sidecars/audio` with `PENNY_ENABLE_REVIEW_SIDECARS=1`.
+- Compatibility API alias: `POST /api/penny/sidecars/tts` with `PENNY_ENABLE_REVIEW_SIDECARS=1`.
 
 Fixture payload:
 

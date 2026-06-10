@@ -118,9 +118,14 @@ const {
 const {
   createPennyRouteHandlers,
 } = require('./lib/penny-route-handlers');
-const {
-  createSidecarWorkflowApi,
-} = require('./lib/penny-sidecar-workflows');
+let createSidecarWorkflowApi = null;
+if (isEnabledEnv(process.env.PENNY_ENABLE_REVIEW_SIDECARS)) {
+  try {
+    ({ createSidecarWorkflowApi } = require('./lib/penny-sidecar-workflows'));
+  } catch (error) {
+    console.warn(`[penny sidecars] Review sidecar workflows requested but unavailable: ${error?.message || error}`);
+  }
+}
 const {
   createStaticMemoryIndexApi,
 } = require('./lib/penny-static-memory-index');
@@ -424,6 +429,7 @@ const TOOL_MAX_RESULT_CHARS = Number(process.env.PENNY_TOOL_MAX_RESULT_CHARS || 
 const PENNY_LAN_SHARE = isEnabledEnv(process.env.PENNY_LAN_SHARE);
 const PENNY_WEB_ALLOW_PRIVATE_NET = isEnabledEnv(process.env.PENNY_WEB_ALLOW_PRIVATE_NET);
 const PENNY_ENABLE_DIRECT_WORKSPACE_WRITES = isEnabledEnv(process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES);
+const PENNY_ENABLE_REVIEW_SIDECARS = isEnabledEnv(process.env.PENNY_ENABLE_REVIEW_SIDECARS);
 const WEB_SEARCH_ENABLED = process.env.PENNY_WEB_SEARCH_ENABLED === '1';
 const WEB_SEARCH_TIMEOUT_MS = Number(process.env.PENNY_WEB_SEARCH_TIMEOUT_MS || 15000);
 const WEB_SEARCH_MAX_RESULTS = Number(process.env.PENNY_WEB_SEARCH_MAX_RESULTS || 6);
@@ -3146,7 +3152,9 @@ const {
   streamLmStudioLocal: streamLmStudioLocalApi,
 } = lmStudioTransportApi;
 const createLaneRuntime = createLaneRuntimeApi;
-const sidecarWorkflowApi = createSidecarWorkflowApi();
+const sidecarWorkflowApi = createSidecarWorkflowApi
+  ? createSidecarWorkflowApi()
+  : { runSidecarWorkflow: null };
 
 function bindAbortSignal(controller, abortSignal) {
   if (!abortSignal) return;
@@ -3558,6 +3566,7 @@ const routeHandlers = createPennyRouteHandlers({
     MEMORY_ARCHIVE_FILE,
     MEMORY_EMBEDDINGS_FILE,
     WEB_SEARCH_ENABLED,
+    PENNY_ENABLE_REVIEW_SIDECARS,
   },
 });
 

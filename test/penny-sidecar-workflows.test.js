@@ -93,6 +93,9 @@ test('sidecar search route exposes the search workflow as a review-only API path
         },
       };
     },
+    constants: {
+      PENNY_ENABLE_REVIEW_SIDECARS: true,
+    },
   });
 
   const handled = await handlers.handleApiRoute({
@@ -113,6 +116,34 @@ test('sidecar search route exposes the search workflow as a review-only API path
       mode: 'fixture',
     },
   });
+});
+
+test('sidecar workflow routes are disabled by default in the consumer server surface', async () => {
+  let response = null;
+  let runnerCalled = false;
+  const handlers = createPennyRouteHandlers({
+    sendJson(_res, statusCode, json) {
+      response = { statusCode, json };
+    },
+    async safeReadBody() {
+      return JSON.stringify({ query: 'hidden consumer sidecar' });
+    },
+    runSidecarWorkflow() {
+      runnerCalled = true;
+    },
+  });
+
+  const handled = await handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://localhost/api/penny/sidecars/search'),
+  });
+
+  assert.equal(handled, true);
+  assert.equal(response.statusCode, 410);
+  assert.equal(response.json.ok, false);
+  assert.match(response.json.error, /PENNY_ENABLE_REVIEW_SIDECARS=1/);
+  assert.equal(runnerCalled, false);
 });
 
 test('docs sidecar workflow returns a cited RAG answer without memory or prompt authority', () => {
@@ -200,6 +231,9 @@ test('sidecar docs route exposes the RAG workflow as a review-only API path', as
           defaultContextChanged: false,
         },
       };
+    },
+    constants: {
+      PENNY_ENABLE_REVIEW_SIDECARS: true,
     },
   });
 
@@ -360,6 +394,9 @@ test('sidecar audio route exposes the TTS workflow as a review-only API path', a
         },
       };
     },
+    constants: {
+      PENNY_ENABLE_REVIEW_SIDECARS: true,
+    },
   });
 
   const handled = await handlers.handleApiRoute({
@@ -414,6 +451,9 @@ test('sidecar routes return 403 for explicit subtrial permission failures', asyn
           runtimeVoiceChanged: false,
         },
       };
+    },
+    constants: {
+      PENNY_ENABLE_REVIEW_SIDECARS: true,
     },
   });
 

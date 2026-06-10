@@ -20,7 +20,6 @@ const RUNTIME_ENTRIES = Object.freeze([
   { source: 'lib', target: 'lib', type: 'dir' },
   { source: 'public', target: 'public', type: 'dir' },
   { source: path.join('penny-voice', 'runtime'), target: path.join('penny-voice', 'runtime'), type: 'dir' },
-  { source: path.join('fixtures', 'sidecar-trials'), target: path.join('fixtures', 'sidecar-trials'), type: 'dir' },
   { source: path.join('data', 'penny-memory.seed.json'), target: path.join('data', 'penny-memory.seed.json'), type: 'file' },
   { source: path.join('data', 'penny-memory-books.seed.json'), target: path.join('data', 'penny-memory-books.seed.json'), type: 'file' },
 ]);
@@ -36,6 +35,12 @@ const FORBIDDEN_RUNTIME_PATTERNS = Object.freeze([
   /^test-results(?:\/|$)/i,
   /^\.git(?:\/|$)/i,
   /^data\/(?!penny-memory\.seed\.json$|penny-memory-books\.seed\.json$)/i,
+]);
+
+const SKIPPED_RUNTIME_PATTERNS = Object.freeze([
+  /^public\/js\/penny-sidecar-panel\.mjs$/i,
+  /^lib\/penny-sidecar-[^/]+\.js$/i,
+  /^lib\/penny-local-llm-app-catalog\.js$/i,
 ]);
 
 function parseArgs(argv = process.argv.slice(2)) {
@@ -124,6 +129,7 @@ function collectFiles(sourceAbs, targetRel, out = []) {
   }
   if (!stat.isFile()) return out;
   const normalized = slash(targetRel);
+  if (SKIPPED_RUNTIME_PATTERNS.some((pattern) => pattern.test(normalized))) return out;
   if (FORBIDDEN_RUNTIME_PATTERNS.some((pattern) => pattern.test(normalized))) {
     throw new Error(`Refusing to stage forbidden runtime path: ${normalized}`);
   }
@@ -227,6 +233,8 @@ function buildManifest(options = {}) {
         'src-tauri/target',
         'src-tauri/gen',
         '.env',
+        'source/dev sidecar harness libs',
+        'browser sidecar panel module',
       ],
     },
     appDataDefaults: {

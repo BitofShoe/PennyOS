@@ -166,13 +166,16 @@ test('Tauri sidecar staging manifest bundles runtime resources without private s
   assert.ok(targets.includes('public/index.html'));
   assert.ok(targets.includes('data/penny-memory.seed.json'));
   assert.ok(targets.includes('data/penny-memory-books.seed.json'));
-  assert.ok(targets.includes('fixtures/sidecar-trials/rag-questions.fixture.json'));
   assert.ok(targets.some((target) => target.startsWith('lib/')));
   assert.ok(targets.some((target) => target.startsWith('penny-voice/runtime/')));
   assert.ok(!targets.includes('data/penny-memory.json'));
   assert.ok(!targets.includes('.env'));
   assert.ok(!targets.includes('docs/penny-harness-engineering-link-review-2026-06-10.md'));
   assert.ok(!targets.includes('fixtures/penny-skill-baselines/source-review-fixture.json'));
+  assert.ok(!targets.some((target) => target.startsWith('fixtures/sidecar-trials/')));
+  assert.ok(!targets.includes('public/js/penny-sidecar-panel.mjs'));
+  assert.ok(!targets.some((target) => /^lib\/penny-sidecar-[^/]+\.js$/.test(target)));
+  assert.ok(!targets.includes('lib/penny-local-llm-app-catalog.js'));
   assert.ok(!targets.some((target) => target.startsWith('scripts/')));
   assert.ok(!targets.some((target) => target.startsWith('test/')));
   assert.ok(!targets.some((target) => target.startsWith('node_modules/')));
