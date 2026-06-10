@@ -49,3 +49,4 @@ Right now, shadow does not clear that bar.
 - Keep LM Studio as Penny's main chat and coding lane.
 - Keep shadow parked as experimental.
 - Revisit only after the OpenClaw gateway is healthy and Penny is explicitly wired into browser, exec, or scheduled-task features that produce a clear capability win.
+- Retest Codex Harness only with disposable workspace/server state after one of those capability wins exists; the retest must prove browser, exec, or scheduled-task behavior with receipts instead of relying on OpenClaw docs alone.

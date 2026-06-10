@@ -113,6 +113,15 @@ export function findBestModelMatch(modelIds, ...preferredIds) {
   return '';
 }
 
+function localRuntimeLabelFromStatus(status = null, lmStudio = {}) {
+  const explicit = String(status?.localRuntimeLabel || lmStudio?.localRuntimeLabel || '').trim();
+  if (explicit) return explicit;
+  const backend = String(status?.localLlmBackend || lmStudio?.localLlmBackend || '').trim().toLowerCase();
+  if (backend === 'llama_cpp' || backend === 'llamacpp') return 'llama.cpp';
+  if (backend === 'openai_compatible' || backend === 'generic_openai') return 'OpenAI-compatible local runtime';
+  return 'LM Studio';
+}
+
 export function formatLastLane(meta = null) {
   if (!meta || !meta.localLane) return 'pending';
   const lane = meta.localLane === 'tool' ? 'tool lane' : 'chat lane';
@@ -122,6 +131,9 @@ export function formatLastLane(meta = null) {
 
 export function buildFirstRunModelSetupViewModel(status = null) {
   const lmStudio = status?.lmStudio || status || {};
+  const localRuntimeLabel = localRuntimeLabelFromStatus(status, lmStudio);
+  const localLlmBackend = String(status?.localLlmBackend || lmStudio.localLlmBackend || 'lm_studio').trim() || 'lm_studio';
+  const localEndpointBase = String(status?.localEndpointBase || lmStudio.localEndpointBase || lmStudio.base || '').trim();
   const readiness = status?.readiness || lmStudio.readiness || {};
   const semantic = status?.semanticMemory || lmStudio.semanticMemory || {};
   const reachable = lmStudio.reachable === true;
@@ -137,12 +149,12 @@ export function buildFirstRunModelSetupViewModel(status = null) {
     : (chatReady && toolReady ? 'ready' : 'needs-setup');
   const visible = severity !== 'ready';
   const statusText = !reachable
-    ? 'LM Studio is offline or not serving Penny yet.'
+    ? `${localRuntimeLabel} is offline or not serving Penny yet.`
     : (chatReady && toolReady
       ? 'Local brain ready. Chat and tool lanes have models.'
-      : 'LM Studio is reachable; Penny needs model lanes picked or loaded.');
+      : `${localRuntimeLabel} is reachable; Penny needs model lanes picked or loaded.`);
   const laneHints = [];
-  if (!chatReady) laneHints.push('load one in LM Studio, then pick a chat model here');
+  if (!chatReady) laneHints.push(`load one in ${localRuntimeLabel}, then pick a chat model here`);
   if (!toolReady) laneHints.push('pick a tool model for file/project work');
   const rawHint = String(lmStudio.error || lmStudio.hint || '').trim();
   const hintText = laneHints.length
@@ -159,6 +171,9 @@ export function buildFirstRunModelSetupViewModel(status = null) {
     chatReady,
     toolReady,
     fallbackEnabled,
+    localLlmBackend,
+    localRuntimeLabel,
+    localEndpointBase,
     statusText,
     hintText,
     embeddingText,

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { ingestConversationThreads } = require('../lib/penny-knowledge-ingestion');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -19,9 +20,20 @@ function main() {
   const resolvedOutputPath = process.argv[3]
     ? path.resolve(ROOT_DIR, process.argv[3])
     : path.join(OUTPUT_DIR, `conversation-ingest-${STAMP}.json`);
-  const raw = JSON.parse(fs.readFileSync(resolvedInputPath, 'utf8'));
+  const rawSourceText = fs.readFileSync(resolvedInputPath, 'utf8');
+  const raw = JSON.parse(rawSourceText);
   const threads = Array.isArray(raw) ? raw : (Array.isArray(raw.threads) ? raw.threads : []);
-  const ingested = ingestConversationThreads(threads);
+  const ingested = ingestConversationThreads(threads, {
+    sourceArtifact: {
+      sourceType: 'conversation-export',
+      originalPath: resolvedInputPath,
+      originalName: path.basename(resolvedInputPath),
+      rawSourceText,
+      checksumSha256: crypto.createHash('sha256').update(rawSourceText).digest('hex'),
+      bytes: Buffer.byteLength(rawSourceText, 'utf8'),
+      processingStatus: 'parsed',
+    },
+  });
   ensureDir(path.dirname(resolvedOutputPath));
   fs.writeFileSync(resolvedOutputPath, `${JSON.stringify(ingested, null, 2)}\n`);
   console.log(`Saved conversation ingestion artifact to ${resolvedOutputPath}`);

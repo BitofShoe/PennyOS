@@ -258,7 +258,7 @@ try {
   Write-Step 'Install complete.'
   Write-Host ''
   Write-Host 'Next steps:'
-  Write-Host '  1. Start LM Studio and enable its local server.'
+  Write-Host '  1. Start your configured local model server (LM Studio by default) and enable its OpenAI-compatible API.'
   Write-Host '  2. Start Penny with the PennyOS Start shortcut or:'
   Write-Host '     powershell -ExecutionPolicy Bypass -File .\start-penny.ps1'
   Write-Host "  3. Open $pennyUrl"

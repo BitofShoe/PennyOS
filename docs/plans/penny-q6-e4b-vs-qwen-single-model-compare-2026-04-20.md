@@ -118,11 +118,12 @@
 ## Artifact lifecycle / cleanup
 
 - Which debug, QA, or bundle artifacts will be created:
+  - fixture-only lane matrix: `output/lane-compare-*.json` from `npm run qa:lane-compare`
   - `output/voice-redo-qa-*.json`
   - `output/memory-qa-semantic-archive-*.json`
   - `output/memory-qa-mixed-drift-*.json`
   - `output/playwright/penny-browser-smoke-*.json`
-  - future compare artifacts such as `output/lane-compare-<profile>-*.json`
+  - future live-isolated per-profile compare artifacts, only after explicit operator approval
   - temporary server stdout/stderr logs for each disposable run
 - What should be persisted:
   - the final per-profile QA artifacts
@@ -135,7 +136,7 @@
 
 ## Out-of-scope list
 
-- Explicitly out of scope: actually running this compare in this setup slice.
+- Explicitly out of scope: actually running the live isolated model compare in this setup slice. The checked-in lane runner is fixture-only by default.
 - Explicitly out of scope: declaring the single-model profile good enough to replace the split default before the artifact set exists.
 - Explicitly out of scope: broad runtime refactors, prompt rewrites, or lane-policy changes.
 - Explicitly out of scope: Q8, extra tool models, or stress-testing more than one heavy run at a time.

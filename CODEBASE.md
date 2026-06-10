@@ -8,10 +8,12 @@ This project is a single-user local Penny companion prototype:
 
 - browser UI
 - Node backend
-- LM Studio as the main brain
+- LM Studio as the default main brain, with llama.cpp/generic OpenAI-compatible endpoints supported through compatibility-named local runtime settings
 - durable local memory
 - runtime voice system
 - experimental OpenClaw shadow lane
+
+Release posture: source-available technical preview, local/private runtime, not intended for public internet exposure. Tauri now has a Windows-first package path in `src-tauri/` that stages a bundled Node sidecar plus Penny runtime resources; it is not a model bundle, LM Studio bundle, signed/updating public release, or public-internet package.
 
 ## Root-level files that matter most
 
@@ -29,6 +31,10 @@ Windows PowerShell background stopper.
 Windows GitHub source ZIP installer entrypoints.
 - `start-lyra.ps1` / `stop-lyra.ps1`
 Compatibility aliases only.
+- `src-tauri/`
+Tauri desktop wrapper and package owner. Source/dev runs can fall back to `node server.js`; packaged builds launch `penny-node` as a sidecar against bundled `penny-runtime` resources, wait for Penny's status route, and load the existing browser UI in a native window.
+- [start-penny-tauri.ps1](./start-penny-tauri.ps1)
+Windows PowerShell helper for the desktop wrapper's build/dev path.
 
 ### Current high-value docs
 
@@ -87,9 +93,9 @@ Mood/expression runtime helpers for Penny's visible vessel.
 - `public/js/penny-ambient-chrome.mjs`
 Ambient chrome helpers such as the boot overlay, emoji picker, particle effects, and idle/parallax behavior.
 - `public/js/penny-memory-panel.mjs`
-  Memory-inspector rendering, including the latest-reply summary, runtime artifact views, trace provenance, reasoning-policy summaries, question-scoped research continuity views, and compact recent-audit history.
+  User-facing Memory surface plus advanced inspector rendering, including remembered facts, reviewable suggestions, memory connections, latest-reply summary, runtime artifact views, trace provenance, reasoning-policy summaries, question-scoped research continuity views, and compact recent-audit history.
 - `public/js/penny-lmstudio-ui.js`
-LM Studio diagnostics and chat-model picker helpers.
+Configured local-runtime diagnostics and chat-model picker helpers. Route names and historical `PENNY_LMSTUDIO_*` fields remain compatible even when the backend is llama.cpp/generic OpenAI-compatible.
 - `public/js/penny-attachments.js`
 Attachment prep and preview handling. Images are compressed client-side, cleared after send, and treated as current-turn payloads rather than durable browser history.
 - `public/js/penny-storage.js`
@@ -381,9 +387,9 @@ Likely modules you will touch:
 - hybrid archive recall/promotion/background-vectorization logic in `lib/penny-memory-archive.js`
 - archive utility scoring and pruning heuristics for evals plus live background-prewarm candidate ranking in `lib/penny-memory-archive-policy.js`
 - research continuity topic tracking in `lib/penny-research-ledger.js`
-- advisory open-loop continuity in `lib/penny-open-loops.js`, `lib/penny-open-loop-store.js`, and `lib/penny-open-loop-extraction.js`; the live bridge is off by default, bounded to one relevant advisory snippet when opted in, and must not become explicit memory or autonomous task execution
-- bounded initiative policy in `lib/penny-initiative-policy.js`; the live bridge is off by default via `PENNY_ENABLE_BOUNDED_INITIATIVE`, capped at one optional suggestion, cooldown-aware, user-dismissible, and must not write memory, take side effects, or claim unchecked source support
-- ephemeral turn-state response shaping in `lib/penny-turn-state.js`; the live prompt bridge is off by default via `PENNY_ENABLE_TURN_STATE_PROMPT`, capped by `PENNY_TURN_STATE_MAX_TOKENS`, and must stay current-turn-only, sanitized, non-persistent, non-CoT, and non-authoritative
+- advisory open-loop continuity in `lib/penny-open-loops.js`, `lib/penny-open-loop-store.js`, and `lib/penny-open-loop-extraction.js`; the shipped `.env.example` local companion profile enables the live bridge, but the raw server default remains env-off, bounded to one relevant advisory snippet when opted in, and must not become explicit memory or autonomous task execution
+- bounded initiative policy in `lib/penny-initiative-policy.js`; the shipped `.env.example` profile enables the live bridge via `PENNY_ENABLE_BOUNDED_INITIATIVE=1`, but the raw server default remains env-off, capped at one optional suggestion, cooldown-aware, user-dismissible, and must not write memory, take side effects, or claim unchecked source support
+- ephemeral turn-state response shaping in `lib/penny-turn-state.js`; the shipped `.env.example` profile enables the live prompt bridge via `PENNY_ENABLE_TURN_STATE_PROMPT=1`, but the raw server default remains env-off, capped by `PENNY_TURN_STATE_MAX_TOKENS`, and must stay current-turn-only, sanitized, non-persistent, non-CoT, and non-authoritative
 - frame-budget receipts and scheduling in `lib/penny-frame-budget.js`; these artifacts describe runtime shape, deadline behavior, and candidate selection/rendering pressure without becoming PromptTruth, tool evidence, answer-quality proof, or permission to raise limits
 - bounded background frame work in `lib/penny-background-frame.js`; queued work must stay local-only, bounded, dedupable/skippable, and unable to claim completion unless it actually ran
 - prompt composition and transport shaping in `server.js`
@@ -393,6 +399,7 @@ Likely modules you will touch:
 - direct deterministic tool execution in `lib/penny-direct-tool-assist.js`
 - concrete tool implementations in `lib/penny-*-tools.js`
 - internal tool capability descriptors in `lib/penny-tool-registry.js`, including advisory output/source-cost metadata that can be echoed into runtime artifact `toolCostSummary` without changing planner behavior or becoming runtime authority by itself
+- productized local sidecar workflow receipts in `lib/penny-sidecar-workflows.js`; SearXNG search, fixture/Qdrant docs-RAG, and Speaches TTS/audio stay review-only, fixture-first, and separate from memory, PromptTruth, tool evidence, runtime voice, default context, and model state
 - LM Studio status/model resolution in `lib/penny-lmstudio-status.js`
 - LM Studio transport selection in `lib/penny-lmstudio-transports.js`
 - Gemma chat sampling defaults and transport payload fields in `lib/penny-lmstudio-transports.js`, with env wiring in `server.js`
@@ -432,12 +439,13 @@ Likely modules you will touch:
 Start here:
 
 - `public/js/penny-app.js`
+- `public/js/penny-sidecar-panel.mjs` for rendering local sidecar workflow receipts in Settings
 - `public/styles.css`
 - `public/index.html`
 
 Memory inspector note:
 
-- the debug Memory tab now starts with a latest-reply summary, then shows canonical explicit memory plus archive inspector data, runtime artifacts, trace provenance, reasoning-policy summaries, research continuity topics, recency protection, prompt-slot composition, prompt-truth receipts, tool-evidence receipts, cleanup-transform metadata, approximate-path policy, and advisory-merge summaries
+- the Memory tab is visible by default and starts with remembered facts, thinking-about-saving suggestions, and memory connections; advanced diagnostics then show archive inspector data, runtime artifacts, trace provenance, reasoning-policy summaries, research continuity topics, recency protection, prompt-slot composition, PromptTruth receipts, tool-evidence receipts, cleanup-transform metadata, approximate-path policy, and advisory-merge summaries
 - research-ledger rows now expose anchor/scope identity plus `sourceClass`, `summaryClass`, and `summaryEvidenceRefs`
 - archive review/purge actions still live in `public/js/penny-app.js`, while rendering logic now lives in `public/js/penny-memory-panel.mjs`
 - `public/js/penny-storage.js` still sends only explicit browser memory settings to the server; archive state is not browser-owned
@@ -476,11 +484,11 @@ Static embedding live sidecar work is opt-in. Normal repo work should leave `PEN
 
 The optional `@yarflam/potion-base-8m` package is the local static embedding provider for those experiments. It is exact-pinned, optional, and candidate-discovery-only; Penny runs without it.
 
-Open-loop continuity work is also opt-in at the live prompt bridge. The state/store/extraction/lifecycle helpers are real code, but normal runtime prompt injection requires `PENNY_ENABLE_OPEN_LOOP_PROMPT=1` and stays capped by `PENNY_OPEN_LOOP_MAX_RENDERED=1` plus `PENNY_OPEN_LOOP_MAX_TOKENS`. `npm run eval:open-loop-compare` is the current compare harness; passing it means eligible for local opt-in, not permission to raise prompt limits, expand PromptTruth, or let Penny surface unrelated follow-ups.
+Open-loop continuity work is enabled in the shipped local companion profile, while still env-gated in the raw server. The state/store/extraction/lifecycle helpers are real code, runtime prompt injection requires `PENNY_ENABLE_OPEN_LOOP_PROMPT=1`, and it stays capped by `PENNY_OPEN_LOOP_MAX_RENDERED=1` plus `PENNY_OPEN_LOOP_MAX_TOKENS`. Profile enablement is not permission to raise prompt limits, expand PromptTruth, or let Penny surface unrelated follow-ups.
 
-Bounded initiative work is opt-in at the live prompt bridge. The pure policy, fixture scaffold, user controls, review-gated memory suggestion checks, and pressure canaries are real code, but normal runtime prompt injection requires `PENNY_ENABLE_BOUNDED_INITIATIVE=1` and stays capped by `PENNY_INITIATIVE_MAX_PER_TURN=1` plus cooldown suppression. It records `modelAdvisory.initiativePromptBridge` as sibling advisory metadata; it is not PromptTruth, not `toolEvidenceReceipt`, not an automatic memory write, and not autonomous task execution. Default enablement should follow the bounded aliveness adoption checklist, not just the fixture canaries.
+Bounded initiative work is enabled in the shipped local companion profile, while still env-gated in the raw server. The pure policy, fixture scaffold, user controls, review-gated memory suggestion checks, and pressure canaries are real code, runtime prompt injection requires `PENNY_ENABLE_BOUNDED_INITIATIVE=1`, and it stays capped by `PENNY_INITIATIVE_MAX_PER_TURN=1` plus cooldown suppression. It records `modelAdvisory.initiativePromptBridge` as sibling advisory metadata; it is not PromptTruth, not `toolEvidenceReceipt`, not an automatic memory write, and not autonomous task execution.
 
-Ephemeral turn-state work is opt-in at the live prompt bridge. The schema, signal extractor, fixture renderer, live bridge, retention guardrails, helper-level aliveness inputs, and T8 QA cases are real code, but normal runtime prompt injection requires `PENNY_ENABLE_TURN_STATE_PROMPT=1` and stays capped by `PENNY_TURN_STATE_MAX_TOKENS`. It records `modelAdvisory.turnStatePromptBridge` as sibling advisory metadata; it is not memory, not chain-of-thought, not PromptTruth, not `toolEvidenceReceipt`, and not truth authority. Default enablement should follow the bounded aliveness adoption checklist, not just fixture coverage.
+Ephemeral turn-state work is enabled in the shipped local companion profile, while still env-gated in the raw server. The schema, signal extractor, fixture renderer, live bridge, retention guardrails, helper-level aliveness inputs, and T8 QA cases are real code, runtime prompt injection requires `PENNY_ENABLE_TURN_STATE_PROMPT=1`, and it stays capped by `PENNY_TURN_STATE_MAX_TOKENS`. It records `modelAdvisory.turnStatePromptBridge` as sibling advisory metadata; it is not memory, not chain-of-thought, not PromptTruth, not `toolEvidenceReceipt`, and not truth authority.
 
 Bounded aliveness compare work is the current adoption evidence layer for the combined static-live, turn-state, open-loop, and bounded-initiative stack. `npm run eval:aliveness:fixture` is fixture-only and can recommend only live-shadow review. `node scripts/eval-penny-aliveness-compare.js --live-isolated` spawns disposable Penny servers and a mock LM Studio backend, then writes `penny-aliveness-compare.v1` artifacts with human-observable wins, continuity wins, trust-pressure blockers, prompt/latency deltas, rendered advisory counts, manual-review fields, `decisionThresholds`, and `adoptionChecklist`. Live-isolated state is disposable: memory, archive, embeddings, static embedding cache, research ledger, open-loop state, initiative-session state, and memory books are isolated per side and cleanup failure invalidates the run. Passing live-isolated evidence can make local live-advisory review eligible; it is not default enablement.
 

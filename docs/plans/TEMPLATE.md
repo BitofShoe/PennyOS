@@ -90,6 +90,11 @@ Use this section when a plan is driven by external URLs, repos, papers, docs, po
 - Platformization risk:
 - Current-law conflict:
 - Owner seams:
+- OpenClaw skill intake:
+  - Does the skill inject host-process env vars, API keys, or secrets?
+  - Does it require host binaries, installers, ClawHub, hosted services, or network accounts?
+  - Does it increase always-loaded skill-list token load or belong in OpenClaw-native `<workspace>/skills` instead of Codex `.codex/skills`?
+  - Does it alter Penny runtime context, PromptTruth, tool evidence, memory, or model lanes?
 - Verification commands:
 - Artifact scope/limits:
 

@@ -1,5 +1,8 @@
 qa-transitions/
 node_modules/
+src-tauri/gen/
+src-tauri/binaries/
+src-tauri/target/
 qa-composer-visual/
 .qa-pw/
 output/
@@ -21,6 +24,7 @@ lyra-prototype/
 .openclaw/
 data/penny-memory*.json
 data/penny-open-loops*.json
+data/penny-pending-workspace-writes.json
 !data/penny-memory.seed.json
 !data/penny-memory-books.seed.json
 .playwright-cli/

@@ -2,6 +2,10 @@
 
 Date: 2026-04-12
 
+## Status overlay - 2026-05-25
+
+This review is still useful for evaluation methodology and architecture boundaries, but some repository-state claims are stale. `package.json` now has a normal `npm test` entry, and Penny has added fixture/unit coverage around memory, semantic claims, link policy, prompt stacks, web safety, route behavior, and release checks. Do not use the older "no test script" wording as current law. The live-model caveat still stands: model QA depends on local runtime state and must be labeled separately from static tests.
+
 Sources reviewed:
 - Reddit: [RYS II - Repeated layers with Qwen3.5 27B and some hints at a "Universal Language"](https://www.reddit.com/r/LocalLLaMA/comments/1s1t5ot/rys_ii_repeated_layers_with_qwen35_27b_and_some/)
 - Blog: [LLM Neuroanatomy: How I Topped the LLM Leaderboard Without Changing a Single Weight](https://dnhkng.github.io/posts/rys/)

@@ -358,3 +358,29 @@ test('candidate-only weak links cannot become verified support or override sourc
   assert.equal(shadow.truthProof, false);
   assert.equal(shadow.reasons.includes('related-but-weak:ignored-source-authority'), true);
 });
+
+test('weak entity-collision links leave active correction scores unchanged', () => {
+  const shadow = scoreMemoryLinkShadowForCandidate({
+    id: 'project:aim-labs-local',
+    activeScore: 7.25,
+    sourceAuthority: 'verified',
+  }, {
+    memoryLinks: [
+      {
+        id: 'weak-aim-labs-name-collision',
+        sourceId: 'project:aim-labs-public',
+        targetId: 'project:aim-labs-local',
+        relation: MEMORY_LINK_RELATIONS.RELATED_BUT_WEAK,
+        confidence: 'low',
+        support: { state: MEMORY_LINK_SUPPORT_STATES.SEMANTIC_CANDIDATE },
+        authorityEffect: MEMORY_LINK_AUTHORITY_EFFECTS.CURRENT_TRUTH_BOOST,
+      },
+    ],
+    activeMode: true,
+  });
+
+  assert.equal(shadow.score, 0);
+  assert.equal(shadow.shadowAdjustedScore, 7.25);
+  assert.equal(shadow.truthProof, false);
+  assert.equal(shadow.reasons.includes('related-but-weak:ignored-source-authority'), true);
+});

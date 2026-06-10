@@ -2,6 +2,10 @@
 
 Date: 2026-04-12
 
+## Status overlay - 2026-05-25
+
+Some findings below are historical and partially superseded. Root `ARCHITECTURE.md`, `CODEBASE.md`, and `README.md` now exist, `package.json` exposes a normal `npm test` lane, and multiple backend/frontend owners have been extracted. The remaining debt is still real: `server.js` and `public/js/penny-app.js` are large orchestration shells and should stay thin while new behavior lands in named `lib/` or `public/js/` owners. Treat older "missing docs" or "no test lane" claims as stale, but keep the decomposition warning active.
+
 Thread reviewed:
 
 - Reddit: [How do you stop codebase from degenerating into an un-maintainable AI-slop mess?](https://www.reddit.com/r/LocalLLaMA/comments/1sjbvm7/how_do_you_stop_codebase_from_degenerating_into/)

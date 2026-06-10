@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Starting PennyOS</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #111317;
+        --panel: #181c22;
+        --text: #f3f0e8;
+        --muted: #a7adb7;
+        --line: #2b313b;
+        --accent: #e6b45e;
+        --accent-ink: #1c1407;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 50% 30%, rgba(230, 180, 94, 0.12), transparent 34rem),
+          var(--bg);
+        color: var(--text);
+        font: 16px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        width: min(36rem, calc(100vw - 2rem));
+        padding: 2rem;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--panel) 94%, transparent);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+      }
+
+      h1 {
+        margin: 0 0 0.6rem;
+        font-size: clamp(1.65rem, 4vw, 2.2rem);
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .status {
+        min-height: 3.2rem;
+        margin-top: 1.4rem;
+        padding: 0.9rem 1rem;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #12161c;
+        color: var(--text);
+      }
+
+      button {
+        margin-top: 1rem;
+        min-height: 2.5rem;
+        padding: 0 1rem;
+        border: 0;
+        border-radius: 6px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:focus-visible {
+        outline: 2px solid var(--text);
+        outline-offset: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Starting PennyOS</h1>
+      <p>PennyOS is opening the local Penny server and will switch into the app once the status route is ready.</p>
+      <div class="status" id="status">Waiting for the local Penny server...</div>
+      <button type="button" onclick="location.reload()">Retry</button>
+    </main>
+    <script>
+      window.__pennyTauriSetStatus = function setPennyTauriStatus(message) {
+        const status = document.getElementById('status');
+        if (status) status.textContent = message || 'PennyOS is still waiting for the local Penny server.';
+      };
+    </script>
+  </body>
+</html>

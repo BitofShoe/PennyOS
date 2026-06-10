@@ -21,3 +21,6 @@ data/penny-memory*.json
 data/penny-open-loops*.json
 !data/penny-memory.seed.json
 !data/penny-memory-books.seed.json
+src-tauri/gen/
+src-tauri/binaries/
+src-tauri/target/

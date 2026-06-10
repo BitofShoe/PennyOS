@@ -283,6 +283,42 @@ test('candidate-only semantic links stay advisory and cannot influence ranking',
   assert.equal(link.semanticContract.canonicalMemoryWrite, false);
 });
 
+test('related-but-weak collision links stay non-authoritative even for near-name entities', () => {
+  const localProject = buildSemanticEntityId({ entityType: 'project', entityKey: 'aim-labs-local' });
+  const publicProject = buildSemanticEntityId({ entityType: 'project', entityKey: 'aim-labs-public' });
+  const localClaimId = buildSemanticClaimId({
+    subjectId: localProject,
+    predicateId: SEMANTIC_PREDICATE_IDS.PROJECT_FOCUS,
+    objectText: 'local runtime',
+    sourceId: buildSemanticSourceId({ sourceType: 'archive-episode', sourceId: 'local-runtime' }),
+    domainId: SEMANTIC_DOMAIN_IDS.SESSION_ARCHIVE,
+    temporalScope: 'current',
+  });
+  const publicClaimId = buildSemanticClaimId({
+    subjectId: publicProject,
+    predicateId: SEMANTIC_PREDICATE_IDS.PROJECT_FOCUS,
+    objectText: 'public repo',
+    sourceId: buildSemanticSourceId({ sourceType: 'static-candidate', sourceId: 'public-repo' }),
+    domainId: SEMANTIC_DOMAIN_IDS.STATIC_MEMORY,
+    temporalScope: 'current',
+  });
+  const link = normalizeMemoryLink({
+    sourceClaimId: publicClaimId,
+    targetClaimId: localClaimId,
+    relation: MEMORY_LINK_RELATIONS.RELATED_BUT_WEAK,
+    support: { state: MEMORY_LINK_SUPPORT_STATES.SEMANTIC_CANDIDATE },
+    sourceAuthority: 'candidate-only',
+    authorityEffect: MEMORY_LINK_AUTHORITY_EFFECTS.CURRENT_TRUTH_BOOST,
+    createdAt: NOW,
+  });
+
+  assert.equal(link.relation, MEMORY_LINK_RELATIONS.RELATED_BUT_WEAK);
+  assert.equal(link.canInfluenceRanking, false);
+  assert.equal(link.authorityEffect, MEMORY_LINK_AUTHORITY_EFFECTS.RETRIEVAL_BOOST_ONLY);
+  assert.equal(link.truthProof, false);
+  assert.equal(link.canonicalMemoryWrite, false);
+});
+
 test('link summaries count relation types and authority effects', () => {
   const links = [
     normalizeMemoryLink({

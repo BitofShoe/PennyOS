@@ -22,8 +22,14 @@ function formatBytes(value = 0) {
   return `${Number(value || 0)}b`;
 }
 
-function buildApi({ pathAliases = {}, directWorkspaceWritesEnabled = false, textExtensions = null } = {}) {
-  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-project-tools-'));
+function buildApi({
+  projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-project-tools-')),
+  pathAliases = {},
+  directWorkspaceWritesEnabled = false,
+  textExtensions = null,
+  pendingWriteTtlMs,
+  now,
+} = {}) {
   const api = createProjectToolsApi({
     projectRoot,
     pathAliases,
@@ -40,6 +46,8 @@ function buildApi({ pathAliases = {}, directWorkspaceWritesEnabled = false, text
     TOOL_COMMAND_TIMEOUT_MS: 1000,
     execFileText: async () => ({ stdout: '', stderr: '' }),
     directWorkspaceWritesEnabled,
+    pendingWriteTtlMs,
+    now,
   });
   return {
     api,
@@ -93,6 +101,8 @@ test('project tool guards reject root escapes and oversized writes', () => {
     const outsideFile = path.join(path.dirname(projectRoot), 'outside.txt');
     fs.writeFileSync(outsideFile, 'nope\n');
     assert.throws(() => api.readProjectFileTool({ path: path.join('..', 'outside.txt') }), /inside the Penny project/i);
+    assert.throws(() => api.readProjectFileTool({ path: '..\\outside.txt' }), /inside the Penny project/i);
+    assert.throws(() => api.readProjectFileTool({ path: 'src\\..\\..\\outside.txt' }), /inside the Penny project/i);
     assert.throws(() => api.writeProjectFileTool({ path: 'src/big.js', content: 'x'.repeat(1024) }), /Keep tool writes under/i);
     fs.rmSync(outsideFile, { force: true });
   } finally {
@@ -125,6 +135,10 @@ test('project path aliases resolve scoped external roots', () => {
 
     assert.throws(
       () => api.readProjectFileTool({ path: 'obsidian-vault/../outside.md' }),
+      /inside the obsidian-vault alias/i,
+    );
+    assert.throws(
+      () => api.readProjectFileTool({ path: 'obsidian-vault\\..\\outside.md' }),
       /inside the obsidian-vault alias/i,
     );
   } finally {
@@ -175,6 +189,94 @@ test('pending workspace writes can be denied and conflict if the base file chang
       () => api.approvePendingWorkspaceWriteTool({ id: staged.id }),
       /changed after the pending write was staged/i,
     );
+  } finally {
+    cleanup();
+  }
+});
+
+test('pending workspace writes persist across API re-creation and approval removes stored item', () => {
+  const { api, projectRoot, cleanup } = buildApi();
+  try {
+    const staged = api.writeProjectFileTool({
+      path: 'src/persisted.js',
+      content: 'console.log("persisted");\n',
+    });
+    const storePath = path.join(projectRoot, 'data', 'penny-pending-workspace-writes.json');
+    assert.equal(fs.existsSync(storePath), true);
+    const stored = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+    assert.equal(stored.schema, 'penny-pending-workspace-writes.v1');
+    assert.equal(stored.pending[0].id, staged.id);
+    assert.equal(stored.pending[0].path, 'src/persisted.js');
+    assert.equal(Object.hasOwn(stored.pending[0], 'filePath'), false);
+
+    const { api: reloadedApi } = buildApi({ projectRoot });
+    const listed = reloadedApi.listPendingWorkspaceWritesTool();
+    assert.equal(listed.count, 1);
+    assert.equal(listed.pending[0].id, staged.id);
+    assert.equal(listed.pending[0].path, 'src/persisted.js');
+
+    const approved = reloadedApi.approvePendingWorkspaceWriteTool({ id: staged.id });
+    assert.equal(approved.approved, true);
+    assert.equal(fs.readFileSync(path.join(projectRoot, 'src', 'persisted.js'), 'utf8'), 'console.log("persisted");\n');
+    const afterApprove = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+    assert.deepEqual(afterApprove.pending, []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('expired pending workspace writes are pruned from the local store', () => {
+  let currentTime = 1000;
+  const { api, projectRoot, cleanup } = buildApi({
+    pendingWriteTtlMs: 1000,
+    now: () => currentTime,
+  });
+  try {
+    api.writeProjectFileTool({
+      path: 'src/expired.js',
+      content: 'console.log("expired");\n',
+    });
+    const storePath = path.join(projectRoot, 'data', 'penny-pending-workspace-writes.json');
+    currentTime = 3001;
+    const { api: reloadedApi } = buildApi({
+      projectRoot,
+      pendingWriteTtlMs: 1000,
+      now: () => currentTime,
+    });
+    const listed = reloadedApi.listPendingWorkspaceWritesTool();
+    assert.equal(listed.count, 0);
+    const stored = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+    assert.deepEqual(stored.pending, []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('reloaded pending workspace writes can be denied and still detect changed-base conflicts', () => {
+  const { api, projectRoot, cleanup } = buildApi();
+  try {
+    fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'src', 'app.js'), 'one\n');
+
+    const denied = api.replaceInProjectFileTool({ path: 'src/app.js', find: 'one', replace: 'two' });
+    const { api: reloadedForDeny } = buildApi({ projectRoot });
+    const deniedResult = reloadedForDeny.denyPendingWorkspaceWriteTool({ id: denied.id });
+    assert.equal(deniedResult.denied, true);
+    assert.equal(fs.readFileSync(path.join(projectRoot, 'src', 'app.js'), 'utf8'), 'one\n');
+    const storePath = path.join(projectRoot, 'data', 'penny-pending-workspace-writes.json');
+    const afterDeny = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+    assert.deepEqual(afterDeny.pending, []);
+
+    const conflict = reloadedForDeny.replaceInProjectFileTool({ path: 'src/app.js', find: 'one', replace: 'three' });
+    const { api: reloadedForConflict } = buildApi({ projectRoot });
+    fs.writeFileSync(path.join(projectRoot, 'src', 'app.js'), 'changed elsewhere\n');
+    assert.throws(
+      () => reloadedForConflict.approvePendingWorkspaceWriteTool({ id: conflict.id }),
+      /changed after the pending write was staged/i,
+    );
+    const stored = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+    assert.equal(stored.pending.length, 1);
+    assert.equal(stored.pending[0].id, conflict.id);
   } finally {
     cleanup();
   }

@@ -57,6 +57,15 @@ test('.env.example exposes background vectorization and transport-default ration
   assert.match(envExample, /chat/i);
 });
 
+test('.env.example ships the local companion profile with aliveness features enabled', () => {
+  const envExample = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8');
+  assert.match(envExample, /PENNY_ENABLE_OPEN_LOOP_PROMPT=1/);
+  assert.match(envExample, /PENNY_ENABLE_BOUNDED_INITIATIVE=1/);
+  assert.match(envExample, /PENNY_ENABLE_TURN_STATE_PROMPT=1/);
+  assert.match(envExample, /profile default/i);
+  assert.match(envExample, /server default/i);
+});
+
 test('release docs distinguish the source package from a future runtime bundle', () => {
   const decisions = fs.readFileSync(path.join(ROOT, 'docs', 'penny-release-decisions-2026-05-18.md'), 'utf8');
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');

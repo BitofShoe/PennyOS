@@ -73,6 +73,14 @@ $env:PENNY_QA_SPAWN_SERVER='1'
 npm run qa:voice-redo
 ```
 
+For the lane-compare matrix, start with the fixture-only runner:
+
+```powershell
+npm run qa:lane-compare
+```
+
+That command writes a `penny-lane-compare.v1` artifact without starting Penny, calling LM Studio, loading/unloading models, touching user memory, or creating Playground files. Rows 1-4 remain references to the existing voice, memory, and browser harnesses. Rows 5-9 are deterministic fixture checks for attached-file read, package.json read, Playground write routing, Digital Foundry search routing, and the context-dependent web follow-up. Live isolated lane comparison is still permissioned operator work: run it only after explicit model-management approval, one profile at a time, with disposable server/memory state and cleanup receipts.
+
 If you want a faster memory smoke slice before the full memory run:
 
 ```powershell

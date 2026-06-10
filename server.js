@@ -76,6 +76,7 @@ const {
   createPennyApiSecurity,
 } = require('./lib/penny-api-security');
 const {
+  createVerifiedAddressFetch,
   createWebUrlSafetyApi,
 } = require('./lib/penny-web-url-safety');
 const {
@@ -118,6 +119,9 @@ const {
   createPennyRouteHandlers,
 } = require('./lib/penny-route-handlers');
 const {
+  createSidecarWorkflowApi,
+} = require('./lib/penny-sidecar-workflows');
+const {
   createStaticMemoryIndexApi,
 } = require('./lib/penny-static-memory-index');
 const {
@@ -142,7 +146,13 @@ const {
 const PORT = process.env.PORT || 4317;
 const HOST = process.env.PENNY_HOST || process.env.HOST || '';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_SEED_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.PENNY_DATA_DIR
+  ? path.resolve(__dirname, process.env.PENNY_DATA_DIR)
+  : DATA_SEED_DIR;
+const CONFIG_DIR = process.env.PENNY_CONFIG_DIR
+  ? path.resolve(__dirname, process.env.PENNY_CONFIG_DIR)
+  : __dirname;
 const PENNY_OBSIDIAN_VAULT_ROOT = process.env.PENNY_OBSIDIAN_VAULT_ROOT
   ? path.resolve(__dirname, process.env.PENNY_OBSIDIAN_VAULT_ROOT)
   : '';
@@ -152,7 +162,7 @@ const MEMORY_FILE = process.env.PENNY_MEMORY_FILE
   : path.join(DATA_DIR, 'penny-memory.json');
 const MEMORY_SEED_FILE = process.env.PENNY_MEMORY_SEED_FILE
   ? path.resolve(__dirname, process.env.PENNY_MEMORY_SEED_FILE)
-  : path.join(DATA_DIR, 'penny-memory.seed.json');
+  : path.join(DATA_SEED_DIR, 'penny-memory.seed.json');
 const MEMORY_ARCHIVE_FILE = process.env.PENNY_MEMORY_ARCHIVE_FILE
   ? path.resolve(__dirname, process.env.PENNY_MEMORY_ARCHIVE_FILE)
   : path.join(DATA_DIR, 'penny-memory-archive.json');
@@ -167,7 +177,7 @@ const MEMORY_BOOKS_FILE = process.env.PENNY_MEMORY_BOOKS_FILE
   : path.join(DATA_DIR, 'penny-memory-books.json');
 const MEMORY_BOOKS_SEED_FILE = process.env.PENNY_MEMORY_BOOKS_SEED_FILE
   ? path.resolve(__dirname, process.env.PENNY_MEMORY_BOOKS_SEED_FILE)
-  : path.join(DATA_DIR, 'penny-memory-books.seed.json');
+  : path.join(DATA_SEED_DIR, 'penny-memory-books.seed.json');
 const OPENCLAW_ENABLED = process.env.PENNY_OPENCLAW_ENABLED === '1';
 const OPENCLAW_TIMEOUT_MS = Number(process.env.PENNY_OPENCLAW_TIMEOUT_MS || 20000);
 const GATEWAY_PORT = Number(process.env.PENNY_GATEWAY_PORT || 18789);
@@ -219,7 +229,10 @@ const LOCAL_MODEL_PREFERENCE_FILE = process.env.PENNY_LOCAL_MODEL_PREFERENCE_FIL
   ? path.resolve(__dirname, process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE)
   : process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE
     ? path.resolve(__dirname, process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE)
-    : path.join(__dirname, '.penny-local-preferences.json');
+    : path.join(CONFIG_DIR, '.penny-local-preferences.json');
+const PENDING_WORKSPACE_WRITES_FILE = process.env.PENNY_PENDING_WORKSPACE_WRITES_FILE
+  ? path.resolve(__dirname, process.env.PENNY_PENDING_WORKSPACE_WRITES_FILE)
+  : path.join(DATA_DIR, 'penny-pending-workspace-writes.json');
 function getLocalModelPreferenceFilesForRead() {
   if (process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE || process.env.PENNY_LMSTUDIO_MODEL_PREFERENCE_FILE) {
     return [LOCAL_MODEL_PREFERENCE_FILE];
@@ -348,6 +361,24 @@ const LMSTUDIO_STATUS_ERROR_CACHE_MS = Number(process.env.PENNY_LMSTUDIO_STATUS_
 const LMSTUDIO_MODELS_PROBE_MS = Number(process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS || 30000);
 /** stateful | chat | responses | auto — auto tries native stateful chat, then chat/completions, then /responses on 404 */
 const LOCAL_LLM_TRANSPORT = String(process.env.PENNY_LOCAL_LLM_TRANSPORT || process.env.PENNY_LMSTUDIO_TRANSPORT || 'auto').toLowerCase();
+function normalizeLocalLlmBackend(value = '') {
+  const text = String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!text) return 'lm_studio';
+  if (['lmstudio', 'lm_studio'].includes(text)) return 'lm_studio';
+  if (['llamacpp', 'llama_cpp', 'llama'].includes(text)) return 'llama_cpp';
+  if (['openai', 'openai_compatible', 'generic', 'generic_openai', 'vllm'].includes(text)) return 'openai_compatible';
+  return text;
+}
+function localRuntimeLabelForBackend(backend = '') {
+  const normalized = normalizeLocalLlmBackend(backend);
+  if (normalized === 'lm_studio') return 'LM Studio';
+  if (normalized === 'llama_cpp') return 'llama.cpp';
+  if (normalized === 'openai_compatible') return 'OpenAI-compatible local runtime';
+  return normalized.replace(/_/g, ' ');
+}
+const LOCAL_LLM_BACKEND = normalizeLocalLlmBackend(process.env.PENNY_LOCAL_LLM_BACKEND || 'lm_studio');
+const LOCAL_RUNTIME_LABEL = String(process.env.PENNY_LOCAL_RUNTIME_LABEL || localRuntimeLabelForBackend(LOCAL_LLM_BACKEND)).trim();
+const LOCAL_ENDPOINT_BASE = LMSTUDIO_BASE;
 /** Output ceiling, not a target. A higher cap avoids clipped long replies without forcing extra tokens if the model stops earlier. */
 const LMSTUDIO_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS || 6144);
 const LMSTUDIO_CHAT_TEMPERATURE = Number(process.env.PENNY_LMSTUDIO_CHAT_TEMPERATURE || 1.0);
@@ -943,6 +974,9 @@ const lmStudioStatusApi = createLmStudioStatusApi({
   LMSTUDIO_STATUS_ERROR_CACHE_MS,
   LMSTUDIO_MODELS_PROBE_MS,
   LOCAL_LLM_TRANSPORT,
+  LOCAL_LLM_BACKEND,
+  LOCAL_RUNTIME_LABEL,
+  LOCAL_ENDPOINT_BASE,
   PENNY_LMSTUDIO_CHAT_MODEL,
   PENNY_LMSTUDIO_TOOL_MODEL,
   PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL: PENNY_LOCAL_RUNTIME_PREFERRED_MODEL,
@@ -1027,6 +1061,7 @@ const openLoopStoreApi = createOpenLoopStoreApi({
   path,
   env: process.env,
   cwd: __dirname,
+  OPEN_LOOP_FILE: process.env.PENNY_OPEN_LOOP_FILE || path.join(DATA_DIR, 'penny-open-loops.json'),
 });
 const staticMemoryIndexApi = createStaticMemoryIndexApi({
   fs,
@@ -1074,6 +1109,7 @@ const projectToolsApi = createProjectToolsApi({
   TOOL_COMMAND_TIMEOUT_MS,
   execFileText,
   directWorkspaceWritesEnabled: PENNY_ENABLE_DIRECT_WORKSPACE_WRITES,
+  pendingWorkspaceWritesFile: PENDING_WORKSPACE_WRITES_FILE,
 });
 const {
   toProjectRelative,
@@ -1095,6 +1131,7 @@ const {
 const webUrlSafetyApi = createWebUrlSafetyApi({
   allowPrivateNetwork: PENNY_WEB_ALLOW_PRIVATE_NET,
   fetchImpl: fetch,
+  fetchVerifiedAddress: createVerifiedAddressFetch({ httpModule: http, httpsModule: https }),
   userAgent: WEB_USER_AGENT,
   formatBytes,
 });
@@ -1484,13 +1521,13 @@ function sanitizeToolMessages(messages = [], limit = TOOL_CHAT_HISTORY_LIMIT) {
   return sanitizeChatMessages(messages, limit);
 }
 function describeLocalBrainFailure(error, { hasImage = false } = {}) {
-  const raw = String(error?.message || 'Local LM Studio request failed.');
+  const raw = String(error?.message || 'Local model request failed.');
   if (hasImage) {
     if (/responses fallback cannot carry vision/i.test(raw)) {
       return raw;
     }
     if (/\b(image|image_url|vision|multimodal|unsupported.*image|does not support.*image|content part|data_url|base64)\b/i.test(raw)) {
-      return 'This model or LM Studio route rejected the image input. Try a vision-capable model or send the message without the image.';
+      return 'This model or local runtime route rejected the image input. Try a vision-capable model or send the message without the image.';
     }
     if (/\btoo large|413|payload|request body\b/i.test(raw)) {
       return `That image is still too large after compression. Keep it under ${formatBytes(MAX_IMAGE_DATA_BYTES)} or try a smaller crop.`;
@@ -3109,6 +3146,7 @@ const {
   streamLmStudioLocal: streamLmStudioLocalApi,
 } = lmStudioTransportApi;
 const createLaneRuntime = createLaneRuntimeApi;
+const sidecarWorkflowApi = createSidecarWorkflowApi();
 
 function bindAbortSignal(controller, abortSignal) {
   if (!abortSignal) return;
@@ -3500,6 +3538,7 @@ const routeHandlers = createPennyRouteHandlers({
   listPendingWorkspaceWrites: listPendingWorkspaceWritesTool,
   approvePendingWorkspaceWrite: approvePendingWorkspaceWriteTool,
   denyPendingWorkspaceWrite: denyPendingWorkspaceWriteTool,
+  runSidecarWorkflow: sidecarWorkflowApi.runSidecarWorkflow,
   sessionState,
   constants: {
     OPENCLAW_ENABLED,
@@ -3510,6 +3549,9 @@ const routeHandlers = createPennyRouteHandlers({
     LMSTUDIO_NATIVE_BASE,
     LMSTUDIO_MODEL,
     LOCAL_LLM_TRANSPORT,
+    LOCAL_LLM_BACKEND,
+    LOCAL_RUNTIME_LABEL,
+    LOCAL_ENDPOINT_BASE,
     RESPONSES_THEN_CHAT_FALLBACK,
     LMSTUDIO_MAX_OUTPUT_TOKENS,
     MEMORY_FILE,

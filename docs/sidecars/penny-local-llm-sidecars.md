@@ -4,6 +4,8 @@ Penny stays the companion interface, memory/runtime owner, explicit-memory owner
 
 Current campaign checkpoint: `docs/sidecars/penny-local-llm-sidecar-campaign-checkpoint-2026-05-12.md`.
 
+Penny-facing workflow docs: `docs/sidecars/penny-sidecar-productized-workflows.md`. That document covers the browser/API activation path for productized workflows. The section trial commands below remain the lower-level harness and live-smoke surface.
+
 ## First Trials
 
 1. Pi + Qwen local coding/operator trial in a disposable repo.

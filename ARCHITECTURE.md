@@ -6,6 +6,8 @@ If code, tests, or runtime artifacts disagree with this doc, trust those first a
 
 It is intentionally blunt about what is "real architecture" versus "current monolith that still needs to be split."
 
+Release posture: source-available technical preview, local/private runtime, single-user prototype, and not public-internet software. Tauri packaging now has a bundled Penny server/runtime sidecar path in `src-tauri/`; it is not a model bundle, LM Studio bundle, signed/updating public release, or public-internet package.
+
 ## Related docs
 
 - [CODEBASE.md](./CODEBASE.md)
@@ -33,6 +35,10 @@ When a task crosses backend, frontend, tests, and docs, break the work into read
 
 Today the app is a single-process local web application with one large Node server and one browser UI:
 
+- `src-tauri/*`
+Optional desktop wrapper and package path. In packaged mode it opens a native PennyOS window, launches bundled `penny-node` against bundled `penny-runtime/server.js`, binds `127.0.0.1`, passes writable memory/config/log paths into app data, waits for `GET /api/penny/status`, and navigates to the existing local web UI. Debug/source runs can still fall back to `node server.js`.
+- `start-penny-tauri.ps1` and `scripts/penny-tauri-prereq-check.js`
+Desktop build/dev readiness helpers. They check Rust/Tauri/WebView prerequisites and preserve `PENNY_SKIP_LMSTUDIO_PREP=1` by default so desktop startup does not disturb loaded model state.
 - `server.js`
 Main backend orchestration, API surface, durable memory handling, LM Studio transport selection, tool loop, semantic render pass, shadow lane, and static file serving.
 - `lib/*`
@@ -71,13 +77,13 @@ The same delegation rule applies to repo work:
 
 ## Runtime modes
 
-There are two runtime brain families:
+There are two runtime brain families. Penny is still a local/private, single-user technical preview; these routes are not designed as a public internet service.
 
-1. Main lane: LM Studio
+1. Main lane: configured local OpenAI-compatible runtime
 
-- This is Penny's real primary brain.
+- This is Penny's real primary brain. LM Studio is the default supported runtime, while llama.cpp and other OpenAI-compatible endpoints can be configured through the historical `PENNY_LMSTUDIO_*` endpoint variables plus `PENNY_LOCAL_LLM_BACKEND`.
 - The browser talks to `POST /api/penny/chat`.
-- The backend automatically picks one of two LM Studio sub-lanes before any model call:
+- The backend automatically picks one of two local model sub-lanes before any model call:
   - chat lane for companion turns, memory recall, softness, banter, and image chat
   - tool lane for direct inspect/search/read/edit/runtime/git/web turns and the full bounded tool loop
 - The chosen lane stays fixed for the whole request. Penny does not do a second 31B restyle pass after tool work.
@@ -192,6 +198,7 @@ Current archive-policy behavior:
 - the scoring profile gate does not change the default embedding provider, does not auto-promote archive hits into explicit memory, and does not expand `promptTruth` or `toolEvidenceReceipt`
 - static embedding live sidecar support is explicit-mode only: normal repo default is `off`, `qa-shadow` is for QA comparison, `live-shadow` records trace-only candidates, and local experimental `live-advisory` can merge static candidates into archive selection only under authority/source/correction gates and the static-only rendered cap
 - static embedding sidecar cache files are derived retrieval artifacts, separate from LM Studio embedding vectors, and do not become authored memory or canonical truth
+- productized local sidecar workflows are Penny-facing review surfaces, not context or memory ingestion. The search, docs/RAG, and TTS/audio workflows expose Settings controls plus `/api/penny/sidecars/*` routes, default to fixture receipts, require explicit operator permission for live probes, and keep memory, PromptTruth, sibling tool evidence, runtime voice, default context, and model state unchanged.
 - semantic identifier contracts are owned by `lib/penny-semantic-ids.js` as pure local ID helpers. They can mint stable `penny:*` IDs for future claims, links, traces, vector sources, and rendered-context receipts, but identifier text is opaque and never implies network dereference permission, source authority, canonical memory, PromptTruth expansion, `toolEvidenceReceipt` changes, or runtime prompt rendering.
 - semantic predicate contracts are owned by `lib/penny-semantic-predicates.js` as a pure local registry. Predicate IDs, inverse links, receipt requirements, ranking flags, and memory-sensitivity flags are explicit and testable, but the registry does not change live ranking, canonical memory, PromptTruth, `toolEvidenceReceipt`, prompt limits, runtime voice, or graph infrastructure.
 - semantic domain contracts are owned by `lib/penny-semantic-domains.js` as a pure local authority registry. Explicit memory and repo-current-law can be canonical only inside their domain boundaries; archive, research-ledger, open-loop, document-extraction, runtime-artifact, and fixture domains stay advisory or non-live as declared; static candidates stay candidate-only; tool evidence stays eligible for sibling `toolEvidenceReceipt` but not PromptTruth; unknown domains fail closed. This registry does not change live ranking, PromptTruth, `toolEvidenceReceipt`, prompt limits, memory promotion, runtime voice, or graph infrastructure.
@@ -201,9 +208,9 @@ Current archive-policy behavior:
 - prompt rendering authority guardrails are owned by `lib/penny-prompttruth.js`, `lib/penny-memory.js`, and the compact archive item projection in `lib/penny-memory-archive.js`. When an archive claim summary actually renders, PromptTruth may record a compact `renderedClaims[]` item with `renderedClaimId`, `domainId`, `sourceAuthority`, `supportState`, and `temporalScope`; held-back, stale, fixture-only, and candidate-only claims stay out, and raw candidate traces, dynamic links, source graph internals, static similarity traces, and tool evidence stay outside PromptTruth.
 - local semantic export is owned by `lib/penny-semantic-export.js` and `scripts/export-penny-semantic-claims.js`. It writes `penny-semantic-export.v1` plain `penny-json` debug artifacts for claims, links, domains, predicates, and local semantic IDs. It is read-only/local-only and does not change runtime retrieval, ranking, PromptTruth, `toolEvidenceReceipt`, prompt limits, memory promotion, runtime voice, route surfaces, `server.js`, RDF/XML/JSON-LD/SPARQL/triplestore/ontology/Linked Data/graph DB posture, URI dereferencing, or live model behavior.
 - open-loop state is owned by `lib/penny-open-loops.js` and `lib/penny-open-loop-store.js`, with fixture suggestions in `lib/penny-open-loop-extraction.js`; loops can be created, updated, deferred, dismissed, expired, or completed, but completion requires an explicit user statement, deterministic artifact, test/source receipt, or manual command basis
-- the live open-loop prompt bridge is opt-in via `PENNY_ENABLE_OPEN_LOOP_PROMPT=1`, capped by `PENNY_OPEN_LOOP_MAX_RENDERED` and `PENNY_OPEN_LOOP_MAX_TOKENS`, and measured by `npm run eval:open-loop-compare`; passing compare makes it eligible for local opt-in, not default runtime law
-- bounded initiative policy is owned by `lib/penny-initiative-policy.js`; its live bridge is opt-in via `PENNY_ENABLE_BOUNDED_INITIATIVE=1`, capped by `PENNY_INITIATIVE_MAX_PER_TURN=1`, cooldown-aware through `PENNY_INITIATIVE_COOLDOWN_TURNS`, and limited to suggest-only scaffolds with no action-taking, memory writes, or unchecked source claims
-- ephemeral turn-state is owned by `lib/penny-turn-state.js`; its live bridge is opt-in via `PENNY_ENABLE_TURN_STATE_PROMPT=1`, capped by `PENNY_TURN_STATE_MAX_TOKENS`, and limited to current-turn response-shaping cues. It is not memory, not chain-of-thought, not truth authority, not PromptTruth, not tool evidence, and runtime artifacts retain only a redacted summary/retention policy instead of the full card.
+- the live open-loop prompt bridge is enabled in the shipped `.env.example` local companion profile via `PENNY_ENABLE_OPEN_LOOP_PROMPT=1`, but the raw server default remains off when the env line is absent; it stays capped by `PENNY_OPEN_LOOP_MAX_RENDERED` and `PENNY_OPEN_LOOP_MAX_TOKENS`, and profile enablement is not permission to raise prompt limits, expand PromptTruth, or surface unrelated follow-ups
+- bounded initiative policy is owned by `lib/penny-initiative-policy.js`; the shipped `.env.example` profile enables the live bridge via `PENNY_ENABLE_BOUNDED_INITIATIVE=1`, but the raw server default remains off when absent. It stays capped by `PENNY_INITIATIVE_MAX_PER_TURN=1`, cooldown-aware through `PENNY_INITIATIVE_COOLDOWN_TURNS`, and limited to suggest-only scaffolds with no action-taking, memory writes, or unchecked source claims
+- ephemeral turn-state is owned by `lib/penny-turn-state.js`; the shipped `.env.example` profile enables the live bridge via `PENNY_ENABLE_TURN_STATE_PROMPT=1`, but the raw server default remains off when absent. It stays capped by `PENNY_TURN_STATE_MAX_TOKENS` and limited to current-turn response-shaping cues. It is not memory, not chain-of-thought, not truth authority, not PromptTruth, not tool evidence, and runtime artifacts retain only a redacted summary/retention policy instead of the full card.
 - bounded aliveness adoption evidence is owned by `lib/penny-aliveness-qa.js` and `scripts/eval-penny-aliveness-compare.js`; fixture mode is scenario-only, while live-isolated mode uses disposable Penny servers plus a mock LM Studio backend to compare baseline vs feature-on without touching real user memory or real loaded models
 - background chat vectorization now defaults on, but it still runs only after `archiveCompletedTurn`, never in prompt assembly, and can be disabled with `PENNY_ENABLE_BACKGROUND_CHAT_VECTORS=0`. It is off the reply-latency path, but it still shares process, embedding-backend, and cache/store capacity.
 - inspector payloads expose background-vectorization telemetry, including the session `lastArchivedAt` timestamp, and the in-app panel now surfaces a compact background-vectorization summary so the behavior stays inspectable in practice
@@ -551,7 +558,7 @@ Reasonably stable:
 
 - single-page UI shell
 - durable memory file shape
-- LM Studio as the main chat brain
+- LM Studio as the default main chat brain, with llama.cpp/generic OpenAI-compatible endpoint support still routed through compatibility-named `PENNY_LMSTUDIO_*` settings
 - runtime voice asset layout in `penny-voice/runtime`
 
 Still volatile:

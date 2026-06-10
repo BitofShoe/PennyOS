@@ -13,9 +13,25 @@ PENNY_LAN_SHARE=0
 PENNY_WEB_SEARCH_ENABLED=0
 PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=0
 PENNY_STATIC_EMBED_MODE=off
+PENNY_ENABLE_OPEN_LOOP_PROMPT=1
+PENNY_ENABLE_BOUNDED_INITIATIVE=1
+PENNY_ENABLE_TURN_STATE_PROMPT=1
 ```
 
-Boundary: no LAN sharing, no outbound web reading, no direct workspace writes.
+Boundary: no LAN sharing, no outbound web reading, no direct workspace writes. The shipped local companion profile keeps bounded open-loop, initiative, and turn-state prompt bridges on with conservative caps; remove those lines to return to the raw server default of off.
+
+## llama.cpp / Generic Endpoint
+
+Use this when LM Studio is not the local model server.
+
+```dotenv
+PENNY_LMSTUDIO_BASE=http://127.0.0.1:18080/v1
+PENNY_LMSTUDIO_EMBED_BASE=
+PENNY_LOCAL_LLM_BACKEND=llama_cpp
+PENNY_LOCAL_LLM_TRANSPORT=chat
+```
+
+Boundary: `PENNY_LMSTUDIO_*` names are historical compatibility names for Penny's configured local OpenAI-compatible endpoint. Doctor skips LM Studio CLI/preset checks in this profile and validates `/v1/models` plus chat/tool readiness instead.
 
 ## Web-Reading Opt-In
 

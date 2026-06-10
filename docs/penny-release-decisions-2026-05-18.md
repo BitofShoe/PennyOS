@@ -6,30 +6,32 @@ These are not excuses. They are the explicit product calls for items that are re
 
 ## Memory Transparency
 
-Decision: the deep Memory inspector remains an advanced/debug surface for this release.
+Decision: Memory is visible by default, but the deep inspector remains an advanced/debug surface for this release.
 
 Why:
 
-- The current panel mixes user-facing facts with route artifacts, prompt receipts, archive retrieval traces, and developer diagnostics.
-- Making it visible by default without separating those layers would imply more certainty and polish than the product currently has.
-- Canonical explicit memory is still inspectable through the advanced `?debug=1` mode, and memory mutation/review routes are token-gated by default.
+- The default surface now separates remembered facts, thinking-about-saving suggestions, and memory connections from route artifacts, prompt receipts, archive retrieval traces, and developer diagnostics.
+- PromptTruth, archive traces, tool receipts, purge buttons, and raw diagnostics stay in the collapsed Advanced diagnostics area.
+- Canonical explicit memory is inspectable without `?debug=1`; memory mutation/review routes remain token-gated by default.
 
-Acceptance criteria for showing Memory by default later:
+Acceptance criteria for further Memory polish:
 
 - The default surface shows stable explicit facts, pending suggestions, corrections, and purge/export controls in plain language.
 - Archive context and retrieval traces are clearly labeled advisory, low-confidence, or debug-only.
 - PromptTruth, route artifacts, tool receipts, and raw diagnostic traces stay behind an Advanced toggle.
-- Tests prove the default URL shows only safe memory content, while `?debug=1` exposes developer diagnostics.
+- Tests prove the default URL shows only safe memory content, while Advanced diagnostics exposes developer receipts.
 
 ## Desktop Installer
 
-Decision: a Tauri/Electron-style desktop wrapper is deferred, but the release ZIP now ships a Windows installer script.
+Decision: the final Tauri desktop package is still deferred, but the repo now carries a developer-preview Tauri shell. The release ZIP also ships a Windows installer script and the Tauri note records the wrapper boundary plus future sidecar options.
 
 What ships now:
 
 - `Install-Penny.ps1` for PowerShell users.
 - `Install-Penny.cmd` for double-click source ZIP installs.
 - The installer checks Node.js 24 and npm 11, runs `npm ci`, creates `.env`, and creates PennyOS Start/Stop/Open shortcuts.
+- The generated `.env` local companion profile enables bounded aliveness features with conservative caps while preserving env opt-outs and raw server defaults.
+- [penny-tauri-wrapper-options-2026-05-19.md](./penny-tauri-wrapper-options-2026-05-19.md) records the developer-preview Tauri wrapper and the future bundled-sidecar path.
 
 Acceptance criteria for a later consumer installer:
 
@@ -37,6 +39,7 @@ Acceptance criteria for a later consumer installer:
 - LAN/token posture remains visible and opt-in.
 - Memory files, logs, and `.env` stay local and ignored.
 - The source release still works with plain `npm start`.
+- Tauri prerequisites, WebView2/system dependency posture, sidecar permissions, and sidecar lifecycle work are handled before claiming cross-platform packaging.
 
 ## Package Artifact Shape
 
@@ -47,6 +50,8 @@ What that means:
 - It intentionally includes tests, fixtures, docs, and scripts so reviewers can audit the release checks from the same artifact.
 - It is still marked `private: true` so nobody accidentally treats npm publish as the distribution path.
 - The GitHub source ZIP and the local `npm pack` artifact are installable developer/source artifacts, not a polished consumer installer.
+- The correct public language is source-available technical preview, local/private runtime, and not intended for public internet exposure.
+- The local brain language should say LM Studio default and llama.cpp/OpenAI-compatible endpoint supported; historical `PENNY_LMSTUDIO_*` names are compatibility names for the configured local endpoint.
 
 Acceptance criteria for a later runtime bundle:
 
@@ -56,11 +61,11 @@ Acceptance criteria for a later runtime bundle:
 
 ## Pending Workspace Writes
 
-Decision: pending workspace writes remain process-memory only for this release.
+Decision: pending workspace writes now persist only in ignored local state for approval continuity.
 
-Why: that is safer than quietly persisting proposed edits to disk, but it can surprise users after a restart.
+Why: this keeps proposed edits local and approval-gated without losing the queue on a restart.
 
-Acceptance criteria for persistence later:
+Persistence criteria:
 
 - Store pending edits only in an ignored local file.
 - Include base file hash, creation time, TTL, exact path, and patch/content.

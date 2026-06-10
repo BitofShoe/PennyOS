@@ -63,7 +63,8 @@ export function ensureMemoryInspectorUi(els = {}) {
   return panel;
 }
 
-export function buildMemoryPanelViewModel(memory = {}) {
+export function buildMemoryPanelViewModel(memory = {}, inspector = null) {
+  const inspectorViewModel = inspector ? buildMemoryInspectorViewModel(inspector) : null;
   return {
     userName: String(memory.userName || ''),
     voiceOn: memory.voiceOn === true,
@@ -74,6 +75,8 @@ export function buildMemoryPanelViewModel(memory = {}) {
           kind: String(item?.kind || 'memory'),
         }))
       : [],
+    queue: inspectorViewModel?.queue || [],
+    memoryConnections: buildMemoryConnectionsViewModel(inspectorViewModel),
   };
 }
 
@@ -115,6 +118,80 @@ export function buildMemoryInspectorViewModel(inspector = null) {
     activeContradictions,
     queue,
     runtime,
+  };
+}
+
+function compactMemoryLabel(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text
+    .replace(/^penny:(domain|source|claim):/i, '')
+    .replace(/^sha256:/i, '')
+    .replace(/_/g, '-');
+}
+
+function collectRenderedClaimsFromPromptTruth(promptTruth = null) {
+  const channels = promptTruth?.channels && typeof promptTruth.channels === 'object'
+    ? promptTruth.channels
+    : {};
+  const out = [];
+  for (const [channelKey, channel] of Object.entries(channels)) {
+    const renderedClaims = Array.isArray(channel?.renderedClaims) ? channel.renderedClaims : [];
+    for (const raw of renderedClaims) {
+      if (!raw || typeof raw !== 'object') continue;
+      const domain = compactMemoryLabel(raw.domainId || raw.domain || channelKey);
+      const sourceAuthority = compactMemoryLabel(raw.sourceAuthority || raw.authority || '');
+      const supportState = compactMemoryLabel(raw.supportState || raw.support || '');
+      const temporalScope = compactMemoryLabel(raw.temporalScope || raw.temporal || '');
+      if (!domain && !sourceAuthority && !supportState && !temporalScope) continue;
+      out.push({
+        channel: compactMemoryLabel(channelKey),
+        domain,
+        sourceAuthority,
+        supportState,
+        temporalScope,
+      });
+    }
+  }
+  return out;
+}
+
+function buildMemoryConnectionsViewModel(viewModel = null) {
+  if (!viewModel) {
+    return {
+      semanticState: 'unknown',
+      detail: 'No memory connection data yet.',
+      renderedClaims: [],
+    };
+  }
+  const retrieval = viewModel.retrieval && typeof viewModel.retrieval === 'object' ? viewModel.retrieval : {};
+  const semantic = viewModel.semantic && typeof viewModel.semantic === 'object' ? viewModel.semantic : {};
+  const semanticActive = semantic.ready === true || retrieval.semanticReady === true || String(retrieval.mode || '').toLowerCase() === 'semantic';
+  const semanticState = semanticActive ? 'active' : 'fallback';
+  const detailBits = [];
+  if (semantic.mode) detailBits.push(String(semantic.mode));
+  if (semantic.configuredModel) detailBits.push(String(semantic.configuredModel));
+  if (retrieval.semanticDowngrade === true) detailBits.push('semantic downgraded');
+  if (!semanticActive && retrieval.reasonCode) detailBits.push(String(retrieval.reasonCode));
+  const promptTruthSources = [
+    viewModel.artifact?.promptTruth,
+    viewModel.artifact?.modelAdvisory?.promptTruth,
+    viewModel.recentAuditTrail?.[0]?.promptTruth,
+  ];
+  const renderedClaims = [];
+  const seen = new Set();
+  for (const source of promptTruthSources) {
+    for (const claim of collectRenderedClaimsFromPromptTruth(source)) {
+      const key = [claim.channel, claim.domain, claim.sourceAuthority, claim.supportState, claim.temporalScope].join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      renderedClaims.push(claim);
+    }
+  }
+  return {
+    semanticState,
+    detail: detailBits.join(' | ') || (semanticActive ? 'semantic path' : 'keyword fallback'),
+    renderedClaims: renderedClaims.slice(0, 6),
   };
 }
 
@@ -236,15 +313,71 @@ function formatInspectorMoment(value = '') {
   return text || 'not yet';
 }
 
-export function renderMemoryList({ els = {}, memory = {}, escapeHtmlFn = escapeHtml } = {}) {
-  const viewModel = buildMemoryPanelViewModel(memory);
-  if (els.memoryList) {
-    els.memoryList.className = `list-block${viewModel.memories.length ? '' : ' empty'}`;
-    els.memoryList.innerHTML = viewModel.memories.length
-      ? viewModel.memories.map((item) => `<div class="list-item memory-item"><div class="memory-copy">${escapeHtmlFn(item.text)}<small>${escapeHtmlFn(item.kind)}</small></div><button class="memory-remove" data-kind="memory" data-index="${item.index}" type="button">x</button></div>`).join('')
-      : 'Nothing stored yet. Penny will start picking things up as you talk.';
+function renderMemorySurfaceSection(title = '', bodyHtml = '', note = '', escapeHtmlFn = escapeHtml) {
+  return `
+    <div class="memory-surface-section">
+      <div class="section-label">${escapeHtmlFn(title)}</div>
+      ${note ? `<div class="memory-toolbar-note">${escapeHtmlFn(note)}</div>` : ''}
+      ${bodyHtml}
+    </div>
+  `;
+}
+
+function renderRememberedFacts(items = [], escapeHtmlFn = escapeHtml) {
+  const exportAction = `
+    <div class="list-item memory-item">
+      <div class="memory-copy">Remembered facts<small>Canonical explicit memory only</small></div>
+      <div class="memory-toolbar-actions">
+        <button id="exportRememberedFacts" class="secondary-btn tiny" type="button">Export remembered facts</button>
+      </div>
+    </div>
+  `;
+  if (!items.length) {
+    return `${exportAction}<div class="list-item"><div class="memory-copy">Nothing stored yet. Penny will start picking things up as you talk.</div></div>`;
   }
-  if (els.clearAllMemories) els.clearAllMemories.textContent = 'Clear explicit facts';
+  return `${exportAction}${items.map((item) => `<div class="list-item memory-item"><div class="memory-copy">${escapeHtmlFn(item.text)}<small>${escapeHtmlFn(item.kind)}</small></div><button class="memory-remove" data-kind="memory" data-index="${item.index}" type="button">Forget</button></div>`).join('')}`;
+}
+
+function renderMemoryConnections(connections = {}, escapeHtmlFn = escapeHtml) {
+  const semanticState = String(connections.semanticState || 'unknown');
+  const renderedClaims = Array.isArray(connections.renderedClaims) ? connections.renderedClaims : [];
+  const claimRows = renderedClaims.length
+    ? renderedClaims.map((claim) => `
+      <div class="list-item memory-item">
+        <div class="memory-copy">
+          ${escapeHtmlFn(claim.domain || claim.channel || 'memory connection')}
+          <small>${escapeHtmlFn([
+            claim.sourceAuthority ? `authority ${claim.sourceAuthority}` : '',
+            claim.supportState ? `support ${claim.supportState}` : '',
+            claim.temporalScope ? `scope ${claim.temporalScope}` : '',
+            claim.channel ? `from ${claim.channel}` : '',
+          ].filter(Boolean).join(' | '))}</small>
+        </div>
+      </div>
+    `).join('')
+    : '<div class="list-item"><div class="memory-copy">No rendered memory-claim labels for the latest reply yet.</div></div>';
+  return `
+    <div class="list-item">
+      <div class="memory-copy">
+        Semantic memory: <strong>${escapeHtmlFn(semanticState)}</strong>
+        <small>${escapeHtmlFn(connections.detail || 'No memory connection data yet.')}</small>
+      </div>
+    </div>
+    ${claimRows}
+  `;
+}
+
+export function renderMemoryList({ els = {}, memory = {}, inspector = null, escapeHtmlFn = escapeHtml } = {}) {
+  const viewModel = buildMemoryPanelViewModel(memory, inspector);
+  if (els.memoryList) {
+    els.memoryList.className = 'list-block memory-surface';
+    els.memoryList.innerHTML = [
+      renderMemorySurfaceSection('Remembered facts', renderRememberedFacts(viewModel.memories, escapeHtmlFn), '', escapeHtmlFn),
+      renderMemorySurfaceSection('Thinking about saving', renderQueue(viewModel.queue, escapeHtmlFn), 'Reviewable suggestions wait here until you approve or reject them.', escapeHtmlFn),
+      renderMemorySurfaceSection('Memory connections', renderMemoryConnections(viewModel.memoryConnections, escapeHtmlFn), 'Plain labels from the latest memory/retrieval path; raw receipts stay in Advanced diagnostics.', escapeHtmlFn),
+    ].join('');
+  }
+  if (els.clearAllMemories) els.clearAllMemories.textContent = 'Forget remembered facts';
   if (els.nameInput) els.nameInput.value = viewModel.userName;
   if (els.voiceToggle) els.voiceToggle.checked = viewModel.voiceOn;
   return viewModel;
@@ -1992,11 +2125,17 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
   return viewModel;
 }
 
-export function buildBrainModeNote({ mode = 'local', meta = null } = {}) {
+function localRuntimeLabelFromStatus(status = null) {
+  const label = String(status?.localRuntimeLabel || status?.lmStudio?.localRuntimeLabel || '').trim();
+  return label || 'LM Studio';
+}
+
+export function buildBrainModeNote({ mode = 'local', meta = null, status = null } = {}) {
+  const localRuntimeLabel = localRuntimeLabelFromStatus(status);
   if (!meta) {
     return mode === 'shadow'
       ? 'Shadow uses the optional OpenClaw lane. It is still experimental and not Penny\'s main chat brain.'
-      : 'LM Studio is Penny\'s main brain right now. Chat and tool lanes route automatically.';
+      : `${localRuntimeLabel} is Penny's local brain right now. Chat and tool lanes route automatically.`;
   }
   if (meta.requestedMode === 'shadow' && meta.usedFallback) {
     const reason = meta.shadowError ? ` ${meta.shadowError}` : '';
@@ -2009,9 +2148,9 @@ export function buildBrainModeNote({ mode = 'local', meta = null } = {}) {
     const lane = meta.localLane === 'tool' ? 'tool lane' : 'chat lane';
     const modelText = meta.resolvedModel ? ` on ${meta.resolvedModel}` : '';
     const fallbackText = meta.laneFallback ? ' It had to fall back to the best loaded local model.' : '';
-    return `LM Studio handled the last reply on the ${lane}${modelText}.${fallbackText}`.trim();
+    return `${localRuntimeLabel} handled the last reply on the ${lane}${modelText}.${fallbackText}`.trim();
   }
   return mode === 'local'
-    ? 'LM Studio handled the last reply.'
+    ? `${localRuntimeLabel} handled the last reply.`
     : 'Shadow is selected. This lane is experimental, and Penny will block the reply if OpenClaw fails.';
 }

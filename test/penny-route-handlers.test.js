@@ -5,6 +5,76 @@ const { EventEmitter } = require('node:events');
 const { bindClientDisconnectAbort, createPennyRouteHandlers } = require('../lib/penny-route-handlers');
 const { buildLastRouteInfo } = require('../lib/penny-runtime-artifacts');
 
+test('memory export route returns canonical explicit memory only', async () => {
+  let response = null;
+  const handlers = createPennyRouteHandlers({
+    sendJson(_res, statusCode, json) {
+      response = { statusCode, json };
+    },
+    getStoredMemory(sessionId) {
+      assert.equal(sessionId, 'export-demo');
+      return {
+        memory: {
+          userName: 'Malac',
+          memories: [{
+            text: 'Favorite tea is lapsang souchong',
+            kind: 'fact',
+            promptTruth: { shouldNotLeak: true },
+            archiveContext: { shouldNotLeak: true },
+          }],
+          voiceOn: true,
+          brainMode: 'local',
+          updatedAt: '2026-05-25T08:00:00.000Z',
+          lastRoute: { artifact: { promptTruth: { channels: {} } } },
+          archive: { shouldNotLeak: true },
+          toolEvidenceReceipt: { shouldNotLeak: true },
+        },
+      };
+    },
+  });
+
+  const handled = await handlers.handleApiRoute({
+    req: { method: 'GET' },
+    res: {},
+    url: new URL('http://localhost/api/penny/memory/export?sessionId=export-demo'),
+  });
+
+  assert.equal(handled, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.ok, true);
+  assert.equal(response.json.export.schema, 'penny-memory-export.v1');
+  assert.match(response.json.export.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(response.json.export.source, 'local-explicit-memory');
+  assert.equal(response.json.export.canonicalExplicitMemory.userName, 'Malac');
+  assert.deepEqual(
+    response.json.export.canonicalExplicitMemory.memories.map(({ text, kind, source, evidence, origin }) => ({
+      text,
+      kind,
+      source,
+      evidence,
+      origin,
+    })),
+    [{
+      text: 'Favorite tea is lapsang souchong',
+      kind: 'fact',
+      source: 'explicit',
+      evidence: [],
+      origin: null,
+    }],
+  );
+  assert.equal(typeof response.json.export.canonicalExplicitMemory.memories[0].ts, 'number');
+  assert.equal(response.json.export.canonicalExplicitMemory.voiceOn, true);
+  assert.equal(response.json.export.canonicalExplicitMemory.brainMode, 'local');
+  assert.equal(response.json.export.canonicalExplicitMemory.updatedAt, '2026-05-25T08:00:00.000Z');
+  assert.equal(response.json.export.advisoryArchiveIncluded, false);
+  assert.match(response.json.export.archiveExportHint, /not included/i);
+  assert.equal(JSON.stringify(response.json.export).includes('lastRoute'), false);
+  assert.equal(JSON.stringify(response.json.export).includes('promptTruth'), false);
+  assert.equal(JSON.stringify(response.json.export).includes('archiveContext'), false);
+  assert.equal(JSON.stringify(response.json.export).includes('toolEvidenceReceipt'), false);
+  assert.equal(JSON.stringify(response.json.export).includes('shouldNotLeak'), false);
+});
+
 test('memory purge waits for archive and ledger cleanup before inspecting memory', async () => {
   const calls = [];
   let response = null;
@@ -59,6 +129,7 @@ function createToolReceiptRouteHarness({
   staticEmbeddingStatus = null,
   queryStaticMemoryIndex = null,
   webSearchEnabled = true,
+  constants = {},
 } = {}) {
   const memoryStore = new Map();
   let response = null;
@@ -230,6 +301,7 @@ function createToolReceiptRouteHarness({
       MEMORY_ARCHIVE_FILE: 'data/penny-memory-archive.json',
       MEMORY_EMBEDDINGS_FILE: 'data/penny-memory-embeddings.json',
       WEB_SEARCH_ENABLED: webSearchEnabled,
+      ...constants,
     },
   });
 
@@ -308,6 +380,45 @@ test('status route exposes static embedding runtime status when provided', async
     ready: true,
   });
   assert.equal(response.json.webSearchEnabled, true);
+});
+
+test('status route exposes configured local runtime identity without renaming legacy LM Studio fields', async () => {
+  const harness = createToolReceiptRouteHarness({
+    constants: {
+      LOCAL_LLM_BACKEND: 'llama_cpp',
+      LOCAL_RUNTIME_LABEL: 'llama.cpp',
+      LOCAL_ENDPOINT_BASE: 'http://127.0.0.1:18080/v1',
+      LMSTUDIO_BASE: 'http://127.0.0.1:18080/v1',
+    },
+  });
+
+  const handledStatus = await harness.handlers.handleApiRoute({
+    req: { method: 'GET' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/status'),
+  });
+  let response = harness.getResponse();
+
+  assert.equal(handledStatus, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.backend, 'local-lmstudio');
+  assert.equal(response.json.lmStudioBase, 'http://127.0.0.1:18080/v1');
+  assert.equal(response.json.localLlmBackend, 'llama_cpp');
+  assert.equal(response.json.localRuntimeLabel, 'llama.cpp');
+  assert.equal(response.json.localEndpointBase, 'http://127.0.0.1:18080/v1');
+
+  const handledLegacyRoute = await harness.handlers.handleApiRoute({
+    req: { method: 'GET' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/lmstudio/status'),
+  });
+  response = harness.getResponse();
+
+  assert.equal(handledLegacyRoute, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.localLlmBackend, 'llama_cpp');
+  assert.equal(response.json.localRuntimeLabel, 'llama.cpp');
+  assert.equal(response.json.localEndpointBase, 'http://127.0.0.1:18080/v1');
 });
 
 test('status route exposes web reading disabled state', async () => {

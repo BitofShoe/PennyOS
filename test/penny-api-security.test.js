@@ -91,6 +91,7 @@ test('memory mutation and review routes require a local token outside LAN mode',
   const cases = [
     ['POST', '/api/penny/memory'],
     ['PATCH', '/api/penny/memory'],
+    ['GET', '/api/penny/memory/export'],
     ['POST', '/api/penny/memory/review'],
     ['POST', '/api/penny/memory/purge'],
     ['POST', '/api/penny/consolidate'],
@@ -98,15 +99,26 @@ test('memory mutation and review routes require a local token outside LAN mode',
 
   for (const [method, pathname] of cases) {
     const url = new URL(`http://localhost:4317${pathname}`);
+    const needsJson = method !== 'GET';
     assert.equal(
-      security.validateApiRequest(req({ method, contentType: 'application/json' }), url).code,
+      security.validateApiRequest(req({ method, contentType: needsJson ? 'application/json' : '' }), url).code,
       'token_required',
       `${method} ${pathname} should require a token`,
     );
     assert.equal(
-      security.validateApiRequest(req({ method, contentType: 'application/json', token: 'test-token' }), url).ok,
+      security.validateApiRequest(req({ method, contentType: needsJson ? 'application/json' : '', token: 'test-token' }), url).ok,
       true,
       `${method} ${pathname} should admit the configured token`,
     );
   }
+});
+
+test('memory export admits the configured header token without a JSON content type', () => {
+  const security = buildSecurity();
+  const url = new URL('http://localhost:4317/api/penny/memory/export');
+  const request = req({ method: 'GET' });
+  request.headers['x-penny-access-token'] = 'test-token';
+
+  assert.equal(security.validateApiRequest(request, url).ok, true);
+  assert.equal(request.headers['content-type'], undefined);
 });

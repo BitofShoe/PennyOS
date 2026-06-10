@@ -643,6 +643,61 @@ test('selectOpenLoopsForCandidateMergeBudget skips low-priority loops only under
   assert.equal(tight.skippedLowPriorityCount, 1);
 });
 
+test('buildCompressionState gates chapter fallback on session length and weak semantic retrieval', async () => {
+  const policy = createMemoryArchivePolicyApi({
+    sessionChapterTriggerCount: 7,
+    compressionRetrievalConfidence: 0.48,
+    sessionPromptLimit: 3,
+    archiveCompressionReasonCodes: {
+      NOT_NEEDED: 'compression_not_needed',
+      SEMANTIC_UNAVAILABLE: 'compression_semantic_unavailable',
+      LOW_RETRIEVAL_CONFIDENCE: 'compression_low_retrieval_confidence',
+    },
+    trimText: (value = '', limit = 1600) => String(value || '').slice(0, limit),
+  });
+  const chapter = { id: 'chapter-1', sourceType: 'chapter', text: 'Long-session tea details.' };
+  const rankGroup = async (items = []) => items.slice(0, 1);
+  const sessionWith = (count) => ({
+    episodes: Array.from({ length: count }, (_item, index) => ({ id: `ep-${index + 1}`, text: `Episode ${index + 1}` })),
+  });
+
+  const tooShort = await policy.buildCompressionState({
+    candidateGroups: { chapters: [chapter] },
+    session: sessionWith(6),
+    semanticMemory: { ready: false },
+    strongestConfidence: 0,
+    rankGroup,
+  });
+  const strongSemantic = await policy.buildCompressionState({
+    candidateGroups: { chapters: [chapter] },
+    session: sessionWith(7),
+    semanticMemory: { ready: true },
+    strongestConfidence: 0.49,
+    rankGroup,
+  });
+  const weakSemantic = await policy.buildCompressionState({
+    candidateGroups: { chapters: [chapter] },
+    session: sessionWith(7),
+    semanticMemory: { ready: true },
+    strongestConfidence: 0.47,
+    rankGroup,
+  });
+  const unavailableSemantic = await policy.buildCompressionState({
+    candidateGroups: { chapters: [chapter] },
+    session: sessionWith(7),
+    semanticMemory: { ready: false },
+    strongestConfidence: 0.8,
+    rankGroup,
+  });
+
+  assert.equal(tooShort.compression.used, false);
+  assert.equal(strongSemantic.compression.used, false);
+  assert.equal(weakSemantic.compression.used, true);
+  assert.equal(weakSemantic.compression.reasonCode, 'compression_low_retrieval_confidence');
+  assert.equal(unavailableSemantic.compression.used, true);
+  assert.equal(unavailableSemantic.compression.reasonCode, 'compression_semantic_unavailable');
+});
+
 test('scoreArchiveCandidate preserves lexical semantic and sensitivity ordering signals', () => {
   const policy = createMemoryArchivePolicyApi({
     tokenizeMemoryText,
@@ -691,4 +746,6 @@ test('scoreArchiveCandidate preserves lexical semantic and sensitivity ordering 
   }, new Set(['favorite', 'tea']), now);
 
   assert.equal(sensitiveWinner.score, lexicalWinner.score - 1.5);
+  assert.equal(sensitiveWinner.components.sensitivityPenalty, -1.5);
+  assert.equal(sensitiveWinner.reasons.includes('sensitivity-penalty:-1.50'), true);
 });

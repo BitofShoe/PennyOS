@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { createMemoryBooksApi } = require('../lib/penny-memory-books');
+const { buildPromptMemoryContext } = require('../lib/penny-memory');
 
 function makeTempFiles(prefix = 'penny-memory-books-') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -78,6 +79,79 @@ test('memory books match bounded prompt inserts without mutating the store', () 
     assert.ok(result.matches[0].matchedPhrases.includes('what do you look like'));
     assert.equal(before.books.length, after.books.length);
     assert.equal(after.books.some((book) => book.id === 'coding'), true);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('memory books render bounded prompt inserts without mutating canonical explicit memory', () => {
+  const files = makeTempFiles('penny-memory-books-prompt-');
+  fs.writeFileSync(files.seedFile, `${JSON.stringify({
+    meta: { schemaVersion: 1, updatedAt: '' },
+    books: [
+      {
+        id: 'appearance',
+        scope: 'chat',
+        placement: 'memory',
+        triggers: { phrases: ['what do you look like'], lanes: ['chat'] },
+        text: 'Penny has coral hair when the user explicitly asks.',
+        priority: 90,
+        enabled: true,
+      },
+      {
+        id: 'companion-style',
+        scope: 'chat',
+        placement: 'memory',
+        triggers: { phrases: ['what do you look like'], lanes: ['chat'] },
+        text: 'Appearance answers should stay brief and companion-first.',
+        priority: 80,
+        enabled: true,
+      },
+      {
+        id: 'overflow',
+        scope: 'chat',
+        placement: 'memory',
+        triggers: { phrases: ['what do you look like'], lanes: ['chat'] },
+        text: 'This lower-priority memory book should not render.',
+        priority: 10,
+        enabled: true,
+      },
+    ],
+  }, null, 2)}\n`);
+
+  const api = createMemoryBooksApi({
+    fs,
+    path,
+    BOOKS_FILE: files.booksFile,
+    BOOKS_SEED_FILE: files.seedFile,
+  });
+
+  try {
+    const explicitMemory = {
+      memories: [
+        { text: 'Favorite tea is lapsang souchong', kind: 'preference', ts: Date.UTC(2026, 3, 12) },
+      ],
+    };
+    const before = JSON.stringify(explicitMemory.memories);
+    const matches = api.matchMemoryBooks({
+      sessionId: 'demo',
+      userText: 'what do you look like?',
+      lane: 'chat',
+      attachmentType: 'none',
+    });
+    const prompt = buildPromptMemoryContext({
+      ...explicitMemory,
+      memoryBookContext: matches,
+    }, 'what do you look like?', 6, '- Nothing yet.', Date.UTC(2026, 3, 12));
+
+    assert.equal(matches.matches.length, 2);
+    assert.match(prompt.text, /memory book: Penny has coral hair/);
+    assert.match(prompt.text, /memory book: Appearance answers should stay brief/);
+    assert.doesNotMatch(prompt.text, /lower-priority memory book/);
+    assert.equal(prompt.promptTruth.channels.memoryBooks.candidateCount, 2);
+    assert.equal(prompt.promptTruth.channels.memoryBooks.renderedCount, 2);
+    assert.deepEqual(prompt.promptTruth.channels.memoryBooks.renderedSourceIds, ['appearance', 'companion-style']);
+    assert.equal(JSON.stringify(explicitMemory.memories), before);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

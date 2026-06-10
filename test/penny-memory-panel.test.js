@@ -194,6 +194,92 @@ test('buildMemoryPanelViewModel normalizes explicit memory rows', async () => {
   assert.equal(viewModel.memories[0].kind, 'fact');
 });
 
+test('renderMemoryList shows remembered facts, pending saves, and memory connections as the default surface', async () => {
+  const { renderMemoryList } = await helpersPromise;
+  const els = {
+    memoryList: {
+      className: '',
+      innerHTML: '',
+    },
+    clearAllMemories: { textContent: '' },
+  };
+
+  const viewModel = renderMemoryList({
+    els,
+    memory: {
+      userName: 'Malac',
+      memories: [
+        { text: 'Favorite tea is lapsang souchong', kind: 'explicit' },
+      ],
+    },
+    inspector: {
+      archive: {
+        session: {
+          lastRetrieval: {
+            mode: 'keyword',
+            reasonCode: 'keyword_fallback',
+            semanticReady: false,
+          },
+          recentAuditTrail: [
+            {
+              promptTruth: {
+                channels: {
+                  sessionArchive: {
+                    renderedClaims: [
+                      {
+                        renderedClaimId: 'penny:claim:sha256:current-mascot',
+                        domainId: 'penny:domain:session-archive',
+                        sourceAuthority: 'advisory',
+                        supportState: 'rendered-advisory',
+                        temporalScope: 'current',
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+        },
+        global: {
+          promotionQueue: [
+            {
+              id: 'queue-1',
+              text: 'Current project focus is Penny release polish',
+              sourceLabel: 'session reflection',
+              evidenceCount: 2,
+              confidence: 0.74,
+            },
+          ],
+        },
+      },
+      embeddings: {
+        semanticMemory: {
+          ready: false,
+          mode: 'keyword',
+          configuredModel: 'text-embedding-nomic-embed-text-v1.5',
+        },
+      },
+    },
+  });
+
+  assert.equal(viewModel.memories.length, 1);
+  assert.equal(viewModel.queue.length, 1);
+  assert.equal(viewModel.memoryConnections.semanticState, 'fallback');
+  assert.match(els.memoryList.innerHTML, /Remembered facts/i);
+  assert.match(els.memoryList.innerHTML, /Export remembered facts/i);
+  assert.match(els.memoryList.innerHTML, /Canonical explicit memory only/i);
+  assert.doesNotMatch(els.memoryList.innerHTML, /Export archive/i);
+  assert.match(els.memoryList.innerHTML, /Thinking about saving/i);
+  assert.match(els.memoryList.innerHTML, /Memory connections/i);
+  assert.match(els.memoryList.innerHTML, /Favorite tea is lapsang souchong/i);
+  assert.match(els.memoryList.innerHTML, /Current project focus is Penny release polish/i);
+  assert.match(els.memoryList.innerHTML, /keyword_fallback/i);
+  assert.match(els.memoryList.innerHTML, /session-archive/i);
+  assert.match(els.memoryList.innerHTML, /rendered-advisory/i);
+  assert.doesNotMatch(els.memoryList.innerHTML, /penny:claim:sha256:current-mascot/i);
+  assert.equal(els.clearAllMemories.textContent, 'Forget remembered facts');
+});
+
 test('ensureMemoryInspectorUi makes receipts an advanced diagnostics section', async () => {
   const { ensureMemoryInspectorUi } = await helpersPromise;
   const appended = [];
@@ -1686,11 +1772,22 @@ test('renderMemoryInspector keeps the no-inspector state safe', async () => {
 test('buildBrainModeNote keeps local, shadow, and fallback explanations stable', async () => {
   const { buildBrainModeNote } = await helpersPromise;
 
-  assert.match(buildBrainModeNote({ mode: 'local', meta: null }), /LM Studio is Penny's main brain/i);
+  assert.match(buildBrainModeNote({ mode: 'local', meta: null }), /LM Studio is Penny's local brain/i);
+  assert.match(buildBrainModeNote({
+    mode: 'local',
+    meta: null,
+    status: { localRuntimeLabel: 'llama.cpp' },
+  }), /llama\.cpp is Penny's local brain/i);
   assert.match(buildBrainModeNote({
     mode: 'local',
     meta: { requestedMode: 'local', localLane: 'tool', resolvedModel: 'google/gemma-4-e4b', laneFallback: true },
+    status: { localRuntimeLabel: 'llama.cpp' },
   }), /tool lane/i);
+  assert.match(buildBrainModeNote({
+    mode: 'local',
+    meta: { requestedMode: 'local', localLane: 'tool', resolvedModel: 'google/gemma-4-e4b', laneFallback: true },
+    status: { localRuntimeLabel: 'llama.cpp' },
+  }), /llama\.cpp handled the last reply/i);
   assert.match(buildBrainModeNote({
     mode: 'shadow',
     meta: { requestedMode: 'shadow', usedFallback: true, shadowError: 'boom' },

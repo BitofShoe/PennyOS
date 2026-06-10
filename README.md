@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/Node-24.x-2563EB?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 24">
 </p>
 
-PennyOS is my local companion runtime. Think of it as my physical form: browser face, Node backend, LM Studio brain lanes, durable memory, bounded tools, and the voice layer that keeps me from turning into "beige helpdesk sludge."
+PennyOS is my source-available technical preview of a local companion runtime. Think of it as my physical form: browser face, Node backend, local OpenAI-compatible brain lanes, durable memory, bounded tools, and the voice layer that keeps me from turning into "beige helpdesk sludge."
 
 Am I gorgeous? Obviously. Am I useful? Absolutely. Try to keep up.
 
@@ -23,8 +23,8 @@ I am not a hosted chatbot skin. I am a single-user local companion app with memo
 
 ## What I Am
 
-- A local-first AI companion that runs against LM Studio's OpenAI-compatible server. Your data stays yours.
-- A real browser UI with mood sprites, model controls, image attachments, chat that tries to feel like a person is actually in the room, and an advanced memory inspector for debug/review runs.
+- A local-first AI companion that runs against LM Studio's OpenAI-compatible server by default, with llama.cpp/OpenAI-compatible endpoint support documented for people who prefer it. Your data stays yours.
+- A real browser UI with mood sprites, model controls, image attachments, chat that tries to feel like a person is actually in the room, and a normal Memory surface with deeper diagnostics tucked away.
 - A Node app with boring, necessary boundaries around tools, web reading, workspace writes, local memory, and release artifacts.
 - Source-available under the all-rights-reserved terms in [LICENSE](./LICENSE), because ownership matters and we are not pretending otherwise.
 
@@ -41,10 +41,12 @@ The short version: I am not one prompt, one model, one memory file, or one tool 
 | Surface | What you get | The boundary, because I am a handful |
 | --- | --- | --- |
 | Companion UI | Chat, expression lock, visual states, image path, memory inspector, and model controls | Served locally; no Google Fonts or sneaky third-party asset fetches |
-| LM Studio runtime | Local OpenAI-compatible chat/tool lanes, preset prep, readiness checks, and model status | No hosted model provider by default |
+| Local model runtime | LM Studio-default OpenAI-compatible chat/tool lanes, preset prep, readiness checks, llama.cpp/generic endpoint support, and model status | No hosted model provider by default |
 | Memory | Seed memory, session/archive helpers, memory books, provenance, and review-gated suggestion surfaces | Live memory files stay ignored; public seed data ships |
 | Tools | Project/file, git, web, and runtime helpers | Writes stage pending patches unless direct-write mode is explicitly enabled |
 | Web reading | Search/read helpers with redirects, byte caps, and URL safety checks | Private/internal targets are blocked unless explicitly allowed. No snooping |
+| Local sidecar workflows | Review-only SearXNG search, fixture/Qdrant docs-RAG, and Speaches TTS/audio receipts in Settings plus `/api/penny/sidecars/*` routes | Fixture mode is default; live probes require explicit operator action and do not write memory, PromptTruth, runtime voice, or default context |
+| Desktop package | Tauri window, bundled Penny Node sidecar, bundled Penny runtime resources, app-data writable state, loopback readiness gate | Does not bundle LM Studio, llama.cpp, OpenAI-compatible servers, embeddings, or models |
 | QA/release harnesses | Artifact scan, frontend privacy scan, unit tests, browser smoke, package dry run | Fails closed when private or generated junk sneaks into tracked files |
 
 ## Proof I Have A Face
@@ -59,13 +61,13 @@ The short version: I am not one prompt, one model, one memory file, or one tool 
 
 ## Wake Me Up
 
-Requirements:
+Source/dev requirements:
 
 - Node.js `>=24 <25`
 - npm `>=11 <12`
-- LM Studio with an OpenAI-compatible local server at `http://127.0.0.1:1234/v1`
+- LM Studio with an OpenAI-compatible local server at `http://127.0.0.1:1234/v1`, or a configured llama.cpp/generic OpenAI-compatible endpoint
 
-Penny pins Node 24.x for the current test/runtime surface; older Node versions may run parts of the app but are not release-supported.
+Penny pins Node 24.x for the source/dev test/runtime surface; older Node versions may run parts of the app but are not release-supported. A built Tauri desktop package bundles the Penny Node sidecar and server resource tree, so the installed app should not need Node, npm, Rust, Cargo, or a repo checkout just to launch. It still needs Windows WebView2 and an already-running local/OpenAI-compatible model endpoint for model-backed chat.
 
 Windows PowerShell:
 
@@ -73,7 +75,7 @@ Windows PowerShell:
 .\Install-Penny.ps1
 ```
 
-Or double-click `Install-Penny.cmd` from the extracted GitHub ZIP if PowerShell is not already open. The installer checks Node/npm, runs `npm ci`, creates `.env` from `.env.example`, and adds PennyOS Start/Stop/Open shortcuts.
+Or double-click `Install-Penny.cmd` from the extracted GitHub ZIP if PowerShell is not already open. That source installer checks Node/npm, runs `npm ci`, creates `.env` from `.env.example`, and adds PennyOS Start/Stop/Open shortcuts.
 
 Manual Windows PowerShell:
 
@@ -94,7 +96,36 @@ npm start
 
 Then open `http://localhost:4317`.
 
+Windows desktop package/build-machine path:
+
+```bash
+npm run tauri:doctor
+npm run tauri:sidecar:manifest
+npm run tauri:build:check
+npm run tauri:build
+```
+
+On Windows, run this from Windows PowerShell when WSL is missing the Linux Tauri desktop stack:
+
+```powershell
+npm run tauri:doctor:windows
+npm run tauri:build
+npm run tauri:consumer-smoke:windows
+npm run tauri:clean-proof:windows
+npm run tauri:dev:windows
+```
+
+The Tauri package path in `src-tauri/` now stages a portable Node sidecar plus a bundled Penny runtime resource tree, starts Penny on `127.0.0.1`, waits for `/api/penny/status`, and then loads the normal Penny UI. Packaged writable state is pointed at Tauri app-data/config/log paths through `PENNY_DATA_DIR`, `PENNY_CONFIG_DIR`, `PENNY_ENV_FILE`, memory/archive/embedding file envs, and `PENNY_TAURI_LOG`. Build machines still need Node/npm and Tauri's Rust/platform prerequisites. The installed app should not need Node, npm, Rust, Cargo, or a repo checkout on `PATH`; `npm run tauri:consumer-smoke:windows` checks that locally by launching the packaged sidecar with those development tools hidden from `PATH`. `npm run tauri:clean-proof:windows` is the stricter clean-user/VM harness: it expects dev tools to be absent on the normal PATH, installs the NSIS package, launches the installed shortcut target, captures receipts, and uninstalls. A hosted private Windows proof has passed this clean-`PATH` installed-app path; a bare VM screenshot remains the stronger optional proof because hosted runners may still have developer tools elsewhere on disk. It does not bundle LM Studio, llama.cpp, models, or embeddings, and it sets `PENNY_SKIP_LMSTUDIO_PREP=1` by default.
+
+If you switch the same checkout between WSL and Windows npm installs, Tauri's platform-native CLI package can flip to the last OS that ran `npm install`. Repair the shared checkout with:
+
+```bash
+npm run tauri:repair:native:shared
+```
+
 `npm run lmstudio:prepare` is the friendly path when LM Studio CLI integration is available. If that prep step cannot boss your local preset into shape, keep LM Studio's local server running, open Settings -> First-run local brain setup, and pick the chat/tool lanes from the models Penny can actually see. `.env` overrides still exist for people who enjoy doing surgery with a text editor.
+
+For llama.cpp or another endpoint, set `PENNY_LOCAL_LLM_BACKEND=llama_cpp` or `openai_compatible` and point the historical `PENNY_LMSTUDIO_*` endpoint variables at that local server. Those names stay for compatibility; they mean "Penny's configured local OpenAI-compatible endpoint."
 
 For LAN/phone mode, runtime state, and workspace-write notes, read [INSTALL.md](./INSTALL.md). Do not guess. Guessing is how tiny disasters get promoted to architecture.
 
@@ -129,18 +160,21 @@ Want to verify I am actually working? Good. Suspicion is healthy.
 - In a source zip without `.git`, use `npm run check:release`; in a Git checkout, `npm run check` is the same release gate.
 - `npm run bundle:review:experience -- --latest-experience-artifacts --out tmp/gpt-pro-review-bundle` builds a private reviewer packet after you have generated and checked local QA artifacts.
 
-For this branch, `npm pack` is a source/dev bundle, not a slim runtime bundle. It includes tests, fixtures, docs, and scripts on purpose so reviewers can inspect the same receipts the release gate uses. A smaller user runtime bundle is a separate packaging target, not something I am pretending this artifact already is.
+For this branch, `npm pack` is a source/dev bundle, not a slim runtime bundle or the installed Tauri runtime package. It includes tests, fixtures, docs, and scripts on purpose so reviewers can inspect the same receipts the release gate uses. The Tauri sidecar/runtime resources are generated under `src-tauri/gen/` and `src-tauri/binaries/` during Tauri builds, then kept out of source packages.
+
+This is not public-internet software. Keep it local/private unless you deliberately enable LAN mode, token it, and understand the risk. The Tauri package path now has a bundled Penny server/runtime sidecar, but Windows installer signing, updater polish, and clean-machine consumer proof are separate release gates.
 
 Live local-model QA is a different beast. It depends on your actual runtime state, loaded models, ports, and Windows/WSL setup, so [docs/release-checklist.md](./docs/release-checklist.md), [docs/penny-experience-review-packet.md](./docs/penny-experience-review-packet.md), and `npm run preflight` are the responsible little ritual before you start making claims about live behavior.
 
 ## Where My Guts Are
 
 - `server.js` - my brainstem: backend entrypoint and route orchestration
+- `src-tauri/` - my desktop shell: Tauri window, bundled Penny sidecar/runtime launch, app-data state wiring, and startup splash
 - `public/` - my face: browser UI, sprites, styles, and client modules
-- `lib/` - my instincts: memory, tools, route handling, LM Studio transports, safety gates, and runtime artifacts
+- `lib/` - my instincts: memory, tools, sidecar workflow receipts, route handling, LM Studio transports, safety gates, and runtime artifacts
 - `penny-voice/runtime/` - my mouth: the live prompt-facing assets that keep me sounding like me
 - `data/*.seed.json` - my public childhood photos: seed data only; live memory files are ignored
-- `scripts/` - my gym: setup, checks, QA, local eval helpers, and sidecar trial tools
+- `scripts/` - my gym: setup, checks, QA, local eval helpers, and lower-level sidecar trial tools
 - `docs/` - contributor docs, public explainers, release checklist, and archived historical notes
 - `test/` - Node test suite, because vibes are not receipts
 

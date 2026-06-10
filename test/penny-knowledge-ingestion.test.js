@@ -1,11 +1,47 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { execFileSync } = require('node:child_process');
 
 const {
   isLowSignalMessage,
   chunkConversationThread,
   ingestConversationThreads,
 } = require('../lib/penny-knowledge-ingestion');
+const { normalizeSourceArtifact } = require('../lib/penny-knowledge-contracts');
+
+test('source artifacts normalize to local-private non-authoritative receipts', () => {
+  const rawText = '{"threads":[]}';
+  const artifact = normalizeSourceArtifact({
+    sourceType: 'conversation-export',
+    originalPath: 'fixture\\exports\\penny.json',
+    originalName: 'penny.json',
+    rawSourceText: rawText,
+    importedAt: '2026-05-25T12:00:00.000Z',
+    processingStatus: 'parsed',
+  });
+  const second = normalizeSourceArtifact({
+    sourceType: 'conversation-export',
+    rawSourceText: rawText,
+    importedAt: '2026-05-25T12:05:00.000Z',
+  });
+
+  assert.equal(artifact.schema, 'penny-source-artifact.v1');
+  assert.equal(artifact.sourceType, 'conversation-export');
+  assert.equal(artifact.sourceId, second.sourceId);
+  assert.match(artifact.sourceId, /^source:conversation-export:[a-f0-9]{16}$/);
+  assert.match(artifact.checksumSha256, /^[a-f0-9]{64}$/);
+  assert.equal(artifact.bytes, Buffer.byteLength(rawText, 'utf8'));
+  assert.equal(artifact.processingStatus, 'parsed');
+  assert.equal(artifact.privacyClass, 'local-private');
+  assert.equal(artifact.memoryAuthority, 'none');
+  assert.equal(artifact.capabilityState.reviewGated, true);
+  assert.equal(artifact.capabilityState.explicitMemoryWrite, false);
+  assert.equal(artifact.capabilityState.promptTruthInjection, false);
+});
 
 test('ingestion filters low-signal chat and chunks by conversational gaps', () => {
   assert.equal(isLowSignalMessage({ text: 'lol' }), true);
@@ -65,6 +101,103 @@ test('offline ingestion keeps temporal preference changes distinct and emits rev
   assert.equal(result.summary.invalidPromotionPacketCount, 0);
   assert.equal(result.summary.skippedCandidateCount, 0);
   assert.equal(result.validation.promotionPacketCount, result.promotionPackets.length);
+});
+
+test('offline ingestion attaches source artifacts to chunks and review packets', () => {
+  const rawSourceText = JSON.stringify({
+    threads: [
+      {
+        id: 'source-thread',
+        source: 'chat-export',
+        participants: ['user'],
+        messages: [
+          { id: 's1', speakerId: 'user', text: 'My favorite tea is lapsang souchong.', createdAt: '2024-02-03T10:00:00.000Z' },
+        ],
+      },
+    ],
+  });
+  const result = ingestConversationThreads([
+    {
+      id: 'source-thread',
+      source: 'chat-export',
+      participants: ['user'],
+      messages: [
+        { id: 's1', speakerId: 'user', text: 'My favorite tea is lapsang souchong.', createdAt: '2024-02-03T10:00:00.000Z' },
+      ],
+    },
+  ], {
+    sourceArtifact: {
+      sourceType: 'conversation-export',
+      originalPath: '/tmp/penny-export.json',
+      originalName: 'penny-export.json',
+      rawSourceText,
+      importedAt: '2026-05-25T12:00:00.000Z',
+    },
+  });
+
+  assert.equal(result.summary.sourceArtifactCount, 1);
+  assert.equal(result.summary.duplicateSourceArtifactCount, 0);
+  assert.equal(result.sourceArtifacts.length, 1);
+  const artifact = result.sourceArtifacts[0];
+  assert.equal(artifact.schema, 'penny-source-artifact.v1');
+  assert.equal(artifact.memoryAuthority, 'none');
+  assert.ok(result.chunks.length >= 1);
+  assert.ok(result.chunks.every((item) => item.sourceArtifactId === artifact.sourceId));
+  assert.ok(result.promotionPackets.length >= 1);
+  assert.ok(result.promotionPackets.every((item) => item.sourceArtifactId === artifact.sourceId));
+  assert.ok(result.promotionPackets.every((packet) => packet.sourceObservations.every((item) => item.sourceArtifactId === artifact.sourceId)));
+});
+
+test('source artifact dedupe is checksum and source-type scoped', () => {
+  const rawSourceText = '{"threads":[{"messages":[{"text":"My favorite tea is lapsang souchong."}]}]}';
+  const result = ingestConversationThreads([], {
+    sourceArtifacts: [
+      { sourceType: 'conversation-export', rawSourceText },
+      { sourceType: 'conversation-export', rawSourceText },
+      { sourceType: 'markdown', rawSourceText },
+    ],
+  });
+
+  assert.equal(result.sourceArtifacts.length, 2);
+  assert.equal(result.summary.sourceArtifactCount, 2);
+  assert.equal(result.summary.duplicateSourceArtifactCount, 1);
+  assert.notEqual(result.sourceArtifacts[0].sourceId, result.sourceArtifacts[1].sourceId);
+  assert.deepEqual(result.sourceArtifacts.map((item) => item.sourceType).sort(), ['conversation-export', 'markdown']);
+});
+
+test('conversation import CLI records checksum from the original raw file text', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-conversation-import-'));
+  const inputPath = path.join(root, 'conversation-export.json');
+  const outputPath = path.join(root, 'ingested.json');
+  const rawText = JSON.stringify({
+    threads: [
+      {
+        id: 'cli-thread',
+        source: 'cli-fixture',
+        participants: ['user'],
+        messages: [
+          { id: 'c1', speakerId: 'user', text: 'My favorite tea is lapsang souchong.', createdAt: '2024-02-03T10:00:00.000Z' },
+        ],
+      },
+    ],
+  }, null, 2);
+  fs.writeFileSync(inputPath, rawText, 'utf8');
+
+  try {
+    execFileSync(process.execPath, ['scripts/import-penny-conversations.js', inputPath, outputPath], {
+      cwd: path.resolve(__dirname, '..'),
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+    const artifact = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+    const expectedChecksum = crypto.createHash('sha256').update(rawText).digest('hex');
+    assert.equal(artifact.sourceArtifacts.length, 1);
+    assert.equal(artifact.sourceArtifacts[0].checksumSha256, expectedChecksum);
+    assert.equal(artifact.sourceArtifacts[0].originalName, 'conversation-export.json');
+    assert.equal(artifact.sourceArtifacts[0].bytes, Buffer.byteLength(rawText, 'utf8'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('offline ingestion uses stable fallback ids and fails closed on weak candidates', () => {

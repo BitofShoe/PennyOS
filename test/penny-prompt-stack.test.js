@@ -119,6 +119,8 @@ test('buildPromptStack keeps the slot order stable and excludes examples on tool
   assert.ok(toolExamplesIndex < 0);
   assert.ok(toolResult.stack.includes('Tool overlay'));
   assert.ok(!toolResult.stack.includes('Romantic overlay'));
+  assert.ok(!toolResult.stack.includes('Favorite tea is lapsang souchong'));
+  assert.ok(!toolResult.stack.includes('memory book: Penny has coral hair'));
   assert.ok(semanticOverlayIndex < 0);
   assert.ok(semanticExamplesIndex < 0);
   assert.ok(semanticResult.stack.includes('Blend section'));
@@ -129,6 +131,10 @@ test('buildPromptStack keeps the slot order stable and excludes examples on tool
   assert.ok(sessionIndex >= 0);
   assert.ok(explicitIndex < booksIndex);
   assert.ok(booksIndex < sessionIndex);
+  assert.match(toolResult.memoryBlock, /Favorite tea is lapsang souchong/);
+  assert.match(toolResult.memoryBlock, /memory book: Penny has coral hair/);
+  assert.doesNotMatch(toolResult.memoryBlock, /Tool overlay/);
+  assert.doesNotMatch(toolResult.memoryBlock, /Blend section/);
   assert.equal(toolSlotSummary.lane, 'tool');
   assert.equal(toolSlotSummary.mode, 'local');
   assert.equal(toolSlotSummary.eligibleSlotCount, 4);
@@ -137,6 +143,8 @@ test('buildPromptStack keeps the slot order stable and excludes examples on tool
   assert.equal(toolSlotSummary.noOpSlotCount, 0);
   assert.equal(toolSlotSummary.slots.find((slot) => slot.id === 'examples').state, 'ineligible');
   assert.equal(toolSlotSummary.slots.find((slot) => slot.id === 'overlays').state, 'filled');
+  assert.equal(toolSlotSummary.slots.find((slot) => slot.id === 'voiceBlend').renderTarget, 'stack');
+  assert.equal(toolSlotSummary.slots.find((slot) => slot.id === 'overlays').renderTarget, 'stack');
   assert.equal(toolSlotSummary.slots.find((slot) => slot.id === 'memory').renderTarget, 'memory-block');
 });
 

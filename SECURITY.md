@@ -28,7 +28,7 @@ Penny is a local companion app. It is not designed to be hosted on the public in
 - `PENNY_WEB_SEARCH_ENABLED=1` enables public web search/read tools.
 - `PENNY_WEB_ALLOW_PRIVATE_NET=1` allows deliberate local/private network web fetches.
 
-Pending workspace edits are process-memory only for this release and disappear when Penny restarts.
+Pending workspace edits are stored only in ignored local state at `data/penny-pending-workspace-writes.json`. They remain approval-gated, expire by TTL, and re-check the base file hash before applying.
 
 ## Loopback Trust Boundary
 

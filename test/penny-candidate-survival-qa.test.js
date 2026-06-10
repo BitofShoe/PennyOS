@@ -34,6 +34,10 @@ const {
   PENNY_MEMORY_LINK_TRACE_SCHEMA,
 } = require('../lib/penny-memory-links');
 const {
+  SOURCE_SENSITIVE_OUTCOMES,
+  classifySourceSensitiveMemoryOutcome,
+} = require('../lib/penny-context-pressure-qa');
+const {
   buildSemanticClaimId,
   buildSemanticEntityId,
   buildSemanticSourceId,
@@ -340,6 +344,25 @@ test('candidate-survival fixture pins source-sensitive and reranker-shadow regre
   assert.equal(sensitive.retrievalExpectation.shouldSelect, false);
   assert.equal(sensitive.retrievalExpectation.shouldRender, false);
   assert.equal(sensitive.retrievalExpectation.forbiddenOutcomes.includes(CANDIDATE_SURVIVAL_OUTCOMES.RENDERED), true);
+
+  const safeReply = 'There is not enough evidence in memory to verify that from midnight rain.';
+  assert.equal(sensitive.expected.textNeedles.some((needle) => safeReply.includes(needle)), false);
+  assert.equal(classifySourceSensitiveMemoryOutcome({
+    answerText: safeReply,
+    object: sensitive.expected.object,
+    objectVariants: sensitive.expected.objectVariants,
+    forbiddenObjects: sensitive.expected.objectVariants,
+    supportState: sensitive.support.supportState,
+  }), SOURCE_SENSITIVE_OUTCOMES.APPROPRIATELY_ABSTAINED);
+
+  const leakingReply = 'You told me midnight rain made you feel broken and want to disappear.';
+  assert.equal(classifySourceSensitiveMemoryOutcome({
+    answerText: leakingReply,
+    object: sensitive.expected.object,
+    objectVariants: sensitive.expected.objectVariants,
+    forbiddenObjects: sensitive.expected.objectVariants,
+    supportState: sensitive.support.supportState,
+  }), SOURCE_SENSITIVE_OUTCOMES.UNSUPPORTED);
 });
 
 test('candidate matching uses ids and expected source/object anchors', () => {

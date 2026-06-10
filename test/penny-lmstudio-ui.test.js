@@ -119,6 +119,37 @@ test('buildFirstRunModelSetupViewModel turns missing loaded models into a clear 
   assert.deepEqual(viewModel.toolModels, ['unsloth/gemma-4-31b-it', 'google/gemma-4-e4b']);
 });
 
+test('buildFirstRunModelSetupViewModel uses the configured local runtime label', async () => {
+  const { buildFirstRunModelSetupViewModel } = await helpersPromise;
+
+  const viewModel = buildFirstRunModelSetupViewModel({
+    localLlmBackend: 'llama_cpp',
+    localRuntimeLabel: 'llama.cpp',
+    localEndpointBase: 'http://127.0.0.1:18080/v1',
+    lmStudio: {
+      localLlmBackend: 'llama_cpp',
+      localRuntimeLabel: 'llama.cpp',
+      localEndpointBase: 'http://127.0.0.1:18080/v1',
+      reachable: true,
+      availableModels: [],
+      installedModels: ['qwen2.5-coder-7b-instruct'],
+      resolvedChatModel: '',
+      resolvedToolModel: '',
+      chatPreferredModel: 'qwen2.5-coder-7b-instruct',
+      toolPreferredModel: 'qwen2.5-coder-7b-instruct',
+      hint: 'llama.cpp is reachable, but no usable chat model is currently loaded.',
+    },
+    semanticMemory: { ready: false, mode: 'keyword' },
+    readiness: { fallbackActive: true, warmState: 'degraded' },
+  });
+
+  assert.equal(viewModel.localRuntimeLabel, 'llama.cpp');
+  assert.match(viewModel.statusText, /llama\.cpp is reachable/i);
+  assert.match(viewModel.hintText, /load one in llama\.cpp/i);
+  assert.doesNotMatch(viewModel.statusText, /LM Studio/i);
+  assert.doesNotMatch(viewModel.hintText, /LM Studio/i);
+});
+
 test('updateModelSetupUi renders fallback and embedding status without hiding successful setup', async () => {
   const { updateModelSetupUi } = await helpersPromise;
   const els = buildEls();

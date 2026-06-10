@@ -259,6 +259,8 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     PENNY_LMSTUDIO_BASE: process.env.PENNY_LMSTUDIO_BASE,
     PENNY_LMSTUDIO_EMBED_BASE: process.env.PENNY_LMSTUDIO_EMBED_BASE,
     PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
+    PENNY_LOCAL_LLM_BACKEND: process.env.PENNY_LOCAL_LLM_BACKEND,
+    PENNY_LOCAL_RUNTIME_LABEL: process.env.PENNY_LOCAL_RUNTIME_LABEL,
     PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
     PENNY_LMSTUDIO_CHAT_MODEL: process.env.PENNY_LMSTUDIO_CHAT_MODEL,
@@ -292,6 +294,8 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
   process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
   process.env.PENNY_LMSTUDIO_EMBED_BASE = mockLmStudio.baseUrl;
   process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_BACKEND = 'lm_studio';
+  delete process.env.PENNY_LOCAL_RUNTIME_LABEL;
   process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
   process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
@@ -329,6 +333,9 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(response.json.ok, true);
     assert.equal(response.json.name, 'Penny');
     assert.equal(response.json.backend, 'local-lmstudio');
+    assert.equal(response.json.localLlmBackend, 'lm_studio');
+    assert.equal(response.json.localRuntimeLabel, 'LM Studio');
+    assert.equal(response.json.localEndpointBase, mockLmStudio.baseUrl);
     assert.equal(response.json.lmStudioEmbedBase, mockLmStudio.baseUrl);
     assert.equal(response.json.webSearchEnabled, false);
     assert.ok(response.json.lmStudio);
@@ -348,6 +355,9 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(lmStatus.json.toolPreferredModel, 'google/gemma-4-e4b');
     assert.equal(lmStatus.json.embedPreferredModel, 'text-embedding-nomic-embed-text-v1.5');
     assert.equal(lmStatus.json.embedBase, mockLmStudio.baseUrl);
+    assert.equal(lmStatus.json.localLlmBackend, 'lm_studio');
+    assert.equal(lmStatus.json.localRuntimeLabel, 'LM Studio');
+    assert.equal(lmStatus.json.localEndpointBase, mockLmStudio.baseUrl);
     assert.equal(lmStatus.json.routingMode, 'auto');
     assert.ok(lmStatus.json.performance && typeof lmStatus.json.performance === 'object');
     assert.ok(lmStatus.json.readiness && typeof lmStatus.json.readiness === 'object');
@@ -496,6 +506,8 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     if (originalEnv.PENNY_LMSTUDIO_BASE == null) delete process.env.PENNY_LMSTUDIO_BASE; else process.env.PENNY_LMSTUDIO_BASE = originalEnv.PENNY_LMSTUDIO_BASE;
     if (originalEnv.PENNY_LMSTUDIO_EMBED_BASE == null) delete process.env.PENNY_LMSTUDIO_EMBED_BASE; else process.env.PENNY_LMSTUDIO_EMBED_BASE = originalEnv.PENNY_LMSTUDIO_EMBED_BASE;
     if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
+    if (originalEnv.PENNY_LOCAL_LLM_BACKEND == null) delete process.env.PENNY_LOCAL_LLM_BACKEND; else process.env.PENNY_LOCAL_LLM_BACKEND = originalEnv.PENNY_LOCAL_LLM_BACKEND;
+    if (originalEnv.PENNY_LOCAL_RUNTIME_LABEL == null) delete process.env.PENNY_LOCAL_RUNTIME_LABEL; else process.env.PENNY_LOCAL_RUNTIME_LABEL = originalEnv.PENNY_LOCAL_RUNTIME_LABEL;
     if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
     if (originalEnv.PENNY_LMSTUDIO_CHAT_MODEL == null) delete process.env.PENNY_LMSTUDIO_CHAT_MODEL; else process.env.PENNY_LMSTUDIO_CHAT_MODEL = originalEnv.PENNY_LMSTUDIO_CHAT_MODEL;
@@ -513,6 +525,117 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
     if (originalEnv.PENNY_WEB_SEARCH_ENABLED == null) delete process.env.PENNY_WEB_SEARCH_ENABLED; else process.env.PENNY_WEB_SEARCH_ENABLED = originalEnv.PENNY_WEB_SEARCH_ENABLED;
     if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('public chat route integration: request to mocked model to rendered reply to persisted lastRoute', async () => {
+  const envKeys = [
+    'PORT',
+    'PENNY_MEMORY_FILE',
+    'PENNY_MEMORY_ARCHIVE_FILE',
+    'PENNY_MEMORY_EMBEDDINGS_FILE',
+    'PENNY_MEMORY_BOOKS_FILE',
+    'PENNY_LMSTUDIO_BASE',
+    'PENNY_LMSTUDIO_EMBED_BASE',
+    'PENNY_LMSTUDIO_NATIVE_BASE',
+    'PENNY_LOCAL_LLM_BACKEND',
+    'PENNY_LOCAL_RUNTIME_LABEL',
+    'PENNY_LOCAL_LLM_TRANSPORT',
+    'PENNY_LMSTUDIO_MODELS_PROBE_MS',
+    'PENNY_LMSTUDIO_CHAT_MODEL',
+    'PENNY_LMSTUDIO_TOOL_MODEL',
+    'PENNY_LMSTUDIO_EMBED_MODEL',
+    'PENNY_LOCAL_MODEL_PREFERENCE_FILE',
+    'PENNY_ENABLE_BACKGROUND_CHAT_VECTORS',
+    'PENNY_WEB_SEARCH_ENABLED',
+    'PENNY_API_TOKEN',
+  ];
+  const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-full-chat-route-'));
+  const mockLmStudio = await createMockLmStudioServer({
+    handleChatCompletion({ body }) {
+      return buildMockChatCompletion(body, {
+        content: 'Full route integration reply rendered cleanly. [MOOD:calm]',
+      });
+    },
+  });
+
+  process.env.PORT = '0';
+  process.env.PENNY_MEMORY_FILE = path.join(tmpDir, 'penny-memory.test.json');
+  process.env.PENNY_MEMORY_ARCHIVE_FILE = path.join(tmpDir, 'penny-memory-archive.test.json');
+  process.env.PENNY_MEMORY_EMBEDDINGS_FILE = path.join(tmpDir, 'penny-memory-embeddings.test.json');
+  process.env.PENNY_MEMORY_BOOKS_FILE = path.join(tmpDir, 'penny-memory-books.test.json');
+  process.env.PENNY_LOCAL_MODEL_PREFERENCE_FILE = path.join(tmpDir, 'penny-local-preferences.test.json');
+  process.env.PENNY_LMSTUDIO_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_EMBED_BASE = mockLmStudio.baseUrl;
+  process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
+  process.env.PENNY_LOCAL_LLM_BACKEND = 'lm_studio';
+  delete process.env.PENNY_LOCAL_RUNTIME_LABEL;
+  process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
+  process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+  process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
+  process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
+  process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+  process.env.PENNY_ENABLE_BACKGROUND_CHAT_VECTORS = '0';
+  process.env.PENNY_WEB_SEARCH_ENABLED = '0';
+  delete process.env.PENNY_API_TOKEN;
+
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const serverModule = require('../server.js');
+  const started = serverModule.startServer({ port: 0, silent: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (started.listening) {
+        resolve();
+        return;
+      }
+      started.once('listening', resolve);
+      started.once('error', reject);
+    });
+
+    const address = started.address();
+    assert.ok(address && typeof address === 'object' && address.port > 0);
+
+    const chat = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'full-route-integration',
+        messages: [
+          { role: 'user', content: 'Say good morning in one sentence.' },
+        ],
+        memories: { brainMode: 'local', memories: [] },
+      }),
+    });
+
+    assert.equal(chat.statusCode, 200);
+    assert.match(chat.json.text, /Full route integration reply rendered cleanly/i);
+    assert.equal(chat.json.meta.localLane, 'chat');
+    assert.equal(chat.json.meta.resolvedModel, 'unsloth/gemma-4-31b-it');
+    assert.equal(chat.json.meta.artifact.scope.route, '/api/penny/chat');
+    assert.equal(chat.json.meta.artifact.scope.selectedLane, 'chat');
+    assert.equal(mockLmStudio.stats.chatRequests, 1);
+    assert.equal(mockLmStudio.chatBodies[0].model, 'unsloth/gemma-4-31b-it');
+
+    const stored = await requestJson(
+      `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=full-route-integration`,
+    );
+    assert.equal(stored.statusCode, 200);
+    assert.equal(stored.json.memory?.lastRoute?.artifact?.scope?.route, '/api/penny/chat');
+    assert.equal(stored.json.memory?.lastRoute?.artifact?.scope?.selectedLane, 'chat');
+    assert.equal(stored.json.memory?.lastRoute?.artifact?.context?.resolvedModel, 'unsloth/gemma-4-31b-it');
+    assert.match(stored.json.memory?.lastRoute?.artifact?.summary?.text || '', /ordinary turn|chat/i);
+  } finally {
+    await new Promise((resolve) => started.close(() => resolve()));
+    await mockLmStudio.close();
+    delete require.cache[modulePath];
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

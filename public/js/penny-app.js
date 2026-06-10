@@ -59,6 +59,9 @@ import {
   renderMemoryInspector as renderMemoryInspectorUi,
   buildBrainModeNote,
 } from './penny-memory-panel.mjs';
+import {
+  renderSidecarWorkflowResult,
+} from './penny-sidecar-panel.mjs';
 
 const state = {
   panel: 'chat',
@@ -126,6 +129,19 @@ const els = {
   saveApiToken: document.getElementById('saveApiToken'),
   clearApiToken: document.getElementById('clearApiToken'),
   apiTokenStatus: document.getElementById('apiTokenStatus'),
+  sidecarSearchQuery: document.getElementById('sidecarSearchQuery'),
+  sidecarSearchLive: document.getElementById('sidecarSearchLive'),
+  sidecarSearchRun: document.getElementById('sidecarSearchRun'),
+  sidecarSearchResult: document.getElementById('sidecarSearchResult'),
+  sidecarDocsQuestion: document.getElementById('sidecarDocsQuestion'),
+  sidecarDocsLive: document.getElementById('sidecarDocsLive'),
+  sidecarDocsRun: document.getElementById('sidecarDocsRun'),
+  sidecarDocsResult: document.getElementById('sidecarDocsResult'),
+  sidecarAudioText: document.getElementById('sidecarAudioText'),
+  sidecarAudioLive: document.getElementById('sidecarAudioLive'),
+  sidecarAudioTtsTrial: document.getElementById('sidecarAudioTtsTrial'),
+  sidecarAudioRun: document.getElementById('sidecarAudioRun'),
+  sidecarAudioResult: document.getElementById('sidecarAudioResult'),
   imageInput: document.getElementById('imageInput'),
   imageBtn: document.getElementById('imageBtn'),
   imagePreview: document.getElementById('imagePreview'),
@@ -370,7 +386,7 @@ function updateBrainModeUi(meta = null) {
   if (els.brainModeLocal) els.brainModeLocal.checked = mode === 'local';
   if (els.backendLastLane) els.backendLastLane.textContent = formatLastLane(meta);
   if (!els.brainModeNote) return;
-  els.brainModeNote.textContent = buildBrainModeNote({ mode, meta });
+  els.brainModeNote.textContent = buildBrainModeNote({ mode, meta, status: state.backendStatus });
 }
 let _lastSpriteKey = '';
 let _spriteTimer = null;
@@ -515,7 +531,7 @@ async function readPennyEventStream(response, handlers = {}) {
 
 function renderMemory() {
   ensureMemoryInspectorUi();
-  renderMemoryListModule({ els, memory: state.memory, escapeHtmlFn: escapeHtml });
+  renderMemoryListModule({ els, memory: state.memory, inspector: state.memoryInspector, escapeHtmlFn: escapeHtml });
   renderMemoryInspector();
   updateBrainModeUi();
 }
@@ -621,6 +637,7 @@ async function loadMemoryInspector(options = {}) {
   try {
     const data = await memoryInspectorRequest(`/api/penny/memory/inspector?sessionId=${encodeURIComponent(state.memory.sessionId)}`);
     state.memoryInspector = data.inspector || null;
+    renderMemoryListModule({ els, memory: state.memory, inspector: state.memoryInspector, escapeHtmlFn: escapeHtml });
     renderMemoryInspector();
   } catch (error) {
     if (!options.quiet) reportMemoryIssue('inspector load failed', error);
@@ -648,6 +665,22 @@ async function purgeMemoryScopes(payload = {}) {
   state.memoryInspector = data.inspector || state.memoryInspector;
   renderMemory();
   saveState();
+}
+
+async function exportRememberedFacts() {
+  const res = await apiFetch(`/api/penny/memory/export?sessionId=${encodeURIComponent(state.memory.sessionId)}`);
+  if (!res.ok) throw new Error(`Memory export request failed: ${res.status}`);
+  const data = await res.json();
+  const payload = data.export || data;
+  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `penny-remembered-facts-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function syncMemoryToDisk() {
@@ -792,6 +825,191 @@ els.toolModelSelect?.addEventListener('change', saveModelSetupFromControls);
 els.modelSetupFallback?.addEventListener('change', saveModelSetupFromControls);
 els.saveModelSetup?.addEventListener('click', saveModelSetupFromControls);
 els.refreshModelSetup?.addEventListener('click', () => loadBackendStatus());
+
+async function runSearchSidecarWorkflow() {
+  if (!els.sidecarSearchRun || !els.sidecarSearchResult) return;
+  const query = String(els.sidecarSearchQuery?.value || '').trim() || 'penny-local-sidecar';
+  const liveRequested = els.sidecarSearchLive?.checked === true;
+  els.sidecarSearchRun.disabled = true;
+  els.sidecarSearchResult.hidden = false;
+  els.sidecarSearchResult.dataset.status = 'loading';
+  els.sidecarSearchResult.textContent = 'Running search digest...';
+  try {
+    const res = await apiFetch('/api/penny/sidecars/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        mode: liveRequested ? 'live' : 'fixture',
+        allowLiveProbe: liveRequested,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const workflow = data.workflow || {
+      ok: false,
+      status: 'blocked',
+      kind: 'search',
+      failure: { message: data.error || `Search sidecar failed: ${res.status}` },
+      authority: {
+        memoryWrite: false,
+        promptTruthChanged: false,
+        toolEvidenceReceiptChanged: false,
+        defaultContextChanged: false,
+      },
+      review: { requiresReview: true, autoIngested: false },
+    };
+    renderSidecarWorkflowResult({
+      container: els.sidecarSearchResult,
+      workflow,
+      escapeHtmlFn: escapeHtml,
+    });
+  } catch (error) {
+    renderSidecarWorkflowResult({
+      container: els.sidecarSearchResult,
+      workflow: {
+        ok: false,
+        status: 'blocked',
+        kind: 'search',
+        failure: { message: error?.message || 'Search sidecar request failed.' },
+        authority: {
+          memoryWrite: false,
+          promptTruthChanged: false,
+          toolEvidenceReceiptChanged: false,
+          defaultContextChanged: false,
+        },
+        review: { requiresReview: true, autoIngested: false },
+      },
+      escapeHtmlFn: escapeHtml,
+    });
+  } finally {
+    els.sidecarSearchRun.disabled = false;
+  }
+}
+
+async function runDocsSidecarWorkflow() {
+  if (!els.sidecarDocsRun || !els.sidecarDocsResult) return;
+  const question = String(els.sidecarDocsQuestion?.value || '').trim() || 'What do the fixture docs say about sidecar memory boundaries?';
+  const liveRequested = els.sidecarDocsLive?.checked === true;
+  els.sidecarDocsRun.disabled = true;
+  els.sidecarDocsResult.hidden = false;
+  els.sidecarDocsResult.dataset.status = 'loading';
+  els.sidecarDocsResult.textContent = 'Running document answer...';
+  try {
+    const res = await apiFetch('/api/penny/sidecars/docs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        mode: liveRequested ? 'live' : 'fixture',
+        allowLiveProbe: liveRequested,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const workflow = data.workflow || {
+      ok: false,
+      status: 'blocked',
+      kind: 'docs',
+      failure: { message: data.error || `Docs sidecar failed: ${res.status}` },
+      authority: {
+        memoryWrite: false,
+        promptTruthChanged: false,
+        toolEvidenceReceiptChanged: false,
+        defaultContextChanged: false,
+      },
+      review: { requiresReview: true, autoIngested: false },
+    };
+    renderSidecarWorkflowResult({
+      container: els.sidecarDocsResult,
+      workflow,
+      escapeHtmlFn: escapeHtml,
+    });
+  } catch (error) {
+    renderSidecarWorkflowResult({
+      container: els.sidecarDocsResult,
+      workflow: {
+        ok: false,
+        status: 'blocked',
+        kind: 'docs',
+        failure: { message: error?.message || 'Docs sidecar request failed.' },
+        authority: {
+          memoryWrite: false,
+          promptTruthChanged: false,
+          toolEvidenceReceiptChanged: false,
+          defaultContextChanged: false,
+        },
+        review: { requiresReview: true, autoIngested: false },
+      },
+      escapeHtmlFn: escapeHtml,
+    });
+  } finally {
+    els.sidecarDocsRun.disabled = false;
+  }
+}
+
+async function runAudioSidecarWorkflow() {
+  if (!els.sidecarAudioRun || !els.sidecarAudioResult) return;
+  const text = String(els.sidecarAudioText?.value || '').trim() || 'Penny sidecar audio fixture.';
+  const liveRequested = els.sidecarAudioLive?.checked === true;
+  const ttsTrialRequested = els.sidecarAudioTtsTrial?.checked === true;
+  els.sidecarAudioRun.disabled = true;
+  els.sidecarAudioResult.hidden = false;
+  els.sidecarAudioResult.dataset.status = 'loading';
+  els.sidecarAudioResult.textContent = 'Running audio review...';
+  try {
+    const res = await apiFetch('/api/penny/sidecars/audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        mode: liveRequested ? 'live' : 'fixture',
+        allowLiveProbe: liveRequested,
+        speachesTtsTrial: ttsTrialRequested,
+        allowSpeachesTtsTrial: ttsTrialRequested,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const workflow = data.workflow || {
+      ok: false,
+      status: 'blocked',
+      kind: 'audio',
+      failure: { message: data.error || `Audio sidecar failed: ${res.status}` },
+      authority: {
+        memoryWrite: false,
+        promptTruthChanged: false,
+        toolEvidenceReceiptChanged: false,
+        defaultContextChanged: false,
+        runtimeVoiceChanged: false,
+      },
+      review: { requiresReview: true, autoIngested: false },
+    };
+    renderSidecarWorkflowResult({
+      container: els.sidecarAudioResult,
+      workflow,
+      escapeHtmlFn: escapeHtml,
+    });
+  } catch (error) {
+    renderSidecarWorkflowResult({
+      container: els.sidecarAudioResult,
+      workflow: {
+        ok: false,
+        status: 'blocked',
+        kind: 'audio',
+        failure: { message: error?.message || 'Audio sidecar request failed.' },
+        authority: {
+          memoryWrite: false,
+          promptTruthChanged: false,
+          toolEvidenceReceiptChanged: false,
+          defaultContextChanged: false,
+          runtimeVoiceChanged: false,
+        },
+        review: { requiresReview: true, autoIngested: false },
+      },
+      escapeHtmlFn: escapeHtml,
+    });
+  } finally {
+    els.sidecarAudioRun.disabled = false;
+  }
+}
 
 async function consolidateMemory() {
   if (state.consolidating) return;
@@ -1010,6 +1228,9 @@ els.clearApiToken?.addEventListener('click', () => {
   renderApiTokenControls();
   loadBackendStatus();
 });
+els.sidecarSearchRun?.addEventListener('click', runSearchSidecarWorkflow);
+els.sidecarDocsRun?.addEventListener('click', runDocsSidecarWorkflow);
+els.sidecarAudioRun?.addEventListener('click', runAudioSidecarWorkflow);
 els.refreshMemory.addEventListener('click', loadDurableMemory);
 els.clearAllMemories?.addEventListener('click', async () => { await patchMemory({ memories: [] }); });
 els.memoryInspectorToolbar?.addEventListener('click', async (event) => {
@@ -1045,6 +1266,24 @@ els.memoryInspectorPanel?.addEventListener('click', async (event) => {
   }
 });
 els.memoryList?.addEventListener('click', async (event) => {
+  const exportButton = event.target.closest('#exportRememberedFacts');
+  if (exportButton) {
+    try {
+      await exportRememberedFacts();
+    } catch (error) {
+      reportMemoryIssue('memory export failed', error);
+    }
+    return;
+  }
+  const reviewButton = event.target.closest('button[data-review-action]');
+  if (reviewButton) {
+    try {
+      await reviewMemoryPromotion(reviewButton.dataset.reviewId, reviewButton.dataset.reviewAction);
+    } catch (error) {
+      reportMemoryIssue('memory review failed', error);
+    }
+    return;
+  }
   const button = event.target.closest('.memory-remove'); if (!button || button.dataset.kind !== 'memory') return;
   const index = Number(button.dataset.index); const memories = [...(state.memory.memories || [])]; memories.splice(index, 1); await patchMemory({ memories });
 });
@@ -1100,12 +1339,6 @@ loadBackendStatus();
     if (!state.loading) renderMessages();
     updateTheme();
   }).catch(() => {});
-
-const _debugMode = new URLSearchParams(window.location.search).get('debug') === '1';
-if (!_debugMode) {
-  const memTab = document.querySelector('.tab[data-panel="memory"]');
-  if (memTab) memTab.style.display = 'none';
-}
 
 window.__pennyDebug = (mood, turns) => {
     if (mood && MOODS[mood]) state.mood = mood;

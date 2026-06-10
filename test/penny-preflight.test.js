@@ -103,6 +103,8 @@ test('runPreflight accepts a llama.cpp OpenAI-compatible endpoint without the LM
     assert.equal(report.checks.some(check => check.name === 'lmstudio-preset'), false);
     assert.match(report.checks.find(check => check.name === 'local-readiness').detail, /tool.*fallback/i);
     assert.match(report.fixes.join('\n'), /PENNY_LMSTUDIO_TOOL_MODEL|first-run local brain setup/i);
+    assert.match(report.fixes.join('\n'), /llama\.cpp/i);
+    assert.doesNotMatch(report.fixes.join('\n'), /Start LM Studio|LM Studio CLI is missing/i);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

@@ -2,9 +2,15 @@
 
 > Category: Runtime voice implementation plan
 > Authority: Implementation plan, not current runtime law
-> Status: Baseline captured; runtime patch not implemented
+> Status: Superseded by later runtime voice edits; live Constellation QA still permissioned
 > Use this for: handing the next agent a bounded plan for editing Penny's live runtime voice files after Constellation QA
-> Do not use this for: proof that the voice patch already shipped
+> Do not use this for: proof that live Constellation QA passed after those later edits
+
+## Completion overlay - 2026-05-25
+
+- Static runtime evidence now lives in `penny-voice/runtime/penny-operational-blend.md`, `penny-voice/runtime/penny-chat-directives.md`, and `penny-voice/runtime/penny-voice-examples.md`; this older plan should not be treated as saying the runtime patch is still wholly unimplemented.
+- Keep `npm run qa:voice:constellation` as `local/live` model QA. It was not run in the 2026-05-25 static audit because the audit avoided disturbing LM Studio or loaded model state.
+- If future agents edit runtime voice again, preserve source/runtime separation and verify with focused prompt-stack or voice tests before any live Constellation rerun.
 
 ## Goal and success criteria
 

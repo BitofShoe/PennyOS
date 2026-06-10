@@ -30,7 +30,7 @@ The chat lane handles companion turns, softness, banter, image chat, and normal 
 
 Project tools stay inside the project root or explicit aliases. They refuse secret-bearing files such as `.env`, private keys, and certificate bundles. `.env.example` is allowed because it is a safe template.
 
-Workspace write tools stage pending edits by default. Pending workspace edits are temporary and disappear when Penny restarts. Direct writes require `PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=1`.
+Workspace write tools stage pending edits by default. Pending workspace edits are stored in ignored local state at `data/penny-pending-workspace-writes.json`, expire by TTL, and re-check the base file hash before approval applies bytes. Direct writes require `PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=1`.
 
 ## Web Reading And Privacy
 

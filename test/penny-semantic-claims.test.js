@@ -207,3 +207,42 @@ test('claim summaries include relation, source, authority, and temporal state', 
   assert.match(summary.text, /authority=canonical\/verified\/canonical/);
   assert.match(summary.text, /temporal=current/);
 });
+
+test('semantic claims keep same-label entities distinct when stable ids differ', () => {
+  const projectOne = buildSemanticEntityId({ entityType: 'project', entityKey: 'aim-labs-local' });
+  const projectTwo = buildSemanticEntityId({ entityType: 'project', entityKey: 'aim-labs-public' });
+
+  const localClaim = normalizeSemanticClaim(explicitMemoryClaim({
+    subject: {
+      id: projectOne,
+      type: 'project',
+      label: 'AIM Labs',
+    },
+    object: {
+      type: 'text',
+      label: 'local runtime',
+      text: 'local runtime',
+    },
+  }));
+  const publicClaim = normalizeSemanticClaim(explicitMemoryClaim({
+    subject: {
+      id: projectTwo,
+      type: 'project',
+      label: 'AIM Labs',
+    },
+    object: {
+      type: 'text',
+      label: 'public repo',
+      text: 'public repo',
+    },
+  }));
+
+  assert.equal(localClaim.subject.label, publicClaim.subject.label);
+  assert.notEqual(localClaim.subject.id, publicClaim.subject.id);
+  assert.equal(localClaim.subject.id, projectOne);
+  assert.equal(publicClaim.subject.id, projectTwo);
+  assert.notEqual(
+    buildSemanticClaimId({ subjectId: localClaim.subject.id, predicateId: SEMANTIC_PREDICATE_IDS.FAVORITE_TEA, objectText: 'local runtime' }),
+    buildSemanticClaimId({ subjectId: publicClaim.subject.id, predicateId: SEMANTIC_PREDICATE_IDS.FAVORITE_TEA, objectText: 'local runtime' }),
+  );
+});
