@@ -119,6 +119,9 @@ test('Rust Tauri wrapper starts bundled Penny runtime on loopback and waits for 
   assert.match(mainRs, /\/api\/penny\/status/);
   assert.match(mainRs, /start_penny_server/);
   assert.match(mainRs, /wait_for_penny_ready/);
+  assert.match(mainRs, /status_response_indicates_ready/);
+  assert.match(mainRs, /is_whitespace/);
+  assert.doesNotMatch(mainRs, /response\.contains\("200 OK"\)\s*&&\s*response\.contains/);
   assert.match(mainRs, /navigate/);
   assert.match(mainRs, /kill/);
   assert.match(mainRs, /PENNY_TAURI_LOG/);

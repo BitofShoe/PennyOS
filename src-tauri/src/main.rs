@@ -202,7 +202,25 @@ fn status_probe(port: u16) -> bool {
         return false;
     }
 
-    response.contains("200 OK") && response.contains("\"name\":\"Penny\"")
+    status_response_indicates_ready(&response)
+}
+
+fn status_response_indicates_ready(response: &str) -> bool {
+    let Some(status_line) = response.lines().next() else {
+        return false;
+    };
+    if !(status_line.contains(" 200 ")
+        || status_line.ends_with(" 200")
+        || status_line.contains("200 OK"))
+    {
+        return false;
+    }
+
+    let compact_response: String = response
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    compact_response.contains("\"name\":\"Penny\"")
 }
 
 fn wait_for_penny_ready(
@@ -226,6 +244,29 @@ fn wait_for_penny_ready(
         "Penny did not become ready at {} before the startup timeout.",
         penny_url(port)
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::status_response_indicates_ready;
+
+    #[test]
+    fn readiness_probe_accepts_pretty_status_json() {
+        let response = "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\n  \"ok\": true,\n  \"name\": \"Penny\"\n}\n";
+        assert!(status_response_indicates_ready(response));
+    }
+
+    #[test]
+    fn readiness_probe_rejects_non_penny_status() {
+        let response = "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\"ok\":true,\"name\":\"Other\"}";
+        assert!(!status_response_indicates_ready(response));
+    }
+
+    #[test]
+    fn readiness_probe_rejects_failed_http_status() {
+        let response = "HTTP/1.1 503 Service Unavailable\r\ncontent-type: application/json\r\n\r\n{\"ok\":false,\"name\":\"Penny\"}";
+        assert!(!status_response_indicates_ready(response));
+    }
 }
 
 fn ensure_server_log(log_path: &Path) {
