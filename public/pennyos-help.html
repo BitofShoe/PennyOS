@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PennyOS Setup Guide</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090a0d;
+      --panel: #14161b;
+      --panel-soft: #191216;
+      --line: rgba(255, 255, 255, 0.12);
+      --text: #f8f3ed;
+      --muted: rgba(248, 243, 237, 0.68);
+      --soft: rgba(248, 243, 237, 0.48);
+      --warm: #f1b38f;
+      --mint: #73d3a2;
+      --blue: #8fb8ff;
+      --warn: #f1d085;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      line-height: 1.55;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 18% 14%, rgba(241, 179, 143, 0.16), transparent 34rem),
+        radial-gradient(circle at 82% 20%, rgba(115, 211, 162, 0.12), transparent 30rem),
+        linear-gradient(180deg, #101116, var(--bg));
+    }
+
+    a { color: var(--warm); }
+
+    .page {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 64px;
+    }
+
+    .top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 220px;
+      gap: 24px;
+      align-items: center;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(20, 22, 27, 0.84);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      font: 700 0.72rem/1.2 "Cascadia Mono", Consolas, monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--warm);
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: clamp(2.2rem, 7vw, 4.8rem);
+      max-width: 10ch;
+    }
+
+    h2 {
+      margin-bottom: 14px;
+      font-size: clamp(1.45rem, 3vw, 2.1rem);
+    }
+
+    h3 {
+      margin-bottom: 8px;
+      font-size: 1.02rem;
+      color: var(--warm);
+    }
+
+    p { margin: 0 0 12px; color: var(--muted); }
+
+    .top img {
+      width: 100%;
+      image-rendering: pixelated;
+      filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.45));
+    }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.88rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    section {
+      margin-top: 18px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(20, 22, 27, 0.78);
+    }
+
+    .step, .callout {
+      padding: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .callout[data-tone="good"] { border-color: rgba(115, 211, 162, 0.34); }
+    .callout[data-tone="warn"] { border-color: rgba(241, 208, 133, 0.34); }
+    .callout[data-tone="blue"] { border-color: rgba(143, 184, 255, 0.34); }
+
+    ol, ul {
+      margin: 10px 0 0;
+      padding-left: 1.2rem;
+      color: var(--muted);
+    }
+
+    li { margin: 6px 0; }
+
+    code {
+      padding: 0.08rem 0.3rem;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 5px;
+      background: rgba(0, 0, 0, 0.28);
+      color: var(--text);
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    pre {
+      overflow-x: auto;
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.36);
+      color: var(--text);
+    }
+
+    pre code {
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+
+    .mini-shot {
+      display: grid;
+      grid-template-columns: 80px minmax(0, 1fr);
+      gap: 14px;
+      align-items: center;
+    }
+
+    .mini-shot img {
+      width: 80px;
+      image-rendering: pixelated;
+    }
+
+    .footer-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 0 18px;
+      border: 1px solid rgba(241, 179, 143, 0.42);
+      border-radius: 999px;
+      background: rgba(241, 179, 143, 0.1);
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    @media (max-width: 760px) {
+      .top { grid-template-columns: 1fr; }
+      .top img { max-width: 180px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="top">
+      <div>
+        <p class="eyebrow">PennyOS first run</p>
+        <h1>Get Penny talking.</h1>
+        <p>
+          This installed app starts Penny's local desktop shell. It does not include a model runtime or model weights. That is not a scam, it is the part where your computer gets to keep its own brain.
+        </p>
+        <div class="nav" aria-label="Guide sections">
+          <a class="pill" href="#quick-start">Quick start</a>
+          <a class="pill" href="#lm-studio">LM Studio</a>
+          <a class="pill" href="#llama-cpp">llama.cpp</a>
+          <a class="pill" href="#models">Models</a>
+          <a class="pill" href="#features">Features</a>
+          <a class="pill" href="#faq">FAQ</a>
+        </div>
+      </div>
+      <img src="/sprites/packs/pen2/pen2-smug-presenting.png" alt="Penny presenting herself." />
+    </header>
+
+    <section id="quick-start">
+      <h2>Quick Start</h2>
+      <div class="grid">
+        <div class="step">
+          <h3>1. Start a local model server</h3>
+          <p>Use LM Studio, llama.cpp, or another OpenAI-compatible local server. Penny expects one on loopback, usually address <code>127.0.0.1</code>, port <code>1234</code>, path <code>/v1</code>.</p>
+        </div>
+        <div class="step">
+          <h3>2. Load a chat model</h3>
+          <p>The model must be loaded or exposed by the server. Seeing a model installed on disk is not the same thing as serving it.</p>
+        </div>
+        <div class="step">
+          <h3>3. Open PennyOS</h3>
+          <p>Use the Start Menu shortcut or <code>pennyos.exe</code>. Penny opens her UI, checks the local server, and reports what she can actually see.</p>
+        </div>
+        <div class="step">
+          <h3>4. Pick lanes in Settings</h3>
+          <p>Open Settings, then First-run local brain setup. Pick the chat model and tool model from the dropdowns, then save.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="lm-studio">
+      <h2>LM Studio Setup</h2>
+      <p>LM Studio is the friendliest path for most Windows users. The basic loop is download LM Studio, download a model, load it, then start the local server.</p>
+      <ol>
+        <li>Install LM Studio for Windows.</li>
+        <li>Open LM Studio and download an instruction-tuned chat model. Do not use an embedding-only model for chat.</li>
+        <li>Load the model in LM Studio.</li>
+        <li>Open LM Studio's Developer or Local Server area and start the API server.</li>
+        <li>Use port <code>1234</code> unless you know you changed Penny's endpoint settings.</li>
+        <li>Return to PennyOS Settings and press Refresh.</li>
+      </ol>
+      <div class="callout" data-tone="good">
+        <h3>What Penny wants to see</h3>
+        <p><code>/v1/models</code> should list the loaded chat model. If the model list is empty, Penny can open, but model-backed chat will not be ready yet.</p>
+      </div>
+    </section>
+
+    <section id="llama-cpp">
+      <h2>llama.cpp Setup</h2>
+      <p>llama.cpp is more manual, but it works if you expose an OpenAI-compatible server and point Penny at it.</p>
+      <pre><code>PENNY_LOCAL_LLM_BACKEND=llama_cpp
+PENNY_LMSTUDIO_BASE=your loopback server base URL
+PENNY_LOCAL_LLM_TRANSPORT=chat</code></pre>
+      <p>The <code>PENNY_LMSTUDIO_*</code> names are historical. In this mode they mean "the local OpenAI-compatible endpoint Penny should use."</p>
+      <div class="callout" data-tone="warn">
+        <h3>Keep chat and embeddings separate</h3>
+        <p>Embedding models are useful for memory search, but they are not chat models. If you route chat to an embedding-only model, Penny may fail in extremely boring ways.</p>
+      </div>
+    </section>
+
+    <section id="models">
+      <h2>Picking Models</h2>
+      <div class="grid">
+        <div class="callout" data-tone="good">
+          <h3>Good for Penny</h3>
+          <ul>
+            <li>Instruction-tuned chat models.</li>
+            <li>Models that fit your VRAM without constant swapping.</li>
+            <li>Vision-capable models if you want screenshot/image reactions.</li>
+            <li>A smaller fast tool model if you do lots of file/project work.</li>
+          </ul>
+        </div>
+        <div class="callout" data-tone="warn">
+          <h3>Bad fits</h3>
+          <ul>
+            <li>Embedding-only models as the chat lane.</li>
+            <li>Base models that were not tuned for chat.</li>
+            <li>Huge models your machine can barely load.</li>
+            <li>Models that refuse personality and become beige helpdesk sludge.</li>
+          </ul>
+        </div>
+      </div>
+      <p>On this branch, Penny is built around OpenAI-compatible chat/tool lanes. She will honestly report readiness for the endpoint you already have running. She will not download, load, unload, or swap your models behind your back.</p>
+    </section>
+
+    <section id="features">
+      <h2>Feature Map</h2>
+      <div class="grid">
+        <div class="mini-shot">
+          <img src="/sprites/packs/pen2/pen2-happy-bright.png" alt="" />
+          <div>
+            <h3>Chat</h3>
+            <p>Talk normally, or give a bounded job. Specific asks work better than vague "be agentic" fog.</p>
+          </div>
+        </div>
+        <div class="mini-shot">
+          <img src="/sprites/packs/pen2/pen2-thinking-laptop-base.png" alt="" />
+          <div>
+            <h3>Memory</h3>
+            <p>Explicit memory is local. Archive memory is review-gated before promotion. Embeddings help, but keyword fallback is expected.</p>
+          </div>
+        </div>
+        <div class="mini-shot">
+          <img src="/sprites/packs/pen2/pen2-smug-glasses.png" alt="" />
+          <div>
+            <h3>Settings</h3>
+            <p>Use First-run local brain setup to pick chat/tool lanes. Use diagnostics when Penny says the endpoint is not ready.</p>
+          </div>
+        </div>
+      </div>
+      <div class="callout" data-tone="blue">
+        <h3>About voice</h3>
+        <p>The old browser read-aloud voice is parked because it uses system voices, not Penny. Speaches/TTS sidecar controls are review experiments, not the real runtime voice yet.</p>
+      </div>
+    </section>
+
+    <section id="faq">
+      <h2>FAQ</h2>
+      <h3>Does PennyOS include LM Studio, llama.cpp, or models?</h3>
+      <p>No. The installed app includes Penny's desktop shell, bundled Penny server sidecar, public UI, seed memory, and runtime resources. You still need a local model endpoint for model-backed chat.</p>
+      <h3>Why does the dropdown show so many models?</h3>
+      <p>Penny shows what the configured runtime reports, plus saved/configured candidates. Loaded or exposed models are the plug-and-play choices. Installed-only models may still need to be loaded in LM Studio or served by llama.cpp.</p>
+      <h3>Why is semantic memory sometimes "fallback"?</h3>
+      <p>The embedding lane is optional. If the configured embedding model is missing or unloaded, Penny can still chat and use keyword fallback.</p>
+      <h3>Will this cross wires with another Penny run?</h3>
+      <p>The desktop package stores writable state in app data. Source/dev runs usually use checkout-local state. If both are open on the same port, one will lose. Run one Penny at a time unless you deliberately changed ports.</p>
+      <div class="footer-actions">
+        <a class="button" href="/">Back to Penny</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

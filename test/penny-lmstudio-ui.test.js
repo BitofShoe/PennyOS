@@ -83,6 +83,31 @@ test('findBestModelMatch treats UD quant suffixes as model-family aliases', asyn
   assert.equal(match, 'unsloth/qwen3.6-35b-a3b@ud-q4_k_xl');
 });
 
+test('model setup dropdown prefers the resolved loaded chat model over stale runtime preference', async () => {
+  const { buildFirstRunModelSetupViewModel } = await helpersPromise;
+
+  const viewModel = buildFirstRunModelSetupViewModel({
+    lmStudio: {
+      reachable: true,
+      availableModels: ['google/gemma-4-31b-qat', 'google/gemma-4-e4b'],
+      installedModels: ['unsloth/gemma-4-31b-it', 'google/gemma-4-31b-qat'],
+      resolvedChatModel: 'google/gemma-4-31b-qat',
+      resolvedToolModel: 'google/gemma-4-31b-qat',
+      runtimePreferredChatModel: 'unsloth/gemma-4-31b-it',
+      chatPreferredModel: 'unsloth/gemma-4-31b-it',
+      toolPreferredModel: 'google/gemma-4-31b-qat',
+    },
+    semanticMemory: {
+      ready: true,
+      mode: 'semantic',
+      configuredModel: 'text-embedding-nomic-embed-text-v1.5',
+    },
+  });
+
+  assert.equal(viewModel.selectedChatModel, 'google/gemma-4-31b-qat');
+  assert.equal(viewModel.selectedToolModel, 'google/gemma-4-31b-qat');
+});
+
 test('buildFirstRunModelSetupViewModel turns missing loaded models into a clear setup checklist', async () => {
   const { buildFirstRunModelSetupViewModel } = await helpersPromise;
 

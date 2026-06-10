@@ -179,10 +179,10 @@ export function buildFirstRunModelSetupViewModel(status = null) {
     embeddingText,
     chatModels,
     toolModels,
-    selectedChatModel: findBestModelMatch(chatModels, lmStudio.runtimePreferredChatModel, lmStudio.runtimePreferredModel, lmStudio.resolvedChatModel, lmStudio.resolvedModel, lmStudio.chatPreferredModel, lmStudio.configuredChatModel, lmStudio.configuredModel)
+    selectedChatModel: findBestModelMatch(chatModels, lmStudio.resolvedChatModel, lmStudio.resolvedModel, lmStudio.runtimePreferredChatModel, lmStudio.runtimePreferredModel, lmStudio.chatPreferredModel, lmStudio.configuredChatModel, lmStudio.configuredModel)
       || chatModels[0]
       || '',
-    selectedToolModel: findBestModelMatch(toolModels, lmStudio.runtimePreferredToolModel, lmStudio.resolvedToolModel, lmStudio.toolPreferredModel, lmStudio.configuredToolModel)
+    selectedToolModel: findBestModelMatch(toolModels, lmStudio.resolvedToolModel, lmStudio.runtimePreferredToolModel, lmStudio.toolPreferredModel, lmStudio.configuredToolModel)
       || toolModels[0]
       || '',
   };

@@ -109,6 +109,8 @@ After Penny opens, go to Settings -> First-run local brain setup. Penny will det
 
 Those picks are saved in the local ignored preferences file, so you do not have to crack open `.env` just because LM Studio, llama.cpp, or another endpoint calls your model something slightly different. Embeddings are shown there too, but they are optional: when the embedding model is missing or unloaded, Penny should say so and use keyword fallback instead of faceplanting.
 
+For a normal-user walkthrough with LM Studio, llama.cpp, model-picking notes, feature notes, and FAQ answers, read [docs/penny-public/pennyos-user-guide.md](./docs/penny-public/pennyos-user-guide.md). The installed desktop app also bundles an in-app copy at Settings -> Open setup guide.
+
 The generated `.env` local companion profile enables bounded open-loop, initiative, and turn-state prompt bridges with conservative caps. Removing those lines returns to the raw server default of off.
 
 ## Web Reading

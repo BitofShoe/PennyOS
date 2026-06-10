@@ -1,7 +1,5 @@
 import {
   fillModelSelectOptions as fillModelSelectOptionsUi,
-  mergeDistinctModelIds as mergeDistinctModelIdsUi,
-  findBestModelMatch as findBestModelMatchUi,
   updateBackendStatusUi as updateBackendStatusUiHelper,
   updateModelSetupUi as updateModelSetupUiHelper,
   formatLastLane,
@@ -594,7 +592,7 @@ function switchPanel(panel) {
 }
 
 function maybeSpeak(text) {
-  if (!state.memory.voiceOn || !('speechSynthesis' in window)) return;
+  if (!state.memory.voiceOn || els.voiceToggle?.disabled || !('speechSynthesis' in window)) return;
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.rate = 1.03;
   utterance.pitch = 1.08;
@@ -609,6 +607,7 @@ function applyMemory(memory) {
     ...memory,
     memories: Array.isArray(memory.memories) ? memory.memories : state.memory.memories,
   };
+  if (els.voiceToggle?.disabled) state.memory.voiceOn = false;
   if (state.memory.brainMode !== 'local' && state.memory.brainMode !== 'shadow') state.memory.brainMode = 'local';
 }
 function reportMemoryIssue(action, error) {
@@ -750,47 +749,24 @@ async function loadAvailableModels(preloadedStatus = null) {
     })();
     if (!data) return;
     const lmData = data.lmStudio || data;
-    const isEmbed = (id) => /\b(embed|embedding|rerank)\b/i.test(id);
-    const available = (lmData.availableModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
-    const installed = (lmData.installedModels || []).filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id));
-    const candidates = Array.isArray(lmData.candidateModels)
-      ? lmData.candidateModels.filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id))
-      : [];
-    const configured = lmData.chatPreferredModel && !isEmbed(lmData.chatPreferredModel)
-      ? [String(lmData.chatPreferredModel).trim()]
-      : [];
-    const toolConfigured = lmData.toolPreferredModel && !isEmbed(lmData.toolPreferredModel)
-      ? [String(lmData.toolPreferredModel).trim()]
-      : [];
-    const models = mergeDistinctModelIdsUi(available, installed, candidates, configured);
+    const statusForUi = data.lmStudio ? data : { ...data, lmStudio: lmData };
+    const viewModel = updateModelSetupUi(statusForUi);
+    const models = Array.isArray(viewModel.chatModels) ? viewModel.chatModels : [];
     if (!models.length) {
       els.modelSelect.innerHTML = '<option value="">no models loaded</option>';
     } else {
-      const resolved = lmData.resolvedChatModel || lmData.resolvedModel || '';
-      const runtime = lmData.runtimePreferredChatModel || lmData.runtimePreferredModel || lmData.chatPreferredModel || '';
-      const selected = findBestModelMatchUi(models, runtime, resolved, lmData.configuredChatModel, lmData.configuredModel)
-        || models[0];
+      const selected = viewModel.selectedChatModel || models[0];
       fillModelSelectOptionsUi(els.modelSelect, models, selected);
     }
     if (els.toolModelSelect) {
-      const toolCandidates = Array.isArray(lmData.toolCandidateModels)
-        ? lmData.toolCandidateModels.filter((id) => typeof id === 'string' && id.trim() && !isEmbed(id))
-        : [];
-      const toolModels = mergeDistinctModelIdsUi(available, installed, toolCandidates, toolConfigured);
+      const toolModels = Array.isArray(viewModel.toolModels) ? viewModel.toolModels : [];
       if (!toolModels.length) {
         els.toolModelSelect.innerHTML = '<option value="">no models loaded</option>';
       } else {
-        const selectedTool = findBestModelMatchUi(
-          toolModels,
-          lmData.runtimePreferredToolModel,
-          lmData.resolvedToolModel,
-          lmData.toolPreferredModel,
-          lmData.configuredToolModel,
-        ) || toolModels[0];
+        const selectedTool = viewModel.selectedToolModel || toolModels[0];
         fillModelSelectOptionsUi(els.toolModelSelect, toolModels, selectedTool);
       }
     }
-    updateModelSetupUi(data.lmStudio ? data : { ...data, lmStudio: lmData });
   } catch {}
 }
 
@@ -1189,6 +1165,14 @@ if (els.fileInput) els.fileInput.addEventListener('change', async () => {
 });
 if (els.filePreviewRemove) els.filePreviewRemove.addEventListener('click', () => attachmentUi.clearPendingFile());
 els.composer.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); } });
+els.composer.addEventListener('focus', () => {
+  els.shell?.classList.add('is-composing');
+  document.querySelector('.core')?.classList.add('is-composing');
+});
+els.composer.addEventListener('blur', () => {
+  els.shell?.classList.remove('is-composing');
+  document.querySelector('.core')?.classList.remove('is-composing');
+});
 els.nameInput.addEventListener('change', async () => { state.memory.userName = els.nameInput.value.trim(); saveState(); renderMemory(); await syncMemoryToDisk(); });
 els.voiceToggle.addEventListener('change', async () => { state.memory.voiceOn = els.voiceToggle.checked; saveState(); await syncMemoryToDisk(); });
 els.expressionOverrideSelect?.addEventListener('change', () => {

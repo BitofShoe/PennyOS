@@ -510,6 +510,7 @@ button {
   z-index: 1;
   overflow: hidden;
   border-radius: 28px;
+  contain: paint;
 }
 
 .penny-display {
@@ -520,6 +521,8 @@ button {
   overflow: hidden;
   border-radius: 28px;
   transition: transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
+  backface-visibility: hidden;
+  transform: translateZ(0);
   will-change: transform;
 }
 
@@ -622,7 +625,8 @@ button {
   image-rendering: crisp-edges;
   filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45));
   transform-origin: 50% 50%;
-  animation: pennyIdleChibi 7s ease-in-out infinite;
+  backface-visibility: hidden;
+  animation: pennyIdleChibi 13s ease-in-out infinite;
 }
 
 .penny-display.penny-chibi[data-expression-closeup="1"] .penny-art.penny-art-chibi {
@@ -631,11 +635,19 @@ button {
 
 .penny-display.penny-chibi[data-expression-impact="charged"] .penny-art.penny-art-chibi,
 .penny-display.penny-chibi[data-expression-impact="snap"] .penny-art.penny-art-chibi {
-  animation-duration: 5.8s;
+  animation-duration: 10s;
 }
 
 .penny-display.penny-chibi[data-expression-impact="focused"] .penny-art.penny-art-chibi {
-  animation-duration: 6.6s;
+  animation-duration: 11.5s;
+}
+
+.core.is-composing .penny-art.penny-art-chibi {
+  animation-play-state: paused;
+}
+
+.core.is-composing .penny-display {
+  transition-duration: 0ms;
 }
 
 @keyframes pennyIdleChibi {
@@ -644,10 +656,10 @@ button {
     transform: scale(1.3) translateY(0) translateX(0) rotate(0deg);
   }
   35% {
-    transform: scale(1.312) translateY(-0.5px) translateX(1px) rotate(0.35deg);
+    transform: scale(1.304) translateY(-0.35px) translateX(0.45px) rotate(0.16deg);
   }
   70% {
-    transform: scale(1.306) translateY(0.5px) translateX(-1px) rotate(-0.25deg);
+    transform: scale(1.302) translateY(0.35px) translateX(-0.45px) rotate(-0.12deg);
   }
 }
 
@@ -657,10 +669,10 @@ button {
     transform: scale(1.36) translateY(0) translateX(0) rotate(0deg);
   }
   38% {
-    transform: scale(1.374) translateY(-0.8px) translateX(1.2px) rotate(0.4deg);
+    transform: scale(1.365) translateY(-0.45px) translateX(0.55px) rotate(0.16deg);
   }
   72% {
-    transform: scale(1.366) translateY(0.6px) translateX(-1px) rotate(-0.3deg);
+    transform: scale(1.363) translateY(0.4px) translateX(-0.5px) rotate(-0.14deg);
   }
 }
 
@@ -1457,6 +1469,28 @@ button {
   appearance: none;
   cursor: pointer;
   transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+a.secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.guide-link {
+  width: fit-content;
+  max-width: 100%;
+  padding-inline: 1rem;
+}
+
+.check-row:has(input:disabled) {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.check-row input:disabled {
+  cursor: not-allowed;
 }
 
 .send-btn:hover,

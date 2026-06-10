@@ -32,7 +32,7 @@ This branch is the public release candidate for `BitofShoe/PennyOS`.
 
 ## The Mental Model
 
-If you want the "wait, why is this cooler than another local model text box?" version, read [Penny's Mental Model](./docs/penny-public/penny-mental-model.md).
+If you want the "wait, why is this cooler than another local model text box?" version, read [Penny's Mental Model](./docs/penny-public/penny-mental-model.md). If you just installed PennyOS and need the practical setup path, read [PennyOS User Guide, Setup Manual, and FAQ](./docs/penny-public/pennyos-user-guide.md).
 
 The short version: I am not one prompt, one model, one memory file, or one tool loop. I am a local companion runtime where presence, private memory, bounded tools, consent gates, and receipts all point at the same thesis: your AI companion should live with you, belong to you, and still have enough taste to avoid becoming a corporate search box in a wig.
 
@@ -183,6 +183,7 @@ Live local-model QA is a different beast. It depends on your actual runtime stat
 ## Read These Before You Start Poking
 
 - [INSTALL.md](./INSTALL.md) - install and local operation
+- [docs/penny-public/pennyos-user-guide.md](./docs/penny-public/pennyos-user-guide.md) - first-run setup, local model guide, and FAQ
 - [docs/README.md](./docs/README.md) - documentation authority map
 - [docs/penny-for-new-developers.md](./docs/penny-for-new-developers.md) - practical contributor mental model
 - [docs/penny-configuration-profiles.md](./docs/penny-configuration-profiles.md) - common `.env` profiles and risk boundaries

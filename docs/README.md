@@ -168,7 +168,7 @@ This section keeps current law first, then follows the interpretive order from [
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
 | [penny-public/README.md](./penny-public/README.md) | Public pack index | Public/external explanation | Current | route humans to the right public doc | contributor law |
-| [penny-public/how-to-use-penny.md](./penny-public/how-to-use-penny.md), [penny-public/penny-for-humans.md](./penny-public/penny-for-humans.md) | Public onboarding and explanation | Public/external explanation | Current | onboarding and honest capability framing | exact model or runtime contract |
+| [penny-public/pennyos-user-guide.md](./penny-public/pennyos-user-guide.md), [penny-public/how-to-use-penny.md](./penny-public/how-to-use-penny.md), [penny-public/penny-for-humans.md](./penny-public/penny-for-humans.md) | Public onboarding and explanation | Public/external explanation | Current | first-run setup, local model onboarding, honest capability framing, and FAQ copy | exact model or runtime contract |
 | [penny-public/penny-mental-model.md](./penny-public/penny-mental-model.md) | Public mental model | Public/external explanation | Current | compelling public map of Penny's product thesis and layered runtime shape | binding runtime law or exact QA claims |
 | [penny-public/PennyPedia.md](./penny-public/PennyPedia.md) | Public field guide | Public/external explanation | Current | plain-English mental model of Penny's machinery | governing architecture law |
 
