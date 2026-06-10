@@ -1,0 +1,4 @@
+interface:
+  display_name: "Penny Repo Startup Orientation"
+  short_description: "Orient Penny root and shim startup docs"
+  default_prompt: "Use $penny-repo-startup-orientation to verify the Penny repo root, startup-doc shims, and missing parent AGENTS/SOUL/USER/MEMORY receipt."

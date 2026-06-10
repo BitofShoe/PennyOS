@@ -1,0 +1,4 @@
+interface:
+  display_name: "Penny Tauri Consumer Package"
+  short_description: "Package PennyOS desktop builds"
+  default_prompt: "Use $penny-tauri-consumer-package to verify the PennyOS Tauri installer, sidecar launch, and clean Windows proof."
