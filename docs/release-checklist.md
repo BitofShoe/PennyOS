@@ -13,6 +13,7 @@ Run before cutting a public release branch or package:
 - `node --test test/penny-tauri-wrapper.test.js`
 - `cargo check` from `src-tauri/`
 - `npm run tauri:build:check`
+- `npm run check:harness-receipts`
 - `npm pack --dry-run --json`
 - `npm pack --dry-run --ignore-scripts --json`
 - `git diff --check`
@@ -55,6 +56,7 @@ Expected release properties:
 - generated artifacts, local memory, local logs, private notes, and secrets are not tracked
 - README, install, security, and privacy docs match the current code
 - Tauri build-machine prerequisites are documented separately from installed-app requirements
+- source/dev harness receipt gates pass for source-review, handoff, and skill-baseline artifacts, while remaining outside the installed Tauri runtime unless a future packaged diagnostics surface is explicitly designed
 - Tauri staging creates `src-tauri/gen/penny-runtime/`, `src-tauri/gen/penny-runtime-manifest.json`, and `src-tauri/binaries/penny-node-<target-triple>` while excluding live memory, `.env`, `node_modules`, logs, tmp/output/artifacts, and `src-tauri/target`
 - the installed Tauri app launches Penny without Node, npm, Rust, Cargo, or a repo checkout on the end user's `PATH`
 - the installed Tauri app binds `127.0.0.1`, waits for `/api/penny/status`, writes app-data logs/state, and opens the normal Penny UI

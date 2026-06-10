@@ -153,7 +153,7 @@ npm pack --dry-run
 
 Want to verify I am actually working? Good. Suspicion is healthy.
 
-- `npm run check` runs the release artifact guard, frontend privacy guard, server syntax check, and full test suite.
+- `npm run check` runs the release artifact guard, frontend privacy guard, public-path leak guard, harness receipt gates, server syntax check, and full test suite.
 - `npm run qa:browser:install` installs the Playwright Chromium browser used by the smoke harness. It is a QA dependency, not a runtime dependency.
 - `npm run qa:browser:smoke` opens the actual browser UI against a mock LM Studio server and checks chat, image upload, memory inspector, expression state, and reset flows.
 - `npm pack --dry-run` checks the package lifecycle before anyone starts making grand little release noises.
@@ -161,6 +161,8 @@ Want to verify I am actually working? Good. Suspicion is healthy.
 - `npm run bundle:review:experience -- --latest-experience-artifacts --out tmp/gpt-pro-review-bundle` builds a private reviewer packet after you have generated and checked local QA artifacts.
 
 For this branch, `npm pack` is a source/dev bundle, not a slim runtime bundle or the installed Tauri runtime package. It includes tests, fixtures, docs, and scripts on purpose so reviewers can inspect the same receipts the release gate uses. The Tauri sidecar/runtime resources are generated under `src-tauri/gen/` and `src-tauri/binaries/` during Tauri builds, then kept out of source packages.
+
+The harness-source-review gates are source/dev checks. They verify source-review, handoff, and skill-baseline receipts from the repo/package; they are intentionally not bundled into the installed PennyOS runtime.
 
 This is not public-internet software. Keep it local/private unless you deliberately enable LAN mode, token it, and understand the risk. The Tauri package path now has a bundled Penny server/runtime sidecar, but Windows installer signing, updater polish, and clean-machine consumer proof are separate release gates.
 

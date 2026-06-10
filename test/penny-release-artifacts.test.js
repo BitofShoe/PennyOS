@@ -45,4 +45,7 @@ test('release artifact private-file classifier still rejects local residues', ()
   assert.equal(isGeneratedOrPrivateTrackedFile('data/penny-memory.json'), true);
   assert.equal(isGeneratedOrPrivateTrackedFile('data/penny-memory.seed.json'), false);
   assert.equal(isGeneratedOrPrivateTrackedFile('lyra-prototype/AGENTS.md'), true);
+  assert.equal(isGeneratedOrPrivateTrackedFile('lyra-prototype/.codex/skills/penny-lmstudio-ops/SKILL.md'), true);
+  assert.equal(isGeneratedOrPrivateTrackedFile('lyra-prototype/.codex/skills/penny-repo-startup-orientation/SKILL.md'), false);
+  assert.equal(isGeneratedOrPrivateTrackedFile('lyra-prototype/.codex/skills/penny-tauri-consumer-package/references/REFERENCE.md'), false);
 });

@@ -168,6 +168,10 @@ test('Tauri sidecar staging manifest bundles runtime resources without private s
   assert.ok(targets.some((target) => target.startsWith('penny-voice/runtime/')));
   assert.ok(!targets.includes('data/penny-memory.json'));
   assert.ok(!targets.includes('.env'));
+  assert.ok(!targets.includes('docs/penny-harness-engineering-link-review-2026-06-10.md'));
+  assert.ok(!targets.includes('fixtures/penny-skill-baselines/source-review-fixture.json'));
+  assert.ok(!targets.some((target) => target.startsWith('scripts/')));
+  assert.ok(!targets.some((target) => target.startsWith('test/')));
   assert.ok(!targets.some((target) => target.startsWith('node_modules/')));
   assert.ok(!targets.some((target) => target.startsWith('src-tauri/')));
   assert.ok(!targets.some((target) => target.startsWith('artifacts/')));

@@ -1,0 +1,45 @@
+{
+  "schema": "penny-skill-baseline.v1",
+  "measurementMode": "fixture-only",
+  "generatedAt": "2026-06-10T12:00:00.000Z",
+  "guardrails": {
+    "liveLmStudioTouched": false,
+    "liveUserMemoryTouched": false,
+    "promptTruthChanged": false,
+    "toolEvidenceReceiptChanged": false,
+    "runtimeVoiceChanged": false,
+    "cleanupRequired": false
+  },
+  "cases": [
+    {
+      "taskId": "source-review-required-buckets",
+      "skillName": "penny-link-review",
+      "noSkill": {
+        "verdict": "fail",
+        "durationMs": 1200,
+        "eventCount": 4,
+        "cleanupOk": true,
+        "artifactPath": "fixtures/penny-skill-baselines/no-skill-source-review.json"
+      },
+      "withSkill": {
+        "verdict": "pass",
+        "durationMs": 1400,
+        "eventCount": 5,
+        "cleanupOk": true,
+        "artifactPath": "fixtures/penny-skill-baselines/with-skill-source-review.json"
+      },
+      "comparison": {
+        "decision": "skill_helped",
+        "passDelta": 1,
+        "notes": [
+          "with-skill output included source health, risk, owner seam, and verification buckets"
+        ]
+      }
+    }
+  ],
+  "limits": [
+    "fixture-only artifact; does not prove live agent quality",
+    "does not touch live LM Studio or user memory",
+    "does not change memory, PromptTruth, toolEvidenceReceipt, runtime voice, or default context"
+  ]
+}

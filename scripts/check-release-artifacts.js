@@ -18,6 +18,11 @@ const FILESYSTEM_EXCLUDED_DIRS = new Set([
   'lyra-prototype',
 ]);
 
+const ALLOWED_TRACKED_SHIM_FILES = Object.freeze([
+  /^lyra-prototype\/\.codex\/skills\/penny-repo-startup-orientation\/(?:SKILL\.md|agents\/openai\.yaml)$/i,
+  /^lyra-prototype\/\.codex\/skills\/penny-tauri-consumer-package\/(?:SKILL\.md|agents\/openai\.yaml|references\/REFERENCE\.md)$/i,
+]);
+
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
     cwd: options.cwd || PROJECT_ROOT,
@@ -36,6 +41,7 @@ function normalizeRel(filePath) {
 function isGeneratedOrPrivateTrackedFile(rel) {
   const filePath = normalizeRel(rel);
   if (!filePath) return false;
+  if (ALLOWED_TRACKED_SHIM_FILES.some((pattern) => pattern.test(filePath))) return false;
   if (/^lyra-prototype\//.test(filePath)) return true;
   if (/^obsidian-vault\//.test(filePath)) return true;
   if (/^(?:output|artifacts|test-results|tmp|logs|node_modules)\//.test(filePath)) return true;
@@ -126,6 +132,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  ALLOWED_TRACKED_SHIM_FILES,
   isGeneratedOrPrivateTrackedFile,
   listReleaseFiles,
   normalizeRel,
