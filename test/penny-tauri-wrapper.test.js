@@ -164,6 +164,8 @@ test('Tauri sidecar staging manifest bundles runtime resources without private s
   const targets = manifest.runtime.files.map((file) => file.target);
   assert.ok(targets.includes('server.js'));
   assert.ok(targets.includes('public/index.html'));
+  assert.ok(targets.includes('public/js/penny-runtime-voice.mjs'));
+  assert.ok(targets.includes('lib/penny-runtime-voice.js'));
   assert.ok(targets.includes('data/penny-memory.seed.json'));
   assert.ok(targets.includes('data/penny-memory-books.seed.json'));
   assert.ok(targets.some((target) => target.startsWith('lib/')));

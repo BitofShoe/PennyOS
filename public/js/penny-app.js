@@ -52,6 +52,9 @@ import {
   createAmbientChromeRuntime,
 } from './penny-ambient-chrome.mjs';
 import {
+  createRuntimeVoiceController,
+} from './penny-runtime-voice.mjs';
+import {
   ensureMemoryInspectorUi as ensureMemoryInspectorUiModule,
   renderMemoryList as renderMemoryListModule,
   renderMemoryInspector as renderMemoryInspectorUi,
@@ -97,6 +100,14 @@ const els = {
   memoryList: document.getElementById('memoryList'),
   nameInput: document.getElementById('nameInput'),
   voiceToggle: document.getElementById('voiceToggle'),
+  voiceStatus: document.getElementById('voiceStatus'),
+  voiceBaseUrl: document.getElementById('voiceBaseUrl'),
+  voiceModel: document.getElementById('voiceModel'),
+  voiceName: document.getElementById('voiceName'),
+  saveVoiceSetup: document.getElementById('saveVoiceSetup'),
+  refreshVoiceStatus: document.getElementById('refreshVoiceStatus'),
+  voiceStop: document.getElementById('voiceStop'),
+  voiceReplay: document.getElementById('voiceReplay'),
   expressionOverrideSelect: document.getElementById('expressionOverrideSelect'),
   expressionDecisionNote: document.getElementById('expressionDecisionNote'),
   brainModeShadow: document.getElementById('brainModeShadow'),
@@ -189,6 +200,7 @@ function renderApiTokenControls() {
 }
 const attachmentUi = createAttachmentUi({ els, setComposerNotice });
 const chatRequestGuard = createChatRequestGuard();
+const runtimeVoice = createRuntimeVoiceController({ els, apiFetch });
 
 function removeTrailingStreamingAssistantDraft() {
   const last = state.messages[state.messages.length - 1];
@@ -199,6 +211,7 @@ function removeTrailingStreamingAssistantDraft() {
 
 function cancelActiveChatRequest({ removeStreamingDraft = false, clearLoading = true } = {}) {
   const canceledRequestId = chatRequestGuard.cancel();
+  runtimeVoice.stop();
   if (removeStreamingDraft) removeTrailingStreamingAssistantDraft();
   if (clearLoading) state.loading = false;
   return canceledRequestId !== null;
@@ -514,6 +527,7 @@ async function readPennyEventStream(response, handlers = {}) {
 function renderMemory() {
   ensureMemoryInspectorUi();
   renderMemoryListModule({ els, memory: state.memory, inspector: state.memoryInspector, escapeHtmlFn: escapeHtml });
+  runtimeVoice.setEnabled(state.memory.voiceOn === true);
   renderMemoryInspector();
   updateBrainModeUi();
 }
@@ -572,16 +586,13 @@ function switchPanel(panel) {
   }
   if (panel === 'settings') {
     loadBackendStatus();
+    refreshRuntimeVoiceStatus();
   }
 }
 
 function maybeSpeak(text) {
-  if (!state.memory.voiceOn || els.voiceToggle?.disabled || !('speechSynthesis' in window)) return;
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1.03;
-  utterance.pitch = 1.08;
-  speechSynthesis.cancel();
-  speechSynthesis.speak(utterance);
+  if (!state.memory.voiceOn) return;
+  runtimeVoice.speak(text);
 }
 
 function applyMemory(memory) {
@@ -591,7 +602,6 @@ function applyMemory(memory) {
     ...memory,
     memories: Array.isArray(memory.memories) ? memory.memories : state.memory.memories,
   };
-  if (els.voiceToggle?.disabled) state.memory.voiceOn = false;
   if (state.memory.brainMode !== 'local' && state.memory.brainMode !== 'shadow') state.memory.brainMode = 'local';
 }
 function reportMemoryIssue(action, error) {
@@ -723,6 +733,11 @@ async function loadBackendStatus() {
   }
 }
 
+async function refreshRuntimeVoiceStatus() {
+  await runtimeVoice.refreshStatus();
+  runtimeVoice.setEnabled(state.memory.voiceOn === true);
+}
+
 async function loadAvailableModels(preloadedStatus = null) {
   if (!els.modelSelect) return;
   try {
@@ -785,6 +800,17 @@ els.toolModelSelect?.addEventListener('change', saveModelSetupFromControls);
 els.modelSetupFallback?.addEventListener('change', saveModelSetupFromControls);
 els.saveModelSetup?.addEventListener('click', saveModelSetupFromControls);
 els.refreshModelSetup?.addEventListener('click', () => loadBackendStatus());
+els.saveVoiceSetup?.addEventListener('click', async () => {
+  try {
+    await runtimeVoice.saveConfig();
+    runtimeVoice.setEnabled(state.memory.voiceOn === true);
+  } catch (error) {
+    console.warn(`[penny voice] ${error?.message || error}`);
+  }
+});
+els.refreshVoiceStatus?.addEventListener('click', refreshRuntimeVoiceStatus);
+els.voiceStop?.addEventListener('click', () => runtimeVoice.stop());
+els.voiceReplay?.addEventListener('click', () => runtimeVoice.replay());
 
 async function consolidateMemory() {
   if (state.consolidating) return;
@@ -973,7 +999,12 @@ els.composer.addEventListener('blur', () => {
   document.querySelector('.core')?.classList.remove('is-composing');
 });
 els.nameInput.addEventListener('change', async () => { state.memory.userName = els.nameInput.value.trim(); saveState(); renderMemory(); await syncMemoryToDisk(); });
-els.voiceToggle.addEventListener('change', async () => { state.memory.voiceOn = els.voiceToggle.checked; saveState(); await syncMemoryToDisk(); });
+els.voiceToggle.addEventListener('change', async () => {
+  state.memory.voiceOn = runtimeVoice.setEnabled(els.voiceToggle.checked);
+  saveState();
+  renderMemory();
+  await syncMemoryToDisk();
+});
 els.expressionOverrideSelect?.addEventListener('change', () => {
   state.expressionOverrideMood = normalizeMoodTag(els.expressionOverrideSelect.value) || '';
   const autoMood = normalizeMoodTag(state.lastAutoMood) || 'calm';
@@ -1112,6 +1143,7 @@ updateBrainModeUi();
 renderApiTokenControls();
 loadDurableMemory();
 loadBackendStatus();
+refreshRuntimeVoiceStatus();
   loadExpressionPackManifest().then(() => {
     _lastSpriteKey = '';
     _lastRenderedMood = '';

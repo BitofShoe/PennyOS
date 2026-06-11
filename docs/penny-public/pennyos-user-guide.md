@@ -54,7 +54,7 @@ It does not include:
 - llama.cpp.
 - Model weights.
 - Embedding models.
-- A bundled TTS voice.
+- Speaches, TTS model downloads, or bundled voice models.
 - Rust, Cargo, Node, npm, or a repo checkout for the end user.
 
 Build machines still need build tools. End users should not need developer tools just to launch the installed app.
@@ -206,13 +206,18 @@ That saves a local preference so you do not have to edit `.env` just because LM 
 
 The old browser read-aloud path used Windows/browser system voices. If it sounded like a dusty robot in a hallway, that is because it was not Penny's real voice.
 
-For now, treat voice as parked:
+PennyOS now has a runtime voice path for a separately running Speaches server:
 
-- Browser read-aloud is not Penny's voice.
-- PennyOS does not ship a bundled TTS voice.
-- A real Penny voice needs a better local TTS path before it deserves to be a normal consumer feature.
+- Open Settings.
+- Set the Speaches URL, model, and voice.
+- Click Refresh voice.
+- Enable the voice toggle once Penny reports that Speaches is reachable and the configured model is ready.
 
-Source/dev sidecar harnesses for search, docs/RAG, and Speaches/TTS may exist in the repository for future work, but they are not exposed in the consumer Settings UI and are not part of the downloadable app runtime.
+When enabled, Penny speaks completed assistant replies after the normal chat response finishes. Stop and Replay controls live beside the voice setup.
+
+PennyOS still does not bundle Speaches, llama.cpp, TTS model weights, or voice downloads. If Speaches is not running, the toggle stays disabled and Penny chats silently.
+
+Source/dev sidecar harnesses for search, docs/RAG, and audio experiments may exist in the repository, but they are not exposed in the consumer Settings UI and are not part of the downloadable app runtime. Runtime voice uses `/api/penny/voice/*`, not the review sidecar routes.
 
 ## FAQ
 
@@ -266,7 +271,7 @@ Loaded/exposed models are the safe first picks. Installed-only entries may be us
 
 ### The voice sounds terrible
 
-Turn it off. That was a system read-aloud path, not Penny's real voice. The real fix is a better local TTS integration, not pretending Microsoft Sam is a vibe.
+If it sounds like the old Windows/browser robot, you are not using Penny's runtime voice path. The consumer UI no longer uses browser `speechSynthesis`; configure local Speaches in Settings or leave voice off.
 
 ### The sprite flickers while typing
 

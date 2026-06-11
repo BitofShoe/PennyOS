@@ -74,6 +74,7 @@ async function collectUiDebug(page) {
       composerNotice: String(document.querySelector('#composerNotice')?.textContent || '').trim(),
       imagePreviewVisible: document.querySelector('#imagePreview')?.hidden === false,
       lastChatFetch: chatFetch,
+      voiceDebug: window.__pennyDebug?.voice || null,
     };
   }, STORAGE_KEY);
 }
@@ -339,6 +340,52 @@ async function createMockLmStudioServer() {
   };
 }
 
+async function createMockSpeachesServer() {
+  const stats = {
+    modelsRequests: 0,
+    speechRequests: 0,
+    lastSpeechPayload: null,
+  };
+  const audioBytes = Buffer.from('RIFF$\x00\x00\x00WAVEfmt ', 'binary');
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (req.method === 'GET' && url.pathname === '/v1/models') {
+      stats.modelsRequests += 1;
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        object: 'list',
+        data: [
+          { id: 'speaches-ai/Kokoro-82M-v1.0-ONNX', object: 'model', owned_by: 'local' },
+        ],
+      }));
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/v1/audio/speech') {
+      stats.speechRequests += 1;
+      stats.lastSpeechPayload = JSON.parse((await readRequestBody(req)) || '{}');
+      res.writeHead(200, {
+        'Content-Type': 'audio/wav',
+        'Content-Length': audioBytes.length,
+      });
+      res.end(audioBytes);
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: `Unhandled mock Speaches route: ${req.method} ${url.pathname}` }));
+  });
+
+  await new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    stats,
+    close: () => new Promise((resolve) => server.close(() => resolve())),
+  };
+}
+
 function createServerProcess(env = {}) {
   ensureDir(OUTPUT_DIR);
   const outStream = fs.createWriteStream(SERVER_STDOUT_PATH, { flags: 'w' });
@@ -446,6 +493,7 @@ async function main() {
   const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.browser-smoke.json');
   const openLoopFile = path.join(tmpDir, 'penny-open-loops.browser-smoke.json');
   const mockLmStudio = await createMockLmStudioServer();
+  const mockSpeaches = await createMockSpeachesServer();
   const server = createServerProcess({
     ...process.env,
     PORT: String(PORT),
@@ -461,6 +509,9 @@ async function main() {
     PENNY_LMSTUDIO_CHAT_MODEL: 'unsloth/gemma-4-31b-it',
     PENNY_LMSTUDIO_TOOL_MODEL: 'google/gemma-4-e4b',
     PENNY_LMSTUDIO_EMBED_MODEL: 'text-embedding-nomic-embed-text-v1.5',
+    PENNY_SPEACHES_BASE_URL: mockSpeaches.baseUrl,
+    PENNY_SPEACHES_MODEL: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
+    PENNY_SPEACHES_VOICE: 'af_heart',
   });
 
   const report = {
@@ -472,6 +523,7 @@ async function main() {
     checks: [],
     screenshot: SCREENSHOT_PATH,
     mockLmStudioStats: null,
+    mockSpeachesStats: null,
   };
   persistReport(report);
   let browser = null;
@@ -495,9 +547,56 @@ async function main() {
       if (!window.localStorage.getItem(storageKey)) {
         window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
       }
-      window.__pennyDebug = {
-        errors: [],
-        lastChatFetch: null,
+      function ensureDebug() {
+        if (!window.__pennyDebug || (typeof window.__pennyDebug !== 'object' && typeof window.__pennyDebug !== 'function')) {
+          window.__pennyDebug = {};
+        }
+        if (!Array.isArray(window.__pennyDebug.errors)) window.__pennyDebug.errors = [];
+        if (!window.__pennyDebug.voice || typeof window.__pennyDebug.voice !== 'object') {
+          window.__pennyDebug.voice = {
+            speechFetches: 0,
+            lastSpeechStatus: 0,
+            audioPlayCalls: 0,
+            audioPauseCalls: 0,
+            lastAudioUrl: '',
+          };
+        }
+        if (!Object.prototype.hasOwnProperty.call(window.__pennyDebug, 'lastChatFetch')) {
+          window.__pennyDebug.lastChatFetch = null;
+        }
+        return window.__pennyDebug;
+      }
+      ensureDebug();
+      const initialDebug = ensureDebug();
+      initialDebug.voice = {
+          speechFetches: 0,
+          lastSpeechStatus: 0,
+          audioPlayCalls: 0,
+          audioPauseCalls: 0,
+          lastAudioUrl: '',
+      };
+      window.Audio = class PennySmokeAudio {
+        constructor(url) {
+          this.url = url;
+          this.currentTime = 0;
+          this.paused = true;
+          this.listeners = {};
+          ensureDebug().voice.lastAudioUrl = String(url || '');
+        }
+
+        addEventListener(event, listener) {
+          this.listeners[event] = listener;
+        }
+
+        async play() {
+          this.paused = false;
+          ensureDebug().voice.audioPlayCalls += 1;
+        }
+
+        pause() {
+          this.paused = true;
+          ensureDebug().voice.audioPauseCalls += 1;
+        }
       };
       const originalFetch = window.fetch.bind(window);
       window.fetch = async (...args) => {
@@ -505,7 +604,13 @@ async function main() {
         const url = typeof input === 'string' ? input : String(input?.url || '');
         const requestBody = typeof init?.body === 'string' ? init.body : '';
         const isChatStream = /\/api\/penny\/chat(\?|$)/.test(url) && (/stream=1/.test(url) || /"stream"\s*:\s*true/.test(requestBody));
+        const isVoiceSpeech = /\/api\/penny\/voice\/speech$/.test(url);
         const response = await originalFetch(...args);
+        if (isVoiceSpeech) {
+          const debug = ensureDebug();
+          debug.voice.speechFetches += 1;
+          debug.voice.lastSpeechStatus = Number(response.status || 0);
+        }
         if (isChatStream) {
           const entry = {
             url,
@@ -519,19 +624,19 @@ async function main() {
           } catch (error) {
             entry.responseCloneError = error?.message || String(error);
           }
-          window.__pennyDebug.lastChatFetch = entry;
+          ensureDebug().lastChatFetch = entry;
         }
         return response;
       };
       window.addEventListener('error', (event) => {
-        window.__pennyDebug.errors.push({
+        ensureDebug().errors.push({
           type: 'error',
           message: event?.message || '',
         });
       });
       window.addEventListener('unhandledrejection', (event) => {
         const reason = event?.reason;
-        window.__pennyDebug.errors.push({
+        ensureDebug().errors.push({
           type: 'unhandledrejection',
           message: reason?.message || String(reason || ''),
         });
@@ -582,6 +687,22 @@ async function main() {
         return select?.value === '' && /manual override cleared|returned to the last auto mood/i.test(note);
       }, undefined, { timeout: 5000 });
       report.checks.push({ name: 'expression_lock_clears_to_auto', ok: true });
+      persistReport(report);
+
+      report.currentStep = 'runtime_voice_ready_and_enabled';
+      persistReport(report);
+      console.log('Checking runtime voice readiness...');
+      await waitForPagePredicate(page, () => {
+        const toggle = document.querySelector('#voiceToggle');
+        const status = document.querySelector('#voiceStatus')?.textContent || '';
+        return toggle && toggle.disabled === false && /ready/i.test(status);
+      }, undefined, { timeout: 10000 });
+      await page.check('#voiceToggle');
+      report.checks.push({
+        name: 'runtime_voice_ready_and_enabled',
+        ok: true,
+        status: String(await page.textContent('#voiceStatus') || '').trim(),
+      });
       persistReport(report);
 
       report.currentStep = 'seed_archive_turns';
@@ -638,6 +759,26 @@ async function main() {
         ok: /thinking/i.test(String(moodPill || '')),
         seconds: chatSeconds,
         moodPill: String(moodPill || '').trim(),
+      });
+      persistReport(report);
+
+      report.currentStep = 'runtime_voice_speaks_chat_reply';
+      persistReport(report);
+      console.log('Checking runtime voice playback path...');
+      await waitForPagePredicate(page, () => {
+        const voice = window.__pennyDebug?.voice || {};
+        return voice.speechFetches >= 1
+          && voice.lastSpeechStatus === 200
+          && voice.audioPlayCalls >= 1
+          && /^blob:/i.test(String(voice.lastAudioUrl || ''));
+      }, undefined, { timeout: 10000 });
+      const voiceDebug = await page.evaluate(() => ({ ...(window.__pennyDebug?.voice || {}) }));
+      report.checks.push({
+        name: 'runtime_voice_speaks_chat_reply',
+        ok: true,
+        speechFetches: voiceDebug.speechFetches,
+        lastSpeechStatus: voiceDebug.lastSpeechStatus,
+        audioPlayCalls: voiceDebug.audioPlayCalls,
       });
       persistReport(report);
     } else {
@@ -802,6 +943,7 @@ async function main() {
     console.log('Capturing final screenshot...');
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
     report.mockLmStudioStats = mockLmStudio.stats;
+    report.mockSpeachesStats = mockSpeaches.stats;
     report.finishedAt = new Date().toISOString();
     report.currentStep = 'finished';
     persistReport(report);
@@ -814,6 +956,7 @@ async function main() {
       }
       report.error = error?.stack || error?.message || String(error);
       report.mockLmStudioStats = mockLmStudio.stats;
+      report.mockSpeachesStats = mockSpeaches.stats;
       report.uiDebug = await collectUiDebug(page);
       persistReport(report);
     } catch {}
@@ -821,6 +964,7 @@ async function main() {
   } finally {
     await stopServerProcess(server);
     await mockLmStudio.close();
+    await mockSpeaches.close();
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch {}

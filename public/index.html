@@ -187,11 +187,37 @@
 
                 <label class="check-row">
                   <input id="voiceToggle" type="checkbox" disabled />
-                  <span>System read-aloud is parked until Penny has a real local voice</span>
+                  <span>Speak assistant replies with local Speaches</span>
                 </label>
 
                 <div class="card-note">
-                  The old browser speech voice used Windows system voices, not Penny. It stays off until a real local voice is good enough to deserve the button.
+                  <span id="voiceStatus">Checking local voice...</span>
+                </div>
+
+                <label class="field">
+                  <span>Speaches URL</span>
+                  <input id="voiceBaseUrl" class="input-lite" placeholder="127.0.0.1:8000" />
+                </label>
+
+                <label class="field">
+                  <span>Voice model</span>
+                  <input id="voiceModel" class="input-lite" placeholder="speaches-ai/Kokoro-82M-v1.0-ONNX" />
+                </label>
+
+                <label class="field">
+                  <span>Voice</span>
+                  <input id="voiceName" class="input-lite" placeholder="af_heart" />
+                </label>
+
+                <div class="button-stack">
+                  <button id="saveVoiceSetup" class="secondary-btn" type="button">Save voice</button>
+                  <button id="refreshVoiceStatus" class="secondary-btn" type="button">Refresh voice</button>
+                  <button id="voiceStop" class="secondary-btn" type="button" disabled>Stop</button>
+                  <button id="voiceReplay" class="secondary-btn" type="button" disabled>Replay</button>
+                </div>
+
+                <div class="card-note">
+                  Speaches is not bundled. Start it locally, save the URL/model/voice here, and Penny will speak completed assistant replies when the service is ready.
                 </div>
 
                 <a class="secondary-btn guide-link" href="/pennyos-help.html">

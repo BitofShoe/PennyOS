@@ -118,6 +118,9 @@ const {
 const {
   createPennyRouteHandlers,
 } = require('./lib/penny-route-handlers');
+const {
+  createRuntimeVoiceApi,
+} = require('./lib/penny-runtime-voice');
 let createSidecarWorkflowApi = null;
 if (isEnabledEnv(process.env.PENNY_ENABLE_REVIEW_SIDECARS)) {
   try {
@@ -271,7 +274,23 @@ function readLocalModelPreferences() {
   }
   return {};
 }
+function readRuntimeVoicePreferences() {
+  for (const preferenceFile of getLocalModelPreferenceFilesForRead()) {
+    try {
+      if (!preferenceFile || !fs.existsSync(preferenceFile)) continue;
+      const parsed = JSON.parse(fs.readFileSync(preferenceFile, 'utf8'));
+      const runtimeVoice = parsed?.runtimeVoice;
+      if (runtimeVoice && typeof runtimeVoice === 'object' && !Array.isArray(runtimeVoice)) {
+        return runtimeVoice;
+      }
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
 const LOCAL_MODEL_PREFERENCES = readLocalModelPreferences();
+const RUNTIME_VOICE_PREFERENCES = readRuntimeVoicePreferences();
 function persistLocalModelPreferences(patch = {}) {
   if (!LOCAL_MODEL_PREFERENCE_FILE) return '';
   let existing = {};
@@ -307,6 +326,40 @@ function persistLocalModelPreferences(patch = {}) {
     },
   });
   return nextLocalModel;
+}
+function persistRuntimeVoiceConfig(config = {}) {
+  if (!LOCAL_MODEL_PREFERENCE_FILE) return {};
+  let existing = {};
+  try {
+    existing = JSON.parse(fs.readFileSync(LOCAL_MODEL_PREFERENCE_FILE, 'utf8'));
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) existing = {};
+  } catch {
+    existing = {};
+  }
+  const runtimeVoice = existing.runtimeVoice && typeof existing.runtimeVoice === 'object' && !Array.isArray(existing.runtimeVoice)
+    ? existing.runtimeVoice
+    : {};
+  const nextRuntimeVoice = {
+    ...runtimeVoice,
+    provider: 'speaches',
+    baseUrl: String(config.baseUrl || runtimeVoice.baseUrl || '').trim(),
+    model: String(config.model || runtimeVoice.model || '').trim(),
+    voice: String(config.voice || runtimeVoice.voice || '').trim(),
+    responseFormat: String(config.responseFormat || runtimeVoice.responseFormat || 'wav').trim() || 'wav',
+    timeoutMs: Number(config.timeoutMs || runtimeVoice.timeoutMs || 30000),
+    maxTextChars: Number(config.maxTextChars || runtimeVoice.maxTextChars || 6000),
+    updatedAt: new Date().toISOString(),
+  };
+  writeJsonFileAtomicSync({
+    fs,
+    path,
+    filePath: LOCAL_MODEL_PREFERENCE_FILE,
+    value: {
+      ...existing,
+      runtimeVoice: nextRuntimeVoice,
+    },
+  });
+  return nextRuntimeVoice;
 }
 function persistRuntimePreferredChatModel(model = '') {
   return persistLocalModelPreferences({ runtimePreferredChatModel: model }).runtimePreferredChatModel || '';
@@ -3155,6 +3208,11 @@ const createLaneRuntime = createLaneRuntimeApi;
 const sidecarWorkflowApi = createSidecarWorkflowApi
   ? createSidecarWorkflowApi()
   : { runSidecarWorkflow: null };
+const runtimeVoiceApi = createRuntimeVoiceApi({
+  fetchImpl: fetch,
+  config: RUNTIME_VOICE_PREFERENCES,
+  onConfigChange: persistRuntimeVoiceConfig,
+});
 
 function bindAbortSignal(controller, abortSignal) {
   if (!abortSignal) return;
@@ -3547,6 +3605,7 @@ const routeHandlers = createPennyRouteHandlers({
   approvePendingWorkspaceWrite: approvePendingWorkspaceWriteTool,
   denyPendingWorkspaceWrite: denyPendingWorkspaceWriteTool,
   runSidecarWorkflow: sidecarWorkflowApi.runSidecarWorkflow,
+  runtimeVoice: runtimeVoiceApi,
   sessionState,
   constants: {
     OPENCLAW_ENABLED,

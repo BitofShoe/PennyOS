@@ -22,6 +22,9 @@ test('consumer Settings UI does not expose review sidecar controls', () => {
   assert.doesNotMatch(html, /id="sidecarAudioRun"/);
   assert.doesNotMatch(appJs, /penny-sidecar-panel/);
   assert.doesNotMatch(appJs, /\/api\/penny\/sidecars\//);
+  assert.doesNotMatch(appJs, /speechSynthesis/);
+  assert.match(html, /id="voiceStatus"/);
+  assert.match(html, /id="saveVoiceSetup"/);
 });
 
 test('consumer public bundle no longer contains the browser sidecar panel module', () => {
@@ -36,7 +39,8 @@ test('consumer docs describe sidecar harnesses as source-dev only', () => {
   assert.doesNotMatch(guide, /sidecar review panels/i);
   assert.match(guide, /not exposed in the consumer Settings UI/i);
   assert.match(guide, /not part of the downloadable app runtime/i);
-  assert.match(help, /does not ship a consumer TTS voice/i);
+  assert.match(guide, /Runtime voice uses `\/api\/penny\/voice\/\*`/i);
+  assert.match(help, /does not bundle Speaches, TTS models, or voice downloads/i);
   assert.doesNotMatch(readme, /Local sidecar workflows/);
 });
 
