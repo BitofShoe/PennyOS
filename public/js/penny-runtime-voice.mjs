@@ -28,6 +28,7 @@ function readConfigFromEls(els = {}) {
     baseUrl: text(els.voiceBaseUrl?.value),
     model: text(els.voiceModel?.value),
     voice: text(els.voiceName?.value),
+    speed: readSpeedFromEls(els),
   };
 }
 
@@ -35,6 +36,12 @@ function readGainFromEls(els = {}) {
   const gain = Number(els.voiceGain?.value || 1);
   if (!Number.isFinite(gain)) return 1;
   return Math.max(0.25, Math.min(4, gain));
+}
+
+function readSpeedFromEls(els = {}) {
+  const speed = Number(els.voiceSpeed?.value || 1);
+  if (!Number.isFinite(speed)) return 1;
+  return Math.max(0.25, Math.min(4, speed));
 }
 
 function describeStatus(status = {}) {
@@ -102,6 +109,7 @@ export function createRuntimeVoiceController({
     if (els.voiceBaseUrl && !text(els.voiceBaseUrl.value)) els.voiceBaseUrl.value = text(config.baseUrl);
     if (els.voiceModel && !text(els.voiceModel.value)) els.voiceModel.value = text(config.model);
     if (els.voiceName && !text(els.voiceName.value)) els.voiceName.value = text(config.voice);
+    if (els.voiceSpeed && config.speed !== undefined && config.speed !== null) els.voiceSpeed.value = text(config.speed);
   }
 
   function setStatus(nextStatus = {}) {
@@ -234,6 +242,7 @@ export function createRuntimeVoiceController({
           text: phrase,
           voice: currentVoice(),
           gain: readGainFromEls(els),
+          speed: readSpeedFromEls(els),
         }),
       });
       if (!res.ok) {

@@ -357,6 +357,7 @@ function persistRuntimeVoiceConfig(config = {}) {
     model: String(config.model || runtimeVoice.model || '').trim(),
     voice: String(config.voice || runtimeVoice.voice || '').trim(),
     responseFormat: String(config.responseFormat || runtimeVoice.responseFormat || 'wav').trim() || 'wav',
+    speed: Number(config.speed || runtimeVoice.speed || 1),
     timeoutMs: Number(config.timeoutMs || runtimeVoice.timeoutMs || 30000),
     maxTextChars: Number(config.maxTextChars || runtimeVoice.maxTextChars || 6000),
     updatedAt: new Date().toISOString(),

@@ -154,6 +154,7 @@ test('runtime voice synthesis posts Speaches speech payload and returns audio by
       model: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
       voice: 'af_heart',
       responseFormat: 'wav',
+      speed: 0.9,
     },
   });
 
@@ -168,10 +169,11 @@ test('runtime voice synthesis posts Speaches speech payload and returns audio by
     voice: 'af_heart',
     input: 'Hello from Penny.',
     response_format: 'wav',
+    speed: 0.9,
   });
 });
 
-test('runtime voice synthesis can boost PCM wav volume without altering the upstream Speaches payload', async () => {
+test('runtime voice synthesis can override speed without mixing it into the volume boost', async () => {
   const sourceWav = makePcm16Wav([1000, -1200, 20000]);
   const calls = [];
   const voice = createRuntimeVoiceApi({
@@ -184,10 +186,11 @@ test('runtime voice synthesis can boost PCM wav volume without altering the upst
       model: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
       voice: 'af_heart',
       responseFormat: 'wav',
+      speed: 1.2,
     },
   });
 
-  const result = await voice.synthesizeSpeech({ text: 'Boost me.', gain: 2 });
+  const result = await voice.synthesizeSpeech({ text: 'Boost me.', gain: 2, speed: 0.85 });
 
   assert.equal(result.ok, true);
   assert.equal(result.audioBuffer.readInt16LE(44), 2000);
@@ -198,6 +201,7 @@ test('runtime voice synthesis can boost PCM wav volume without altering the upst
     voice: 'af_heart',
     input: 'Boost me.',
     response_format: 'wav',
+    speed: 0.85,
   });
 });
 
@@ -233,7 +237,7 @@ test('runtime voice route returns binary audio and does not call review sidecars
       throw new Error('voice speech route should not JSON-serialize audio');
     },
     async safeReadBody() {
-      return JSON.stringify({ text: 'Say the line.', voice: 'af_heart', gain: 1.75 });
+      return JSON.stringify({ text: 'Say the line.', voice: 'af_heart', gain: 1.75, speed: 0.95 });
     },
     runSidecarWorkflow() {
       runnerCalled = true;
@@ -259,7 +263,7 @@ test('runtime voice route returns binary audio and does not call review sidecars
 
   assert.equal(handled, true);
   assert.equal(runnerCalled, false);
-  assert.deepEqual(speechPayload, { text: 'Say the line.', voice: 'af_heart', gain: 1.75 });
+  assert.deepEqual(speechPayload, { text: 'Say the line.', voice: 'af_heart', gain: 1.75, speed: 0.95 });
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['Content-Type'], 'audio/wav');
   assert.equal(res.headers['Cache-Control'], 'no-store');
@@ -280,6 +284,7 @@ test('runtime voice routes expose status and config without the review sidecar g
         baseUrl: 'http://127.0.0.1:8001',
         model: 'kokoro',
         voice: 'af_bella',
+        speed: 0.9,
       });
     },
     runtimeVoice: {
@@ -290,6 +295,7 @@ test('runtime voice routes expose status and config without the review sidecar g
           model: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
           voice: 'af_heart',
           responseFormat: 'wav',
+          speed: 1,
         };
       },
       async getStatus() {
@@ -320,5 +326,6 @@ test('runtime voice routes expose status and config without the review sidecar g
     baseUrl: 'http://127.0.0.1:8001',
     model: 'kokoro',
     voice: 'af_bella',
+    speed: 0.9,
   });
 });

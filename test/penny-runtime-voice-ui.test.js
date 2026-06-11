@@ -15,6 +15,7 @@ function buildEls() {
     voiceName: { value: '' },
     voiceOptions: { innerHTML: '' },
     voiceGain: { value: '1.6' },
+    voiceSpeed: { value: '1' },
     voiceTest: { disabled: true },
     voiceStop: { disabled: true },
     voiceReplay: { disabled: true },
@@ -71,6 +72,7 @@ test('runtime voice controller enables the toggle only when Speaches is ready', 
               baseUrl: 'http://127.0.0.1:8000',
               model: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
               voice: 'af_heart',
+              speed: 0.92,
             },
           };
         },
@@ -86,6 +88,7 @@ test('runtime voice controller enables the toggle only when Speaches is ready', 
   assert.equal(els.voiceBaseUrl.value, 'http://127.0.0.1:8000');
   assert.equal(els.voiceModel.value, 'speaches-ai/Kokoro-82M-v1.0-ONNX');
   assert.equal(els.voiceName.value, 'af_heart');
+  assert.equal(els.voiceSpeed.value, '0.92');
   assert.match(els.voiceStatus.textContent, /ready/i);
 });
 
@@ -104,6 +107,7 @@ test('runtime voice controller replaces setup boilerplate with ready copy and di
       baseUrl: 'http://127.0.0.1:8000',
       model: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
       voice: 'af_bella',
+      speed: 0.95,
     },
   });
 
@@ -120,6 +124,7 @@ test('runtime voice controller replaces setup boilerplate with ready copy and di
 test('runtime voice controller fetches audio for enabled assistant replies and cancels previous playback', async () => {
   const { createRuntimeVoiceController } = await helpersPromise;
   const els = buildEls();
+  els.voiceSpeed.value = '0.88';
   const audio = createAudioHarness();
   const objectUrls = [];
   const revokedUrls = [];
@@ -161,6 +166,7 @@ test('runtime voice controller fetches audio for enabled assistant replies and c
     text: 'First assistant reply.',
     voice: 'af_heart',
     gain: 1.6,
+    speed: 0.88,
   });
   assert.equal(audio.instances.length, 2);
   assert.equal(audio.instances[0].pauseCalls, 1);
@@ -174,6 +180,7 @@ test('runtime voice controller test button path speaks even before reply voice i
   const { createRuntimeVoiceController } = await helpersPromise;
   const els = buildEls();
   els.voiceGain.value = '2.25';
+  els.voiceSpeed.value = '1.12';
   const audio = createAudioHarness();
   const fetchCalls = [];
   const controller = createRuntimeVoiceController({
@@ -207,6 +214,7 @@ test('runtime voice controller test button path speaks even before reply voice i
     text: 'Testing the selected Penny voice.',
     voice: 'af_heart',
     gain: 2.25,
+    speed: 1.12,
   });
   assert.equal(audio.instances.length, 1);
   assert.equal(audio.instances[0].playCalls, 1);
@@ -253,6 +261,7 @@ test('runtime voice controller saves provider config through the runtime route',
   els.voiceBaseUrl.value = 'http://127.0.0.1:8001';
   els.voiceModel.value = 'kokoro';
   els.voiceName.value = 'af_bella';
+  els.voiceSpeed.value = '0.9';
   const calls = [];
   const controller = createRuntimeVoiceController({
     els,
@@ -270,6 +279,7 @@ test('runtime voice controller saves provider config through the runtime route',
                 baseUrl: 'http://127.0.0.1:8001',
                 model: 'kokoro',
                 voice: 'af_bella',
+                speed: 0.9,
               },
             },
           };
@@ -285,6 +295,7 @@ test('runtime voice controller saves provider config through the runtime route',
     baseUrl: 'http://127.0.0.1:8001',
     model: 'kokoro',
     voice: 'af_bella',
+    speed: 0.9,
   });
   assert.equal(els.voiceToggle.disabled, false);
 });

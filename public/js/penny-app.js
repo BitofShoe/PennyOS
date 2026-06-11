@@ -112,6 +112,7 @@ const els = {
   voiceName: document.getElementById('voiceName'),
   voiceOptions: document.getElementById('voiceOptions'),
   voiceGain: document.getElementById('voiceGain'),
+  voiceSpeed: document.getElementById('voiceSpeed'),
   saveVoiceSetup: document.getElementById('saveVoiceSetup'),
   refreshVoiceStatus: document.getElementById('refreshVoiceStatus'),
   voiceTest: document.getElementById('voiceTest'),

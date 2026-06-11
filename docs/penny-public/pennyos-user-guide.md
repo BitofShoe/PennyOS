@@ -291,6 +291,8 @@ http://127.0.0.1:8000
 
 If you already know your Docker GPU setup is working, Speaches also documents GPU/CUDA images. Start with CPU first unless you are intentionally debugging GPU acceleration.
 
+If Docker logs show `CUDAExecutionProvider` errors while the request still ends with `POST /v1/audio/speech ... 200 OK`, Speaches tried CUDA, could not load the CUDA/cuDNN libraries inside that container, and fell back to CPU. That is noisy, but it is not a Penny failure. CPU mode is fine for short completed replies if generation latency feels acceptable.
+
 ### Download Or Check The TTS Model
 
 Speaches' TTS docs use Kokoro as the example model:
@@ -320,6 +322,7 @@ $body = @{
   model = "speaches-ai/Kokoro-82M-v1.0-ONNX"
   voice = "af_heart"
   response_format = "wav"
+  speed = 1.0
 } | ConvertTo-Json
 
 Invoke-WebRequest http://127.0.0.1:8000/v1/audio/speech -Method POST -ContentType "application/json" -Body $body -OutFile penny-voice-test.wav
@@ -336,13 +339,16 @@ In PennyOS:
 3. Set Speaches URL to `http://127.0.0.1:8000`.
 4. Set model to `speaches-ai/Kokoro-82M-v1.0-ONNX`.
 5. Set voice to `af_heart`.
-6. Click Save voice.
-7. Click Refresh voice.
-8. Enable voice once Penny reports Speaches is reachable and the model is ready.
+6. Adjust Voice boost and Voice speed if needed.
+7. Click Save voice.
+8. Click Refresh voice.
+9. Enable voice once Penny reports Speaches is reachable and the model is ready.
 
 When voice is enabled, Penny speaks the completed assistant reply after chat finishes. Use Stop to interrupt playback and Replay to hear the last spoken response again.
 
 If the toggle stays disabled, it usually means Speaches is not running, the URL/port is wrong, or the configured TTS model is not visible from `/v1/models`.
+
+Penny exposes Speaches' supported `speed` setting. Lower values speak more slowly; higher values speak faster. Penny does not currently expose pitch because the local Speaches `/v1/audio/speech` API does not advertise a pitch field. If pitch control appears later, it should be through a real supported backend setting or honest audio post-processing, not a fake slider.
 
 ## Picking Models
 
@@ -428,6 +434,7 @@ PennyOS now has a runtime voice path for a separately running Speaches server:
 
 - Open Settings.
 - Set the Speaches URL, model, and voice.
+- Adjust Voice boost and Voice speed.
 - Click Refresh voice.
 - Enable the voice toggle once Penny reports that Speaches is reachable and the configured model is ready.
 
@@ -499,6 +506,8 @@ Loaded/exposed models are the safe first picks. Installed-only entries may be us
 
 If it sounds like the old Windows/browser robot, you are not using Penny's runtime voice path. The consumer UI no longer uses browser `speechSynthesis`; configure local Speaches in Settings or leave voice off.
 
+Kokoro voices vary a lot. The upstream voice list grades some voices much higher than others, and short one-line replies can sound worse than naturally punctuated sentences. Try `af_bella`, `af_heart`, or `af_nicole` first, then use Voice speed for pacing. Pitch is not currently a Speaches/Kokoro setting in Penny.
+
 ### Voice toggle stays disabled
 
 Check:
@@ -508,6 +517,10 @@ Check:
 - Does the model list include `speaches-ai/Kokoro-82M-v1.0-ONNX`?
 - Did you save the Speaches URL/model/voice in PennyOS Settings?
 - Did you click Refresh voice after starting Speaches?
+
+### Speaches logs show CUDA errors, but voice works
+
+That usually means Speaches tried ONNX Runtime's CUDA provider, could not find the needed CUDA/cuDNN libraries in the container, and fell back to CPU. If audio generation succeeds, you can ignore it for now. To make it disappear for real, either run a CPU-only/provider-pinned Speaches setup or intentionally set up the Speaches GPU image with Docker/NVIDIA CUDA support. Do not mix those two paths casually.
 
 ### The sprite flickers while typing
 
