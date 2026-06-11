@@ -2,13 +2,27 @@
 
 > Category: Public/external explanation
 > Authority: Public/external explanation
-> Status: Current snapshot as of 2026-06-10
+> Status: Current snapshot as of 2026-06-11
 > Use this for: first-run help, local model setup, feature orientation, and honest FAQ copy.
 > Do not use this for: binding runtime law, live model guarantees, or release proof. Use [../../README.md](../../README.md), [../../INSTALL.md](../../INSTALL.md), and current QA receipts for that.
 
 Hi. If you are reading this because Penny opened and then immediately started asking about "local brain lanes," congratulations: you have reached the part where the cute interface admits it still needs an actual model server.
 
 This guide is for normal humans, not just the people who enjoy saying "OpenAI-compatible endpoint" before breakfast.
+
+## Table of Contents
+
+- [The Short Version](#the-short-version)
+- [Quick Start Checklist](#quick-start-checklist)
+- [What The Desktop App Includes](#what-the-desktop-app-includes)
+- [LM Studio Setup](#lm-studio-setup)
+- [llama.cpp Setup](#llamacpp-setup)
+- [Speaches Voice Setup](#speaches-voice-setup)
+- [Picking Models](#picking-models)
+- [Feature Map](#feature-map)
+- [FAQ](#faq)
+- [Troubleshooting](#troubleshooting)
+- [Source Notes](#source-notes)
 
 ## The Short Version
 
@@ -17,7 +31,7 @@ PennyOS has two pieces:
 1. The Penny app: the desktop window, local server sidecar, UI, memory files, tools, settings, and personality scaffolding.
 2. A local model runtime: LM Studio, llama.cpp, or another OpenAI-compatible server that actually runs the model.
 
-The Windows desktop package includes the first piece. It does not bundle LM Studio, llama.cpp, model weights, embedding models, or a model manager. That is intentional for this release slice. Penny should not silently download models, load models, unload models, or mess with a live runtime you already have open.
+The Windows desktop package includes the first piece. It does not bundle LM Studio, llama.cpp, Speaches, model weights, embedding models, voice models, or a model manager. That is intentional for this release slice. Penny should not silently download models, load models, unload models, or mess with a live runtime you already have open.
 
 If you only remember one sentence:
 
@@ -35,6 +49,8 @@ If you only remember one sentence:
 8. Press Refresh.
 9. Pick a Chat model and Tool model.
 10. Save model setup.
+11. Optional: install and start Speaches if you want Penny to speak replies.
+12. Optional: configure Settings -> Speaches voice, press Refresh voice, then enable the voice toggle.
 
 Penny should then be able to chat through the loaded model. Semantic memory may still report fallback if the embedding lane is missing. That is not a startup failure.
 
@@ -127,6 +143,95 @@ The `PENNY_LMSTUDIO_*` names are historical. In this mode they mean "Penny's con
 
 If you split chat and embeddings across two llama.cpp servers, keep them on separate ports and do not expose an embedding-only model as the chat model.
 
+## Speaches Voice Setup
+
+Speaches is a separate local speech server. PennyOS does not install it, bundle it, or download TTS models for you. That keeps the desktop app smaller and avoids surprising your machine with extra model downloads.
+
+Use Speaches only if you want Penny to speak completed assistant replies. It does not replace LM Studio or llama.cpp for chat. The normal shape is:
+
+```text
+PennyOS chat -> LM Studio or llama.cpp
+PennyOS voice -> Speaches
+```
+
+Official sources:
+
+- [Speaches GitHub](https://github.com/speaches-ai/speaches)
+- [Speaches installation docs](https://speaches.ai/installation/)
+- [Speaches text-to-speech docs](https://speaches.ai/usage/text-to-speech/)
+
+The easiest Windows route is Docker Desktop. If you do not already have Docker installed, install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) first, then restart PowerShell.
+
+### Start Speaches With Docker
+
+CPU mode is the safest first test:
+
+```powershell
+docker volume create hf-hub-cache
+docker run --rm -d --name speaches -p 8000:8000 -v hf-hub-cache:/home/ubuntu/.cache/huggingface/hub ghcr.io/speaches-ai/speaches:latest-cpu
+```
+
+That starts Speaches at:
+
+```text
+http://127.0.0.1:8000
+```
+
+If you already know your Docker GPU setup is working, Speaches also documents GPU/CUDA images. Start with CPU first unless you are intentionally debugging GPU acceleration.
+
+### Download Or Check The TTS Model
+
+Speaches' TTS docs use Kokoro as the example model:
+
+```text
+speaches-ai/Kokoro-82M-v1.0-ONNX
+```
+
+Some Speaches setups can fetch/cache models when first used, but TTS may require an explicit model download. If Penny says the voice model is not ready, install `uv` and use Speaches' CLI:
+
+```powershell
+uvx speaches-cli model download speaches-ai/Kokoro-82M-v1.0-ONNX
+uvx speaches-cli model ls --task text-to-speech
+```
+
+Then check that Speaches is answering:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8000/v1/models -UseBasicParsing
+```
+
+You can also generate a tiny test WAV:
+
+```powershell
+$body = @{
+  input = "Hello from Penny."
+  model = "speaches-ai/Kokoro-82M-v1.0-ONNX"
+  voice = "af_heart"
+  response_format = "wav"
+} | ConvertTo-Json
+
+Invoke-WebRequest http://127.0.0.1:8000/v1/audio/speech -Method POST -ContentType "application/json" -Body $body -OutFile penny-voice-test.wav
+```
+
+Open `penny-voice-test.wav`. If that file sounds good, Penny has something real to call.
+
+### Configure PennyOS Voice
+
+In PennyOS:
+
+1. Open Settings.
+2. Find Speaches voice.
+3. Set Speaches URL to `http://127.0.0.1:8000`.
+4. Set model to `speaches-ai/Kokoro-82M-v1.0-ONNX`.
+5. Set voice to `af_heart`.
+6. Click Save voice.
+7. Click Refresh voice.
+8. Enable voice once Penny reports Speaches is reachable and the model is ready.
+
+When voice is enabled, Penny speaks the completed assistant reply after chat finishes. Use Stop to interrupt playback and Replay to hear the last spoken response again.
+
+If the toggle stays disabled, it usually means Speaches is not running, the URL/port is wrong, or the configured TTS model is not visible from `/v1/models`.
+
 ## Picking Models
 
 Penny is personality-sensitive. A model can be technically strong and still make her sound like a laminated office sign.
@@ -215,7 +320,7 @@ PennyOS now has a runtime voice path for a separately running Speaches server:
 
 When enabled, Penny speaks completed assistant replies after the normal chat response finishes. Stop and Replay controls live beside the voice setup.
 
-PennyOS still does not bundle Speaches, llama.cpp, TTS model weights, or voice downloads. If Speaches is not running, the toggle stays disabled and Penny chats silently.
+PennyOS still does not bundle Speaches, llama.cpp, TTS model weights, or voice downloads. If Speaches is not running, the toggle stays disabled and Penny chats silently. See [Speaches Voice Setup](#speaches-voice-setup) for the full install path.
 
 Source/dev sidecar harnesses for search, docs/RAG, and audio experiments may exist in the repository, but they are not exposed in the consumer Settings UI and are not part of the downloadable app runtime. Runtime voice uses `/api/penny/voice/*`, not the review sidecar routes.
 
@@ -228,6 +333,10 @@ The app can open, but model-backed chat needs a local OpenAI-compatible endpoint
 ### Does PennyOS download or load models for me?
 
 No. Not in this slice. Penny preserves your live LM Studio/llama.cpp state by default. That means she should not unload, reload, or swap models behind your back.
+
+### Do I have to install Speaches separately?
+
+Yes, if you want runtime voice. Speaches is optional and separate from PennyOS. Chat still works through LM Studio, llama.cpp, or another OpenAI-compatible endpoint without Speaches.
 
 ### Is LM Studio plug-and-play once installed?
 
@@ -273,6 +382,16 @@ Loaded/exposed models are the safe first picks. Installed-only entries may be us
 
 If it sounds like the old Windows/browser robot, you are not using Penny's runtime voice path. The consumer UI no longer uses browser `speechSynthesis`; configure local Speaches in Settings or leave voice off.
 
+### Voice toggle stays disabled
+
+Check:
+
+- Is Speaches running at `http://127.0.0.1:8000`?
+- Does `http://127.0.0.1:8000/v1/models` answer?
+- Does the model list include `speaches-ai/Kokoro-82M-v1.0-ONNX`?
+- Did you save the Speaches URL/model/voice in PennyOS Settings?
+- Did you click Refresh voice after starting Speaches?
+
 ### The sprite flickers while typing
 
 That should not happen. The desktop UI now pauses the sprite idle animation while the composer is focused and keeps expression changes tied to real mood/state transitions.
@@ -283,4 +402,5 @@ This guide was refreshed against:
 
 - LM Studio docs for app capabilities, downloads, local server, and OpenAI-compatible endpoints.
 - llama-cpp-python docs for an OpenAI-compatible llama.cpp server path.
-- PennyOS repo docs and runtime behavior as of 2026-06-10.
+- Speaches docs for install paths and `/v1/audio/speech` text-to-speech behavior.
+- PennyOS repo docs and runtime behavior as of 2026-06-11.
