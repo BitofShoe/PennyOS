@@ -15,6 +15,7 @@ This guide is for normal humans, not just the people who enjoy saying "OpenAI-co
 - [The Short Version](#the-short-version)
 - [Quick Start Checklist](#quick-start-checklist)
 - [What The Desktop App Includes](#what-the-desktop-app-includes)
+- [Mobile / Phone Access](#mobile--phone-access)
 - [LM Studio Setup](#lm-studio-setup)
 - [llama.cpp Setup](#llamacpp-setup)
 - [Speaches Voice Setup](#speaches-voice-setup)
@@ -74,6 +75,90 @@ It does not include:
 - Rust, Cargo, Node, npm, or a repo checkout for the end user.
 
 Build machines still need build tools. End users should not need developer tools just to launch the installed app.
+
+## Mobile / Phone Access
+
+Phone access is possible, but it is intentionally no longer "just open whatever URL looked plausible." Penny is local-first, and LAN mode exposes your chat/memory API to another device on your network. That means it needs an explicit LAN start and an access token.
+
+Current truth:
+
+- The installed Tauri desktop app binds its bundled server to `127.0.0.1` for the local desktop window.
+- The phone/LAN flow is currently the source/dev server flow on port `4317`.
+- LAN sharing must be explicitly enabled with `PENNY_LAN_SHARE=1`.
+- Every `/api/*` request in LAN mode requires the Penny API token.
+- Do not put this on the public internet. Same trusted Wi-Fi only.
+
+### Start Penny For Phone Access
+
+From Windows PowerShell in the Penny checkout:
+
+```powershell
+cd C:\Path\To\PennyOS
+$env:PENNY_LAN_SHARE = "1"
+$env:PENNY_API_TOKEN = "choose-a-long-random-token"
+$env:PENNY_SKIP_LMSTUDIO_PREP = "1"
+npm start
+```
+
+Use a real random-ish token, not your LM Studio model name, not an OpenAI key, and not `password` unless you enjoy making future-you sigh audibly.
+
+If you do not set `PENNY_API_TOKEN`, Penny will generate one for that process and print it in the terminal. That works, but it changes on restart. Setting your own token is less annoying.
+
+### Find The Phone URL
+
+The terminal should print LAN URLs when LAN sharing is on. Use the Windows Wi-Fi IPv4 address:
+
+```text
+http://<your-wifi-ipv4>:4317
+```
+
+Do not use these on your phone:
+
+- `http://localhost:4317`
+- `http://127.0.0.1:4317`
+- A WSL adapter address like `http://172.x.x.x:4317`
+
+If you need to find the Wi-Fi address manually:
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object { $_.IPAddress -notlike "169.254*" -and $_.IPAddress -ne "127.0.0.1" } |
+  Select-Object InterfaceAlias,IPAddress,PrefixLength,AddressState
+```
+
+Pick the `Wi-Fi` address and open `http://<that-address>:4317` on your phone.
+
+### Save The Token On Your Phone
+
+On the phone:
+
+1. Open the LAN URL.
+2. Open Settings.
+3. Find API access.
+4. Paste the exact `PENNY_API_TOKEN` value.
+5. Tap Save token.
+6. Refresh the page if chat or status had already failed.
+
+The phone browser stores that token locally and sends it as `X-Penny-Access-Token` on future API calls.
+
+If you restart Penny with a different token, clear and re-save the token on the phone.
+
+### Phone Access Troubleshooting
+
+If the phone cannot open Penny:
+
+- Make sure phone and PC are on the same Wi-Fi.
+- Make sure Penny was started with `PENNY_LAN_SHARE=1`.
+- Use the Windows Wi-Fi IPv4 address, not `localhost`, not `127.0.0.1`, and not the WSL adapter.
+- Allow Node/Penny through Windows Firewall on private networks if Windows asks.
+- Stop any stale Penny server and restart one normal LAN listener on port `4317`.
+
+If Penny opens but chat/status fails:
+
+- Save the token in Settings -> API access.
+- Check for typos or extra spaces.
+- If Penny generated the token, copy the freshly printed token from the current terminal.
+- If you changed `PENNY_API_TOKEN`, clear the old phone token and save the new one.
 
 ## LM Studio Setup
 
@@ -358,6 +443,10 @@ For Penny specifically: embedding-only models as chat, base models with no chat 
 
 Packaged Penny writes to app-data paths. Older source/dev Penny usually writes to checkout-local ignored data paths. The biggest risk is running both on the same port. Use one at a time unless you intentionally changed ports.
 
+### Can I use the installed desktop app from my phone?
+
+Not directly in this snapshot. The installed Tauri app starts its bundled server for the local desktop window and binds it to `127.0.0.1`. Phone access currently means starting the source/dev server in LAN mode with `PENNY_LAN_SHARE=1` and a Penny API token.
+
 ### Where is the in-app help?
 
 Open PennyOS Settings and click "Open setup guide." That page is bundled under `public/pennyos-help.html`, so the desktop runtime packages it with the app.
@@ -403,4 +492,5 @@ This guide was refreshed against:
 - LM Studio docs for app capabilities, downloads, local server, and OpenAI-compatible endpoints.
 - llama-cpp-python docs for an OpenAI-compatible llama.cpp server path.
 - Speaches docs for install paths and `/v1/audio/speech` text-to-speech behavior.
+- Penny LAN/phone reset runbook, `INSTALL.md`, and API security code for current LAN/token behavior.
 - PennyOS repo docs and runtime behavior as of 2026-06-11.
