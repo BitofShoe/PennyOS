@@ -1111,7 +1111,7 @@ button {
 
 .decor-float {
   position: absolute;
-  animation: decorDrift 22s ease-in-out infinite alternate;
+  animation: none;
 }
 
 .decor-float.decor-screensaver {
@@ -1461,6 +1461,19 @@ button {
 .composer::placeholder,
 .input-lite::placeholder {
   color: rgba(255, 255, 255, 0.32);
+}
+
+.field-hint {
+  margin-top: -0.46rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted-soft);
+}
+
+input[type="range"].input-lite {
+  accent-color: var(--primary);
+  min-height: 1.6rem;
+  cursor: pointer;
 }
 
 .send-btn,

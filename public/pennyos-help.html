@@ -221,6 +221,7 @@
         <div class="nav" aria-label="Guide sections">
           <a class="pill" href="#quick-start">Quick start</a>
           <a class="pill" href="#lm-studio">LM Studio</a>
+          <a class="pill" href="#embeddings">Embeddings</a>
           <a class="pill" href="#llama-cpp">llama.cpp</a>
           <a class="pill" href="#models">Models</a>
           <a class="pill" href="#features">Features</a>
@@ -247,7 +248,7 @@
         </div>
         <div class="step">
           <h3>4. Pick lanes in Settings</h3>
-          <p>Open Settings, then First-run local brain setup. Pick the chat model and tool model from the dropdowns, then save.</p>
+          <p>Open Settings, then First-run local brain setup. Pick the chat model, tool model, and optional embedding model from the dropdowns, then save.</p>
         </div>
       </div>
     </section>
@@ -266,6 +267,25 @@
       <div class="callout" data-tone="good">
         <h3>What Penny wants to see</h3>
         <p><code>/v1/models</code> should list the loaded chat model. If the model list is empty, Penny can open, but model-backed chat will not be ready yet.</p>
+      </div>
+    </section>
+
+    <section id="embeddings">
+      <h2>Embedding Model Setup</h2>
+      <p>Embeddings are Penny's semantic memory search lane. They are useful for better recall, but they are not chat models.</p>
+      <ol>
+        <li>Download an embedding model in LM Studio or serve one from your OpenAI-compatible runtime.</li>
+        <li>Make sure the local server's <code>/v1/models</code> endpoint can see it.</li>
+        <li>Open PennyOS Settings, press Refresh in First-run local brain setup, then pick it under Embedding model.</li>
+        <li>Save model setup.</li>
+      </ol>
+      <div class="callout" data-tone="blue">
+        <h3>Good signs</h3>
+        <p>Models such as <code>text-embedding-embeddinggemma-300m@f32</code> or <code>text-embedding-nomic-embed-text-v1.5</code> belong in the Embedding model dropdown, not Chat or Tool.</p>
+      </div>
+      <div class="callout" data-tone="warn">
+        <h3>If it says fallback</h3>
+        <p>Penny can still chat. Fallback means the configured embedding model is missing, unloaded, or different from the embedding model your runtime currently exposes.</p>
       </div>
     </section>
 
@@ -321,14 +341,14 @@ PENNY_LOCAL_LLM_TRANSPORT=chat</code></pre>
           <img src="/sprites/packs/pen2/pen2-thinking-laptop-base.png" alt="" />
           <div>
             <h3>Memory</h3>
-            <p>Explicit memory is local. Archive memory is review-gated before promotion. Embeddings help, but keyword fallback is expected.</p>
+            <p>Explicit memory is local. Archive memory is review-gated before promotion. Embeddings help semantic search; keyword fallback is expected when the embedding lane is unavailable.</p>
           </div>
         </div>
         <div class="mini-shot">
           <img src="/sprites/packs/pen2/pen2-smug-glasses.png" alt="" />
           <div>
             <h3>Settings</h3>
-            <p>Use First-run local brain setup to pick chat/tool lanes. Use diagnostics when Penny says the endpoint is not ready.</p>
+            <p>Use First-run local brain setup to pick chat, tool, and embedding lanes. Use diagnostics when Penny says the endpoint is not ready.</p>
           </div>
         </div>
       </div>
@@ -345,7 +365,7 @@ PENNY_LOCAL_LLM_TRANSPORT=chat</code></pre>
       <h3>Why does the dropdown show so many models?</h3>
       <p>Penny shows what the configured runtime reports, plus saved/configured candidates. Loaded or exposed models are the plug-and-play choices. Installed-only models may still need to be loaded in LM Studio or served by llama.cpp.</p>
       <h3>Why is semantic memory sometimes "fallback"?</h3>
-      <p>The embedding lane is optional. If the configured embedding model is missing or unloaded, Penny can still chat and use keyword fallback.</p>
+      <p>The embedding lane is optional. If the configured embedding model is missing, unloaded, or different from the model currently exposed by the server, Penny can still chat and use keyword fallback.</p>
       <h3>How do I make Penny speak?</h3>
       <p>Run Speaches locally, then open Settings, save the Speaches URL, model, and voice. The voice toggle stays disabled until Penny can reach the service and see the configured model.</p>
       <h3>Will this cross wires with another Penny run?</h3>

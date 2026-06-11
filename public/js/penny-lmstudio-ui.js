@@ -29,6 +29,47 @@ function selectableModelIdsFromStatus(lmStudio = {}, {
   );
 }
 
+function selectableEmbeddingModelIdsFromStatus(lmStudio = {}, semantic = {}) {
+  return mergeDistinctModelIds(
+    (lmStudio.loadedModels || []).filter(isEmbeddingLikeModelId),
+    (lmStudio.nativeAvailableModels || []).filter(isEmbeddingLikeModelId),
+    (lmStudio.availableModels || []).filter(isEmbeddingLikeModelId),
+    (lmStudio.installedModels || []).filter(isEmbeddingLikeModelId),
+    [
+      lmStudio.runtimePreferredEmbedModel,
+      lmStudio.embedPreferredModel,
+      semantic.configuredModel,
+      lmStudio.configuredEmbedModel,
+    ].filter(isEmbeddingLikeModelId),
+  );
+}
+
+function loadedEmbeddingModelIdsFromStatus(lmStudio = {}) {
+  return mergeDistinctModelIds(
+    (lmStudio.loadedModels || []).filter(isEmbeddingLikeModelId),
+    (lmStudio.nativeAvailableModels || []).filter(isEmbeddingLikeModelId),
+    (lmStudio.availableModels || []).filter(isEmbeddingLikeModelId),
+  );
+}
+
+function updateSelectOptions(selectEl, modelIds = [], selectedId = '', fallbackLabel = 'no models loaded') {
+  if (!selectEl) return;
+  const ids = Array.isArray(modelIds) ? modelIds : [];
+  if (!ids.length) {
+    selectEl.innerHTML = `<option value="">${fallbackLabel}</option>`;
+    selectEl.value = '';
+    return;
+  }
+  if (typeof document !== 'undefined' && typeof selectEl.appendChild === 'function') {
+    fillModelSelectOptions(selectEl, ids, selectedId || ids[0]);
+    return;
+  }
+  selectEl.innerHTML = ids
+    .map((id) => `<option value="${String(id).replaceAll('"', '&quot;')}">${id}</option>`)
+    .join('');
+  selectEl.value = selectedId || ids[0] || '';
+}
+
 function normalizeModelPickKey(value = '') {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -142,8 +183,11 @@ export function buildFirstRunModelSetupViewModel(status = null) {
   const fallbackEnabled = lmStudio.modelFallbackDisabled !== true;
   const chatModels = selectableModelIdsFromStatus(lmStudio, { lane: 'chat' });
   const toolModels = selectableModelIdsFromStatus(lmStudio, { lane: 'tool' });
+  const embeddingModels = selectableEmbeddingModelIdsFromStatus(lmStudio, semantic);
+  const loadedEmbeddingModels = loadedEmbeddingModelIdsFromStatus(lmStudio);
   const configuredEmbed = String(semantic.configuredModel || lmStudio.embedPreferredModel || '').trim();
   const semanticReady = semantic.ready === true;
+  const selectedLoadedEmbed = semanticReady ? '' : loadedEmbeddingModels[0];
   const severity = !reachable
     ? 'offline'
     : (chatReady && toolReady ? 'ready' : 'needs-setup');
@@ -162,7 +206,7 @@ export function buildFirstRunModelSetupViewModel(status = null) {
     : (rawHint || 'You can swap lanes here without editing .env.');
   const embeddingText = semanticReady
     ? `Semantic memory ready${configuredEmbed ? ` on ${configuredEmbed}` : ''}${semantic.mode ? ` (${semantic.mode})` : ''}.`
-    : `Embeddings are optional; Penny can run with keyword fallback${configuredEmbed ? ` while ${configuredEmbed} is missing or unloaded` : ''}.`;
+    : `Embeddings are optional; Penny can run with keyword fallback${configuredEmbed ? ` while ${configuredEmbed} is missing or unloaded` : ''}${selectedLoadedEmbed && selectedLoadedEmbed !== configuredEmbed ? `. Loaded embedding model detected: ${selectedLoadedEmbed}` : ''}.`;
 
   return {
     visible,
@@ -179,11 +223,15 @@ export function buildFirstRunModelSetupViewModel(status = null) {
     embeddingText,
     chatModels,
     toolModels,
+    embeddingModels,
     selectedChatModel: findBestModelMatch(chatModels, lmStudio.resolvedChatModel, lmStudio.resolvedModel, lmStudio.runtimePreferredChatModel, lmStudio.runtimePreferredModel, lmStudio.chatPreferredModel, lmStudio.configuredChatModel, lmStudio.configuredModel)
       || chatModels[0]
       || '',
     selectedToolModel: findBestModelMatch(toolModels, lmStudio.resolvedToolModel, lmStudio.runtimePreferredToolModel, lmStudio.toolPreferredModel, lmStudio.configuredToolModel)
       || toolModels[0]
+      || '',
+    selectedEmbedModel: findBestModelMatch(embeddingModels, selectedLoadedEmbed, semantic.configuredModel, lmStudio.runtimePreferredEmbedModel, lmStudio.embedPreferredModel, lmStudio.configuredEmbedModel)
+      || embeddingModels[0]
       || '',
   };
 }
@@ -199,6 +247,7 @@ export function updateModelSetupUi({ els, status = null } = {}) {
   if (els?.modelSetupHint) els.modelSetupHint.textContent = viewModel.hintText;
   if (els?.modelSetupEmbedding) els.modelSetupEmbedding.textContent = viewModel.embeddingText;
   if (els?.modelSetupFallback) els.modelSetupFallback.checked = viewModel.fallbackEnabled;
+  updateSelectOptions(els?.embedModelSelect, viewModel.embeddingModels, viewModel.selectedEmbedModel, 'keyword fallback');
   return viewModel;
 }
 

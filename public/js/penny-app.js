@@ -29,7 +29,6 @@ import {
   DEFAULT_EXPRESSION_PACK_URL as DEFAULT_EXPRESSION_PACK_URL_RUNTIME,
   createDefaultExpressionPack as createDefaultExpressionPackRuntime,
   createExpressionPackRuntime,
-  createIdleDecorRuntime,
   parseMood as parseMoodRuntime,
   normalizeMoodTag as normalizeMoodTagRuntime,
   buildExpressionDecisionRecord,
@@ -112,8 +111,10 @@ const els = {
   voiceModel: document.getElementById('voiceModel'),
   voiceName: document.getElementById('voiceName'),
   voiceOptions: document.getElementById('voiceOptions'),
+  voiceGain: document.getElementById('voiceGain'),
   saveVoiceSetup: document.getElementById('saveVoiceSetup'),
   refreshVoiceStatus: document.getElementById('refreshVoiceStatus'),
+  voiceTest: document.getElementById('voiceTest'),
   voiceStop: document.getElementById('voiceStop'),
   voiceReplay: document.getElementById('voiceReplay'),
   expressionOverrideSelect: document.getElementById('expressionOverrideSelect'),
@@ -132,6 +133,7 @@ const els = {
   modelSetupEmbedding: document.getElementById('modelSetupEmbedding'),
   modelSetupFallback: document.getElementById('modelSetupFallback'),
   toolModelSelect: document.getElementById('toolModelSelect'),
+  embedModelSelect: document.getElementById('embedModelSelect'),
   saveModelSetup: document.getElementById('saveModelSetup'),
   refreshModelSetup: document.getElementById('refreshModelSetup'),
   newChat: document.getElementById('newChat'),
@@ -308,11 +310,6 @@ const expressionPackRuntime = createExpressionPackRuntime({
   manifestUrl: DEFAULT_EXPRESSION_PACK_URL_RUNTIME,
   defaultPack: activeExpressionPack,
 });
-const idleDecorRuntime = createIdleDecorRuntime({
-  windowRef: window,
-  container: els.cyberDecor,
-  chatWrap: els.chatWrap,
-});
 
 async function loadExpressionPackManifest() {
   activeExpressionPack = await expressionPackRuntime.load();
@@ -333,18 +330,6 @@ function appendMessageDecor(item, decorSeed, role) {
   }
   item.appendChild(wrap);
 }
-
-function syncIdleDecorBounds() {
-  return idleDecorRuntime.syncBounds();
-}
-
-function startIdleDecorScreensaver() {
-  idleDecorRuntime.start();
-}
-
-window.addEventListener('resize', () => {
-  idleDecorRuntime.handleResize();
-});
 
 function getCurrentMoodPresentationProfile(mood) {
   const variantCount = getMoodSpriteVariantsRuntime(activeExpressionPack, mood).length;
@@ -514,7 +499,6 @@ function renderMessages() {
     formatBytesFn: formatBytes,
     escapeHtmlFn: escapeHtml,
   });
-  syncIdleDecorBounds();
 }
 
 function updateStreamingAssistantBubble(text = '') {
@@ -525,7 +509,6 @@ function updateStreamingAssistantBubble(text = '') {
     stripDraftMoodFn: stripDraftMood,
     escapeHtmlFn: escapeHtml,
   });
-  syncIdleDecorBounds();
 }
 
 async function readPennyEventStream(response, handlers = {}) {
@@ -778,17 +761,27 @@ async function loadAvailableModels(preloadedStatus = null) {
         fillModelSelectOptionsUi(els.toolModelSelect, toolModels, selectedTool);
       }
     }
+    if (els.embedModelSelect) {
+      const embedModels = Array.isArray(viewModel.embeddingModels) ? viewModel.embeddingModels : [];
+      if (!embedModels.length) {
+        els.embedModelSelect.innerHTML = '<option value="">keyword fallback</option>';
+      } else {
+        fillModelSelectOptionsUi(els.embedModelSelect, embedModels, viewModel.selectedEmbedModel || embedModels[0]);
+      }
+    }
   } catch {}
 }
 
 async function saveModelSetupFromControls() {
   const chatModel = els.modelSelect?.value || '';
   const toolModel = els.toolModelSelect?.value || '';
+  const embedModel = els.embedModelSelect?.value || '';
   const payload = {
     disableModelFallback: els.modelSetupFallback ? !els.modelSetupFallback.checked : false,
   };
   if (chatModel) payload.chatModel = chatModel;
   if (toolModel) payload.toolModel = toolModel;
+  if (embedModel) payload.embedModel = embedModel;
   if (!payload.chatModel && !payload.toolModel && !Object.prototype.hasOwnProperty.call(payload, 'disableModelFallback')) return;
   try {
     const res = await apiFetch('/api/penny/lmstudio/model', {
@@ -809,6 +802,7 @@ async function saveModelSetupFromControls() {
 
 els.modelSelect?.addEventListener('change', saveModelSetupFromControls);
 els.toolModelSelect?.addEventListener('change', saveModelSetupFromControls);
+els.embedModelSelect?.addEventListener('change', saveModelSetupFromControls);
 els.modelSetupFallback?.addEventListener('change', saveModelSetupFromControls);
 els.saveModelSetup?.addEventListener('click', saveModelSetupFromControls);
 els.refreshModelSetup?.addEventListener('click', () => loadBackendStatus());
@@ -821,6 +815,7 @@ els.saveVoiceSetup?.addEventListener('click', async () => {
   }
 });
 els.refreshVoiceStatus?.addEventListener('click', refreshRuntimeVoiceStatus);
+els.voiceTest?.addEventListener('click', () => runtimeVoice.testSpeak());
 els.voiceStop?.addEventListener('click', () => runtimeVoice.stop());
 els.voiceReplay?.addEventListener('click', () => runtimeVoice.replay());
 
@@ -1154,7 +1149,6 @@ els.clearMemory?.addEventListener('click', async () => {
 loadState();
 applyDebugSpriteOverrides();
 renderMessages();
-startIdleDecorScreensaver();
 renderMemory();
 updateTheme();
 updateBrainModeUi();

@@ -355,6 +355,33 @@ test('readEmbeddingsStore drops cached vectors from a different embedding model 
   }
 });
 
+test('semantic memory embedding model can be changed at runtime without reusing the old vector space', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi({
+    ...files,
+    embedModel: 'text-embedding-nomic-embed-text-v1.5',
+    statusInstalledModels: ['text-embedding-nomic-embed-text-v1.5', 'text-embedding-embeddinggemma-300m@f32'],
+    statusNativeAvailableModels: ['text-embedding-nomic-embed-text-v1.5', 'text-embedding-embeddinggemma-300m@f32'],
+    statusAvailableModels: ['text-embedding-nomic-embed-text-v1.5', 'text-embedding-embeddinggemma-300m@f32'],
+  });
+
+  try {
+    const before = await api.getSemanticMemoryStatus({ force: true });
+    assert.equal(before.configuredModel, 'text-embedding-nomic-embed-text-v1.5');
+
+    const updated = api.setConfiguredEmbedModel('text-embedding-embeddinggemma-300m@f32');
+    const after = await api.getSemanticMemoryStatus({ force: true });
+
+    assert.equal(updated, 'text-embedding-embeddinggemma-300m@f32');
+    assert.equal(after.configuredModel, 'text-embedding-embeddinggemma-300m@f32');
+    assert.equal(api.configuredEmbedModel, 'text-embedding-embeddinggemma-300m@f32');
+    const store = api.readEmbeddingsStore();
+    assert.equal(store.meta.embedModel, 'text-embedding-embeddinggemma-300m@f32');
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('embedding cache keys include provider/model space for newly written vectors', async () => {
   const text = 'The copper rabbit sat beside the coding notebook.';
   const nomicFiles = makeTempFiles();

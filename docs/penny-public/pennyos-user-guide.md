@@ -17,6 +17,7 @@ This guide is for normal humans, not just the people who enjoy saying "OpenAI-co
 - [What The Desktop App Includes](#what-the-desktop-app-includes)
 - [Mobile / Phone Access](#mobile--phone-access)
 - [LM Studio Setup](#lm-studio-setup)
+- [Embedding Model Setup](#embedding-model-setup)
 - [llama.cpp Setup](#llamacpp-setup)
 - [Speaches Voice Setup](#speaches-voice-setup)
 - [Picking Models](#picking-models)
@@ -49,9 +50,10 @@ If you only remember one sentence:
 7. Go to Settings -> First-run local brain setup.
 8. Press Refresh.
 9. Pick a Chat model and Tool model.
-10. Save model setup.
-11. Optional: install and start Speaches if you want Penny to speak replies.
-12. Optional: configure Settings -> Speaches voice, press Refresh voice, then enable the voice toggle.
+10. Optional but recommended: download/load an embedding model, then pick it in the Embedding model dropdown.
+11. Save model setup.
+12. Optional: install and start Speaches if you want Penny to speak replies.
+13. Optional: configure Settings -> Speaches voice, press Refresh voice, then enable the voice toggle.
 
 Penny should then be able to chat through the loaded model. Semantic memory may still report fallback if the embedding lane is missing. That is not a startup failure.
 
@@ -200,6 +202,31 @@ You are looking for these states:
 - PennyOS Settings -> First-run local brain setup says the local brain is ready or lets you pick the visible model.
 
 If LM Studio is open but Penny says no model is ready, the usual reason is that the server is not started or the model is installed but not loaded.
+
+## Embedding Model Setup
+
+Embeddings are a separate memory-search lane. They are not Penny's chat brain, and they are not the Tool model. They turn text into vectors so semantic memory can find "the thing we talked about" even when the wording is not identical.
+
+You can use Penny without an embedding model. In that case she should say semantic memory is in fallback and use keyword retrieval. That is acceptable for basic chat. For the better memory experience, install and serve one embedding model too.
+
+Good practical shape:
+
+1. In LM Studio, search for an embedding model.
+2. Download it.
+3. Load or expose it through the local server so `/v1/models` can see it.
+4. Open PennyOS Settings -> First-run local brain setup.
+5. Press Refresh.
+6. Pick it in the Embedding model dropdown.
+7. Save model setup.
+
+Known useful embedding-model IDs you may see:
+
+- `text-embedding-embeddinggemma-300m@f32`
+- `text-embedding-nomic-embed-text-v1.5`
+
+The exact ID depends on the runtime and how the model was downloaded. If LM Studio shows `text-embedding-embeddinggemma-300m@f32` loaded and Penny is still configured for `text-embedding-nomic-embed-text-v1.5`, that mismatch is not a chat failure. It just means semantic memory is probably using fallback until you pick the loaded embedding model in Settings.
+
+Do not pick an embedding-only model for Chat or Tool. Embedding models are for memory search, not conversation.
 
 ## llama.cpp Setup
 
@@ -388,6 +415,7 @@ Settings -> First-run local brain setup lets you pick:
 
 - Chat model.
 - Tool model.
+- Embedding model.
 - Whether Penny may fall back to another compatible loaded model.
 
 That saves a local preference so you do not have to edit `.env` just because LM Studio or llama.cpp reports a slightly different model id.
@@ -429,7 +457,7 @@ Almost. Install LM Studio, download a model, load the model, start the local ser
 
 ### Why does Penny mention embeddings?
 
-Embeddings help semantic memory retrieval. They are useful, but they are not required for basic chat. If the embedding model is missing, Penny should say so and use keyword fallback.
+Embeddings help semantic memory retrieval. They are useful, but they are not required for basic chat. If the embedding model is missing, Penny should say so and use keyword fallback. For the best memory behavior, download/load an embedding model in LM Studio or llama.cpp, then choose it in Settings -> First-run local brain setup.
 
 ### What is the best model?
 

@@ -391,18 +391,22 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
       body: JSON.stringify({
         chatModel: 'unsloth/gemma-4-31b-it',
         toolModel: 'google/gemma-4-31b',
+        embedModel: 'text-embedding-nomic-embed-text-v1.5',
         disableModelFallback: true,
       }),
     });
     assert.equal(updatedSetup.statusCode, 200);
     assert.equal(updatedSetup.json.runtimePreferredChatModel, 'unsloth/gemma-4-31b-it');
     assert.equal(updatedSetup.json.runtimePreferredToolModel, 'google/gemma-4-31b');
+    assert.equal(updatedSetup.json.runtimePreferredEmbedModel, 'text-embedding-nomic-embed-text-v1.5');
+    assert.equal(updatedSetup.json.embedPreferredModel, 'text-embedding-nomic-embed-text-v1.5');
     assert.equal(updatedSetup.json.chatPreferredModel, 'unsloth/gemma-4-31b-it');
     assert.equal(updatedSetup.json.toolPreferredModel, 'google/gemma-4-31b');
     assert.equal(updatedSetup.json.modelFallbackDisabled, true);
     const savedSetupPreference = JSON.parse(fs.readFileSync(localPreferenceFile, 'utf8'));
     assert.equal(savedSetupPreference.localModel.runtimePreferredChatModel, 'unsloth/gemma-4-31b-it');
     assert.equal(savedSetupPreference.localModel.runtimePreferredToolModel, 'google/gemma-4-31b');
+    assert.equal(savedSetupPreference.localModel.runtimePreferredEmbedModel, 'text-embedding-nomic-embed-text-v1.5');
     assert.equal(savedSetupPreference.localModel.disableModelFallback, true);
 
     const rejectedEmbedModel = await requestJson(`http://127.0.0.1:${address.port}/api/penny/lmstudio/model`, {

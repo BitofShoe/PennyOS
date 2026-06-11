@@ -205,17 +205,25 @@
                 </label>
 
                 <label class="field">
-                  <span>Voice</span>
+                  <span>Pick My Voice</span>
                   <input id="voiceName" class="input-lite" placeholder="af_heart" list="voiceOptions" />
                   <datalist id="voiceOptions"></datalist>
+                </label>
+
+                <div class="field-hint">Type to search, or use the picker arrow when your browser shows one.</div>
+
+                <label class="field">
+                  <span>Voice boost</span>
+                  <input id="voiceGain" class="input-lite" type="range" min="0.75" max="3" step="0.05" value="1.6" />
                 </label>
 
                 <div class="button-stack">
                   <button id="saveVoiceSetup" class="secondary-btn" type="button">Save voice</button>
                   <button id="refreshVoiceStatus" class="secondary-btn" type="button">Refresh voice</button>
+                  <button id="voiceTest" class="secondary-btn" type="button" disabled>Test voice</button>
                   <button id="voiceStop" class="secondary-btn" type="button" disabled>Stop</button>
                   <button id="voiceReplay" class="secondary-btn" type="button" disabled>Replay</button>
-                </div>
+	                </div>
 
                 <div id="voiceSetupNote" class="card-note">
                   Penny will update this after checking local Speaches voice status.
@@ -285,6 +293,13 @@
                     <span>Tool model</span>
                     <select id="toolModelSelect" class="input-lite">
                       <option value="">loading models...</option>
+                    </select>
+                  </label>
+
+                  <label class="field">
+                    <span>Embedding model</span>
+                    <select id="embedModelSelect" class="input-lite">
+                      <option value="">keyword fallback</option>
                     </select>
                   </label>
 

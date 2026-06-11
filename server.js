@@ -223,6 +223,9 @@ function normalizeRuntimePreferredModel(value = '') {
   if (!text || isEmbeddingOnlyModelId(text)) return '';
   return text;
 }
+function normalizeRuntimePreferredEmbedModel(value = '') {
+  return normalizeEmbedModelId(value);
+}
 function isEnabledEnv(value = '') {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 }
@@ -264,10 +267,15 @@ function readLocalModelPreferences() {
           || parsed?.lmStudio?.runtimePreferredToolModel
           || '',
         ),
+        runtimePreferredEmbedModel: normalizeRuntimePreferredEmbedModel(
+          parsed?.localModel?.runtimePreferredEmbedModel
+          || parsed?.lmStudio?.runtimePreferredEmbedModel
+          || '',
+        ),
         disableModelFallback: parsed?.localModel?.disableModelFallback === true
           || parsed?.lmStudio?.disableModelFallback === true,
       };
-      if (prefs.runtimePreferredChatModel || prefs.runtimePreferredToolModel || prefs.disableModelFallback) return prefs;
+      if (prefs.runtimePreferredChatModel || prefs.runtimePreferredToolModel || prefs.runtimePreferredEmbedModel || prefs.disableModelFallback) return prefs;
     } catch {
       return {};
     }
@@ -311,6 +319,9 @@ function persistLocalModelPreferences(patch = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'runtimePreferredToolModel')) {
     nextLocalModel.runtimePreferredToolModel = normalizeRuntimePreferredModel(patch.runtimePreferredToolModel);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'runtimePreferredEmbedModel')) {
+    nextLocalModel.runtimePreferredEmbedModel = normalizeRuntimePreferredEmbedModel(patch.runtimePreferredEmbedModel);
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'disableModelFallback')) {
     nextLocalModel.disableModelFallback = patch.disableModelFallback === true;
@@ -367,6 +378,9 @@ function persistRuntimePreferredChatModel(model = '') {
 function persistRuntimePreferredToolModel(model = '') {
   return persistLocalModelPreferences({ runtimePreferredToolModel: model }).runtimePreferredToolModel || '';
 }
+function persistRuntimePreferredEmbedModel(model = '') {
+  return persistLocalModelPreferences({ runtimePreferredEmbedModel: model }).runtimePreferredEmbedModel || '';
+}
 function persistRuntimeModelFallbackDisabled(disabled = false) {
   return persistLocalModelPreferences({ disableModelFallback: disabled === true }).disableModelFallback === true;
 }
@@ -384,7 +398,11 @@ const PENNY_LMSTUDIO_CHAT_MODEL = process.env.PENNY_LMSTUDIO_CHAT_MODEL
   || process.env.PENNY_LMSTUDIO_MODEL
   || 'google/gemma-4-31b';
 const PENNY_LMSTUDIO_TOOL_MODEL = process.env.PENNY_LMSTUDIO_TOOL_MODEL || 'google/gemma-4-e4b';
-const PENNY_LMSTUDIO_EMBED_MODEL = normalizeEmbedModelId(process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5');
+const PENNY_LMSTUDIO_EMBED_MODEL = normalizeEmbedModelId(
+  process.env.PENNY_LMSTUDIO_EMBED_MODEL
+  || LOCAL_MODEL_PREFERENCES.runtimePreferredEmbedModel
+  || 'text-embedding-nomic-embed-text-v1.5',
+);
 const PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK = Object.prototype.hasOwnProperty.call(process.env, 'PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK')
   ? isEnabledEnv(process.env.PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK)
   : LOCAL_MODEL_PREFERENCES.disableModelFallback === true;
@@ -1102,7 +1120,16 @@ const {
   getMemoryInspector: getMemoryInspectorApi,
   reviewPromotion: reviewPromotionApi,
   purgeMemory: purgeArchiveMemoryApi,
+  setConfiguredEmbedModel: setConfiguredEmbedModelApi,
 } = memoryArchiveApi;
+function setRuntimePreferredEmbedModelPersisted(model = '') {
+  const runtimePreferredEmbedModel = setConfiguredEmbedModelApi(model);
+  persistRuntimePreferredEmbedModel(runtimePreferredEmbedModel);
+  return runtimePreferredEmbedModel;
+}
+function getRuntimePreferredEmbedModelPersisted() {
+  return memoryArchiveApi.configuredEmbedModel || '';
+}
 const researchLedgerApi = createResearchLedgerApi({
   fs,
   path,
@@ -3599,6 +3626,8 @@ const routeHandlers = createPennyRouteHandlers({
   getRuntimePreferredChatModel: getRuntimePreferredChatModelApi,
   setRuntimePreferredToolModel: setRuntimePreferredToolModelPersisted,
   getRuntimePreferredToolModel: getRuntimePreferredToolModelApi,
+  setRuntimePreferredEmbedModel: setRuntimePreferredEmbedModelPersisted,
+  getRuntimePreferredEmbedModel: getRuntimePreferredEmbedModelPersisted,
   setRuntimeModelFallbackDisabled: setRuntimeModelFallbackDisabledPersisted,
   getRuntimeModelFallbackDisabled: getRuntimeModelFallbackDisabledApi,
   listPendingWorkspaceWrites: listPendingWorkspaceWritesTool,

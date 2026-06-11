@@ -12,6 +12,7 @@ function buildEls() {
     modelSetupStatus: { textContent: '' },
     modelSetupHint: { textContent: '' },
     modelSetupEmbedding: { textContent: '' },
+    embedModelSelect: { innerHTML: '', value: '' },
     modelSetupFallback: { checked: false },
   };
 }
@@ -106,6 +107,35 @@ test('model setup dropdown prefers the resolved loaded chat model over stale run
 
   assert.equal(viewModel.selectedChatModel, 'google/gemma-4-31b-qat');
   assert.equal(viewModel.selectedToolModel, 'google/gemma-4-31b-qat');
+});
+
+test('model setup exposes a selectable embedding lane and prefers a loaded embedding model over a missing default', async () => {
+  const { buildFirstRunModelSetupViewModel } = await helpersPromise;
+
+  const viewModel = buildFirstRunModelSetupViewModel({
+    lmStudio: {
+      reachable: true,
+      availableModels: ['unsloth/gemma-4-31b-it'],
+      nativeAvailableModels: ['unsloth/gemma-4-31b-it', 'text-embedding-embeddinggemma-300m@f32'],
+      loadedModels: ['text-embedding-embeddinggemma-300m@f32'],
+      installedModels: ['text-embedding-nomic-embed-text-v1.5', 'text-embedding-embeddinggemma-300m@f32'],
+      resolvedChatModel: 'unsloth/gemma-4-31b-it',
+      resolvedToolModel: 'unsloth/gemma-4-31b-it',
+      embedPreferredModel: 'text-embedding-nomic-embed-text-v1.5',
+    },
+    semanticMemory: {
+      ready: false,
+      mode: 'keyword',
+      configuredModel: 'text-embedding-nomic-embed-text-v1.5',
+    },
+  });
+
+  assert.deepEqual(viewModel.embeddingModels, [
+    'text-embedding-embeddinggemma-300m@f32',
+    'text-embedding-nomic-embed-text-v1.5',
+  ]);
+  assert.equal(viewModel.selectedEmbedModel, 'text-embedding-embeddinggemma-300m@f32');
+  assert.match(viewModel.embeddingText, /keyword fallback/i);
 });
 
 test('buildFirstRunModelSetupViewModel turns missing loaded models into a clear setup checklist', async () => {
@@ -204,5 +234,7 @@ test('updateModelSetupUi renders fallback and embedding status without hiding su
   assert.equal(els.modelSetupPanel.dataset.severity, 'ready');
   assert.match(els.modelSetupStatus.textContent, /ready/i);
   assert.match(els.modelSetupEmbedding.textContent, /semantic memory ready/i);
+  assert.match(els.embedModelSelect.innerHTML, /text-embedding-nomic-embed-text-v1\.5/);
+  assert.equal(els.embedModelSelect.value, 'text-embedding-nomic-embed-text-v1.5');
   assert.equal(els.modelSetupFallback.checked, false);
 });

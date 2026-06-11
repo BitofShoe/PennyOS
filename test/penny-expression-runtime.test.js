@@ -175,6 +175,10 @@ test('idle decor bounds tolerate composer height changes without reseeding the s
     false,
   );
   assert.equal(
+    shouldReseedIdleDecorBounds({ width: 900, height: 620 }, { width: 900, height: 716 }),
+    false,
+  );
+  assert.equal(
     shouldReseedIdleDecorBounds({ width: 900, height: 620 }, { width: 900, height: 820 }),
     true,
   );
@@ -182,6 +186,15 @@ test('idle decor bounds tolerate composer height changes without reseeding the s
     shouldReseedIdleDecorBounds({ width: 900, height: 620 }, { width: 780, height: 620 }),
     true,
   );
+});
+
+test('main app keeps the chatbox cyber-decor layer static during normal renders', () => {
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'penny-app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  assert.equal(appJs.includes('createIdleDecorRuntime'), false);
+  assert.equal(appJs.includes('startIdleDecorScreensaver'), false);
+  assert.match(css, /\.decor-float\s*\{[^}]*animation:\s*none;/s);
 });
 
 test('presentation profiles sharpen mood contrast without changing the mood contract', async () => {

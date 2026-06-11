@@ -52,6 +52,26 @@ function makeAudioResponse(bytes, options = {}) {
   };
 }
 
+function makePcm16Wav(samples = []) {
+  const dataSize = samples.length * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8, 'ascii');
+  buffer.write('fmt ', 12, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(24000, 24);
+  buffer.writeUInt32LE(48000, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36, 'ascii');
+  buffer.writeUInt32LE(dataSize, 40);
+  samples.forEach((sample, index) => buffer.writeInt16LE(sample, 44 + index * 2));
+  return buffer;
+}
+
 function createBinaryResponseRecorder() {
   return {
     statusCode: null,
@@ -151,6 +171,36 @@ test('runtime voice synthesis posts Speaches speech payload and returns audio by
   });
 });
 
+test('runtime voice synthesis can boost PCM wav volume without altering the upstream Speaches payload', async () => {
+  const sourceWav = makePcm16Wav([1000, -1200, 20000]);
+  const calls = [];
+  const voice = createRuntimeVoiceApi({
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return makeAudioResponse(sourceWav, { contentType: 'audio/wav' });
+    },
+    config: {
+      baseUrl: 'http://127.0.0.1:8000/',
+      model: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
+      voice: 'af_heart',
+      responseFormat: 'wav',
+    },
+  });
+
+  const result = await voice.synthesizeSpeech({ text: 'Boost me.', gain: 2 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.audioBuffer.readInt16LE(44), 2000);
+  assert.equal(result.audioBuffer.readInt16LE(46), -2400);
+  assert.equal(result.audioBuffer.readInt16LE(48), 32767);
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    model: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
+    voice: 'af_heart',
+    input: 'Boost me.',
+    response_format: 'wav',
+  });
+});
+
 test('runtime voice synthesis rejects empty text and zero-byte upstream audio honestly', async () => {
   const voice = createRuntimeVoiceApi({
     fetchImpl: async () => makeAudioResponse([], { contentType: 'audio/wav' }),
@@ -183,7 +233,7 @@ test('runtime voice route returns binary audio and does not call review sidecars
       throw new Error('voice speech route should not JSON-serialize audio');
     },
     async safeReadBody() {
-      return JSON.stringify({ text: 'Say the line.', voice: 'af_heart' });
+      return JSON.stringify({ text: 'Say the line.', voice: 'af_heart', gain: 1.75 });
     },
     runSidecarWorkflow() {
       runnerCalled = true;
@@ -209,7 +259,7 @@ test('runtime voice route returns binary audio and does not call review sidecars
 
   assert.equal(handled, true);
   assert.equal(runnerCalled, false);
-  assert.deepEqual(speechPayload, { text: 'Say the line.', voice: 'af_heart' });
+  assert.deepEqual(speechPayload, { text: 'Say the line.', voice: 'af_heart', gain: 1.75 });
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['Content-Type'], 'audio/wav');
   assert.equal(res.headers['Cache-Control'], 'no-store');

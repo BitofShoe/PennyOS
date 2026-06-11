@@ -31,6 +31,12 @@ function readConfigFromEls(els = {}) {
   };
 }
 
+function readGainFromEls(els = {}) {
+  const gain = Number(els.voiceGain?.value || 1);
+  if (!Number.isFinite(gain)) return 1;
+  return Math.max(0.25, Math.min(4, gain));
+}
+
 function describeStatus(status = {}) {
   if (status.ready) return 'Speaches voice ready';
   if (status.reachable) return status.error || 'Speaches is reachable, but the configured voice model is not ready';
@@ -43,7 +49,7 @@ function describeSetupNote(status = {}, { speaking = false, statusMessage = '' }
   const model = text(cfg.model) || 'the configured model';
   const baseUrl = text(cfg.baseUrl) || 'the configured Speaches URL';
   if (speaking) return 'Generating local voice audio through Speaches.';
-  if (statusMessage && /failed|error/i.test(statusMessage)) return statusMessage;
+  if (statusMessage) return statusMessage;
   if (status.ready) return `Speaches is connected. Penny will speak completed replies with ${voice} on ${model}.`;
   if (status.reachable) return `Speaches is reachable at ${baseUrl}, but ${model} is not ready. Check the model and voice, then refresh.`;
   return `Speaches is not bundled with PennyOS. Start it locally, set this URL/model/voice, then refresh.`;
@@ -77,6 +83,7 @@ export function createRuntimeVoiceController({
     const ready = status.ready === true;
     setDisabled(els.voiceToggle, !ready);
     if (els.voiceToggle && !ready) els.voiceToggle.checked = false;
+    setDisabled(els.voiceTest, !ready || speaking);
     setDisabled(els.voiceStop, !activeAudio);
     setDisabled(els.voiceReplay, !lastAudioUrl);
     updateText(els.voiceStatus, speaking ? 'Generating voice...' : (statusMessage || describeStatus(status)));
@@ -155,6 +162,7 @@ export function createRuntimeVoiceController({
       throw new Error('Browser audio playback is not available.');
     }
     const audio = new AudioCtor(url);
+    audio.volume = 1;
     audio.addEventListener?.('ended', () => {
       if (activeAudio === audio) {
         activeAudio = null;
@@ -207,11 +215,16 @@ export function createRuntimeVoiceController({
     return setStatus(data.status || data);
   }
 
-  async function speak(value = '') {
+  function currentVoice() {
+    return text(els.voiceName?.value) || text(status.config?.voice) || lastVoice;
+  }
+
+  async function speak(value = '', { force = false, test = false } = {}) {
     const phrase = text(value);
-    if (!phrase || !enabled || status.ready !== true) return { ok: false, skipped: true };
+    if (!phrase || (!enabled && !force) || status.ready !== true) return { ok: false, skipped: true };
     stop({ revoke: true });
     speaking = true;
+    statusMessage = test ? 'Generating test voice...' : 'Generating voice...';
     updateControls();
     try {
       const res = await apiFetch('/api/penny/voice/speech', {
@@ -219,7 +232,8 @@ export function createRuntimeVoiceController({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: phrase,
-          voice: text(status.config?.voice) || lastVoice,
+          voice: currentVoice(),
+          gain: readGainFromEls(els),
         }),
       });
       if (!res.ok) {
@@ -239,7 +253,7 @@ export function createRuntimeVoiceController({
       const audio = attachAudio(url);
       await audio.play();
       speaking = false;
-      statusMessage = 'Playing voice';
+      statusMessage = test ? 'Playing test voice' : 'Playing voice';
       updateControls();
       return { ok: true };
     } catch (error) {
@@ -249,6 +263,10 @@ export function createRuntimeVoiceController({
       updateControls();
       return { ok: false, error };
     }
+  }
+
+  function testSpeak(value = 'Testing the selected Penny voice.') {
+    return speak(value, { force: true, test: true });
   }
 
   async function replay() {
@@ -275,6 +293,7 @@ export function createRuntimeVoiceController({
     setStatus,
     setEnabled,
     speak,
+    testSpeak,
     stop,
     replay,
     getStatus: () => ({ ...status }),

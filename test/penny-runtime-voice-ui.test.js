@@ -12,6 +12,8 @@ function buildEls() {
     voiceModel: { value: '' },
     voiceName: { value: '' },
     voiceOptions: { innerHTML: '' },
+    voiceGain: { value: '1.6' },
+    voiceTest: { disabled: true },
     voiceStop: { disabled: true },
     voiceReplay: { disabled: true },
   };
@@ -156,6 +158,7 @@ test('runtime voice controller fetches audio for enabled assistant replies and c
   assert.deepEqual(JSON.parse(fetchCalls[0].options.body), {
     text: 'First assistant reply.',
     voice: 'af_heart',
+    gain: 1.6,
   });
   assert.equal(audio.instances.length, 2);
   assert.equal(audio.instances[0].pauseCalls, 1);
@@ -163,6 +166,49 @@ test('runtime voice controller fetches audio for enabled assistant replies and c
   assert.deepEqual(revokedUrls, ['blob:voice-1']);
   assert.equal(els.voiceStop.disabled, false);
   assert.equal(els.voiceReplay.disabled, false);
+});
+
+test('runtime voice controller test button path speaks even before reply voice is enabled', async () => {
+  const { createRuntimeVoiceController } = await helpersPromise;
+  const els = buildEls();
+  els.voiceGain.value = '2.25';
+  const audio = createAudioHarness();
+  const fetchCalls = [];
+  const controller = createRuntimeVoiceController({
+    els,
+    AudioCtor: audio.FakeAudio,
+    URLApi: {
+      createObjectURL() {
+        return 'blob:test-voice';
+      },
+      revokeObjectURL() {},
+    },
+    apiFetch: async (path, options = {}) => {
+      fetchCalls.push({ path, options });
+      return {
+        ok: true,
+        status: 200,
+        async blob() {
+          return { type: 'audio/wav', bytes: [82, 73, 70, 70] };
+        },
+      };
+    },
+  });
+
+  controller.setStatus({ ready: true, reachable: true, config: { voice: 'af_heart' } });
+  const result = await controller.testSpeak('Testing the selected Penny voice.');
+
+  assert.equal(result.ok, true);
+  assert.equal(els.voiceTest.disabled, false);
+  assert.equal(fetchCalls[0].path, '/api/penny/voice/speech');
+  assert.deepEqual(JSON.parse(fetchCalls[0].options.body), {
+    text: 'Testing the selected Penny voice.',
+    voice: 'af_heart',
+    gain: 2.25,
+  });
+  assert.equal(audio.instances.length, 1);
+  assert.equal(audio.instances[0].playCalls, 1);
+  assert.match(els.voiceSetupNote.textContent, /playing|voice/i);
 });
 
 test('runtime voice controller stops and replays the last generated audio', async () => {
