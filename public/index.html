@@ -206,7 +206,8 @@
 
                 <label class="field">
                   <span>Voice</span>
-                  <input id="voiceName" class="input-lite" placeholder="af_heart" />
+                  <input id="voiceName" class="input-lite" placeholder="af_heart" list="voiceOptions" />
+                  <datalist id="voiceOptions"></datalist>
                 </label>
 
                 <div class="button-stack">
@@ -216,8 +217,8 @@
                   <button id="voiceReplay" class="secondary-btn" type="button" disabled>Replay</button>
                 </div>
 
-                <div class="card-note">
-                  Speaches is not bundled. Start it locally, save the URL/model/voice here, and Penny will speak completed assistant replies when the service is ready.
+                <div id="voiceSetupNote" class="card-note">
+                  Penny will update this after checking local Speaches voice status.
                 </div>
 
                 <a class="secondary-btn guide-link" href="/pennyos-help.html">

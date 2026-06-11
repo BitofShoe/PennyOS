@@ -167,6 +167,23 @@ test('mood helpers pick the latest tag, theme, avatar, and decor sources', async
   assert.equal(classifyIdleDecorClass('/sprites/decor/pixel-crystal.png'), 'decor-cyber');
 });
 
+test('idle decor bounds tolerate composer height changes without reseeding the sprite field', async () => {
+  const { shouldReseedIdleDecorBounds } = await helpersPromise;
+
+  assert.equal(
+    shouldReseedIdleDecorBounds({ width: 900, height: 620 }, { width: 900, height: 650 }),
+    false,
+  );
+  assert.equal(
+    shouldReseedIdleDecorBounds({ width: 900, height: 620 }, { width: 900, height: 820 }),
+    true,
+  );
+  assert.equal(
+    shouldReseedIdleDecorBounds({ width: 900, height: 620 }, { width: 780, height: 620 }),
+    true,
+  );
+});
+
 test('presentation profiles sharpen mood contrast without changing the mood contract', async () => {
   const { getMoodPresentationProfile } = await helpersPromise;
 

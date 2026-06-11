@@ -10,6 +10,19 @@ function setDisabled(el, disabled) {
   if (el) el.disabled = disabled === true;
 }
 
+function uniqueTexts(values = []) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map((value) => text(value))
+    .filter(Boolean))];
+}
+
+function escapeAttr(value = '') {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;');
+}
+
 function readConfigFromEls(els = {}) {
   return {
     baseUrl: text(els.voiceBaseUrl?.value),
@@ -22,6 +35,18 @@ function describeStatus(status = {}) {
   if (status.ready) return 'Speaches voice ready';
   if (status.reachable) return status.error || 'Speaches is reachable, but the configured voice model is not ready';
   return status.error || 'Speaches is not reachable';
+}
+
+function describeSetupNote(status = {}, { speaking = false, statusMessage = '' } = {}) {
+  const cfg = status.config || {};
+  const voice = text(cfg.voice) || 'the configured voice';
+  const model = text(cfg.model) || 'the configured model';
+  const baseUrl = text(cfg.baseUrl) || 'the configured Speaches URL';
+  if (speaking) return 'Generating local voice audio through Speaches.';
+  if (statusMessage && /failed|error/i.test(statusMessage)) return statusMessage;
+  if (status.ready) return `Speaches is connected. Penny will speak completed replies with ${voice} on ${model}.`;
+  if (status.reachable) return `Speaches is reachable at ${baseUrl}, but ${model} is not ready. Check the model and voice, then refresh.`;
+  return `Speaches is not bundled with PennyOS. Start it locally, set this URL/model/voice, then refresh.`;
 }
 
 export function createRuntimeVoiceController({
@@ -40,6 +65,14 @@ export function createRuntimeVoiceController({
   let speaking = false;
   let statusMessage = '';
 
+  function populateVoiceOptions(voices = []) {
+    if (!els.voiceOptions) return;
+    const options = uniqueTexts(voices);
+    els.voiceOptions.innerHTML = options
+      .map((voice) => `<option value="${escapeAttr(voice)}"></option>`)
+      .join('');
+  }
+
   function updateControls() {
     const ready = status.ready === true;
     setDisabled(els.voiceToggle, !ready);
@@ -47,9 +80,14 @@ export function createRuntimeVoiceController({
     setDisabled(els.voiceStop, !activeAudio);
     setDisabled(els.voiceReplay, !lastAudioUrl);
     updateText(els.voiceStatus, speaking ? 'Generating voice...' : (statusMessage || describeStatus(status)));
+    updateText(els.voiceSetupNote, describeSetupNote(status, { speaking, statusMessage }));
     if (els.voiceStatus?.dataset) {
       els.voiceStatus.dataset.ready = ready ? 'true' : 'false';
       els.voiceStatus.dataset.reachable = status.reachable === true ? 'true' : 'false';
+    }
+    if (els.voiceSetupNote?.dataset) {
+      els.voiceSetupNote.dataset.ready = ready ? 'true' : 'false';
+      els.voiceSetupNote.dataset.reachable = status.reachable === true ? 'true' : 'false';
     }
   }
 
@@ -66,10 +104,13 @@ export function createRuntimeVoiceController({
       reachable: nextStatus.reachable === true,
       ready: nextStatus.ready === true,
       config: nextStatus.config || status.config || {},
+      availableModels: uniqueTexts(nextStatus.availableModels),
+      availableVoices: uniqueTexts(nextStatus.availableVoices),
       error: text(nextStatus.error),
     };
     statusMessage = '';
     populateConfigFields(status.config);
+    populateVoiceOptions(status.availableVoices);
     lastVoice = text(status.config?.voice) || lastVoice;
     updateControls();
     return status;

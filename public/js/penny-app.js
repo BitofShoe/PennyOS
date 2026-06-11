@@ -79,6 +79,12 @@ const state = {
 };
 
 const API_TOKEN_STORAGE_KEY = 'penny:api-token';
+let nextMessageOrdinal = 0;
+
+function createMessageId(role = 'message') {
+  nextMessageOrdinal += 1;
+  return `${role}-${Date.now().toString(36)}-${nextMessageOrdinal.toString(36)}`;
+}
 
 const els = {
   chat: document.getElementById('chat'),
@@ -101,9 +107,11 @@ const els = {
   nameInput: document.getElementById('nameInput'),
   voiceToggle: document.getElementById('voiceToggle'),
   voiceStatus: document.getElementById('voiceStatus'),
+  voiceSetupNote: document.getElementById('voiceSetupNote'),
   voiceBaseUrl: document.getElementById('voiceBaseUrl'),
   voiceModel: document.getElementById('voiceModel'),
   voiceName: document.getElementById('voiceName'),
+  voiceOptions: document.getElementById('voiceOptions'),
   saveVoiceSetup: document.getElementById('saveVoiceSetup'),
   refreshVoiceStatus: document.getElementById('refreshVoiceStatus'),
   voiceStop: document.getElementById('voiceStop'),
@@ -311,11 +319,11 @@ async function loadExpressionPackManifest() {
   return activeExpressionPack;
 }
 
-function appendMessageDecor(item, index, role) {
+function appendMessageDecor(item, decorSeed, role) {
   const wrap = document.createElement('div');
   wrap.className = 'msg-decor';
   wrap.setAttribute('aria-hidden', 'true');
-  for (const src of chatDecorSrcsRuntime(index, role, CHAT_DECOR_CHIBI_RUNTIME, CHAT_DECOR_TECH_RUNTIME)) {
+  for (const src of chatDecorSrcsRuntime(decorSeed, role, CHAT_DECOR_CHIBI_RUNTIME, CHAT_DECOR_TECH_RUNTIME)) {
     const img = document.createElement('img');
     img.src = src;
     img.alt = '';
@@ -595,13 +603,17 @@ function maybeSpeak(text) {
   runtimeVoice.speak(text);
 }
 
-function applyMemory(memory) {
+function applyMemory(memory, options = {}) {
   if (!memory) return;
+  const previousVoiceOn = state.memory.voiceOn === true;
   state.memory = {
     ...state.memory,
     ...memory,
     memories: Array.isArray(memory.memories) ? memory.memories : state.memory.memories,
   };
+  if (options.preserveVoiceOn === true && previousVoiceOn) {
+    state.memory.voiceOn = true;
+  }
   if (state.memory.brainMode !== 'local' && state.memory.brainMode !== 'shadow') state.memory.brainMode = 'local';
 }
 function reportMemoryIssue(action, error) {
@@ -850,11 +862,11 @@ async function sendMessage() {
   }
   const imageData = pendingImage?.dataUrl || null;
   const fileData = pendingFile ? { ...pendingFile } : null;
-  const msgObj = { role: 'user', content: userText };
+  const msgObj = { id: createMessageId('user'), role: 'user', content: userText };
   if (imageData) msgObj.image = imageData;
   if (fileData) msgObj.file = { name: fileData.name, size: fileData.size, lineCount: fileData.lineCount, type: fileData.type };
   state.messages.push(msgObj);
-  const assistantDraft = { role: 'assistant', content: '', streaming: true, toolsUsed: [], mood: 'thinking' };
+  const assistantDraft = { id: createMessageId('assistant'), role: 'assistant', content: '', streaming: true, toolsUsed: [], mood: 'thinking' };
   state.messages.push(assistantDraft);
   els.composer.value = '';
   els.composer.dispatchEvent(new Event('input', { bubbles: true }));
@@ -919,14 +931,20 @@ async function sendMessage() {
       delete last.toolStatus;
       delete last.streaming;
     } else {
-      state.messages.push({ role: 'assistant', content: parsed.text, mood: parsed.mood, toolsUsed: Array.isArray(finalData.meta?.toolsUsed) ? finalData.meta.toolsUsed : [] });
+      state.messages.push({ id: createMessageId('assistant'), role: 'assistant', content: parsed.text, mood: parsed.mood, toolsUsed: Array.isArray(finalData.meta?.toolsUsed) ? finalData.meta.toolsUsed : [] });
     }
     applyExpressionDecision({
       autoMood: parsed.mood,
       decisionSource: inferExpressionSource(finalData.text || streamedText || '', finalData.meta?.mood || ''),
       decisionReason: `Reply mood resolved to ${parsed.mood} from Penny's latest response.`,
     });
-    state.presence = 'present'; state.turns = finalData.meta?.turns || state.turns + 1; applyMemory(finalData.memory); maybeSpeak(parsed.text); updateBrainModeUi(finalData.meta || null);
+    const shouldSpeakAfterReply = state.memory.voiceOn === true && runtimeVoice.isEnabled();
+    state.presence = 'present';
+    state.turns = finalData.meta?.turns || state.turns + 1;
+    applyMemory(finalData.memory, { preserveVoiceOn: shouldSpeakAfterReply });
+    if (shouldSpeakAfterReply) runtimeVoice.speak(parsed.text);
+    else maybeSpeak(parsed.text);
+    updateBrainModeUi(finalData.meta || null);
     window.setTimeout(() => { loadMemoryInspector({ quiet: true }); }, 150);
   } catch (error) {
     if (!chatRequestGuard.isActive(requestId)) return;
@@ -944,7 +962,7 @@ async function sendMessage() {
       delete last.toolStatus;
       delete last.streaming;
     } else {
-      state.messages.push({ role: 'assistant', content: `${prefix} ${error?.message || 'Try again in a moment.'}` });
+      state.messages.push({ id: createMessageId('assistant'), role: 'assistant', content: `${prefix} ${error?.message || 'Try again in a moment.'}` });
     }
     applyExpressionDecision({
       autoMood: 'thinking',

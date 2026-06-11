@@ -653,6 +653,31 @@ export function syncIdleDecorBounds(container, scrollHost) {
   return changed;
 }
 
+export function shouldReseedIdleDecorBounds(previous = {}, next = {}, {
+  widthThreshold = 48,
+  heightThreshold = 96,
+  heightRatioThreshold = 0.18,
+} = {}) {
+  const prevWidth = Number(previous.width) || 0;
+  const prevHeight = Number(previous.height) || 0;
+  const nextWidth = Number(next.width) || 0;
+  const nextHeight = Number(next.height) || 0;
+  if (!prevWidth || !prevHeight || !nextWidth || !nextHeight) return true;
+  if (Math.abs(nextWidth - prevWidth) > widthThreshold) return true;
+  const heightDelta = Math.abs(nextHeight - prevHeight);
+  if (heightDelta > heightThreshold && heightDelta / Math.max(prevHeight, 1) > heightRatioThreshold) return true;
+  return false;
+}
+
+function clampIdleDecorItemsToBounds(items = [], width = 0, height = 0) {
+  for (const item of items) {
+    const maxX = Math.max(0, width - item.width);
+    const maxY = Math.max(0, height - item.height);
+    item.x = Math.min(maxX, Math.max(0, item.x));
+    item.y = Math.min(maxY, Math.max(0, item.y));
+  }
+}
+
 export function seedIdleDecorMotion(container, {
   random = Math.random,
   now = () => (typeof performance !== 'undefined' && performance?.now ? performance.now() : Date.now()),
@@ -810,8 +835,15 @@ export function createIdleDecorRuntime({
 
     const boundsChanged = syncBounds();
     const bounds = container.getBoundingClientRect();
-    if (bounds.width && bounds.height && (boundsChanged || Math.abs(bounds.width - state.width) > 1 || Math.abs(bounds.height - state.height) > 1)) {
-      reseed();
+    if (bounds.width && bounds.height && boundsChanged) {
+      const nextBounds = { width: bounds.width, height: bounds.height };
+      if (shouldReseedIdleDecorBounds(state, nextBounds)) {
+        reseed();
+      } else {
+        state.width = bounds.width;
+        state.height = bounds.height;
+        clampIdleDecorItemsToBounds(state.items, state.width, state.height);
+      }
     }
 
     for (const item of state.items) {

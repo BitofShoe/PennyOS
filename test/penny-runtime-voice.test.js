@@ -74,7 +74,13 @@ test('runtime voice status reports Speaches readiness from the configured model 
       calls.push({ url, options });
       return makeJsonResponse({
         data: [
-          { id: 'speaches-ai/Kokoro-82M-v1.0-ONNX' },
+          {
+            id: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
+            voices: [
+              { id: 'af_heart', language: 'en-us', gender: 'female' },
+              { name: 'af_bella', language: 'en-us', gender: 'female' },
+            ],
+          },
           { id: 'other-model' },
         ],
       });
@@ -99,6 +105,7 @@ test('runtime voice status reports Speaches readiness from the configured model 
     'speaches-ai/Kokoro-82M-v1.0-ONNX',
     'other-model',
   ]);
+  assert.deepEqual(status.availableVoices, ['af_heart', 'af_bella']);
   assert.equal(calls[0].url, 'http://127.0.0.1:8000/v1/models');
 });
 

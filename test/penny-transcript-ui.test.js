@@ -30,6 +30,25 @@ test('buildTranscriptMessageViewModels appends a synthetic loading row when no d
   assert.equal(rows[1].mood, 'thinking');
 });
 
+test('buildTranscriptMessageViewModels gives stable decor seeds from message identity instead of volatile text', async () => {
+  const { buildTranscriptMessageViewModels } = await helpersPromise;
+  const first = buildTranscriptMessageViewModels([
+    { id: 'user-message-1', role: 'user', content: 'h' },
+    { id: 'assistant-message-1', role: 'assistant', content: 'reply', mood: 'happy' },
+  ]);
+  const typed = buildTranscriptMessageViewModels([
+    { id: 'user-message-1', role: 'user', content: 'hello there' },
+    { id: 'assistant-message-1', role: 'assistant', content: 'reply with more detail', mood: 'happy' },
+  ]);
+
+  assert.equal(typeof first[0].decorSeed, 'number');
+  assert.equal(typeof first[1].decorSeed, 'number');
+  assert.equal(first[0].decorKey, 'user-message-1');
+  assert.equal(first[1].decorKey, 'assistant-message-1');
+  assert.equal(typed[0].decorSeed, first[0].decorSeed);
+  assert.equal(typed[1].decorSeed, first[1].decorSeed);
+});
+
 test('readPennyEventStream parses SSE frames and JSON payloads', async () => {
   const { readPennyEventStream } = await helpersPromise;
   const encoder = new TextEncoder();

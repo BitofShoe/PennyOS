@@ -7,9 +7,11 @@ function buildEls() {
   return {
     voiceToggle: { checked: false, disabled: true },
     voiceStatus: { textContent: '', dataset: {} },
+    voiceSetupNote: { textContent: '', dataset: {} },
     voiceBaseUrl: { value: '' },
     voiceModel: { value: '' },
     voiceName: { value: '' },
+    voiceOptions: { innerHTML: '' },
     voiceStop: { disabled: true },
     voiceReplay: { disabled: true },
   };
@@ -81,6 +83,34 @@ test('runtime voice controller enables the toggle only when Speaches is ready', 
   assert.equal(els.voiceModel.value, 'speaches-ai/Kokoro-82M-v1.0-ONNX');
   assert.equal(els.voiceName.value, 'af_heart');
   assert.match(els.voiceStatus.textContent, /ready/i);
+});
+
+test('runtime voice controller replaces setup boilerplate with ready copy and discovered voices', async () => {
+  const { createRuntimeVoiceController } = await helpersPromise;
+  const els = buildEls();
+  const controller = createRuntimeVoiceController({ els });
+
+  controller.setStatus({
+    ok: true,
+    provider: 'speaches',
+    reachable: true,
+    ready: true,
+    availableVoices: ['af_heart', 'af_bella', 'am_puck'],
+    config: {
+      baseUrl: 'http://127.0.0.1:8000',
+      model: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
+      voice: 'af_bella',
+    },
+  });
+
+  assert.equal(els.voiceToggle.disabled, false);
+  assert.match(els.voiceSetupNote.textContent, /Speaches is connected/i);
+  assert.match(els.voiceSetupNote.textContent, /af_bella/i);
+  assert.doesNotMatch(els.voiceSetupNote.textContent, /Start it locally/i);
+  assert.doesNotMatch(els.voiceSetupNote.textContent, /not bundled/i);
+  assert.match(els.voiceOptions.innerHTML, /value="af_heart"/);
+  assert.match(els.voiceOptions.innerHTML, /value="af_bella"/);
+  assert.match(els.voiceOptions.innerHTML, /value="am_puck"/);
 });
 
 test('runtime voice controller fetches audio for enabled assistant replies and cancels previous playback', async () => {

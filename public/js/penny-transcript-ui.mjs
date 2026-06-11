@@ -27,6 +27,16 @@ function defaultFormatBytes(bytes = 0) {
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
 }
 
+function stableDecorSeed(value = '') {
+  const text = String(value || '');
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 /**
  * @returns {TranscriptRowViewModel[]}
  */
@@ -39,7 +49,8 @@ export function buildTranscriptMessageViewModels(messages = [], {
   const list = Array.isArray(messages) ? messages : [];
   const hasStreamingDraft = list[list.length - 1]?.role === 'assistant' && list[list.length - 1]?.streaming;
 
-  for (const message of list) {
+  for (let index = 0; index < list.length; index += 1) {
+    const message = list[index];
     const role = message?.role === 'assistant' ? 'assistant' : 'user';
     const mood = role === 'assistant' && message?.mood ? String(message.mood) : stateMood;
     const content = message?.streaming ? stripDraftMood(message?.content || '') : String(message?.content || '');
@@ -55,6 +66,13 @@ export function buildTranscriptMessageViewModels(messages = [], {
       ? message.toolsUsed.map((tool) => tool?.label || tool?.name).filter(Boolean)
       : [];
 
+    const decorKey = String(
+      message?.id
+      || message?.clientId
+      || message?.createdAt
+      || `${role}:${index}`,
+    );
+
     rows.push({
       role,
       streaming: message?.streaming === true,
@@ -64,6 +82,8 @@ export function buildTranscriptMessageViewModels(messages = [], {
       file,
       toolMeta: message?.toolStatus || (toolLabels.length ? `checked ${toolLabels.join(' • ')}` : ''),
       loading: false,
+      decorKey,
+      decorSeed: stableDecorSeed(decorKey),
     });
   }
 
@@ -77,6 +97,8 @@ export function buildTranscriptMessageViewModels(messages = [], {
       file: null,
       toolMeta: '',
       loading: true,
+      decorKey: 'assistant:loading',
+      decorSeed: stableDecorSeed('assistant:loading'),
     });
   }
 
@@ -153,7 +175,7 @@ export function renderTranscriptMessages({
       item.appendChild(meta);
     }
 
-    appendMessageDecor?.(item, index, row.role);
+    appendMessageDecor?.(item, row.decorSeed ?? index, row.role, row);
     chatEl.appendChild(item);
   }
 
