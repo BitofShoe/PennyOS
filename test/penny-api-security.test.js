@@ -48,6 +48,16 @@ test('API security rejects unexpected host and origin headers', () => {
   assert.equal(security.validateApiRequest(req({ origin: 'http://localhost:4317' }), statusUrl).ok, true);
 });
 
+test('static CSP allows runtime voice blob audio playback', () => {
+  const security = buildSecurity();
+  const headers = security.staticSecurityHeaders(req());
+  const csp = headers['Content-Security-Policy'];
+
+  assert.match(csp, /media-src[^;]*'self'/);
+  assert.match(csp, /media-src[^;]*blob:/);
+  assert.match(csp, /media-src[^;]*data:/);
+});
+
 test('API mutations require JSON content type', () => {
   const security = buildSecurity();
   const chatUrl = new URL('http://localhost:4317/api/penny/chat');

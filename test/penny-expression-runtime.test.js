@@ -188,13 +188,14 @@ test('idle decor bounds tolerate composer height changes without reseeding the s
   );
 });
 
-test('main app keeps the chatbox cyber-decor layer static during normal renders', () => {
+test('main app keeps the chatbox cyber-decor animation CSS without the reseeding screensaver runtime', () => {
   const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'penny-app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
   assert.equal(appJs.includes('createIdleDecorRuntime'), false);
   assert.equal(appJs.includes('startIdleDecorScreensaver'), false);
-  assert.match(css, /\.decor-float\s*\{[^}]*animation:\s*none;/s);
+  assert.match(css, /\.decor-float\s*\{[^}]*animation:\s*decorDrift\s+22s/s);
+  assert.match(css, /\.decor-float\.decor-screensaver\s*\{[^}]*animation:\s*none;/s);
 });
 
 test('presentation profiles sharpen mood contrast without changing the mood contract', async () => {

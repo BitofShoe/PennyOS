@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const helpersPromise = import('../public/js/penny-runtime-voice.mjs');
 
@@ -285,4 +287,13 @@ test('runtime voice controller saves provider config through the runtime route',
     voice: 'af_bella',
   });
   assert.equal(els.voiceToggle.disabled, false);
+});
+
+test('runtime voice boost range has a visible track, not only a floating thumb', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  assert.match(css, /input\[type="range"\]\.input-lite::\-webkit-slider-runnable-track\s*\{/);
+  assert.match(css, /input\[type="range"\]\.input-lite::\-webkit-slider-thumb\s*\{/);
+  assert.match(css, /input\[type="range"\]\.input-lite::\-moz-range-track\s*\{/);
+  assert.match(css, /input\[type="range"\]\.input-lite::\-moz-range-thumb\s*\{/);
 });
