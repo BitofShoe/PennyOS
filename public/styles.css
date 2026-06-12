@@ -2451,6 +2451,7 @@ select.input-lite option {
 .mode-block,
 .storage-block,
 .setup-card,
+.cloud-provider-panel,
 .diagnostics {
   margin-top: 1.2rem;
 }
@@ -2484,6 +2485,22 @@ select.input-lite option {
   justify-content: space-between;
   align-items: start;
   gap: 12px;
+}
+
+.provider-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.cloud-provider-panel {
+  display: grid;
+  gap: 12px;
+  padding-top: 0.2rem;
+}
+
+.warning-note {
+  color: #f7cf9b;
 }
 
 .setup-status,

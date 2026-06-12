@@ -78,13 +78,25 @@ test('LAN mode requires token on every API route and admits configured LAN host'
 
 test('sensitive mutation routes require a token outside LAN mode', () => {
   const security = buildSecurity();
-  const modelUrl = new URL('http://localhost:4317/api/penny/lmstudio/model');
-  assert.equal(security.validateApiRequest(req({ method: 'POST', contentType: 'application/json' }), modelUrl).code, 'token_required');
-  assert.equal(security.validateApiRequest(req({
-    method: 'POST',
-    contentType: 'application/json',
-    token: 'test-token',
-  }), modelUrl).ok, true);
+  const cases = [
+    '/api/penny/lmstudio/model',
+    '/api/penny/provider/openai/connect',
+    '/api/penny/provider/local/reset',
+  ];
+
+  for (const pathname of cases) {
+    const url = new URL(`http://localhost:4317${pathname}`);
+    assert.equal(
+      security.validateApiRequest(req({ method: 'POST', contentType: 'application/json' }), url).code,
+      'token_required',
+      `${pathname} should require a local token`,
+    );
+    assert.equal(security.validateApiRequest(req({
+      method: 'POST',
+      contentType: 'application/json',
+      token: 'test-token',
+    }), url).ok, true);
+  }
 });
 
 test('API security ignores malformed cookie encoding instead of throwing', () => {

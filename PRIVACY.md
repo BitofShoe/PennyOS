@@ -1,6 +1,6 @@
 # Privacy
 
-Penny is local-first. The app is built to run on your machine and talk to your local LM Studio server.
+Penny is local-first. The app is built to run on your machine and talk to your local LM Studio, llama.cpp, or other local OpenAI-compatible server by default.
 
 ## Stored Locally
 
@@ -17,6 +17,12 @@ Browser snapshots strip raw uploaded image data before persistence.
 - no public telemetry
 - no cloud sync
 - no outbound web reading unless `PENNY_WEB_SEARCH_ENABLED=1`
+
+## Optional OpenAI Cloud Mode
+
+Settings -> Brain connection can save an OpenAI Platform API key for users who choose the easier cloud path instead of a local model runtime. This is off by default.
+
+When OpenAI cloud mode is enabled, Penny may send model prompts, memory context, tool context, and embedding requests to OpenAI, and API usage may cost money. A ChatGPT subscription is not an API key. The API key is written to Penny's server-side app config `.env`; it is not stored in browser localStorage and route responses only return a redacted preview.
 
 ## Web Reading
 

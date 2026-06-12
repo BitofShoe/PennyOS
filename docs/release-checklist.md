@@ -54,13 +54,14 @@ Expected release properties:
 - web reading/search is off unless `PENNY_WEB_SEARCH_ENABLED=1`
 - web fetches block private/internal targets unless explicitly allowed
 - generated artifacts, local memory, local logs, private notes, and secrets are not tracked
+- OpenAI cloud setup is optional/off by default, token-gated, redacts API keys, and is documented as not private/local
 - README, install, security, and privacy docs match the current code
 - Tauri build-machine prerequisites are documented separately from installed-app requirements
 - source/dev harness receipt gates pass for source-review, handoff, and skill-baseline artifacts, while remaining outside the installed Tauri runtime unless a future packaged diagnostics surface is explicitly designed
 - Tauri staging creates `src-tauri/gen/penny-runtime/`, `src-tauri/gen/penny-runtime-manifest.json`, and `src-tauri/binaries/penny-node-<target-triple>` while excluding live memory, `.env`, `node_modules`, logs, tmp/output/artifacts, and `src-tauri/target`
 - the installed Tauri app launches Penny without Node, npm, Rust, Cargo, or a repo checkout on the end user's `PATH`
 - the installed Tauri app binds `127.0.0.1`, waits for `/api/penny/status`, writes app-data logs/state, and opens the normal Penny UI
-- missing LM Studio/llama.cpp/OpenAI-compatible endpoint readiness is reported honestly and is not disguised as a packaging failure
+- missing LM Studio/llama.cpp/OpenAI-compatible endpoint or OpenAI API provider readiness is reported honestly and is not disguised as a packaging failure
 
 Tauri clean Windows proof:
 
@@ -150,9 +151,9 @@ Known Tauri release gaps:
 
 - Fresh Windows `npm run tauri:build` was not rerun in this follow-up. Existing Windows MSI/NSIS artifacts were preserved under `output/tauri-consumer-smoke/windows-bundles/` and the hosted proof used the NSIS installer hash `74dbf2224914fda7a1272987d791331a0ded1e1a82944ac83ba0fe08395abeb5`.
 - A bare local Windows VM screenshot proof is still not captured. The hosted Windows runner proof is stronger than developer-PC smoke because the proof process had no dev tools on `PATH`, but the runner may still have developer tools installed elsewhere on disk. The clean-room VM path was stopped after two host bugchecks.
-- Live external endpoint readiness was not run in this packaging pass; LM Studio, llama.cpp, and OpenAI-compatible model endpoints remain external runtime dependencies.
+- Live external endpoint/provider readiness was not run in this packaging pass; LM Studio, llama.cpp, local OpenAI-compatible model endpoints, and optional OpenAI API access remain external runtime dependencies.
 - Windows installer signing/updater polish is not claimed here.
-- LM Studio, llama.cpp, OpenAI-compatible servers, models, and embeddings remain external end-user/runtime dependencies.
+- LM Studio, llama.cpp, OpenAI-compatible servers, models, embeddings, and optional OpenAI API access remain external end-user/runtime dependencies.
 
 Clean Windows VM proof recipe:
 

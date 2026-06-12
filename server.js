@@ -7,11 +7,21 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { URL } = require('url');
 const { loadPennyEnvFile } = require('./lib/penny-env-loader');
+const {
+  OPENAI_API_BASE,
+  buildCloudProviderStatus,
+  buildLocalDefaultEnvPatch,
+  buildOpenAiCloudEnvPatch,
+  probeOpenAiCloudProvider,
+  upsertPennyEnvFile,
+} = require('./lib/penny-cloud-provider-config');
 
 loadPennyEnvFile({
   envFile: process.env.PENNY_ENV_FILE || path.join(__dirname, '.env'),
   env: process.env,
 });
+
+const PENNY_ENV_FILE = process.env.PENNY_ENV_FILE || path.join(__dirname, '.env');
 
 const { writeJsonFileAtomicSync } = require('./lib/penny-atomic-json');
 const {
@@ -456,6 +466,120 @@ function localRuntimeLabelForBackend(backend = '') {
 const LOCAL_LLM_BACKEND = normalizeLocalLlmBackend(process.env.PENNY_LOCAL_LLM_BACKEND || 'lm_studio');
 const LOCAL_RUNTIME_LABEL = String(process.env.PENNY_LOCAL_RUNTIME_LABEL || localRuntimeLabelForBackend(LOCAL_LLM_BACKEND)).trim();
 const LOCAL_ENDPOINT_BASE = LMSTUDIO_BASE;
+let pendingProviderConfig = null;
+
+function createHttpStatusError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function getProviderStatusForRoute() {
+  const status = buildCloudProviderStatus({ env: process.env });
+  return {
+    ...status,
+    envFileConfigured: Boolean(PENNY_ENV_FILE),
+    envFileWritable: true,
+    restartRequired: false,
+    pending: pendingProviderConfig,
+  };
+}
+
+async function connectOpenAiProviderForRoute(payload = {}) {
+  const apiKey = String(payload.apiKey || '').trim();
+  if (!apiKey) throw createHttpStatusError(400, 'OpenAI API key is required.');
+  const baseUrl = String(payload.baseUrl || OPENAI_API_BASE).trim() || OPENAI_API_BASE;
+  const chatModel = String(payload.chatModel || '').trim();
+  const toolModel = String(payload.toolModel || '').trim();
+  const embedModel = String(payload.embedModel || '').trim();
+  const patch = buildOpenAiCloudEnvPatch({
+    apiKey,
+    baseUrl,
+    chatModel,
+    toolModel,
+    embedModel,
+  });
+  const probe = await probeOpenAiCloudProvider({
+    fetchImpl: fetch,
+    apiKey,
+    baseUrl: patch.PENNY_LMSTUDIO_BASE,
+    timeoutMs: Number(process.env.PENNY_OPENAI_PROVIDER_PROBE_MS || 15000),
+  });
+  const write = upsertPennyEnvFile({
+    envFile: PENNY_ENV_FILE,
+    patch,
+  });
+  pendingProviderConfig = {
+    provider: 'openai-cloud',
+    baseUrl: patch.PENNY_LMSTUDIO_BASE,
+    chatModel: patch.PENNY_LMSTUDIO_CHAT_MODEL,
+    toolModel: patch.PENNY_LMSTUDIO_TOOL_MODEL,
+    embedModel: patch.PENNY_LMSTUDIO_EMBED_MODEL,
+    apiKeyConfigured: true,
+    apiKeyPreview: write.apiKeyPreview,
+    updatedAt: new Date().toISOString(),
+  };
+  return {
+    ok: true,
+    activeProvider: buildCloudProviderStatus({ env: process.env }).activeProvider,
+    pendingProvider: 'openai-cloud',
+    openAiCloudConfigured: true,
+    apiKeyConfigured: true,
+    apiKeyPreview: write.apiKeyPreview,
+    envFileConfigured: write.envFileConfigured,
+    updatedKeys: write.updatedKeys,
+    restartRequired: true,
+    restartHint: 'Close and reopen PennyOS to use OpenAI cloud mode.',
+    privacy: {
+      localFirstDefault: true,
+      sendsPromptsOffDevice: true,
+      sendsMemoryContextOffDevice: true,
+      cloudMayCostMoney: true,
+      warningRequired: true,
+    },
+    probe,
+  };
+}
+
+async function resetLocalProviderForRoute(payload = {}) {
+  const patch = buildLocalDefaultEnvPatch({
+    baseUrl: payload.baseUrl || 'http://127.0.0.1:1234/v1',
+    chatModel: payload.chatModel || 'google/gemma-4-31b',
+    toolModel: payload.toolModel || 'google/gemma-4-e4b',
+    embedModel: payload.embedModel || 'text-embedding-nomic-embed-text-v1.5',
+  });
+  const write = upsertPennyEnvFile({
+    envFile: PENNY_ENV_FILE,
+    patch,
+  });
+  pendingProviderConfig = {
+    provider: 'local',
+    baseUrl: patch.PENNY_LMSTUDIO_BASE,
+    chatModel: patch.PENNY_LMSTUDIO_CHAT_MODEL,
+    toolModel: patch.PENNY_LMSTUDIO_TOOL_MODEL,
+    embedModel: patch.PENNY_LMSTUDIO_EMBED_MODEL,
+    apiKeyConfigured: false,
+    updatedAt: new Date().toISOString(),
+  };
+  return {
+    ok: true,
+    activeProvider: buildCloudProviderStatus({ env: process.env }).activeProvider,
+    pendingProvider: 'local',
+    openAiCloudConfigured: false,
+    apiKeyConfigured: false,
+    envFileConfigured: write.envFileConfigured,
+    updatedKeys: write.updatedKeys,
+    restartRequired: true,
+    restartHint: 'Close and reopen PennyOS to use the local LM Studio path again.',
+    privacy: {
+      localFirstDefault: true,
+      sendsPromptsOffDevice: false,
+      sendsMemoryContextOffDevice: false,
+      cloudMayCostMoney: false,
+      warningRequired: false,
+    },
+  };
+}
 /** Output ceiling, not a target. A higher cap avoids clipped long replies without forcing extra tokens if the model stops earlier. */
 const LMSTUDIO_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS || 6144);
 const LMSTUDIO_CHAT_TEMPERATURE = Number(process.env.PENNY_LMSTUDIO_CHAT_TEMPERATURE || 1.0);
@@ -3215,6 +3339,7 @@ const lmStudioTransportApi = createLmStudioTransportApi({
   isMissingLmStudioThreadError: isMissingLmStudioThreadErrorApi,
   lmStudioStageLabel: lmStudioStageLabelApi,
   LOCAL_LLM_TRANSPORT,
+  LOCAL_LLM_BACKEND,
   ALLOW_RAW_REASONING_FALLBACK,
   RESPONSES_THEN_CHAT_FALLBACK,
   LMSTUDIO_BASE,
@@ -3631,6 +3756,9 @@ const routeHandlers = createPennyRouteHandlers({
   getRuntimePreferredEmbedModel: getRuntimePreferredEmbedModelPersisted,
   setRuntimeModelFallbackDisabled: setRuntimeModelFallbackDisabledPersisted,
   getRuntimeModelFallbackDisabled: getRuntimeModelFallbackDisabledApi,
+  getProviderStatus: getProviderStatusForRoute,
+  connectOpenAiProvider: connectOpenAiProviderForRoute,
+  resetLocalProvider: resetLocalProviderForRoute,
   listPendingWorkspaceWrites: listPendingWorkspaceWritesTool,
   approvePendingWorkspaceWrite: approvePendingWorkspaceWriteTool,
   denyPendingWorkspaceWrite: denyPendingWorkspaceWriteTool,

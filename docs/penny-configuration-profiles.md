@@ -33,6 +33,26 @@ PENNY_LOCAL_LLM_TRANSPORT=chat
 
 Boundary: `PENNY_LMSTUDIO_*` names are historical compatibility names for Penny's configured local OpenAI-compatible endpoint. Doctor skips LM Studio CLI/preset checks in this profile and validates `/v1/models` plus chat/tool readiness instead.
 
+## Optional OpenAI Platform Cloud
+
+Use this only when you explicitly choose a cloud provider instead of a local model runtime. The normal Settings path is Brain connection -> Connect OpenAI cloud; this profile documents the resulting env shape.
+
+```dotenv
+PENNY_MODEL_PROVIDER=openai_cloud
+PENNY_LOCAL_LLM_BACKEND=openai_compatible
+PENNY_LOCAL_RUNTIME_LABEL=OpenAI API (cloud)
+PENNY_LMSTUDIO_BASE=https://api.openai.com/v1
+PENNY_LMSTUDIO_EMBED_BASE=https://api.openai.com/v1
+PENNY_LOCAL_LLM_TRANSPORT=chat
+PENNY_SKIP_LMSTUDIO_PREP=1
+PENNY_LMSTUDIO_CHAT_MODEL=gpt-5.5
+PENNY_LMSTUDIO_TOOL_MODEL=gpt-5.5
+PENNY_LMSTUDIO_EMBED_MODEL=text-embedding-3-small
+PENNY_LMSTUDIO_API_KEY=sk-your-openai-platform-api-key
+```
+
+Boundary: this is not private/local. Prompts, memory context, and tool context can leave the machine, and API usage may cost money. A ChatGPT subscription is not an API key. Keep local mode as the default unless you deliberately opt into this profile.
+
 ## Web-Reading Opt-In
 
 Use this when you explicitly want Penny to read public web pages.

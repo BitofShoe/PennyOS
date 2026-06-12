@@ -220,6 +220,7 @@
         </p>
         <div class="nav" aria-label="Guide sections">
           <a class="pill" href="#quick-start">Quick start</a>
+          <a class="pill" href="#openai-cloud">OpenAI cloud</a>
           <a class="pill" href="#lm-studio">LM Studio</a>
           <a class="pill" href="#embeddings">Embeddings</a>
           <a class="pill" href="#llama-cpp">llama.cpp</a>
@@ -250,6 +251,29 @@
           <h3>4. Pick lanes in Settings</h3>
           <p>Open Settings, then First-run local brain setup. Pick the chat model, tool model, and optional embedding model from the dropdowns, then save.</p>
         </div>
+      </div>
+    </section>
+
+    <section id="openai-cloud">
+      <h2>OpenAI Cloud Setup</h2>
+      <p>Use this only when local models are too much setup and you are comfortable with a cloud provider. It is OpenAI Platform API access, not a ChatGPT subscription login.</p>
+      <div class="grid">
+        <div class="step">
+          <h3>1. Get an API key</h3>
+          <p>Create one in the OpenAI Platform dashboard under API keys. Treat it like a password.</p>
+        </div>
+        <div class="step">
+          <h3>2. Save it in Settings</h3>
+          <p>Open Settings, Brain connection, then Connect OpenAI cloud. Paste the key, confirm the warning, and save.</p>
+        </div>
+        <div class="step">
+          <h3>3. Reopen PennyOS</h3>
+          <p>Penny writes the app config safely, then needs a close-and-reopen so the bundled server starts with the new provider.</p>
+        </div>
+      </div>
+      <div class="callout" data-tone="warn">
+        <h3>Not private/local</h3>
+        <p>OpenAI cloud can receive your messages, memory context, and tool context. It may cost money. Local LM Studio or llama.cpp remains the recommended PennyOS path.</p>
       </div>
     </section>
 
@@ -361,7 +385,9 @@ PENNY_LOCAL_LLM_TRANSPORT=chat</code></pre>
     <section id="faq">
       <h2>FAQ</h2>
       <h3>Does PennyOS include LM Studio, llama.cpp, or models?</h3>
-      <p>No. The installed app includes Penny's desktop shell, bundled Penny server sidecar, public UI, seed memory, and runtime resources. You still need a local model endpoint for model-backed chat.</p>
+      <p>No. The installed app includes Penny's desktop shell, bundled Penny server sidecar, public UI, seed memory, and runtime resources. You still need a local model endpoint or explicit OpenAI cloud setup for model-backed chat.</p>
+      <h3>Is OpenAI cloud private like local mode?</h3>
+      <p>No. OpenAI cloud can send prompts, memory context, and tool context to OpenAI. It is optional and off unless you save an API key in Settings.</p>
       <h3>Why does the dropdown show so many models?</h3>
       <p>Penny shows what the configured runtime reports, plus saved/configured candidates. Loaded or exposed models are the plug-and-play choices. Installed-only models may still need to be loaded in LM Studio or served by llama.cpp.</p>
       <h3>Why is semantic memory sometimes "fallback"?</h3>

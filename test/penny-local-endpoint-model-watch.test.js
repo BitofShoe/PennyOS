@@ -87,6 +87,23 @@ test('endpoint compatibility defaults to read-only models probe without model ca
   assert.equal(fetch.calls.length, 1);
 });
 
+test('endpoint compatibility sends bearer auth to cloud-style OpenAI-compatible probes', async () => {
+  const fetch = makeMockFetch({ models: ['gpt-5.5'] });
+  const result = await probeLocalEndpointCompatibility({
+    endpoint: 'https://api.openai.com/v1',
+    apiKey: 'sk-test-secret',
+    fetch,
+    probeModelCall: true,
+    modelId: 'gpt-5.5',
+  });
+
+  assert.equal(result.health_status, 'available');
+  assert.ok(fetch.calls.length > 1);
+  for (const call of fetch.calls) {
+    assert.equal(call.options.headers.Authorization, 'Bearer sk-test-secret');
+  }
+});
+
 test('endpoint backend detection treats llama.cpp ownership as router truth before model paths', () => {
   const backend = detectBackendFamily({
     endpoint: 'http://127.0.0.1:18080/v1',

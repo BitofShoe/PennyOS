@@ -110,6 +110,59 @@ test('runPreflight accepts a llama.cpp OpenAI-compatible endpoint without the LM
   }
 });
 
+test('runPreflight accepts authenticated OpenAI cloud endpoint mode without LM Studio CLI', async () => {
+  const loaded = ['gpt-5.5', 'text-embedding-3-small'];
+
+  const server = http.createServer((req, res) => {
+    if (req.url === '/v1/models') {
+      if (req.headers.authorization !== 'Bearer sk-test-secret') {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'missing auth' } }));
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        Server: 'openai-compatible',
+      });
+      res.end(JSON.stringify({
+        data: loaded.map(id => ({ id, object: 'model' })),
+      }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    const report = await runPreflight({
+      packageJson: { engines: { node: '>=24 <25', npm: '>=11 <12' } },
+      nodeVersion: '24.14.0',
+      baseUrl: `http://127.0.0.1:${address.port}/v1`,
+      apiKey: 'sk-test-secret',
+      env: {
+        PENNY_MODEL_PROVIDER: 'openai_cloud',
+        PENNY_LOCAL_LLM_BACKEND: 'openai_compatible',
+        PENNY_LOCAL_LLM_TRANSPORT: 'chat',
+        PENNY_LMSTUDIO_API_KEY: 'sk-test-secret',
+      },
+      chatModel: 'gpt-5.5',
+      toolModel: 'gpt-5.5',
+      embedModel: 'text-embedding-3-small',
+      spawnSyncImpl: makeNoLmsSpawnSyncImpl(),
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(report.status.backendFamily, 'openai_compatible');
+    assert.equal(report.checks.some(check => check.name === 'lms-cli'), false);
+    assert.equal(report.checks.find(check => check.name === 'local-endpoint').ok, true);
+    assert.match(report.checks.find(check => check.name === 'local-endpoint').detail, /OpenAI API \(cloud\)/);
+    assert.doesNotMatch(report.fixes.join('\n'), /Start LM Studio|LM Studio CLI is missing/i);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('checkNpmVersion uses the Windows npm.cmd shim before failing npm checks', () => {
   const calls = [];
   const check = checkNpmVersion({

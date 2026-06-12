@@ -122,6 +122,71 @@ test('memory purge waits for archive and ledger cleanup before inspecting memory
   assert.deepEqual(response.json.archive.archive.sessions, {});
 });
 
+test('provider routes expose cloud status and save OpenAI config without echoing secrets', async () => {
+  const calls = [];
+  let response = null;
+  const handlers = createPennyRouteHandlers({
+    sendJson(_res, statusCode, json) {
+      response = { statusCode, json };
+    },
+    async safeReadBody() {
+      return JSON.stringify({
+        apiKey: 'sk-test-secret',
+        chatModel: 'gpt-5.5',
+        acceptCloudDisclosure: true,
+      });
+    },
+    getProviderStatus() {
+      calls.push('status');
+      return {
+        ok: true,
+        activeProvider: 'local',
+        openAiCloudConfigured: false,
+        apiKeyConfigured: false,
+        privacy: { localFirstDefault: true, sendsPromptsOffDevice: false },
+      };
+    },
+    async connectOpenAiProvider(payload) {
+      calls.push(['connect', payload]);
+      return {
+        ok: true,
+        activeProvider: 'local',
+        pendingProvider: 'openai-cloud',
+        openAiCloudConfigured: true,
+        apiKeyConfigured: true,
+        apiKeyPreview: 'sk-t...cret',
+        restartRequired: true,
+      };
+    },
+  });
+
+  const statusHandled = await handlers.handleApiRoute({
+    req: { method: 'GET' },
+    res: {},
+    url: new URL('http://localhost/api/penny/provider/status'),
+  });
+  assert.equal(statusHandled, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.activeProvider, 'local');
+
+  const connectHandled = await handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://localhost/api/penny/provider/openai/connect'),
+  });
+
+  assert.equal(connectHandled, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.ok, true);
+  assert.equal(response.json.restartRequired, true);
+  assert.equal(JSON.stringify(response.json).includes('sk-test-secret'), false);
+  assert.deepEqual(calls[1], ['connect', {
+    apiKey: 'sk-test-secret',
+    chatModel: 'gpt-5.5',
+    acceptCloudDisclosure: true,
+  }]);
+});
+
 function createToolReceiptRouteHarness({
   sessionId = 'tool-receipt-session',
   userText = 'Inspect README.md',

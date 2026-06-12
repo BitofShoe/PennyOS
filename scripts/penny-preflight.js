@@ -359,6 +359,7 @@ async function checkLmStudioApi({
 
 async function probeLocalEndpoint({
   baseUrl = DEFAULT_LMSTUDIO_BASE,
+  apiKey = DEFAULT_LMSTUDIO_API_KEY,
   fetchImpl = fetch,
   timeoutMs = 5000,
 } = {}) {
@@ -366,6 +367,7 @@ async function probeLocalEndpoint({
     return await probeLocalEndpointCompatibility({
       endpoint: baseUrl,
       fetch: fetchImpl,
+      apiKey,
       probeModelCall: false,
       timeoutMs,
     });
@@ -397,6 +399,12 @@ function runtimeLabelForBackend(backendFamily = '') {
   return 'the local OpenAI-compatible runtime';
 }
 
+function isOpenAiCloudRuntime({ baseUrl = '', env = process.env } = {}) {
+  const provider = String(env.PENNY_MODEL_PROVIDER || '').trim().toLowerCase();
+  if (provider === 'openai_cloud') return true;
+  return /^https:\/\/api\.openai\.com\/v1\/?$/i.test(String(baseUrl || '').trim());
+}
+
 function buildGenericEndpointPreflightReport({
   endpointProbe = null,
   checks = [],
@@ -410,7 +418,9 @@ function buildGenericEndpointPreflightReport({
 } = {}) {
   const probe = endpointProbe || {};
   const backendFamily = normalizeBackendKind(probe.backend_family || '') || 'openai_compatible';
-  const runtimeLabel = runtimeLabelForBackend(backendFamily);
+  const runtimeLabel = isOpenAiCloudRuntime({ baseUrl, env })
+    ? 'OpenAI API (cloud)'
+    : runtimeLabelForBackend(backendFamily);
   const visibleModels = uniqueStrings(probe.loaded_models || []);
   const fallbackAllowed = !enabledEnv(env.PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK);
   const requestedChatModel = String(chatModel || env.PENNY_LMSTUDIO_CHAT_MODEL || 'google/gemma-4-31b').trim();
@@ -570,7 +580,7 @@ async function runPreflight({
   checks.push(summarizeCheck('node', nodeCheck.ok, nodeCheck.detail, nodeCheck.ok ? 'pass' : 'fail'));
   const npmCheck = checkNpmVersion({ spawnSyncImpl, packageJson });
   checks.push(npmCheck);
-  const endpointProbe = await probeLocalEndpoint({ baseUrl, fetchImpl });
+  const endpointProbe = await probeLocalEndpoint({ baseUrl, apiKey, fetchImpl });
   if (shouldUseGenericEndpointPreflight({ env, endpointProbe })) {
     return buildGenericEndpointPreflightReport({
       endpointProbe,

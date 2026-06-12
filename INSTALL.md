@@ -4,10 +4,10 @@
 
 - Node.js `>=24 <25`
 - npm `>=11 <12`
-- LM Studio running a local OpenAI-compatible server, or a configured llama.cpp/generic OpenAI-compatible endpoint
+- LM Studio running a local OpenAI-compatible server, a configured llama.cpp/generic OpenAI-compatible endpoint, or an explicit OpenAI Platform API key configured in PennyOS Settings
 
 The default LM Studio base URL is `http://127.0.0.1:1234/v1`.
-Penny pins Node 24.x for the source/dev release-supported test/runtime surface; use Node 24 even if older versions appear to run part of the app. A built Tauri desktop package bundles Penny's Node sidecar and server resource tree, so an installed app should not need Node, npm, Rust, Cargo, or a repo checkout on the end user's `PATH`. It still needs Windows WebView2 and an already-running local/OpenAI-compatible model endpoint for model-backed chat.
+Penny pins Node 24.x for the source/dev release-supported test/runtime surface; use Node 24 even if older versions appear to run part of the app. A built Tauri desktop package bundles Penny's Node sidecar and server resource tree, so an installed app should not need Node, npm, Rust, Cargo, or a repo checkout on the end user's `PATH`. It still needs Windows WebView2 and either an already-running local/OpenAI-compatible model endpoint or an OpenAI Platform API key for model-backed chat.
 This is a source-available technical preview for a local/private runtime, not software intended for public internet exposure.
 
 ## Setup
@@ -73,7 +73,7 @@ For this WSL/Windows shared checkout, run this if one side suddenly reports a mi
 npm run tauri:repair:native:shared
 ```
 
-The Tauri package does not bundle LM Studio, llama.cpp, models, or embeddings. The end user still needs an already-running LM Studio, llama.cpp, or other OpenAI-compatible local endpoint for model-backed chat. Once that endpoint is installed and serving the configured loopback URL, Penny's package path is intended to be close to plug-and-play: it starts Penny's local UI/server sidecar, preserves model state with `PENNY_SKIP_LMSTUDIO_PREP=1`, and reports endpoint readiness honestly instead of trying to manage model downloads. The official Tauri prerequisite docs are here: [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). Tauri's sidecar model is documented here: [Tauri sidecars](https://v2.tauri.app/develop/sidecar/).
+The Tauri package does not bundle LM Studio, llama.cpp, models, embeddings, or OpenAI credentials. The end user still needs an already-running LM Studio, llama.cpp, other OpenAI-compatible local endpoint, or an explicit OpenAI Platform API key for model-backed chat. Once that endpoint is installed and serving the configured loopback URL, or OpenAI cloud mode is configured, Penny's package path is intended to be close to plug-and-play: it starts Penny's local UI/server sidecar, preserves local model state with `PENNY_SKIP_LMSTUDIO_PREP=1`, and reports endpoint/provider readiness honestly instead of trying to manage model downloads. The official Tauri prerequisite docs are here: [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). Tauri's sidecar model is documented here: [Tauri sidecars](https://v2.tauri.app/develop/sidecar/).
 
 Useful overrides:
 
@@ -98,6 +98,28 @@ PENNY_LOCAL_LLM_TRANSPORT=chat
 ```
 
 In that mode, `npm run doctor` skips LM Studio CLI/preset checks and validates `/v1/models` plus Penny's configured chat/tool lanes. The `PENNY_LMSTUDIO_*` names are historical; they still point at the local OpenAI-compatible endpoint Penny uses.
+
+## Optional OpenAI Cloud Setup
+
+Use this when local models are too much setup and you are comfortable with a cloud provider.
+
+Important boundary: this is OpenAI Platform API access, not a ChatGPT Plus/Pro login. You need an API key from the OpenAI Platform dashboard. When enabled, Penny may send prompts, memory context, and tool context to OpenAI, and API usage may cost money.
+
+In the installed app:
+
+1. Open PennyOS.
+2. Go to Settings -> Brain connection.
+3. Click Connect OpenAI cloud.
+4. Paste an OpenAI Platform API key.
+5. Leave the defaults unless you know you want different models:
+   - Chat model: `gpt-5.5`
+   - Tool model: `gpt-5.5`
+   - Embedding model: `text-embedding-3-small`
+6. Check the cloud disclosure.
+7. Click Save OpenAI cloud setup.
+8. Close and reopen PennyOS.
+
+The save step validates the key against OpenAI's `/v1/models` endpoint, writes Penny's app config `.env`, and never echoes the full key back to the browser.
 
 ## First-Run Model Setup
 

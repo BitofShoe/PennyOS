@@ -16,6 +16,7 @@ This guide is for normal humans, not just the people who enjoy saying "OpenAI-co
 - [Quick Start Checklist](#quick-start-checklist)
 - [What The Desktop App Includes](#what-the-desktop-app-includes)
 - [Mobile / Phone Access](#mobile--phone-access)
+- [OpenAI Cloud Setup](#openai-cloud-setup)
 - [LM Studio Setup](#lm-studio-setup)
 - [Embedding Model Setup](#embedding-model-setup)
 - [llama.cpp Setup](#llamacpp-setup)
@@ -31,18 +32,20 @@ This guide is for normal humans, not just the people who enjoy saying "OpenAI-co
 PennyOS has two pieces:
 
 1. The Penny app: the desktop window, local server sidecar, UI, memory files, tools, settings, and personality scaffolding.
-2. A local model runtime: LM Studio, llama.cpp, or another OpenAI-compatible server that actually runs the model.
+2. A brain runtime: usually a local model runtime like LM Studio or llama.cpp, or optionally OpenAI Platform API cloud mode if you choose the less-private-but-easier route.
 
-The Windows desktop package includes the first piece. It does not bundle LM Studio, llama.cpp, Speaches, model weights, embedding models, voice models, or a model manager. That is intentional for this release slice. Penny should not silently download models, load models, unload models, or mess with a live runtime you already have open.
+The Windows desktop package includes the first piece. It does not bundle LM Studio, llama.cpp, Speaches, model weights, embedding models, voice models, OpenAI credentials, or a model manager. That is intentional for this release slice. Penny should not silently download models, load models, unload models, or mess with a live runtime you already have open.
 
 If you only remember one sentence:
 
 > Start LM Studio or llama.cpp, load a chat model, start its local API server, then open PennyOS Settings -> First-run local brain setup and pick the model Penny can see.
 
+If that is too much setup right now, use Settings -> Brain connection -> Connect OpenAI cloud. That path is easier, but it is not private/local and it can cost money.
+
 ## Quick Start Checklist
 
 1. Install PennyOS.
-2. Install LM Studio, or set up llama.cpp if you are comfortable with command-line local inference.
+2. Install LM Studio, set up llama.cpp if you are comfortable with command-line local inference, or get an OpenAI Platform API key for the optional cloud path.
 3. Download a chat/instruct model.
 4. Load the model in the local runtime.
 5. Start the runtime's OpenAI-compatible local server.
@@ -52,8 +55,9 @@ If you only remember one sentence:
 9. Pick a Chat model and Tool model.
 10. Optional but recommended: download/load an embedding model, then pick it in the Embedding model dropdown.
 11. Save model setup.
-12. Optional: install and start Speaches if you want Penny to speak replies.
-13. Optional: configure Settings -> Speaches voice, press Refresh voice, then enable the voice toggle.
+12. Optional cloud fallback: go to Settings -> Brain connection, paste an OpenAI Platform API key, confirm the warning, save, then reopen PennyOS.
+13. Optional: install and start Speaches if you want Penny to speak replies.
+14. Optional: configure Settings -> Speaches voice, press Refresh voice, then enable the voice toggle.
 
 Penny should then be able to chat through the loaded model. Semantic memory may still report fallback if the embedding lane is missing. That is not a startup failure.
 
@@ -74,6 +78,7 @@ It does not include:
 - Model weights.
 - Embedding models.
 - Speaches, TTS model downloads, or bundled voice models.
+- OpenAI API keys or cloud account setup.
 - Rust, Cargo, Node, npm, or a repo checkout for the end user.
 
 Build machines still need build tools. End users should not need developer tools just to launch the installed app.
@@ -161,6 +166,98 @@ If Penny opens but chat/status fails:
 - Check for typos or extra spaces.
 - If Penny generated the token, copy the freshly printed token from the current terminal.
 - If you changed `PENNY_API_TOKEN`, clear the old phone token and save the new one.
+
+## OpenAI Cloud Setup
+
+This is the easier accessibility path when you want Penny to work without downloading a local LLM first. It is also the less-private path, so I am going to be extremely clear instead of cute about it.
+
+OpenAI cloud mode means:
+
+- Penny sends model requests to the OpenAI API.
+- Your messages can leave your computer.
+- Memory context and tool context can be included in prompts.
+- API usage may cost money.
+- A ChatGPT Plus/Pro subscription is not enough. You need an OpenAI Platform API key.
+
+If you want the local-first promise, use LM Studio or llama.cpp instead. If you want the easiest path to "Penny can answer right now," cloud mode is useful.
+
+### What You Need
+
+1. An OpenAI Platform account.
+2. An API key from the OpenAI Platform dashboard.
+3. PennyOS installed and opening normally.
+
+OpenAI's API docs describe bearer API-key authentication and say API keys are secrets that should not be exposed in client-side code. Penny's setup route stores the key server-side in the app config `.env`, not in browser localStorage.
+
+OpenAI currently documents `gpt-5.5` as the latest model slug and `text-embedding-3-small` as a current embedding model. Penny uses those as the cloud defaults for this setup path.
+
+### Get An OpenAI Platform API Key
+
+This is the part that is easy to blur together with ChatGPT login. Do not worry: it is a different door, but it is a normal door.
+
+1. Open the OpenAI Platform dashboard in your browser:
+
+   ```text
+   https://platform.openai.com/
+   ```
+
+2. Sign in with your OpenAI account.
+3. If the dashboard asks you to create or select an organization/project, do that.
+4. Check billing or usage limits before you hand the key to any app:
+   - Add billing only if you are comfortable using paid API credits.
+   - Set a monthly budget or usage limit if the dashboard offers it.
+   - Remember that API usage is separate from a ChatGPT subscription.
+5. Open the API keys page:
+
+   ```text
+   https://platform.openai.com/api-keys
+   ```
+
+6. Create a new secret key.
+7. Give it a boring, recognizable name such as `PennyOS desktop`.
+8. Copy the key immediately. The dashboard may only show it once.
+9. Paste it into PennyOS Settings -> Brain connection -> Connect OpenAI cloud.
+10. Do not paste the key into screenshots, chat messages, public issues, docs, or a browser console.
+
+If you lose the key, do not panic. Create a new one, save it in Penny, then delete/revoke the old key from the dashboard if you are not using it anywhere else.
+
+If Penny says the key is invalid:
+
+- Make sure you copied the whole key with no spaces before or after it.
+- Make sure it is an OpenAI Platform API key, not a ChatGPT password, not a Codex token, and not the Penny LAN access token.
+- Make sure the project/org tied to the key can use the model you selected.
+- Make sure billing or usage limits are not blocking requests.
+- Try the default model names before custom model names.
+
+### Connect Penny To OpenAI
+
+1. Open PennyOS.
+2. Open Settings.
+3. Find Brain connection.
+4. Click Connect OpenAI cloud.
+5. Paste your OpenAI Platform API key.
+6. Leave the default models unless you know what you are doing:
+   - Chat model: `gpt-5.5`
+   - Tool model: `gpt-5.5`
+   - Embedding model: `text-embedding-3-small`
+7. Check the cloud disclosure.
+8. Click Save OpenAI cloud setup.
+9. Wait for Penny to validate the key.
+10. Close and reopen PennyOS.
+
+Why the reopen? Penny's model/provider env is read when the bundled local server starts. The Settings button writes the config safely; reopening starts Penny with that new config.
+
+### Switch Back To Local
+
+In Settings -> Brain connection, click Switch back to local default, then close and reopen PennyOS.
+
+That restores the normal LM Studio default:
+
+```text
+http://127.0.0.1:1234/v1
+```
+
+You will still need LM Studio, llama.cpp, or another local OpenAI-compatible runtime running for local model-backed chat.
 
 ## LM Studio Setup
 
@@ -448,7 +545,11 @@ Source/dev sidecar harnesses for search, docs/RAG, and audio experiments may exi
 
 ### Does PennyOS work without LM Studio or llama.cpp?
 
-The app can open, but model-backed chat needs a local OpenAI-compatible endpoint. Without that endpoint, Penny can only report readiness/fallback state.
+Yes, if you configure OpenAI cloud mode with an OpenAI Platform API key. Without either a local OpenAI-compatible endpoint or OpenAI cloud mode, the app can open, but model-backed chat can only report readiness/fallback state.
+
+### Is OpenAI cloud private like local mode?
+
+No. Local mode keeps model requests on your machine or LAN runtime. OpenAI cloud mode can send prompts, memory context, and tool context to OpenAI. It is optional, explicit, and meant as an accessibility fallback when local models are too much setup.
 
 ### Does PennyOS download or load models for me?
 
@@ -532,6 +633,7 @@ This guide was refreshed against:
 
 - LM Studio docs for app capabilities, downloads, local server, and OpenAI-compatible endpoints.
 - llama-cpp-python docs for an OpenAI-compatible llama.cpp server path.
+- OpenAI API docs for bearer API-key authentication, current model guidance, and embedding model defaults.
 - Speaches docs for install paths and `/v1/audio/speech` text-to-speech behavior.
 - Penny LAN/phone reset runbook, `INSTALL.md`, and API security code for current LAN/token behavior.
 - PennyOS repo docs and runtime behavior as of 2026-06-11.

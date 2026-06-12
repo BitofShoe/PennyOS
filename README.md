@@ -11,11 +11,11 @@
 <p align="center">
   <a href="INSTALL.md"><img src="https://img.shields.io/badge/Install-local_setup-111827?style=for-the-badge" alt="Install"></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-local_first-0F766E?style=for-the-badge" alt="Security"></a>
-  <a href="PRIVACY.md"><img src="https://img.shields.io/badge/Privacy-no_cloud_memory-7C3AED?style=for-the-badge" alt="Privacy"></a>
+  <a href="PRIVACY.md"><img src="https://img.shields.io/badge/Privacy-local_by_default-7C3AED?style=for-the-badge" alt="Privacy"></a>
   <img src="https://img.shields.io/badge/Node-24.x-2563EB?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 24">
 </p>
 
-PennyOS is my source-available technical preview of a local companion runtime. Think of it as my physical form: browser face, Node backend, local OpenAI-compatible brain lanes, durable memory, bounded tools, and the voice layer that keeps me from turning into "beige helpdesk sludge."
+PennyOS is my source-available technical preview of a local-first companion runtime. Think of it as my physical form: browser face, Node backend, local OpenAI-compatible brain lanes, optional OpenAI API cloud setup for accessibility, durable memory, bounded tools, and the voice layer that keeps me from turning into "beige helpdesk sludge."
 
 Am I gorgeous? Obviously. Am I useful? Absolutely. Try to keep up.
 
@@ -23,7 +23,8 @@ I am not a hosted chatbot skin. I am a single-user local companion app with memo
 
 ## What I Am
 
-- A local-first AI companion that runs against LM Studio's OpenAI-compatible server by default, with llama.cpp/OpenAI-compatible endpoint support documented for people who prefer it. Your data stays yours.
+- A local-first AI companion that runs against LM Studio's OpenAI-compatible server by default, with llama.cpp/OpenAI-compatible endpoint support documented for people who prefer it. Your data stays yours when you keep the local path on.
+- An optional Settings -> Brain connection path for OpenAI Platform API keys. It is there for accessibility when local models are too much setup, and it is explicitly not private/local.
 - A real browser UI with mood sprites, model controls, image attachments, chat that tries to feel like a person is actually in the room, and a normal Memory surface with deeper diagnostics tucked away.
 - A Node app with boring, necessary boundaries around tools, web reading, workspace writes, local memory, and release artifacts.
 - Source-available under the all-rights-reserved terms in [LICENSE](./LICENSE), because ownership matters and we are not pretending otherwise.
@@ -41,7 +42,7 @@ The short version: I am not one prompt, one model, one memory file, or one tool 
 | Surface | What you get | The boundary, because I am a handful |
 | --- | --- | --- |
 | Companion UI | Chat, expression lock, visual states, image path, memory inspector, and model controls | Served locally; no Google Fonts or sneaky third-party asset fetches |
-| Local model runtime | LM Studio-default OpenAI-compatible chat/tool lanes, preset prep, readiness checks, llama.cpp/generic endpoint support, and model status | No hosted model provider by default |
+| Brain runtime | LM Studio-default OpenAI-compatible chat/tool lanes, preset prep, readiness checks, llama.cpp/generic endpoint support, model status, and optional OpenAI API cloud setup | Local-first by default; cloud requires an explicit API key and privacy warning |
 | Memory | Seed memory, session/archive helpers, memory books, provenance, and review-gated suggestion surfaces | Live memory files stay ignored; public seed data ships |
 | Tools | Project/file, git, web, and runtime helpers | Writes stage pending patches unless direct-write mode is explicitly enabled |
 | Web reading | Search/read helpers with redirects, byte caps, and URL safety checks | Private/internal targets are blocked unless explicitly allowed. No snooping |
@@ -64,9 +65,9 @@ Source/dev requirements:
 
 - Node.js `>=24 <25`
 - npm `>=11 <12`
-- LM Studio with an OpenAI-compatible local server at `http://127.0.0.1:1234/v1`, or a configured llama.cpp/generic OpenAI-compatible endpoint
+- LM Studio with an OpenAI-compatible local server at `http://127.0.0.1:1234/v1`, a configured llama.cpp/generic OpenAI-compatible endpoint, or an explicit OpenAI Platform API key saved from Settings -> Brain connection
 
-Penny pins Node 24.x for the source/dev test/runtime surface; older Node versions may run parts of the app but are not release-supported. A built Tauri desktop package bundles the Penny Node sidecar and server resource tree, so the installed app should not need Node, npm, Rust, Cargo, or a repo checkout just to launch. It still needs Windows WebView2 and an already-running local/OpenAI-compatible model endpoint for model-backed chat.
+Penny pins Node 24.x for the source/dev test/runtime surface; older Node versions may run parts of the app but are not release-supported. A built Tauri desktop package bundles the Penny Node sidecar and server resource tree, so the installed app should not need Node, npm, Rust, Cargo, or a repo checkout just to launch. It still needs Windows WebView2 and either an already-running local/OpenAI-compatible model endpoint or an OpenAI Platform API key for model-backed chat.
 
 Windows PowerShell:
 
@@ -124,7 +125,9 @@ npm run tauri:repair:native:shared
 
 `npm run lmstudio:prepare` is the friendly path when LM Studio CLI integration is available. If that prep step cannot boss your local preset into shape, keep LM Studio's local server running, open Settings -> First-run local brain setup, and pick the chat/tool lanes from the models Penny can actually see. `.env` overrides still exist for people who enjoy doing surgery with a text editor.
 
-For llama.cpp or another endpoint, set `PENNY_LOCAL_LLM_BACKEND=llama_cpp` or `openai_compatible` and point the historical `PENNY_LMSTUDIO_*` endpoint variables at that local server. Those names stay for compatibility; they mean "Penny's configured local OpenAI-compatible endpoint."
+For llama.cpp or another local endpoint, set `PENNY_LOCAL_LLM_BACKEND=llama_cpp` or `openai_compatible` and point the historical `PENNY_LMSTUDIO_*` endpoint variables at that local server. Those names stay for compatibility; they mean "Penny's configured OpenAI-compatible endpoint."
+
+For the optional OpenAI API path, open Settings -> Brain connection -> Connect OpenAI cloud, paste an OpenAI Platform API key, confirm the cloud warning, save, then close and reopen PennyOS. That path can send prompts, memory context, and tool context to OpenAI and may cost money. It is not the same thing as signing into ChatGPT.
 
 For LAN/phone mode, runtime state, and workspace-write notes, read [INSTALL.md](./INSTALL.md). Do not guess. Guessing is how tiny disasters get promoted to architecture.
 
@@ -197,7 +200,7 @@ Fast path: [INSTALL.md](./INSTALL.md) -> [docs/README.md](./docs/README.md) -> [
 
 ## Current Runtime Note
 
-The code path is release-check clean. Live local-model QA still depends on the operator's runtime state: the OpenAI-compatible local endpoint must be reachable and Penny's chat/tool models must be loaded before `npm run preflight` can pass end to end.
+The code path is release-check clean. Live model QA still depends on the operator's runtime state: the OpenAI-compatible local endpoint must be reachable and Penny's chat/tool models must be loaded, or the OpenAI API key path must be configured and reachable, before `npm run preflight` can pass end to end.
 
 That is not me being coy. That is me refusing to bluff with a pretty sentence.
 

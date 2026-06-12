@@ -137,6 +137,20 @@ const els = {
   embedModelSelect: document.getElementById('embedModelSelect'),
   saveModelSetup: document.getElementById('saveModelSetup'),
   refreshModelSetup: document.getElementById('refreshModelSetup'),
+  providerSetupPanel: document.getElementById('providerSetupPanel'),
+  providerStatus: document.getElementById('providerStatus'),
+  providerRefresh: document.getElementById('providerRefresh'),
+  providerUseLocal: document.getElementById('providerUseLocal'),
+  providerShowOpenAi: document.getElementById('providerShowOpenAi'),
+  openAiCloudPanel: document.getElementById('openAiCloudPanel'),
+  openAiApiKey: document.getElementById('openAiApiKey'),
+  openAiChatModel: document.getElementById('openAiChatModel'),
+  openAiToolModel: document.getElementById('openAiToolModel'),
+  openAiEmbedModel: document.getElementById('openAiEmbedModel'),
+  openAiCloudDisclosure: document.getElementById('openAiCloudDisclosure'),
+  connectOpenAiProvider: document.getElementById('connectOpenAiProvider'),
+  resetLocalProvider: document.getElementById('resetLocalProvider'),
+  providerSetupNote: document.getElementById('providerSetupNote'),
   newChat: document.getElementById('newChat'),
   clearMemory: document.getElementById('clearMemory'),
   refreshMemory: document.getElementById('refreshMemory'),
@@ -714,6 +728,7 @@ async function loadBackendStatus() {
     const data = await res.json();
     updateBackendStatusUi(data);
     await loadAvailableModels(data);
+    await refreshProviderStatus({ quiet: true });
     if (!data.shadowEnabled && state.memory.brainMode === 'shadow') {
       state.memory.brainMode = 'local';
       renderMemory();
@@ -726,6 +741,131 @@ async function loadBackendStatus() {
     const offlineStatus = { reachable: false, error: 'Unable to reach Penny status route.' };
     updateBackendStatusUi(offlineStatus);
     updateModelSetupUi({ lmStudio: offlineStatus });
+  }
+}
+
+function setProviderSetupNote(text = '', tone = 'muted') {
+  if (!els.providerSetupNote) return;
+  els.providerSetupNote.textContent = text;
+  els.providerSetupNote.dataset.tone = tone;
+}
+
+function setOpenAiCloudPanelVisible(visible = true) {
+  if (els.openAiCloudPanel) els.openAiCloudPanel.hidden = visible !== true;
+}
+
+function setProviderBusy(busy = false) {
+  if (els.connectOpenAiProvider) els.connectOpenAiProvider.disabled = busy;
+  if (els.resetLocalProvider) els.resetLocalProvider.disabled = busy;
+  if (els.providerUseLocal) els.providerUseLocal.disabled = busy;
+  if (els.providerRefresh) els.providerRefresh.disabled = busy;
+}
+
+function renderProviderStatus(status = null) {
+  if (!els.providerStatus && !els.providerSetupPanel) return;
+  const activeProvider = String(status?.activeProvider || 'local');
+  const pendingProvider = String(status?.pendingProvider || status?.pending?.provider || '');
+  const isCloudActive = activeProvider === 'openai-cloud';
+  const hasPending = !!pendingProvider;
+  if (els.providerSetupPanel) {
+    els.providerSetupPanel.dataset.severity = hasPending ? 'needs-setup' : 'ready';
+    els.providerSetupPanel.className = `setup-card setup-${hasPending ? 'needs-setup' : 'ready'}`;
+  }
+  if (els.providerStatus) {
+    if (hasPending) {
+      els.providerStatus.textContent = pendingProvider === 'local'
+        ? 'Local brain setup saved. Close and reopen PennyOS to switch back.'
+        : 'OpenAI cloud setup saved. Close and reopen PennyOS to use it.';
+    } else if (isCloudActive) {
+      els.providerStatus.textContent = 'Using OpenAI cloud. Not private/local.';
+    } else {
+      els.providerStatus.textContent = 'Using local brain path. Cloud is off.';
+    }
+  }
+  if (isCloudActive || pendingProvider === 'openai-cloud') {
+    setOpenAiCloudPanelVisible(true);
+  }
+  if (els.openAiChatModel && status?.chatModel && !els.openAiChatModel.value) els.openAiChatModel.value = status.chatModel;
+  if (els.openAiToolModel && status?.toolModel && !els.openAiToolModel.value) els.openAiToolModel.value = status.toolModel;
+  if (els.openAiEmbedModel && status?.embedModel && !els.openAiEmbedModel.value) els.openAiEmbedModel.value = status.embedModel;
+  const preview = status?.apiKeyPreview || status?.pending?.apiKeyPreview || '';
+  if (hasPending) {
+    setProviderSetupNote(status?.restartHint || 'Provider setup saved. Close and reopen PennyOS for this to take effect.', 'warn');
+  } else if (isCloudActive) {
+    setProviderSetupNote(`OpenAI cloud is active${preview ? ` with key ${preview}` : ''}. Prompts/context may leave this computer.`, 'warn');
+  } else {
+    setProviderSetupNote('Local-first mode is active. OpenAI cloud remains off unless you save it here.', 'muted');
+  }
+}
+
+async function refreshProviderStatus({ quiet = false } = {}) {
+  if (!els.providerStatus && !els.providerSetupPanel) return null;
+  try {
+    const res = await apiFetch('/api/penny/provider/status');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Provider status failed: ${res.status}`);
+    renderProviderStatus(data);
+    return data;
+  } catch (error) {
+    if (!quiet) setProviderSetupNote(error?.message || 'Provider status failed.', 'warn');
+    return null;
+  }
+}
+
+async function connectOpenAiProviderFromControls() {
+  if (!els.connectOpenAiProvider) return;
+  const payload = {
+    apiKey: els.openAiApiKey?.value || '',
+    chatModel: els.openAiChatModel?.value || 'gpt-5.5',
+    toolModel: els.openAiToolModel?.value || els.openAiChatModel?.value || 'gpt-5.5',
+    embedModel: els.openAiEmbedModel?.value || 'text-embedding-3-small',
+    acceptCloudDisclosure: els.openAiCloudDisclosure?.checked === true,
+  };
+  if (!String(payload.apiKey || '').trim()) {
+    setProviderSetupNote('Paste an OpenAI Platform API key first.', 'warn');
+    els.openAiApiKey?.focus();
+    return;
+  }
+  if (!payload.acceptCloudDisclosure) {
+    setProviderSetupNote('Check the cloud disclosure before saving OpenAI setup.', 'warn');
+    return;
+  }
+  setProviderBusy(true);
+  setProviderSetupNote('Checking OpenAI key and saving provider setup...', 'muted');
+  try {
+    const res = await apiFetch('/api/penny/provider/openai/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `OpenAI setup failed: ${res.status}`);
+    if (els.openAiApiKey) els.openAiApiKey.value = '';
+    renderProviderStatus(data);
+  } catch (error) {
+    setProviderSetupNote(error?.message || 'OpenAI setup failed.', 'warn');
+  } finally {
+    setProviderBusy(false);
+  }
+}
+
+async function resetLocalProviderFromControls() {
+  setProviderBusy(true);
+  setProviderSetupNote('Saving local LM Studio defaults...', 'muted');
+  try {
+    const res = await apiFetch('/api/penny/provider/local/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Local reset failed: ${res.status}`);
+    if (els.openAiApiKey) els.openAiApiKey.value = '';
+    renderProviderStatus(data);
+  } catch (error) {
+    setProviderSetupNote(error?.message || 'Local reset failed.', 'warn');
+  } finally {
+    setProviderBusy(false);
   }
 }
 
@@ -807,6 +947,18 @@ els.embedModelSelect?.addEventListener('change', saveModelSetupFromControls);
 els.modelSetupFallback?.addEventListener('change', saveModelSetupFromControls);
 els.saveModelSetup?.addEventListener('click', saveModelSetupFromControls);
 els.refreshModelSetup?.addEventListener('click', () => loadBackendStatus());
+els.providerRefresh?.addEventListener('click', () => refreshProviderStatus());
+els.providerShowOpenAi?.addEventListener('click', () => {
+  setOpenAiCloudPanelVisible(true);
+  setProviderSetupNote('Paste an OpenAI Platform API key, confirm the warning, then save. Reopen PennyOS after it succeeds.', 'muted');
+  els.openAiApiKey?.focus();
+});
+els.providerUseLocal?.addEventListener('click', () => {
+  setOpenAiCloudPanelVisible(false);
+  setProviderSetupNote('Local brain stays selected. Use the local model setup below for LM Studio, llama.cpp, or another local endpoint.', 'muted');
+});
+els.connectOpenAiProvider?.addEventListener('click', connectOpenAiProviderFromControls);
+els.resetLocalProvider?.addEventListener('click', resetLocalProviderFromControls);
 els.saveVoiceSetup?.addEventListener('click', async () => {
   try {
     await runtimeVoice.saveConfig();

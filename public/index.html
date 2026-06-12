@@ -273,6 +273,70 @@
               </section>
 
               <section class="settings-block">
+                <div class="section-label">Brain connection</div>
+                <div class="setup-card setup-ready" id="providerSetupPanel">
+                  <div class="setup-head">
+                    <div>
+                      <div class="settings-title">Choose where Penny thinks.</div>
+                      <p class="setup-status" id="providerStatus">Checking brain connection...</p>
+                    </div>
+                    <button id="providerRefresh" class="secondary-btn tiny" type="button">Refresh</button>
+                  </div>
+
+                  <p class="setup-hint">
+                    Local is the default and recommended path. OpenAI cloud is an accessibility fallback when running a local model is too much ceremony.
+                  </p>
+
+                  <div class="provider-choice-grid">
+                    <button id="providerUseLocal" class="secondary-btn" type="button">Keep local brain</button>
+                    <button id="providerShowOpenAi" class="secondary-btn" type="button">Connect OpenAI cloud</button>
+                  </div>
+
+                  <div id="openAiCloudPanel" class="cloud-provider-panel" hidden>
+                    <div class="card-note warning-note">
+                      OpenAI cloud is not private/local. Penny may send your messages, memory context, and tool context to OpenAI, and API usage may cost money. A ChatGPT subscription is not the same thing as an API key.
+                    </div>
+
+                    <label class="field">
+                      <span>OpenAI API key</span>
+                      <input id="openAiApiKey" class="input-lite" type="password" autocomplete="off" placeholder="sk-..." />
+                    </label>
+
+                    <div class="field-hint">Create one in the OpenAI Platform dashboard under API keys.</div>
+
+                    <label class="field">
+                      <span>Chat model</span>
+                      <input id="openAiChatModel" class="input-lite" value="gpt-5.5" />
+                    </label>
+
+                    <label class="field">
+                      <span>Tool model</span>
+                      <input id="openAiToolModel" class="input-lite" value="gpt-5.5" />
+                    </label>
+
+                    <label class="field">
+                      <span>Embedding model</span>
+                      <input id="openAiEmbedModel" class="input-lite" value="text-embedding-3-small" />
+                    </label>
+
+                    <label class="check-row compact">
+                      <input id="openAiCloudDisclosure" type="checkbox" />
+                      <span>I understand this sends prompts/context off this computer.</span>
+                    </label>
+
+                    <div class="button-stack">
+                      <button id="connectOpenAiProvider" class="secondary-btn" type="button">Save OpenAI cloud setup</button>
+                      <button id="resetLocalProvider" class="secondary-btn danger" type="button">Switch back to local default</button>
+                    </div>
+                  </div>
+
+                  <div class="card-note" id="providerSetupNote">
+                    OpenAI cloud setup writes Penny's app config and takes effect after you close and reopen PennyOS.
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-block">
                 <div class="section-label">First-run local brain setup</div>
                 <div class="setup-card setup-needs-setup" id="modelSetupPanel">
                   <div class="setup-head">

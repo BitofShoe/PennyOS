@@ -24,6 +24,8 @@ function makeTransportApi({
   chatTemperature = 1.0,
   chatTopP = 0.95,
   chatTopK = 64,
+  lmStudioBase = 'http://127.0.0.1:1234/v1',
+  localLlmBackend = 'lm_studio',
 } = {}) {
   const visibleReplyApi = createVisibleReplyApi({
     ALLOW_RAW_REASONING_FALLBACK: false,
@@ -59,7 +61,8 @@ function makeTransportApi({
     LOCAL_LLM_TRANSPORT: 'stateful',
     ALLOW_RAW_REASONING_FALLBACK: false,
     RESPONSES_THEN_CHAT_FALLBACK: false,
-    LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+    LOCAL_LLM_BACKEND: localLlmBackend,
+    LMSTUDIO_BASE: lmStudioBase,
     LMSTUDIO_NATIVE_BASE: 'http://127.0.0.1:1234/api/v1',
     LMSTUDIO_API_KEY: 'lm-studio-local',
     LMSTUDIO_TIMEOUT_MS: 30_000,
@@ -69,8 +72,43 @@ function makeTransportApi({
     LMSTUDIO_CHAT_TOP_K: chatTopK,
     LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS: 900,
     reportLmStudioReasoning,
-  });
+});
 }
+
+test('OpenAI cloud chat/completions payload omits LM Studio-only top_k sampling', async () => {
+  let request = null;
+  const api = makeTransportApi({
+    localLlmBackend: 'openai_compatible',
+    lmStudioBase: 'https://api.openai.com/v1',
+    postJsonSse: async () => {
+      throw new Error('postJsonSse should not be called in this test');
+    },
+    postJsonLongRunning: async (url, options) => {
+      request = {
+        url,
+        headers: options.headers,
+        payload: JSON.parse(String(options.body || '{}')),
+      };
+      return {
+        statusCode: 200,
+        bodyText: JSON.stringify({
+          choices: [
+            { message: { content: 'Visible reply only.' } },
+          ],
+        }),
+      };
+    },
+  });
+
+  const result = await api.runLmStudioChatCompletionsApi({ userText: 'test', messages: [], memories: {} });
+
+  assert.equal(result, 'Visible reply only.\n[MOOD:smug]');
+  assert.equal(request.url, 'https://api.openai.com/v1/chat/completions');
+  assert.equal(request.headers.Authorization, 'Bearer lm-studio-local');
+  assert.equal(request.payload.temperature, 1.0);
+  assert.equal(request.payload.top_p, 0.95);
+  assert.equal(Object.prototype.hasOwnProperty.call(request.payload, 'top_k'), false);
+});
 
 test('all LM Studio chat transports include Gemma 4 chat sampling fields', async () => {
   const payloads = [];
