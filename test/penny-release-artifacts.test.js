@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+  comparableRootPath,
   isGeneratedOrPrivateTrackedFile,
   listReleaseFiles,
 } = require('../scripts/check-release-artifacts');
@@ -23,6 +24,26 @@ test('release artifact checker falls back to filesystem outside git', () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('release artifact filesystem fallback excludes git pointer files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-release-gitfile-'));
+  try {
+    fs.writeFileSync(path.join(root, '.git'), 'gitdir: /mnt/z/example/project/.git/worktrees/example\n');
+    fs.writeFileSync(path.join(root, 'README.md'), '# Penny\n');
+    const result = listReleaseFiles({ rootDir: root });
+    assert.equal(result.mode, 'filesystem');
+    assert.deepEqual(result.files, ['README.md']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('release artifact checker compares WSL and Windows spellings of the same root', () => {
+  assert.equal(
+    comparableRootPath('/mnt/z/Example/User/Project'),
+    comparableRootPath('Z:\\Example\\User\\Project'),
+  );
 });
 
 test('release artifact checker treats nested worktree temp copies as filesystem releases', () => {

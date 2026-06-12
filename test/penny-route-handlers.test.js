@@ -5,6 +5,73 @@ const { EventEmitter } = require('node:events');
 const { bindClientDisconnectAbort, createPennyRouteHandlers } = require('../lib/penny-route-handlers');
 const { buildLastRouteInfo } = require('../lib/penny-runtime-artifacts');
 
+test('workspace write routes list, approve, and deny staged edits', async () => {
+  const responses = [];
+  let requestBody = {};
+  const calls = [];
+  const handlers = createPennyRouteHandlers({
+    sendJson(_res, statusCode, json) {
+      responses.push({ statusCode, json });
+    },
+    async safeReadBody() {
+      return JSON.stringify(requestBody);
+    },
+    listPendingWorkspaceWrites() {
+      calls.push(['list']);
+      return {
+        count: 1,
+        directWritesEnabled: false,
+        pending: [
+          {
+            id: 'write-1',
+            path: 'src/app.js',
+            operation: 'replace_in_project_file',
+            patch: '--- a/src/app.js\n+++ b/src/app.js\n+ok\n',
+          },
+        ],
+      };
+    },
+    approvePendingWorkspaceWrite(body) {
+      calls.push(['approve', body.id]);
+      return { id: body.id, applied: true, approved: true };
+    },
+    denyPendingWorkspaceWrite(body) {
+      calls.push(['deny', body.id]);
+      return { id: body.id, applied: false, denied: true };
+    },
+  });
+
+  assert.equal(await handlers.handleApiRoute({
+    req: { method: 'GET' },
+    res: {},
+    url: new URL('http://localhost/api/penny/workspace-writes'),
+  }), true);
+
+  requestBody = { id: 'write-1' };
+  assert.equal(await handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://localhost/api/penny/workspace-writes/approve'),
+  }), true);
+
+  requestBody = { id: 'write-2' };
+  assert.equal(await handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://localhost/api/penny/workspace-writes/deny'),
+  }), true);
+
+  assert.deepEqual(calls, [
+    ['list'],
+    ['approve', 'write-1'],
+    ['deny', 'write-2'],
+  ]);
+  assert.equal(responses[0].statusCode, 200);
+  assert.equal(responses[0].json.pending[0].id, 'write-1');
+  assert.equal(responses[1].json.write.approved, true);
+  assert.equal(responses[2].json.write.denied, true);
+});
+
 test('memory export route returns canonical explicit memory only', async () => {
   let response = null;
   const handlers = createPennyRouteHandlers({

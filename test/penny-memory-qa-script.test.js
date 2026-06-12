@@ -168,11 +168,13 @@ test('memory QA static embedding config inherits runtime mode but isolates cache
   assert.equal(normalizeQaStaticEmbedMode('nope'), 'off');
   assert.match(buildSuitePaths('unit-static').staticEmbeddingsFile, /penny-memory-embeddings\.static\.unit-static\./);
 
+  const staticEmbeddingsFile = path.join(os.tmpdir(), 'penny-memory-embeddings.static.memory-qa-test.json');
+  const rootDir = path.join(os.tmpdir(), 'penny-root');
   const suitePaths = {
     memoryFile: 'data/penny-memory.test.json',
     archiveFile: 'data/penny-memory-archive.test.json',
     embeddingsFile: 'data/penny-memory-embeddings.test.json',
-    staticEmbeddingsFile: '/tmp/penny-memory-embeddings.static.memory-qa-test.json',
+    staticEmbeddingsFile,
     ledgerFile: 'data/penny-memory-ledger.test.json',
     openLoopFile: 'data/penny-open-loops.test.json',
   };
@@ -181,7 +183,7 @@ test('memory QA static embedding config inherits runtime mode but isolates cache
     PENNY_STATIC_EMBED_PROVIDER: 'model2vec-potion-8m',
     PENNY_STATIC_EMBED_MAX_CANDIDATES: '7',
   }, {
-    rootDir: '/tmp/penny-root',
+    rootDir,
     stamp: 'static-memory-test',
     defaultCacheFile: suitePaths.staticEmbeddingsFile,
   });

@@ -39,7 +39,10 @@ function createEnvFixture({ presetReady = true } = {}) {
 
 function makeSpawnSyncImpl({ installed, loaded, npmVersion = '11.12.1' }) {
   return function spawnSyncImpl(command, args) {
-    if (command === 'npm') return { status: 0, stdout: npmVersion, stderr: '' };
+    if (command === 'npm' || command === 'npm.cmd') return { status: 0, stdout: npmVersion, stderr: '' };
+    if (String(command).toLowerCase() === 'cmd.exe' && String(args?.join(' ') || '').includes('npm.cmd -v')) {
+      return { status: 0, stdout: npmVersion, stderr: '' };
+    }
     assert.equal(command, 'lms');
     if (args[0] === '--help') return { status: 0, stdout: 'ok', stderr: '' };
     if (args[0] === 'ls') return { status: 0, stdout: JSON.stringify(installed), stderr: '' };
@@ -50,7 +53,8 @@ function makeSpawnSyncImpl({ installed, loaded, npmVersion = '11.12.1' }) {
 
 function makeNoLmsSpawnSyncImpl({ npmVersion = '11.12.1' } = {}) {
   return function spawnSyncImpl(command) {
-    if (command === 'npm') return { status: 0, stdout: npmVersion, stderr: '' };
+    if (command === 'npm' || command === 'npm.cmd') return { status: 0, stdout: npmVersion, stderr: '' };
+    if (String(command).toLowerCase() === 'cmd.exe') return { status: 0, stdout: npmVersion, stderr: '' };
     if (command === 'lms') {
       const error = new Error('spawnSync lms ENOENT');
       error.code = 'ENOENT';

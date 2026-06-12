@@ -142,6 +142,45 @@ test('runtime voice config accepts scheme-less loopback Speaches addresses', () 
   assert.equal(voice.getConfig().baseUrl, 'http://127.0.0.1:8000');
 });
 
+test('runtime voice config rejects non-local or credentialed Speaches addresses', () => {
+  const badBaseUrls = [
+    'file:///etc/passwd',
+    'http://example.com:8000',
+    'http://169.254.169.254',
+    'http://user:pass@127.0.0.1:8000',
+  ];
+
+  for (const baseUrl of badBaseUrls) {
+    assert.throws(
+      () => createRuntimeVoiceApi({
+        fetchImpl: async () => makeJsonResponse({ data: [] }),
+        config: { baseUrl, model: 'kokoro', voice: 'af_heart' },
+      }),
+      (error) => error instanceof RuntimeVoiceError
+        && error.statusCode === 400
+        && error.code === 'invalid_base_url',
+      `${baseUrl} should be rejected`,
+    );
+  }
+});
+
+test('runtime voice config accepts localhost and IPv6 loopback Speaches addresses', () => {
+  const cases = [
+    ['localhost:8000/v1', 'http://localhost:8000'],
+    ['foo.localhost:8000/', 'http://foo.localhost:8000'],
+    ['http://127.12.34.56:8000', 'http://127.12.34.56:8000'],
+    ['http://[::1]:8000/v1', 'http://[::1]:8000'],
+  ];
+
+  for (const [baseUrl, expected] of cases) {
+    const voice = createRuntimeVoiceApi({
+      fetchImpl: async () => makeJsonResponse({ data: [] }),
+      config: { baseUrl, model: 'kokoro', voice: 'af_heart' },
+    });
+    assert.equal(voice.getConfig().baseUrl, expected);
+  }
+});
+
 test('runtime voice synthesis posts Speaches speech payload and returns audio bytes', async () => {
   const calls = [];
   const voice = createRuntimeVoiceApi({

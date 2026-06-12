@@ -110,6 +110,42 @@ test('project tool guards reject root escapes and oversized writes', () => {
   }
 });
 
+test('project tools reject symlink escapes for reads, replacements, and writes', (t) => {
+  const { api, projectRoot, cleanup } = buildApi();
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-project-tools-outside-'));
+  try {
+    fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(outsideRoot, 'secret.txt'), 'outside secret\n');
+    const linkPath = path.join(projectRoot, 'src', 'linked-outside');
+    try {
+      fs.symlinkSync(outsideRoot, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'EINVAL'].includes(error?.code)) {
+        t.skip(`symlinks unavailable: ${error.code}`);
+        return;
+      }
+      throw error;
+    }
+
+    assert.throws(
+      () => api.readProjectFileTool({ path: 'src/linked-outside/secret.txt' }),
+      /inside the Penny project/i,
+    );
+    assert.throws(
+      () => api.replaceInProjectFileTool({ path: 'src/linked-outside/secret.txt', find: 'outside', replace: 'inside' }),
+      /inside the Penny project/i,
+    );
+    assert.throws(
+      () => api.writeProjectFileTool({ path: 'src/linked-outside/new.js', content: 'console.log("nope");\n' }),
+      /inside the Penny project/i,
+    );
+    assert.equal(fs.existsSync(path.join(outsideRoot, 'new.js')), false);
+  } finally {
+    cleanup();
+    fs.rmSync(outsideRoot, { recursive: true, force: true });
+  }
+});
+
 test('project path aliases resolve scoped external roots', () => {
   const vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-local-notes-'));
   const { api, cleanup } = buildApi({
@@ -188,6 +224,30 @@ test('pending workspace writes can be denied and conflict if the base file chang
     assert.throws(
       () => api.approvePendingWorkspaceWriteTool({ id: staged.id }),
       /changed after the pending write was staged/i,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('single replace treats dollar sequences as literal replacement text', () => {
+  const { api, projectRoot, cleanup } = buildApi();
+  try {
+    fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'src', 'app.js'), 'const label = "TOKEN";\n');
+
+    const staged = api.replaceInProjectFileTool({
+      path: 'src/app.js',
+      find: 'TOKEN',
+      replace: '$$HOME $& $1',
+    });
+    assert.equal(staged.pendingApproval, true);
+    assert.match(staged.patch, /\$\$HOME \$& \$1/);
+
+    api.approvePendingWorkspaceWriteTool({ id: staged.id });
+    assert.equal(
+      fs.readFileSync(path.join(projectRoot, 'src', 'app.js'), 'utf8'),
+      'const label = "$$HOME $& $1";\n',
     );
   } finally {
     cleanup();

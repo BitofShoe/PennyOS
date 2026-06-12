@@ -59,6 +59,9 @@ import {
   renderMemoryInspector as renderMemoryInspectorUi,
   buildBrainModeNote,
 } from './penny-memory-panel.mjs';
+import {
+  renderWorkspaceWritesPanel,
+} from './penny-workspace-writes-panel.mjs';
 
 const state = {
   panel: 'chat',
@@ -75,6 +78,7 @@ const state = {
   backendStatus: null,
   memory: structuredClone(DEFAULT_MEMORY),
   memoryInspector: null,
+  workspaceWrites: null,
 };
 
 const API_TOKEN_STORAGE_KEY = 'penny:api-token';
@@ -103,6 +107,7 @@ const els = {
   tabs: Array.from(document.querySelectorAll('.tab')),
   views: Array.from(document.querySelectorAll('.view')),
   memoryList: document.getElementById('memoryList'),
+  workspaceWritesPanel: document.getElementById('workspaceWritesPanel'),
   nameInput: document.getElementById('nameInput'),
   voiceToggle: document.getElementById('voiceToggle'),
   voiceStatus: document.getElementById('voiceStatus'),
@@ -533,6 +538,7 @@ async function readPennyEventStream(response, handlers = {}) {
 function renderMemory() {
   ensureMemoryInspectorUi();
   renderMemoryListModule({ els, memory: state.memory, inspector: state.memoryInspector, escapeHtmlFn: escapeHtml });
+  renderWorkspaceWritesPanel({ panelEl: els.workspaceWritesPanel, payload: state.workspaceWrites || {}, escapeHtmlFn: escapeHtml });
   runtimeVoice.setEnabled(state.memory.voiceOn === true);
   renderMemoryInspector();
   updateBrainModeUi();
@@ -589,6 +595,7 @@ function switchPanel(panel) {
   for (const view of els.views) view.classList.toggle('active', view.dataset.view === panel);
   if (panel === 'memory') {
     loadMemoryInspector({ quiet: true });
+    loadWorkspaceWrites({ quiet: true });
   }
   if (panel === 'settings') {
     loadBackendStatus();
@@ -633,6 +640,35 @@ async function memoryInspectorRequest(pathname, method = 'GET', body = null) {
   });
   if (!res.ok) throw new Error(`Memory inspector request failed: ${res.status}`);
   return res.json();
+}
+
+async function workspaceWritesRequest(pathname = '/api/penny/workspace-writes', method = 'GET', body = null) {
+  const res = await apiFetch(pathname, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`Workspace write request failed: ${res.status}`);
+  return res.json();
+}
+
+async function loadWorkspaceWrites(options = {}) {
+  try {
+    const data = await workspaceWritesRequest();
+    state.workspaceWrites = data;
+    renderWorkspaceWritesPanel({ panelEl: els.workspaceWritesPanel, payload: state.workspaceWrites, escapeHtmlFn: escapeHtml });
+  } catch (error) {
+    state.workspaceWrites = { pending: [], count: 0, error: error?.message || String(error || 'unknown error') };
+    renderWorkspaceWritesPanel({ panelEl: els.workspaceWritesPanel, payload: state.workspaceWrites, escapeHtmlFn: escapeHtml });
+    if (!options.quiet) reportMemoryIssue('workspace edits load failed', error);
+  }
+}
+
+async function reviewWorkspaceWrite(id = '', action = '') {
+  const normalizedAction = String(action || '').trim().toLowerCase();
+  if (normalizedAction !== 'approve' && normalizedAction !== 'deny') return;
+  await workspaceWritesRequest(`/api/penny/workspace-writes/${normalizedAction}`, 'POST', { id });
+  await loadWorkspaceWrites();
 }
 
 async function loadMemoryInspector(options = {}) {
@@ -1264,6 +1300,15 @@ els.memoryList?.addEventListener('click', async (event) => {
   const button = event.target.closest('.memory-remove'); if (!button || button.dataset.kind !== 'memory') return;
   const index = Number(button.dataset.index); const memories = [...(state.memory.memories || [])]; memories.splice(index, 1); await patchMemory({ memories });
 });
+els.workspaceWritesPanel?.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-workspace-write-action]');
+  if (!button) return;
+  try {
+    await reviewWorkspaceWrite(button.dataset.workspaceWriteId, button.dataset.workspaceWriteAction);
+  } catch (error) {
+    reportMemoryIssue('workspace edit review failed', error);
+  }
+});
 els.newChat?.addEventListener('click', async () => {
   cancelActiveChatRequest();
   const freshSessionId = createSessionId();
@@ -1307,6 +1352,7 @@ updateTheme();
 updateBrainModeUi();
 renderApiTokenControls();
 loadDurableMemory();
+loadWorkspaceWrites({ quiet: true });
 loadBackendStatus();
 refreshRuntimeVoiceStatus();
   loadExpressionPackManifest().then(() => {

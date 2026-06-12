@@ -90,7 +90,7 @@
     "check:frontend-privacy": "node scripts/check-frontend-privacy.js",
     "check:public-path-leaks": "node scripts/check-public-path-leaks.js",
     "check:engine": "node scripts/check-release-engine.js",
-    "check:release": "npm run check:engine && npm run check:required-files && npm run check:release-artifacts && npm run check:frontend-privacy && npm run check:public-path-leaks && npm run check:harness-receipts && node --check server.js && npm test",
+    "check:release": "npm run check:engine && npm run check:required-files && npm run check:release-artifacts && npm run check:frontend-privacy && npm run check:public-path-leaks && npm run check:harness-receipts && node --check server.js && npm test && npm run check:release-artifacts",
     "check": "npm run check:release",
     "prepack": "npm run check:engine && npm run check:required-files && npm run check:release-artifacts && npm run check:frontend-privacy && npm run check:public-path-leaks && npm run check:harness-receipts && node --check server.js",
     "qa:voice-redo": "node scripts/qa-penny-voice-redo.js",

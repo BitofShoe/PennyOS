@@ -18,6 +18,10 @@ const FILESYSTEM_EXCLUDED_DIRS = new Set([
   'lyra-prototype',
 ]);
 
+const FILESYSTEM_EXCLUDED_FILES = new Set([
+  '.git',
+]);
+
 const ALLOWED_TRACKED_SHIM_FILES = Object.freeze([
   /^lyra-prototype\/\.codex\/skills\/penny-repo-startup-orientation\/(?:SKILL\.md|agents\/openai\.yaml)$/i,
   /^lyra-prototype\/\.codex\/skills\/penny-tauri-consumer-package\/(?:SKILL\.md|agents\/openai\.yaml|references\/REFERENCE\.md)$/i,
@@ -36,6 +40,16 @@ function normalizeRel(filePath) {
     .replace(/\\/g, '/')
     .replace(/^\.\//, '')
     .replace(/^\/+/, '');
+}
+
+function comparableRootPath(filePath) {
+  let text = String(filePath || '').trim().replace(/\\/g, '/');
+  const wslDrive = text.match(/^\/mnt\/([a-z])\/(.*)$/i);
+  if (wslDrive) text = `${wslDrive[1].toUpperCase()}:/${wslDrive[2]}`;
+  const windowsDrive = text.match(/^([a-z]):\/(.*)$/i);
+  if (windowsDrive) return `${windowsDrive[1].toLowerCase()}:/${windowsDrive[2].replace(/\/+$/, '').toLowerCase()}`;
+  const normalized = path.resolve(text).replace(/\\/g, '/').replace(/\/+$/, '');
+  return /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
 }
 
 function isGeneratedOrPrivateTrackedFile(rel) {
@@ -73,7 +87,7 @@ function gitReleaseFiles(rootDir = PROJECT_ROOT) {
   const revParse = run('git', ['rev-parse', '--show-toplevel'], { cwd: root });
   if (revParse.status !== 0) return null;
   const repoRoot = path.resolve(String(revParse.stdout || '').trim());
-  if (repoRoot !== root) return null;
+  if (comparableRootPath(repoRoot) !== comparableRootPath(root)) return null;
   const listed = run('git', ['ls-files', '-z', '--', '.'], { cwd: root });
   if (listed.status !== 0) return null;
   return String(listed.stdout || '')
@@ -99,7 +113,7 @@ function walkReleaseFiles(rootDir = PROJECT_ROOT) {
         queue.push(rel);
         continue;
       }
-      if (entry.isFile()) files.push(rel);
+      if (entry.isFile() && !FILESYSTEM_EXCLUDED_FILES.has(entry.name) && !FILESYSTEM_EXCLUDED_FILES.has(rel)) files.push(rel);
     }
   }
   return files.sort((a, b) => a.localeCompare(b));
@@ -133,6 +147,8 @@ if (require.main === module) {
 
 module.exports = {
   ALLOWED_TRACKED_SHIM_FILES,
+  FILESYSTEM_EXCLUDED_FILES,
+  comparableRootPath,
   isGeneratedOrPrivateTrackedFile,
   listReleaseFiles,
   normalizeRel,

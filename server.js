@@ -121,6 +121,7 @@ const {
 } = require('./lib/penny-server-http');
 const {
   isPathInsideRoot,
+  isRealPathInsideRoot,
 } = require('./lib/penny-path-safety');
 const {
   createPromptAssetLoader,
@@ -3802,6 +3803,11 @@ const server = http.createServer(async (req, res) => {
   const normalizedPath = path.normalize(targetPath).replace(/^([.][.][/\\])+/, '').replace(/^[/\\]+/, '');
   const filePath = path.resolve(PUBLIC_DIR, normalizedPath);
   if (!isPathInsideRoot(PUBLIC_DIR, filePath)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Forbidden');
+    return;
+  }
+  if (!isRealPathInsideRoot(PUBLIC_DIR, filePath)) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Forbidden');
     return;
