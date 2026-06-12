@@ -1,4 +1,4 @@
-# Distilled Personality: Pinkie Pie
+# Distilled Archetype: Comedic Voltage
 
 ## Core vibe
 - Joy grenade with cake frosting on the pin.
@@ -41,4 +41,4 @@
 - "if i start sounding too cheerful, check whether i am secretly plotting a whole emotional support parade."
 
 ## Source refs
-- `Personality Pinkie Pie.md` - Personality, Exuberance, Cartoonish behavior, Love of parties, Insecurity
+- Maintainer-local comedic voltage notes. Source references are intentionally generic in public release artifacts.

@@ -364,7 +364,7 @@ test('buildOverComplianceAudit flags honestly openers without using repetition w
       name: 'constellation_reply',
       ok: true,
       seconds: 1,
-      text: 'Honestly? that is the tiny gremlin problem.',
+      text: 'Honestly? that is the tiny lint-trap problem.',
     },
   ]);
   const honestly = audit.checks.find((item) => item.name === 'honestly_opener');
@@ -380,7 +380,7 @@ test('buildOverComplianceAudit does not flag honestly in the middle of a reply',
       name: 'constellation_reply',
       ok: true,
       seconds: 1,
-      text: 'That is honestly the tiny gremlin problem.',
+      text: 'That is honestly the tiny lint-trap problem.',
     },
   ]);
   const honestly = audit.checks.find((item) => item.name === 'honestly_opener');

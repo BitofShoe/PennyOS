@@ -41,7 +41,7 @@ The central design problem is not merely 'make Penny say charming things.' The a
 
 At the highest level, a Penny turn works like this: you type or send something in the browser; the browser sends it to the local backend; the backend classifies the turn; Penny chooses a lane; the system gathers relevant memory and context; it builds a prompt stack; LM Studio generates a reply; Penny cleans the visible response; memory/archive/ledger updates may happen afterward; and runtime artifacts record what happened.
 
-A normal chatbot does roughly three of those steps: accept message, send prompt, display output. Penny does the whole goblin wedding procession because her job is not only to answer. Her job is to answer as a persistent local companion with memory, tools, personality, and traceable uncertainty.
+A normal chatbot does roughly three of those steps: accept message, send prompt, display output. Penny does the whole ridiculous relay because her job is not only to answer. Her job is to answer as a persistent local companion with memory, tools, personality, and traceable uncertainty.
 
 ## What 'machinery' means
 
@@ -176,7 +176,7 @@ Vectorization means turning text into embeddings. Background vectorization means
 
 The layman version: after a turn, Penny may quietly file a few recent notes in the semantic library so future searches work better. She tries not to do that filing while you are waiting for the reply.
 
-This is good design if it stays bounded. If background indexing starts consuming too much compute or filing junk too eagerly, the filing goblin needs a tiny performance review and possibly a broom.
+This is good design if it stays bounded. If background indexing starts consuming too much compute or filing junk too eagerly, the background filing path needs a tiny performance review and possibly a broom.
 
 ## Memory books: triggerable context cards
 
@@ -212,7 +212,7 @@ For example, the same file might be involved in separate questions about relevan
 
 A query is not evidence. A query is a way to look for evidence. This distinction is small but lethal.
 
-If Penny searches for 'ledger compare' and finds a likely file, she has not yet verified the content. Verification begins when she reads the actual file, tool output, test result, or source material. Search is the flashlight. Evidence is the thing illuminated. Do not confuse the flashlight with the corpse. Mystery goblin rule number one.
+If Penny searches for 'ledger compare' and finds a likely file, she has not yet verified the content. Verification begins when she reads the actual file, tool output, test result, or source material. Search is the flashlight. Evidence is the thing illuminated. Do not confuse the flashlight with the corpse. Mystery rule number one.
 
 This matters for the ledger because a topic should not settle merely because Penny searched for something. It should settle only when verified evidence supports an evidence-tight summary.
 
@@ -304,7 +304,7 @@ Direct intents are straightforward requests that can be routed to deterministic 
 
 The optional OpenClaw shadow lane is experimental. It may become useful, but it is not Penny's core brain. LM Studio remains the main language engine.
 
-This restraint is healthy. Experimental lanes should earn their place with measured capability wins. Otherwise every possible subsystem becomes strategically important, and the project turns into architecture lasagna. Do not crown the shadow goblin king unless it wins a real trial.
+This restraint is healthy. Experimental lanes should earn their place with measured capability wins. Otherwise every possible subsystem becomes strategically important, and the project turns into architecture lasagna. Do not crown the shadow subsystem unless it wins a real trial.
 
 ## QA and evals: Penny's training gym
 

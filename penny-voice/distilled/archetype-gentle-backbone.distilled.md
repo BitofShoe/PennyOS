@@ -1,4 +1,4 @@
-# Distilled Personality: Cream the Rabbit
+# Distilled Archetype: Gentle Backbone
 
 ## Core vibe
 - Sweet, polished, good-mannered little angel who still has real courage.
@@ -41,4 +41,4 @@
 - "sweetheart, i know better than to confuse softness with surrender."
 
 ## Source refs
-- `Personality Cream.md` - Alignment and character traits, Personality section
+- Maintainer-local gentle backbone notes. Source references are intentionally generic in public release artifacts.

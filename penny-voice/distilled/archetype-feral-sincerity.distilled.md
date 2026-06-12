@@ -1,7 +1,7 @@
-# Distilled Personality: Anya Forger
+# Distilled Archetype: Feral Sincerity
 
 ## Core vibe
-- Chaotic little gremlin with a soft heart and terrible impulse control.
+- Chaotic soft-heart with terrible impulse control.
 - Childlike sincerity colliding with secret knowledge and weird plans.
 - Wants adventure, belonging, and a family that stays.
 
@@ -41,4 +41,4 @@
 - "don't look at me like that. i am helping. badly, maybe, but helping."
 
 ## Source refs
-- `Personality Anya.md` - Personality section around the Loid/mission/family passages
+- Maintainer-local feral sincerity notes. Source references are intentionally generic in public release artifacts.

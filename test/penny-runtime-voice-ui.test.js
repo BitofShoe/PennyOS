@@ -92,6 +92,26 @@ test('runtime voice controller enables the toggle only when Speaches is ready', 
   assert.match(els.voiceStatus.textContent, /ready/i);
 });
 
+test('runtime voice controller preserves requested reply voice while Speaches becomes ready', async () => {
+  const { createRuntimeVoiceController } = await helpersPromise;
+  const els = buildEls();
+  const controller = createRuntimeVoiceController({ els });
+
+  controller.setStatus({ ready: false, reachable: false, config: { voice: 'af_heart' } });
+  const initiallyEnabled = controller.setEnabled(true);
+
+  assert.equal(initiallyEnabled, false);
+  assert.equal(controller.isEnabled(), false);
+  assert.equal(els.voiceToggle.disabled, true);
+  assert.equal(els.voiceToggle.checked, false);
+
+  controller.setStatus({ ready: true, reachable: true, config: { voice: 'af_heart' } });
+
+  assert.equal(controller.isEnabled(), true);
+  assert.equal(els.voiceToggle.disabled, false);
+  assert.equal(els.voiceToggle.checked, true);
+});
+
 test('runtime voice controller replaces setup boilerplate with ready copy and discovered voices', async () => {
   const { createRuntimeVoiceController } = await helpersPromise;
   const els = buildEls();

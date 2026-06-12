@@ -872,7 +872,7 @@ playful but legally fussy about what entered the prompt
 
 That is the secret third thing.
 
-A philosophically engineered goblin with a clipboard.
+A philosophically engineered local companion with a clipboard.
 
 ---
 

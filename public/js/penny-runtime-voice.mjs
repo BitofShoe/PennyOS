@@ -69,6 +69,7 @@ export function createRuntimeVoiceController({
   URLApi = globalThis.URL,
   logger = console,
 } = {}) {
+  let desiredEnabled = false;
   let enabled = false;
   let status = { ready: false, reachable: false, config: {} };
   let activeAudio = null;
@@ -89,7 +90,7 @@ export function createRuntimeVoiceController({
   function updateControls() {
     const ready = status.ready === true;
     setDisabled(els.voiceToggle, !ready);
-    if (els.voiceToggle && !ready) els.voiceToggle.checked = false;
+    if (els.voiceToggle) els.voiceToggle.checked = ready && enabled;
     setDisabled(els.voiceTest, !ready || speaking);
     setDisabled(els.voiceStop, !activeAudio);
     setDisabled(els.voiceReplay, !lastAudioUrl);
@@ -127,13 +128,14 @@ export function createRuntimeVoiceController({
     populateConfigFields(status.config);
     populateVoiceOptions(status.availableVoices);
     lastVoice = text(status.config?.voice) || lastVoice;
+    enabled = desiredEnabled && status.ready === true;
     updateControls();
     return status;
   }
 
   function setEnabled(nextEnabled = false) {
-    enabled = nextEnabled === true && status.ready === true;
-    if (els.voiceToggle) els.voiceToggle.checked = enabled;
+    desiredEnabled = nextEnabled === true;
+    enabled = desiredEnabled && status.ready === true;
     if (!enabled) stop();
     updateControls();
     return enabled;

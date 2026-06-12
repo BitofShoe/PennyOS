@@ -806,6 +806,9 @@ async function main() {
     persistReport(report);
     await page.fill('#composer', 'Tell me what you see in this image.');
     const imageTurnsBefore = Number(await page.textContent('#turnsValue')) || 0;
+    const voiceFetchesBeforeImage = IMAGE_ONLY
+      ? 0
+      : Number(await page.evaluate(() => window.__pennyDebug?.voice?.speechFetches || 0)) || 0;
     const imageStarted = Date.now();
     await page.click('#send');
     report.currentStep = 'image_upload_turn_user_message_persists';
@@ -884,6 +887,29 @@ async function main() {
       assistantPreview: String(imageReplyDebug?.latestAssistantContent || imageReplyDebug?.latestAssistantBubbleText || '').slice(0, 160),
     });
     persistReport(report);
+
+    if (!IMAGE_ONLY) {
+      report.currentStep = 'runtime_voice_speaks_image_reply';
+      persistReport(report);
+      console.log('Checking runtime voice playback for image reply...');
+      await waitForPagePredicate(page, ({ minSpeechFetches }) => {
+        const voice = window.__pennyDebug?.voice || {};
+        return Number(voice.speechFetches || 0) >= minSpeechFetches
+          && voice.lastSpeechStatus === 200
+          && voice.audioPlayCalls >= minSpeechFetches
+          && /^blob:/i.test(String(voice.lastAudioUrl || ''));
+      }, { minSpeechFetches: voiceFetchesBeforeImage + 1 }, { timeout: 10000 });
+      const imageVoiceDebug = await page.evaluate(() => ({ ...(window.__pennyDebug?.voice || {}) }));
+      report.checks.push({
+        name: 'runtime_voice_speaks_image_reply',
+        ok: true,
+        speechFetchesBeforeImage: voiceFetchesBeforeImage,
+        speechFetches: imageVoiceDebug.speechFetches,
+        lastSpeechStatus: imageVoiceDebug.lastSpeechStatus,
+        audioPlayCalls: imageVoiceDebug.audioPlayCalls,
+      });
+      persistReport(report);
+    }
 
     report.currentStep = 'image_upload_turn_inspector_artifact';
     persistReport(report);

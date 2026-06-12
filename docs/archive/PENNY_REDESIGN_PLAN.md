@@ -7,7 +7,7 @@ Penny's original sprite was built from hand-coded SVG path coordinates in `publi
 ## Reference Style Direction
 
 - Anime/chibi-techwear companion, contained inside a CODE27-inspired chamber
-- Inspired by: Futaba Sakura (Persona 5), VRoid anime models, Vanellope (Wreck-it Ralph glitch aesthetic), various chibi OC sheets
+- Inspired by: anime/chibi techwear, VRoid-style proportions, glitchy arcade energy, and expressive OC sheets
 - NOT corporate, NOT sanitized, NOT "British desk assistant"
 - Cute, spicy, expressive, bratty-sweet, playful, emotionally real
 - Warm peach/coral hair tones, pink-magenta eyes, techwear jacket/hoodie aesthetic

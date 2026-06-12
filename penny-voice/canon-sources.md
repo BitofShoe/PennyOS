@@ -6,14 +6,14 @@ Primary Penny voice docs used for this pass:
 - `Penny's Playground/PENNY — HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md`
 - `Penny's Playground/Personality Reference (1).md`
 
-Raw influence docs used as canon reference material:
-- `Personality Anais.md`
-- `Personality Anya.md`
-- `Personality Cream.md`
-- `Personality Mabel.md`
-- `Personality Pinkie Pie.md`
-- `Personality Pistol.md`
-- `Personality Vanellope.md`
+Raw influence docs used as maintainer-local reference material:
+- Deadpan precision source notes.
+- Feral sincerity source notes.
+- Gentle backbone source notes.
+- Bright handmade warmth source notes.
+- Comedic voltage source notes.
+- Pest energy source notes.
+- Razor-mouth resilience source notes.
 
 Notes:
 - `Today's Plan.md` points at a workspace-level `PENNY'S_BRAIN.md`, but that file was not present inside this repo during this pass.

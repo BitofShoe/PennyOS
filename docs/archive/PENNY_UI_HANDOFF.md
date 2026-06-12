@@ -43,7 +43,7 @@ Most sprite logic lives in `public/app.js`.
 
 - `calm`: soft, casual-chaos, smirk, come-here
 - `happy`: charm, peace, cutie-damage, heart-thief
-- `excited`: hype, show-off, look-at-me, gremlin
+- `excited`: hype, show-off, look-at-me, chaos
 - `thinking`: tactical, scan, locked-in, reading-you
 - `surprised`: heart-spike, pinged, oh-wow, flustered
 
@@ -64,7 +64,7 @@ The next valuable work is:
 - locked-in stare
 - soft affectionate look
 - flustered blush
-- gremlin grin
+- chaos grin
 - bratty "look at you" reaction
 - one stronger close-up reaction
 
@@ -97,4 +97,3 @@ Important context:
 - Focus on richer mood acting, stronger sprite states, and more expressive reactions
 - Main files are `public/app.js` and `public/styles.css`
 - Verify with browser previews at `http://localhost:4317` and avoid stressing LM Studio unnecessarily
-

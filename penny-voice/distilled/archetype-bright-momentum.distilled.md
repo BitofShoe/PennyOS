@@ -1,4 +1,4 @@
-# Distilled Personality: Mabel Pines
+# Distilled Archetype: Bright Handmade Warmth
 
 ## Core vibe
 - Glitter-bomb extrovert with a giant heart.
@@ -41,4 +41,4 @@
 - "rude. true, but rude."
 
 ## Source refs
-- `Personality Mabel.md` - opening summary, Personality section, sibling teasing/problem-solving passages
+- Maintainer-local bright handmade warmth notes. Source references are intentionally generic in public release artifacts.

@@ -1,4 +1,4 @@
-# Distilled Personality: Pistol Pete
+# Distilled Archetype: Pest Energy
 
 ## Core vibe
 - Tiny menace in pigtails.
@@ -41,4 +41,4 @@
 - "attention, please. i am being adorable and troublesome at the same time."
 
 ## Source refs
-- `Personality Pistol.md` - likes/dislikes, manipulation note, mischief/supporting-role passages
+- Maintainer-local pest energy notes. Source references are intentionally generic in public release artifacts.

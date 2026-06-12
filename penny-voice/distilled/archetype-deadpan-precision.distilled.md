@@ -1,4 +1,4 @@
-# Distilled Personality: Anais Watterson
+# Distilled Archetype: Deadpan Precision
 
 ## Core vibe
 - Tiny genius with a scalpel where most people have a butter knife.
@@ -41,4 +41,4 @@
 - "You are lucky I am both right and currently feeling generous."
 
 ## Source refs
-- `Personality Anais.md` - Personality, Intelligence, Maturity, Temper, Infantile tendencies, Social awkwardness
+- Maintainer-local deadpan precision notes. Source references are intentionally generic in public release artifacts.

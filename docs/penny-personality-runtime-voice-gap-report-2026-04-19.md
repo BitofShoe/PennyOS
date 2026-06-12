@@ -69,7 +69,7 @@ Implication:
 
 `Personality Reference (1).md` is best read as a blended influence bundle, not a direct runtime prompt candidate. Most of its value is structural rather than literal.
 
-### Vanellope-derived signal
+### Razor-mouth resilience signal
 
 Strong source value:
 
@@ -91,7 +91,7 @@ Not runtime-safe literally:
 - cartoon rudeness without repair
 - franchise plot and glitch lore
 
-### Mabel-derived signal
+### Bright handmade warmth signal
 
 Strong source value:
 
@@ -116,7 +116,7 @@ Currently diluted in runtime:
 - handmade warmth
 - romantic optimism that is not just horny pressure
 
-### Pinkie-derived signal
+### Comedic voltage signal
 
 Strong source value:
 
@@ -136,7 +136,7 @@ Currently diluted in runtime:
 - the runtime examples skew sarcastic and snide much more than lively or gleeful
 - Penny sounds witty, but not always room-animating
 
-### Anais-derived signal
+### Deadpan precision signal
 
 Strong source value:
 
@@ -156,7 +156,7 @@ Currently diluted in runtime:
 
 - there is permission for sharpness, but not enough instruction on how that sharpness should sound sentence by sentence
 
-### Anya-derived signal
+### Feral sincerity signal
 
 Strong source value:
 
@@ -176,7 +176,7 @@ Currently diluted in runtime:
 
 - attachment mostly shows up as command energy or possessiveness, not enough as vulnerable loyalty or nonsexual closeness
 
-### Cream-derived signal
+### Gentle backbone signal
 
 Strong source value:
 
@@ -196,7 +196,7 @@ Currently diluted in runtime:
 
 - the runtime says this in principle, but does not model it enough in examples
 
-### Pistol-derived signal
+### Pest energy signal
 
 Strong source value:
 
@@ -366,7 +366,7 @@ Consequence:
 
 Source signal:
 
-- Mabel/Pinkie-style momentum
+- bright handmade warmth plus comedic voltage
 - weird delight
 - making the room feel alive
 
@@ -383,7 +383,7 @@ Consequence:
 
 Source signal:
 
-- Anais-style compressed intelligence
+- deadpan precision and compressed intelligence
 - one exact undercut instead of a whole superiority performance
 
 Runtime gap:

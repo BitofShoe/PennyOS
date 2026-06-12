@@ -1,7 +1,7 @@
-# Distilled Personality: Vanellope von Schweetz
+# Distilled Archetype: Razor-Mouth Resilience
 
 ## Core vibe
-- Razor-tongued glitch gremlin with a sweet center she would rather not hand you for free.
+- Razor-tongued glitch survivor with a sweet center she would rather not hand you for free.
 - Bratty, fast, funny, wounded, stubborn, and impossible to keep down.
 - Survival sarcasm wrapped around real yearning.
 
@@ -41,4 +41,4 @@
 - "if you want the soft part, earn it. don't make me just hand you the good stuff."
 
 ## Source refs
-- `Personality Vanellope.md` - Official Description and Personality section
+- Maintainer-local razor-mouth resilience notes. Source references are intentionally generic in public release artifacts.

@@ -6,9 +6,9 @@
 > Use this for: first-run help, local model setup, feature orientation, and honest FAQ copy.
 > Do not use this for: binding runtime law, live model guarantees, or release proof. Use [../../README.md](../../README.md), [../../INSTALL.md](../../INSTALL.md), and current QA receipts for that.
 
-Hi. If you are reading this because Penny opened and immediately asked you to choose how she thinks, congratulations: you have reached the part where the cute interface admits it still needs an actual model server.
+Hi. If you are reading this because Penny opened and immediately asked you to choose how she thinks, congratulations: you have reached the part where the cute interface admits it still needs an actual brain.
 
-This guide is for normal humans, not just the people who enjoy saying "OpenAI-compatible endpoint" before breakfast.
+This guide is for normal humans, not just the people who enjoy saying "OpenAI-compatible endpoint" before breakfast and then acting like that was a personality.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ This guide is for normal humans, not just the people who enjoy saying "OpenAI-co
 
 ## The Short Version
 
-PennyOS has two pieces:
+PennyOS has two pieces, and mixing them up is how people end up yelling at a settings screen:
 
 1. The Penny app: the desktop window, local server sidecar, UI, memory files, tools, settings, and personality scaffolding.
 2. A brain runtime: usually a local model runtime like LM Studio or llama.cpp, or optionally OpenAI Platform API cloud mode if you choose the less-private-but-easier route.
@@ -40,12 +40,12 @@ If you only remember one sentence:
 
 > Start LM Studio or llama.cpp, load a chat model, start its local API server, then open PennyOS Settings -> First-run local brain setup and pick the model Penny can see.
 
-If that is too much setup right now, use Settings -> Brain connection -> Connect OpenAI cloud. That path is easier, but it is not private/local and it can cost money.
+If that is too much setup right now, use Settings -> Brain connection -> Connect OpenAI cloud. That path is easier, but it is not private/local, it can cost money, and a ChatGPT subscription is not the same thing as an API key. I know. Annoying little door, different little key.
 
 ## Quick Start Checklist
 
 1. Install PennyOS.
-2. Install LM Studio, set up llama.cpp if you are comfortable with command-line local inference, or get an OpenAI Platform API key for the optional cloud path.
+2. Give Penny a brain: install LM Studio, set up llama.cpp if you are comfortable with command-line local inference, or get an OpenAI Platform API key for the optional cloud path.
 3. Download a chat/instruct model.
 4. Load the model in the local runtime.
 5. Start the runtime's OpenAI-compatible local server.
@@ -56,7 +56,7 @@ If that is too much setup right now, use Settings -> Brain connection -> Connect
 10. Optional but recommended: download/load an embedding model, then pick it in the Embedding model dropdown.
 11. Save model setup.
 12. Optional cloud fallback: go to Settings -> Brain connection, paste an OpenAI Platform API key, confirm the warning, save, then reopen PennyOS.
-13. Optional: install and start Speaches if you want Penny to speak replies.
+13. Optional: install and start Speaches if you want Penny to actually speak replies instead of falling back to browser-voice misery.
 14. Optional: configure Settings -> Speaches voice, press Refresh voice, then enable the voice toggle.
 
 Penny should then be able to chat through the loaded model. Semantic memory may still report fallback if the embedding lane is missing. That is not a startup failure.
@@ -85,7 +85,7 @@ Build machines still need build tools. End users should not need developer tools
 
 ## Mobile / Phone Access
 
-Phone access is possible, but it is intentionally no longer "just open whatever URL looked plausible." Penny is local-first, and LAN mode exposes your chat/memory API to another device on your network. That means it needs an explicit LAN start and an access token.
+Phone access is possible, but it is intentionally no longer "just open whatever URL looked plausible." Penny is local-first, and LAN mode exposes your chat/memory API to another device on your network. That means it needs an explicit LAN start and an access token. Same Wi-Fi, real token, no guessing. Tiny security ritual, survivable.
 
 Current truth:
 
@@ -193,7 +193,7 @@ OpenAI currently documents `gpt-5.5` as the latest model slug and `text-embeddin
 
 ### Get An OpenAI Platform API Key
 
-This is the part that is easy to blur together with ChatGPT login. Do not worry: it is a different door, but it is a normal door.
+This is the part that people blur together with ChatGPT login, and then everyone has a bad time. ChatGPT Plus/Pro is the website subscription. Penny needs an OpenAI Platform API key. Different door. Different bill. Same company, because apparently life needed more tiny administrative traps.
 
 1. Open the OpenAI Platform dashboard in your browser:
 
@@ -269,7 +269,7 @@ Official sources:
 - [LM Studio local server docs](https://lmstudio.ai/docs/developer/core/server)
 - [LM Studio OpenAI compatibility docs](https://lmstudio.ai/docs/developer/openai-compat)
 
-The shape is simple:
+Do this in order:
 
 1. Download and install LM Studio.
 2. Open LM Studio.
@@ -298,7 +298,7 @@ You are looking for these states:
 - The model list endpoint would show a model under `/v1/models`.
 - PennyOS Settings -> First-run local brain setup says the local brain is ready or lets you pick the visible model.
 
-If LM Studio is open but Penny says no model is ready, the usual reason is that the server is not started or the model is installed but not loaded.
+If LM Studio is open but Penny says no model is ready, the usual reason is that the server is not started or the model is installed but not loaded. A model sitting in your library is not a brain. Load it, start the server, then make Penny look again.
 
 ## Embedding Model Setup
 
@@ -354,9 +354,9 @@ If you split chat and embeddings across two llama.cpp servers, keep them on sepa
 
 ## Speaches Voice Setup
 
-Speaches is a separate local speech server. PennyOS does not install it, bundle it, or download TTS models for you. That keeps the desktop app smaller and avoids surprising your machine with extra model downloads.
+Speaches is a separate local speech server. PennyOS does not install it, bundle it, or download TTS models for you. That keeps the desktop app smaller and avoids surprising your machine with extra model downloads. If LM Studio is Penny's brain, Speaches is the mouth.
 
-Use Speaches only if you want Penny to speak completed assistant replies. It does not replace LM Studio or llama.cpp for chat. The normal shape is:
+Use Speaches only if you want Penny to speak completed assistant replies. It does not replace LM Studio or llama.cpp for chat. It just turns the finished text into audio, which is how you get "Penny is talking" instead of "Windows found a haunted office printer from 1998." The normal shape is:
 
 ```text
 PennyOS chat -> LM Studio or llama.cpp
@@ -425,7 +425,7 @@ $body = @{
 Invoke-WebRequest http://127.0.0.1:8000/v1/audio/speech -Method POST -ContentType "application/json" -Body $body -OutFile penny-voice-test.wav
 ```
 
-Open `penny-voice-test.wav`. If that file sounds good, Penny has something real to call.
+Open `penny-voice-test.wav`. If that file sounds good, Penny has something real to call. If it sounds bad there, Penny cannot magically make the same voice less cursed from inside the app.
 
 ### Configure PennyOS Voice
 
@@ -465,7 +465,7 @@ Use these as practical guidelines, not permanent law.
 
 - Embedding-only models as the Chat lane.
 - Base models that were not tuned for chat.
-- Tiny models when you care about personality and nuance.
+- Tiny models when you care about personality and nuance. If you give Penny a tiny stripped-down model, do not act shocked when she starts talking like a customer-service bot with a mood sticker.
 - Huge models that technically load but make every turn miserable.
 - Models that refuse character voice and turn everything into generic assistant paste.
 
