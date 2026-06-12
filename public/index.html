@@ -242,7 +242,7 @@
                 </a>
 
                 <label class="field">
-                  <span>Expression lock</span>
+                  <span>Expression</span>
                   <select id="expressionOverrideSelect" class="input-lite">
                     <option value="">Auto</option>
                     <option value="calm">Calm</option>
@@ -261,38 +261,58 @@
                 </div>
 
                 <div class="mode-block">
-                  <div class="mode-title">Brain mode</div>
+                  <div class="mode-title">Reply route</div>
 
                   <label class="check-row compact">
                     <input id="brainModeShadow" name="brainMode" type="radio" />
-                    <span>Shadow brain</span>
+                    <span>Review route (experimental)</span>
                   </label>
 
                   <label class="check-row compact">
                     <input id="brainModeLocal" name="brainMode" type="radio" />
-                    <span>Local brain</span>
+                    <span>Local model</span>
                   </label>
                 </div>
               </section>
 
               <section class="settings-block">
-                <div class="section-label">Brain connection</div>
+                <div class="section-label">Setup</div>
+                <div class="setup-card setup-needs-setup" id="firstRunSetupPanel">
+                  <div class="setup-head">
+                    <div>
+                      <div class="settings-title">Choose how Penny thinks.</div>
+                      <p class="setup-status">
+                        Local models are recommended. The OpenAI API path is there when you need the easiest cloud fallback.
+                      </p>
+                    </div>
+                    <a class="secondary-btn tiny" href="/pennyos-help.html">Guide</a>
+                  </div>
+
+                  <div class="provider-choice-grid">
+                    <button id="firstRunUseLocal" class="secondary-btn" type="button">Use a local model</button>
+                    <button id="firstRunUseOpenAi" class="secondary-btn" type="button">Use OpenAI API</button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-block">
+                <div class="section-label">Model connection</div>
                 <div class="setup-card setup-ready" id="providerSetupPanel">
                   <div class="setup-head">
                     <div>
                       <div class="settings-title">Choose where Penny thinks.</div>
-                      <p class="setup-status" id="providerStatus">Checking brain connection...</p>
+                      <p class="setup-status" id="providerStatus">Checking model connection...</p>
                     </div>
                     <button id="providerRefresh" class="secondary-btn tiny" type="button">Refresh</button>
                   </div>
 
                   <p class="setup-hint">
-                    Local is the default and recommended path. OpenAI cloud is an accessibility fallback when running a local model is too much ceremony.
+                    Local is the default and recommended path. The OpenAI API is an accessibility fallback when running a local model is too much ceremony.
                   </p>
 
                   <div class="provider-choice-grid">
-                    <button id="providerUseLocal" class="secondary-btn" type="button">Keep local brain</button>
-                    <button id="providerShowOpenAi" class="secondary-btn" type="button">Connect OpenAI cloud</button>
+                    <button id="providerUseLocal" class="secondary-btn" type="button">Use local model</button>
+                    <button id="providerShowOpenAi" class="secondary-btn" type="button">Use OpenAI API</button>
                   </div>
 
                   <div id="openAiCloudPanel" class="cloud-provider-panel" hidden>
@@ -308,18 +328,18 @@
                     <div class="field-hint">Create one in the OpenAI Platform dashboard under API keys.</div>
 
                     <label class="field">
-                      <span>Chat model</span>
-                      <input id="openAiChatModel" class="input-lite" value="gpt-5.5" />
+                      <span>Conversation model</span>
+                      <input id="openAiChatModel" class="input-lite" placeholder="loaded from Penny defaults" />
                     </label>
 
                     <label class="field">
-                      <span>Tool model</span>
-                      <input id="openAiToolModel" class="input-lite" value="gpt-5.5" />
+                      <span>Tools model</span>
+                      <input id="openAiToolModel" class="input-lite" placeholder="defaults to the conversation model" />
                     </label>
 
                     <label class="field">
-                      <span>Embedding model</span>
-                      <input id="openAiEmbedModel" class="input-lite" value="text-embedding-3-small" />
+                      <span>Memory search model</span>
+                      <input id="openAiEmbedModel" class="input-lite" placeholder="loaded from Penny defaults" />
                     </label>
 
                     <label class="check-row compact">
@@ -339,13 +359,13 @@
                 </div>
               </section>
 
-              <section class="settings-block">
-                <div class="section-label">First-run local brain setup</div>
+              <section class="settings-block" id="localModelSetupSection">
+                <div class="section-label">Local model setup</div>
                 <div class="setup-card setup-needs-setup" id="modelSetupPanel">
                   <div class="setup-head">
                     <div>
-                      <div class="settings-title">Pick the brain lanes.</div>
-                      <p class="setup-status" id="modelSetupStatus">Checking local brain...</p>
+                      <div class="settings-title">Choose your local models.</div>
+                      <p class="setup-status" id="modelSetupStatus">Checking local model server...</p>
                     </div>
                     <button id="refreshModelSetup" class="secondary-btn tiny" type="button">Refresh</button>
                   </div>
@@ -355,39 +375,43 @@
                   </p>
 
                   <label class="field">
-                    <span>Chat model</span>
+                    <span>Conversation model</span>
                     <select id="modelSelect" class="input-lite">
                       <option value="">loading models...</option>
                     </select>
                   </label>
 
-                  <label class="field">
-                    <span>Tool model</span>
-                    <select id="toolModelSelect" class="input-lite">
-                      <option value="">loading models...</option>
-                    </select>
-                  </label>
+                  <details class="advanced-model-routing">
+                    <summary>Advanced model routing</summary>
 
-                  <label class="field">
-                    <span>Embedding model</span>
-                    <select id="embedModelSelect" class="input-lite">
-                      <option value="">keyword fallback</option>
-                    </select>
-                  </label>
+                    <label class="field">
+                      <span>Tools model</span>
+                      <select id="toolModelSelect" class="input-lite">
+                        <option value="">loading models...</option>
+                      </select>
+                    </label>
 
-                  <label class="check-row compact">
-                    <input id="modelSetupFallback" type="checkbox" checked />
-                    <span>Allow Penny to fall back to another compatible loaded model</span>
-                  </label>
+                    <label class="field">
+                      <span>Memory search model</span>
+                      <select id="embedModelSelect" class="input-lite">
+                        <option value="">basic memory search</option>
+                      </select>
+                    </label>
 
-                  <div class="card-note" id="modelSetupEmbedding">
-                    Embeddings are optional; Penny can still use keyword fallback when the embedding lane is missing.
-                  </div>
+                    <label class="check-row compact">
+                      <input id="modelSetupFallback" type="checkbox" checked />
+                      <span>Allow Penny to use another compatible loaded model if the saved one is missing</span>
+                    </label>
+
+                    <div class="card-note" id="modelSetupEmbedding">
+                      Memory search is optional; Penny can still use basic keyword search when the embedding model is missing.
+                    </div>
+                  </details>
 
                   <button id="saveModelSetup" class="secondary-btn" type="button">Save model setup</button>
                 </div>
 
-                <div class="section-label">Local brain diagnostics</div>
+                <div class="section-label">Local diagnostics</div>
                 <div class="diagnostics">
                   <div class="diag-row">
                     <span>Local link</span>
@@ -395,12 +419,12 @@
                   </div>
 
                   <div class="diag-row">
-                    <span>Chat lane model</span>
+                    <span>Conversation model</span>
                     <strong id="backendModel">pending</strong>
                   </div>
 
                   <div class="diag-row">
-                    <span>Tool lane default</span>
+                    <span>Tools model</span>
                     <strong id="backendToolModel">pending</strong>
                   </div>
 
@@ -410,13 +434,13 @@
                   </div>
 
                   <div class="diag-row">
-                    <span>Last reply lane</span>
+                    <span>Last reply path</span>
                     <strong id="backendLastLane">pending</strong>
                   </div>
                 </div>
 
                 <div class="card-note" id="brainModeNote">
-                  Your configured local model runtime is Penny's main brain right now. Shadow stays optional and experimental until it proves it can do more than the local lane.
+                  Penny is using the selected model route. The review route stays optional and experimental.
                 </div>
 
                 <div class="storage-block">

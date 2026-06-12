@@ -135,7 +135,7 @@ test('model setup exposes a selectable embedding lane and prefers a loaded embed
     'text-embedding-nomic-embed-text-v1.5',
   ]);
   assert.equal(viewModel.selectedEmbedModel, 'text-embedding-embeddinggemma-300m@f32');
-  assert.match(viewModel.embeddingText, /keyword fallback/i);
+  assert.match(viewModel.embeddingText, /basic keyword search/i);
 });
 
 test('buildFirstRunModelSetupViewModel turns missing loaded models into a clear setup checklist', async () => {
@@ -233,7 +233,7 @@ test('updateModelSetupUi renders fallback and embedding status without hiding su
   assert.equal(viewModel.visible, false);
   assert.equal(els.modelSetupPanel.dataset.severity, 'ready');
   assert.match(els.modelSetupStatus.textContent, /ready/i);
-  assert.match(els.modelSetupEmbedding.textContent, /semantic memory ready/i);
+  assert.match(els.modelSetupEmbedding.textContent, /memory search is ready/i);
   assert.match(els.embedModelSelect.innerHTML, /text-embedding-nomic-embed-text-v1\.5/);
   assert.equal(els.embedModelSelect.value, 'text-embedding-nomic-embed-text-v1.5');
   assert.equal(els.modelSetupFallback.checked, false);

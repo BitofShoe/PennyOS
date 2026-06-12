@@ -101,6 +101,24 @@ test('sensitive mutation routes require a token outside LAN mode', () => {
   }
 });
 
+test('local no-token opt-out bypasses loopback sensitive-route tokens only', () => {
+  const security = buildSecurity({ PENNY_API_ALLOW_LOCAL_NO_TOKEN: '1', PENNY_LAN_SHARE: '1' });
+  const url = new URL('http://localhost:4317/api/penny/provider/openai/connect');
+
+  assert.equal(security.validateApiRequest(req({
+    method: 'POST',
+    contentType: 'application/json',
+    remoteAddress: '127.0.0.1',
+  }), url).ok, true);
+
+  assert.equal(security.validateApiRequest(req({
+    method: 'POST',
+    contentType: 'application/json',
+    host: '192.168.1.50:4317',
+    remoteAddress: '192.168.1.51',
+  }), new URL('http://192.168.1.50:4317/api/penny/provider/openai/connect')).code, 'token_required');
+});
+
 test('API security ignores malformed cookie encoding instead of throwing', () => {
   const security = buildSecurity();
   const url = new URL('http://localhost:4317/api/penny/memory/purge');

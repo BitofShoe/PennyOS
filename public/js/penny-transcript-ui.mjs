@@ -37,6 +37,84 @@ function stableDecorSeed(value = '') {
   return hash >>> 0;
 }
 
+function sanitizeCodeLanguage(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_+.#-]/g, '')
+    .slice(0, 32);
+}
+
+function renderPlainTranscriptText(text = '', escapeHtmlFn = escapeHtml) {
+  return escapeHtmlFn(String(text || '')).replace(/\n/g, '<br>');
+}
+
+function renderCodeBlockHtml(code = '', language = '', escapeHtmlFn = escapeHtml) {
+  const safeLanguage = sanitizeCodeLanguage(language);
+  const codeAttrs = safeLanguage
+    ? ` class="language-${safeLanguage}" data-language="${safeLanguage}"`
+    : '';
+  return `<pre class="bubble-code"><code${codeAttrs}>${escapeHtmlFn(String(code || ''))}</code></pre>`;
+}
+
+export function renderTranscriptContentHtml(content = '', { escapeHtmlFn = escapeHtml } = {}) {
+  const text = String(content || '');
+  if (!text) return '';
+
+  const openingFencePattern = /^```([A-Za-z0-9_+.#-]{0,32})?\s*$/;
+  const closingFencePattern = /^```\s*$/;
+  const lines = text.split('\n');
+  const segments = [];
+  let plainLines = [];
+  let codeLines = [];
+  let codeLanguage = '';
+  let inCode = false;
+
+  const flushPlain = () => {
+    if (!plainLines.length) return;
+    segments.push({ type: 'text', value: plainLines.join('\n') });
+    plainLines = [];
+  };
+
+  for (const line of lines) {
+    if (!inCode) {
+      const match = line.match(openingFencePattern);
+      if (match) {
+        flushPlain();
+        inCode = true;
+        codeLanguage = match[1] || '';
+        codeLines = [];
+        continue;
+      }
+      plainLines.push(line);
+      continue;
+    }
+
+    if (closingFencePattern.test(line)) {
+      segments.push({ type: 'code', value: codeLines.join('\n'), language: codeLanguage });
+      inCode = false;
+      codeLanguage = '';
+      codeLines = [];
+      continue;
+    }
+
+    codeLines.push(line);
+  }
+
+  if (inCode) {
+    return renderPlainTranscriptText(text, escapeHtmlFn);
+  }
+
+  flushPlain();
+
+  return segments
+    .map((segment) => (segment.type === 'code'
+      ? renderCodeBlockHtml(segment.value, segment.language, escapeHtmlFn)
+      : renderPlainTranscriptText(segment.value, escapeHtmlFn)))
+    .filter(Boolean)
+    .join('<br>');
+}
+
 /**
  * @returns {TranscriptRowViewModel[]}
  */
@@ -164,7 +242,7 @@ export function renderTranscriptMessages({
     bubble.innerHTML = row.loading
       ? '<span></span><span></span><span></span>'
       : (row.content
-        ? escapeHtmlFn(row.content).replace(/\n/g, '<br>')
+        ? renderTranscriptContentHtml(row.content, { escapeHtmlFn })
         : (row.streaming ? '<span class="stream-caret" aria-hidden="true"></span>' : ''));
     item.appendChild(bubble);
 
@@ -205,7 +283,7 @@ export function updateStreamingAssistantBubble({
   bubble.classList.add('streaming');
   row.classList.add('streaming');
   bubble.innerHTML = visible
-    ? escapeHtmlFn(visible).replace(/\n/g, '<br>')
+    ? renderTranscriptContentHtml(visible, { escapeHtmlFn })
     : '<span class="stream-caret" aria-hidden="true"></span>';
   const scrollHost = chatWrapEl || chatEl.parentElement;
   if (scrollHost) {

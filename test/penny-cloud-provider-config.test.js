@@ -7,10 +7,17 @@ const path = require('node:path');
 const {
   buildCloudProviderStatus,
   buildOpenAiCloudEnvPatch,
+  DEFAULT_OPENAI_CLOUD_MODELS,
   probeOpenAiCloudProvider,
   redactApiKey,
   upsertPennyEnvFile,
 } = require('../lib/penny-cloud-provider-config');
+
+const ROOT = path.resolve(__dirname, '..');
+
+function readText(relPath) {
+  return fs.readFileSync(path.join(ROOT, relPath), 'utf8');
+}
 
 test('OpenAI cloud patch uses explicit cloud labels and compatible Penny env keys', () => {
   const patch = buildOpenAiCloudEnvPatch({
@@ -28,6 +35,16 @@ test('OpenAI cloud patch uses explicit cloud labels and compatible Penny env key
   assert.equal(patch.PENNY_LMSTUDIO_TOOL_MODEL, 'gpt-5.5');
   assert.equal(patch.PENNY_LMSTUDIO_EMBED_MODEL, 'text-embedding-3-small');
   assert.equal(patch.PENNY_LMSTUDIO_API_KEY, 'sk-test-secret');
+});
+
+test('OpenAI cloud model defaults have one backend owner instead of browser literals', () => {
+  assert.deepEqual(DEFAULT_OPENAI_CLOUD_MODELS, {
+    chat: 'gpt-5.5',
+    tool: 'gpt-5.5',
+    embed: 'text-embedding-3-small',
+  });
+  assert.doesNotMatch(readText('public/index.html'), /gpt-5\.5|text-embedding-3-small/);
+  assert.doesNotMatch(readText('public/js/penny-app.js'), /gpt-5\.5|text-embedding-3-small/);
 });
 
 test('OpenAI cloud env writer preserves unrelated values and never returns the API key', () => {
@@ -82,6 +99,24 @@ test('cloud provider status is explicit about privacy and active provider', () =
   assert.equal(status.privacy.localFirstDefault, true);
   assert.equal(status.privacy.sendsPromptsOffDevice, true);
   assert.equal(status.privacy.warningRequired, true);
+});
+
+test('cloud provider status exposes backend-owned cloud defaults while local mode is active', () => {
+  const status = buildCloudProviderStatus({
+    env: {
+      PENNY_MODEL_PROVIDER: 'local',
+      PENNY_LOCAL_LLM_BACKEND: 'lm_studio',
+      PENNY_LOCAL_RUNTIME_LABEL: 'LM Studio',
+      PENNY_LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+      PENNY_LMSTUDIO_API_KEY: 'lm-studio-local',
+    },
+  });
+
+  assert.equal(status.activeProvider, 'local');
+  assert.deepEqual(status.cloudDefaults, DEFAULT_OPENAI_CLOUD_MODELS);
+  assert.equal(status.chatModel, '');
+  assert.equal(status.toolModel, '');
+  assert.equal(status.embedModel, '');
 });
 
 test('OpenAI cloud probe sends bearer auth and returns only model summary', async () => {

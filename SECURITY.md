@@ -25,6 +25,7 @@ Penny is a local companion app. It is not designed to be hosted on the public in
 - `PENNY_API_TOKEN` sets the token required for LAN API calls.
 - `PENNY_ALLOWED_HOSTS` adds comma-separated allowed Host names.
 - `PENNY_REQUIRE_API_TOKEN=1` requires the API token for all `/api/*` routes.
+- `PENNY_API_ALLOW_LOCAL_NO_TOKEN=1` deliberately keeps loopback API routes tokenless even when they would normally require the configured local token. Leave it off for consumer builds.
 - `PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=1` lets write tools apply bytes directly.
 - `PENNY_WEB_SEARCH_ENABLED=1` enables public web search/read tools.
 - `PENNY_WEB_ALLOW_PRIVATE_NET=1` allows deliberate local/private network web fetches.
@@ -37,6 +38,8 @@ Pending workspace edits are stored only in ignored local state at `data/penny-pe
 By default, Penny trusts localhost for non-mutating API reads. That means a local process on the same machine can read ordinary `/api/*` GET routes, including memory/status inspector surfaces, without presenting a token. LAN clients do not get that trust: `PENNY_LAN_SHARE=1` requires a token for every `/api/*` route.
 
 Sensitive local mutations still require the local token by default, and the browser gets that token through an HttpOnly loopback bootstrap cookie. If you do not want localhost reads trusted, set `PENNY_REQUIRE_API_TOKEN=1` so every `/api/*` route requires the token too. This protects against curious local processes better, but it also makes direct API poking less convenient.
+
+`PENNY_API_ALLOW_LOCAL_NO_TOKEN=1` deliberately bypasses those strong local route token checks for loopback callers only. Keep it off for consumer builds unless you are doing controlled local diagnostics.
 
 ## Cloud Provider Boundary
 

@@ -3,6 +3,33 @@ const assert = require('node:assert/strict');
 
 const helpersPromise = import('../public/js/penny-transcript-ui.mjs');
 
+test('renderTranscriptContentHtml renders fenced code without allowing raw HTML', async () => {
+  const { renderTranscriptContentHtml } = await helpersPromise;
+  const html = renderTranscriptContentHtml([
+    'Before',
+    '```js',
+    'const image = "<img src=x onerror=alert(1)>";',
+    '```',
+    'After <b>x</b>',
+  ].join('\n'));
+
+  assert.match(html, /Before<br>/);
+  assert.match(html, /<pre class="bubble-code"><code class="language-js" data-language="js">/);
+  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.match(html, /After &lt;b&gt;x&lt;\/b&gt;/);
+  assert.doesNotMatch(html, /<img\b/);
+  assert.doesNotMatch(html, /<b>x<\/b>/);
+});
+
+test('renderTranscriptContentHtml treats unclosed fences as escaped plain text', async () => {
+  const { renderTranscriptContentHtml } = await helpersPromise;
+  const html = renderTranscriptContentHtml('```html\n<script>alert(1)</script>');
+
+  assert.doesNotMatch(html, /<pre\b/);
+  assert.doesNotMatch(html, /<script\b/);
+  assert.match(html, /```html<br>&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
 test('buildTranscriptMessageViewModels preserves ordering and loading rows', async () => {
   const { buildTranscriptMessageViewModels } = await helpersPromise;
   const rows = buildTranscriptMessageViewModels([

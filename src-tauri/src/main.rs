@@ -248,7 +248,7 @@ fn wait_for_penny_ready(
 
 #[cfg(test)]
 mod tests {
-    use super::status_response_indicates_ready;
+    use super::{escape_loading_status_message, status_response_indicates_ready};
 
     #[test]
     fn readiness_probe_accepts_pretty_status_json() {
@@ -266,6 +266,14 @@ mod tests {
     fn readiness_probe_rejects_failed_http_status() {
         let response = "HTTP/1.1 503 Service Unavailable\r\ncontent-type: application/json\r\n\r\n{\"ok\":false,\"name\":\"Penny\"}";
         assert!(!status_response_indicates_ready(response));
+    }
+
+    #[test]
+    fn loading_status_escape_blocks_template_interpolation() {
+        assert_eq!(
+            escape_loading_status_message("boot ${window.evil}`\\\r\nnext ${again}"),
+            "boot \\${window.evil}\\`\\\\\\r\\nnext \\${again}"
+        );
     }
 }
 
@@ -563,11 +571,17 @@ fn start_penny_server(
     }
 }
 
-fn set_loading_status(window: &tauri::WebviewWindow, message: &str) {
-    let escaped = message
+fn escape_loading_status_message(message: &str) -> String {
+    message
         .replace('\\', "\\\\")
+        .replace("${", "\\${")
         .replace('`', "\\`")
-        .replace('\n', "\\n");
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
+}
+
+fn set_loading_status(window: &tauri::WebviewWindow, message: &str) {
+    let escaped = escape_loading_status_message(message);
     let _ = window.eval(&format!("window.__pennyTauriSetStatus(`{escaped}`)"));
 }
 

@@ -2134,18 +2134,18 @@ export function buildBrainModeNote({ mode = 'local', meta = null, status = null 
   const localRuntimeLabel = localRuntimeLabelFromStatus(status);
   if (!meta) {
     return mode === 'shadow'
-      ? 'Shadow uses the optional OpenClaw lane. It is still experimental and not Penny\'s main chat brain.'
-      : `${localRuntimeLabel} is Penny's local brain right now. Chat and tool lanes route automatically.`;
+      ? 'The review route uses the optional OpenClaw path. It is still experimental and not Penny\'s normal chat path.'
+      : `${localRuntimeLabel} is Penny's selected local model path right now. Conversation and tools routing happen automatically.`;
   }
   if (meta.requestedMode === 'shadow' && meta.usedFallback) {
     const reason = meta.shadowError ? ` ${meta.shadowError}` : '';
-    return `Shadow failed, so this reply used the local placeholder fallback.${reason}`;
+    return `The review route failed, so this reply used the local fallback.${reason}`;
   }
   if (meta.backend === 'openclaw-shadow') {
-    return 'Shadow brain handled the last reply.';
+    return 'The experimental review route handled the last reply.';
   }
   if (meta.requestedMode === 'local' && meta.localLane) {
-    const lane = meta.localLane === 'tool' ? 'tool lane' : 'chat lane';
+    const lane = meta.localLane === 'tool' ? 'tools path' : 'conversation path';
     const modelText = meta.resolvedModel ? ` on ${meta.resolvedModel}` : '';
     const fallbackText = meta.laneFallback ? ' It had to fall back to the best loaded local model.' : '';
     return `${localRuntimeLabel} handled the last reply on the ${lane}${modelText}.${fallbackText}`.trim();

@@ -165,7 +165,7 @@ function localRuntimeLabelFromStatus(status = null, lmStudio = {}) {
 
 export function formatLastLane(meta = null) {
   if (!meta || !meta.localLane) return 'pending';
-  const lane = meta.localLane === 'tool' ? 'tool lane' : 'chat lane';
+  const lane = meta.localLane === 'tool' ? 'tools path' : 'conversation path';
   const suffix = meta.laneFallback ? ' (fallback)' : '';
   return `${lane}${suffix}`;
 }
@@ -195,18 +195,18 @@ export function buildFirstRunModelSetupViewModel(status = null) {
   const statusText = !reachable
     ? `${localRuntimeLabel} is offline or not serving Penny yet.`
     : (chatReady && toolReady
-      ? 'Local brain ready. Chat and tool lanes have models.'
-      : `${localRuntimeLabel} is reachable; Penny needs model lanes picked or loaded.`);
+      ? 'Local model setup is ready. Conversation and tools models are selected.'
+      : `${localRuntimeLabel} is reachable; Penny needs models picked or loaded.`);
   const laneHints = [];
-  if (!chatReady) laneHints.push(`load one in ${localRuntimeLabel}, then pick a chat model here`);
-  if (!toolReady) laneHints.push('pick a tool model for file/project work');
+  if (!chatReady) laneHints.push(`load one in ${localRuntimeLabel}, then pick a conversation model here`);
+  if (!toolReady) laneHints.push('pick a tools model for file/project work');
   const rawHint = String(lmStudio.error || lmStudio.hint || '').trim();
   const hintText = laneHints.length
     ? `${rawHint ? `${rawHint} ` : ''}${laneHints.join('; ')}.`
-    : (rawHint || 'You can swap lanes here without editing .env.');
+    : (rawHint || 'You can swap model choices here without editing .env.');
   const embeddingText = semanticReady
-    ? `Semantic memory ready${configuredEmbed ? ` on ${configuredEmbed}` : ''}${semantic.mode ? ` (${semantic.mode})` : ''}.`
-    : `Embeddings are optional; Penny can run with keyword fallback${configuredEmbed ? ` while ${configuredEmbed} is missing or unloaded` : ''}${selectedLoadedEmbed && selectedLoadedEmbed !== configuredEmbed ? `. Loaded embedding model detected: ${selectedLoadedEmbed}` : ''}.`;
+    ? `Memory search is ready${configuredEmbed ? ` on ${configuredEmbed}` : ''}${semantic.mode ? ` (${semantic.mode})` : ''}.`
+    : `Memory search is optional; Penny can run with basic keyword search${configuredEmbed ? ` while ${configuredEmbed} is missing or unloaded` : ''}${selectedLoadedEmbed && selectedLoadedEmbed !== configuredEmbed ? `. Loaded memory search model detected: ${selectedLoadedEmbed}` : ''}.`;
 
   return {
     visible,
@@ -247,7 +247,7 @@ export function updateModelSetupUi({ els, status = null } = {}) {
   if (els?.modelSetupHint) els.modelSetupHint.textContent = viewModel.hintText;
   if (els?.modelSetupEmbedding) els.modelSetupEmbedding.textContent = viewModel.embeddingText;
   if (els?.modelSetupFallback) els.modelSetupFallback.checked = viewModel.fallbackEnabled;
-  updateSelectOptions(els?.embedModelSelect, viewModel.embeddingModels, viewModel.selectedEmbedModel, 'keyword fallback');
+  updateSelectOptions(els?.embedModelSelect, viewModel.embeddingModels, viewModel.selectedEmbedModel, 'basic memory search');
   return viewModel;
 }
 

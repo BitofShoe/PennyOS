@@ -1357,6 +1357,30 @@ button {
   border-radius: 18px 18px 18px 6px;
 }
 
+.bubble-code {
+  display: block;
+  margin: 0.65rem 0;
+  max-width: 100%;
+  max-height: min(360px, 52vh);
+  overflow: auto;
+  padding: 0.85rem 0.95rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 12, 18, 0.62);
+  color: rgba(245, 249, 255, 0.92);
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.bubble-code code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+  letter-spacing: 0;
+}
+
 .msg-row.assistant.streaming .msg-label {
   color: color-mix(in srgb, var(--primary) 78%, #ffe4dd);
 }
@@ -2513,6 +2537,20 @@ select.input-lite option {
   display: grid;
   gap: 12px;
   padding-top: 0.2rem;
+}
+
+.advanced-model-routing {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.advanced-model-routing summary {
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.86);
+  font-weight: 700;
 }
 
 .warning-note {

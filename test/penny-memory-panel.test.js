@@ -1772,17 +1772,17 @@ test('renderMemoryInspector keeps the no-inspector state safe', async () => {
 test('buildBrainModeNote keeps local, shadow, and fallback explanations stable', async () => {
   const { buildBrainModeNote } = await helpersPromise;
 
-  assert.match(buildBrainModeNote({ mode: 'local', meta: null }), /LM Studio is Penny's local brain/i);
+  assert.match(buildBrainModeNote({ mode: 'local', meta: null }), /LM Studio is Penny's selected local model path/i);
   assert.match(buildBrainModeNote({
     mode: 'local',
     meta: null,
     status: { localRuntimeLabel: 'llama.cpp' },
-  }), /llama\.cpp is Penny's local brain/i);
+  }), /llama\.cpp is Penny's selected local model path/i);
   assert.match(buildBrainModeNote({
     mode: 'local',
     meta: { requestedMode: 'local', localLane: 'tool', resolvedModel: 'google/gemma-4-e4b', laneFallback: true },
     status: { localRuntimeLabel: 'llama.cpp' },
-  }), /tool lane/i);
+  }), /tools path/i);
   assert.match(buildBrainModeNote({
     mode: 'local',
     meta: { requestedMode: 'local', localLane: 'tool', resolvedModel: 'google/gemma-4-e4b', laneFallback: true },
@@ -1791,7 +1791,7 @@ test('buildBrainModeNote keeps local, shadow, and fallback explanations stable',
   assert.match(buildBrainModeNote({
     mode: 'shadow',
     meta: { requestedMode: 'shadow', usedFallback: true, shadowError: 'boom' },
-  }), /Shadow failed/i);
+  }), /review route failed/i);
 });
 
 test('renderMemoryInspector prefers canonical rendered booleans over conflicting ledger alias flags', async () => {

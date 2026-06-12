@@ -128,6 +128,9 @@ const els = {
   brainModeShadow: document.getElementById('brainModeShadow'),
   brainModeLocal: document.getElementById('brainModeLocal'),
   brainModeNote: document.getElementById('brainModeNote'),
+  firstRunSetupPanel: document.getElementById('firstRunSetupPanel'),
+  firstRunUseLocal: document.getElementById('firstRunUseLocal'),
+  firstRunUseOpenAi: document.getElementById('firstRunUseOpenAi'),
   backendReachability: document.getElementById('backendReachability'),
   backendModel: document.getElementById('backendModel'),
   backendToolModel: document.getElementById('backendToolModel'),
@@ -138,6 +141,7 @@ const els = {
   modelSetupHint: document.getElementById('modelSetupHint'),
   modelSetupEmbedding: document.getElementById('modelSetupEmbedding'),
   modelSetupFallback: document.getElementById('modelSetupFallback'),
+  localModelSetupSection: document.getElementById('localModelSetupSection'),
   toolModelSelect: document.getElementById('toolModelSelect'),
   embedModelSelect: document.getElementById('embedModelSelect'),
   saveModelSetup: document.getElementById('saveModelSetup'),
@@ -790,6 +794,13 @@ function setOpenAiCloudPanelVisible(visible = true) {
   if (els.openAiCloudPanel) els.openAiCloudPanel.hidden = visible !== true;
 }
 
+function focusLocalModelSetup() {
+  setOpenAiCloudPanelVisible(false);
+  setProviderSetupNote('Local model setup is selected. Start LM Studio, llama.cpp, or another local OpenAI-compatible server, then choose the loaded model below.', 'muted');
+  els.localModelSetupSection?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  els.modelSelect?.focus();
+}
+
 function setProviderBusy(busy = false) {
   if (els.connectOpenAiProvider) els.connectOpenAiProvider.disabled = busy;
   if (els.resetLocalProvider) els.resetLocalProvider.disabled = busy;
@@ -810,27 +821,34 @@ function renderProviderStatus(status = null) {
   if (els.providerStatus) {
     if (hasPending) {
       els.providerStatus.textContent = pendingProvider === 'local'
-        ? 'Local brain setup saved. Close and reopen PennyOS to switch back.'
-        : 'OpenAI cloud setup saved. Close and reopen PennyOS to use it.';
+        ? 'Local model setup saved. Close and reopen PennyOS to switch back.'
+        : 'OpenAI API setup saved. Close and reopen PennyOS to use it.';
     } else if (isCloudActive) {
-      els.providerStatus.textContent = 'Using OpenAI cloud. Not private/local.';
+      els.providerStatus.textContent = 'Using OpenAI API. Not private/local.';
     } else {
-      els.providerStatus.textContent = 'Using local brain path. Cloud is off.';
+      els.providerStatus.textContent = 'Using local model path. Cloud is off.';
     }
   }
   if (isCloudActive || pendingProvider === 'openai-cloud') {
     setOpenAiCloudPanelVisible(true);
   }
-  if (els.openAiChatModel && status?.chatModel && !els.openAiChatModel.value) els.openAiChatModel.value = status.chatModel;
-  if (els.openAiToolModel && status?.toolModel && !els.openAiToolModel.value) els.openAiToolModel.value = status.toolModel;
-  if (els.openAiEmbedModel && status?.embedModel && !els.openAiEmbedModel.value) els.openAiEmbedModel.value = status.embedModel;
+  const cloudDefaults = status?.cloudDefaults || {};
+  if (els.openAiChatModel && !els.openAiChatModel.value) {
+    els.openAiChatModel.value = status?.chatModel || cloudDefaults.chat || '';
+  }
+  if (els.openAiToolModel && !els.openAiToolModel.value) {
+    els.openAiToolModel.value = status?.toolModel || cloudDefaults.tool || status?.chatModel || cloudDefaults.chat || '';
+  }
+  if (els.openAiEmbedModel && !els.openAiEmbedModel.value) {
+    els.openAiEmbedModel.value = status?.embedModel || cloudDefaults.embed || '';
+  }
   const preview = status?.apiKeyPreview || status?.pending?.apiKeyPreview || '';
   if (hasPending) {
     setProviderSetupNote(status?.restartHint || 'Provider setup saved. Close and reopen PennyOS for this to take effect.', 'warn');
   } else if (isCloudActive) {
-    setProviderSetupNote(`OpenAI cloud is active${preview ? ` with key ${preview}` : ''}. Prompts/context may leave this computer.`, 'warn');
+    setProviderSetupNote(`OpenAI API is active${preview ? ` with key ${preview}` : ''}. Prompts/context may leave this computer.`, 'warn');
   } else {
-    setProviderSetupNote('Local-first mode is active. OpenAI cloud remains off unless you save it here.', 'muted');
+    setProviderSetupNote('Local-first mode is active. The OpenAI API remains off unless you save it here.', 'muted');
   }
 }
 
@@ -852,9 +870,9 @@ async function connectOpenAiProviderFromControls() {
   if (!els.connectOpenAiProvider) return;
   const payload = {
     apiKey: els.openAiApiKey?.value || '',
-    chatModel: els.openAiChatModel?.value || 'gpt-5.5',
-    toolModel: els.openAiToolModel?.value || els.openAiChatModel?.value || 'gpt-5.5',
-    embedModel: els.openAiEmbedModel?.value || 'text-embedding-3-small',
+    chatModel: els.openAiChatModel?.value || '',
+    toolModel: els.openAiToolModel?.value || els.openAiChatModel?.value || '',
+    embedModel: els.openAiEmbedModel?.value || '',
     acceptCloudDisclosure: els.openAiCloudDisclosure?.checked === true,
   };
   if (!String(payload.apiKey || '').trim()) {
@@ -941,7 +959,7 @@ async function loadAvailableModels(preloadedStatus = null) {
     if (els.embedModelSelect) {
       const embedModels = Array.isArray(viewModel.embeddingModels) ? viewModel.embeddingModels : [];
       if (!embedModels.length) {
-        els.embedModelSelect.innerHTML = '<option value="">keyword fallback</option>';
+        els.embedModelSelect.innerHTML = '<option value="">basic memory search</option>';
       } else {
         fillModelSelectOptionsUi(els.embedModelSelect, embedModels, viewModel.selectedEmbedModel || embedModels[0]);
       }
@@ -990,8 +1008,16 @@ els.providerShowOpenAi?.addEventListener('click', () => {
   els.openAiApiKey?.focus();
 });
 els.providerUseLocal?.addEventListener('click', () => {
-  setOpenAiCloudPanelVisible(false);
-  setProviderSetupNote('Local brain stays selected. Use the local model setup below for LM Studio, llama.cpp, or another local endpoint.', 'muted');
+  focusLocalModelSetup();
+});
+els.firstRunUseLocal?.addEventListener('click', () => {
+  focusLocalModelSetup();
+});
+els.firstRunUseOpenAi?.addEventListener('click', () => {
+  setOpenAiCloudPanelVisible(true);
+  setProviderSetupNote('Paste an OpenAI Platform API key, confirm the warning, then save. Reopen PennyOS after it succeeds.', 'muted');
+  els.openAiCloudPanel?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  els.openAiApiKey?.focus();
 });
 els.connectOpenAiProvider?.addEventListener('click', connectOpenAiProviderFromControls);
 els.resetLocalProvider?.addEventListener('click', resetLocalProviderFromControls);
@@ -1138,7 +1164,7 @@ async function sendMessage() {
       return;
     }
     const prefix = state.memory.brainMode === 'shadow'
-      ? 'Shadow brain did not return a reply.'
+      ? 'The experimental review route did not return a reply.'
       : 'Local LLM did not return a reply.';
     const last = state.messages[state.messages.length - 1];
     if (last?.role === 'assistant' && last.streaming) {
