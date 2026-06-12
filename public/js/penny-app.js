@@ -3,6 +3,7 @@ import {
   updateBackendStatusUi as updateBackendStatusUiHelper,
   updateModelSetupUi as updateModelSetupUiHelper,
   formatLastLane,
+  summarizeShellModelConnection,
 } from './penny-lmstudio-ui.js';
 import {
   createAttachmentUi,
@@ -61,6 +62,7 @@ import {
 } from './penny-memory-panel.mjs';
 import {
   renderWorkspaceWritesPanel,
+  buildWorkspaceWritesBadgeState,
 } from './penny-workspace-writes-panel.mjs';
 
 const state = {
@@ -105,6 +107,8 @@ const els = {
   cyberDecor: document.querySelector('.cyber-decor'),
   intro: document.getElementById('intro'),
   tabs: Array.from(document.querySelectorAll('.tab')),
+  memoryTab: document.querySelector('.tab[data-panel="memory"]'),
+  workspaceWritesBadge: document.getElementById('workspaceWritesBadge'),
   views: Array.from(document.querySelectorAll('.view')),
   memoryList: document.getElementById('memoryList'),
   workspaceWritesPanel: document.getElementById('workspaceWritesPanel'),
@@ -186,11 +190,25 @@ const els = {
 function ensureMemoryInspectorUi() {
   return ensureMemoryInspectorUiModule(els);
 }
-function setComposerNotice(text = '', tone = 'muted') {
+function setComposerNotice(text = '', tone = 'muted', source = 'manual') {
   if (!els.composerNotice) return;
   els.composerNotice.textContent = text;
   els.composerNotice.dataset.tone = tone;
+  if (text) els.composerNotice.dataset.source = source;
+  else delete els.composerNotice.dataset.source;
   els.composerNotice.hidden = !text;
+}
+
+function updateModelConnectionNotice(status = state.backendStatus) {
+  const summary = summarizeShellModelConnection(status);
+  if (!summary.ready && !summary.checking) {
+    setComposerNotice(summary.noticeText, 'warn', 'model-connection');
+    return summary;
+  }
+  if (els.composerNotice?.dataset.source === 'model-connection') {
+    setComposerNotice('', 'muted', 'model-connection');
+  }
+  return summary;
 }
 
 function getApiAccessToken() {
@@ -488,7 +506,8 @@ function updateTheme() {
   els.moodPill.textContent = state.loading ? 'thinking' : palette.label;
   els.presenceValue.textContent = state.presence;
   els.turnsValue.textContent = String(state.turns);
-  const statusText = state.loading ? 'processing' : state.consolidating ? 'saving memory' : state.syncingMemory ? 'syncing memory' : 'live';
+  const modelSummary = summarizeShellModelConnection(state.backendStatus);
+  const statusText = state.loading ? 'processing' : state.consolidating ? 'saving memory' : state.syncingMemory ? 'syncing memory' : modelSummary.statusText;
   els.statusValue.textContent = statusText;
   els.statusValueTop.textContent = statusText;
   renderSprite(state.mood, palette);
@@ -499,6 +518,8 @@ function updateTheme() {
 
 function updateBackendStatusUi(status = null) {
   updateBackendStatusUiHelper({ els, state, status });
+  updateModelConnectionNotice(status);
+  updateTheme();
 }
 
 function updateModelSetupUi(status = null) {
@@ -543,6 +564,7 @@ function renderMemory() {
   ensureMemoryInspectorUi();
   renderMemoryListModule({ els, memory: state.memory, inspector: state.memoryInspector, escapeHtmlFn: escapeHtml });
   renderWorkspaceWritesPanel({ panelEl: els.workspaceWritesPanel, payload: state.workspaceWrites || {}, escapeHtmlFn: escapeHtml });
+  updateWorkspaceWritesBadge(state.workspaceWrites || {});
   runtimeVoice.setEnabled(state.memory.voiceOn === true);
   renderMemoryInspector();
   updateBrainModeUi();
@@ -661,11 +683,24 @@ async function loadWorkspaceWrites(options = {}) {
     const data = await workspaceWritesRequest();
     state.workspaceWrites = data;
     renderWorkspaceWritesPanel({ panelEl: els.workspaceWritesPanel, payload: state.workspaceWrites, escapeHtmlFn: escapeHtml });
+    updateWorkspaceWritesBadge(state.workspaceWrites);
   } catch (error) {
     state.workspaceWrites = { pending: [], count: 0, error: error?.message || String(error || 'unknown error') };
     renderWorkspaceWritesPanel({ panelEl: els.workspaceWritesPanel, payload: state.workspaceWrites, escapeHtmlFn: escapeHtml });
+    updateWorkspaceWritesBadge(state.workspaceWrites);
     if (!options.quiet) reportMemoryIssue('workspace edits load failed', error);
   }
+}
+
+function updateWorkspaceWritesBadge(payload = {}) {
+  const badge = buildWorkspaceWritesBadgeState(payload);
+  if (!els.workspaceWritesBadge) return badge;
+  els.workspaceWritesBadge.hidden = !badge.visible;
+  els.workspaceWritesBadge.textContent = badge.label;
+  els.workspaceWritesBadge.title = badge.title;
+  els.workspaceWritesBadge.setAttribute('aria-label', badge.title || 'No workspace edits awaiting approval');
+  els.memoryTab?.classList.toggle('has-badge', badge.visible);
+  return badge;
 }
 
 async function reviewWorkspaceWrite(id = '', action = '') {
@@ -1163,9 +1198,13 @@ async function sendMessage() {
       state.presence = state.messages.length ? 'present' : 'idle';
       return;
     }
+    const modelSummary = summarizeShellModelConnection(state.backendStatus);
+    if (!modelSummary.ready && !modelSummary.checking) {
+      setComposerNotice(modelSummary.noticeText, 'warn', 'model-connection');
+    }
     const prefix = state.memory.brainMode === 'shadow'
       ? 'The experimental review route did not return a reply.'
-      : 'Local LLM did not return a reply.';
+      : (modelSummary.ready ? 'Local LLM did not return a reply.' : modelSummary.failurePrefix);
     const last = state.messages[state.messages.length - 1];
     if (last?.role === 'assistant' && last.streaming) {
       last.content = `${prefix} ${error?.message || 'Try again in a moment.'}`;

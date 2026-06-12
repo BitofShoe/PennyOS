@@ -194,7 +194,7 @@ test('buildMemoryPanelViewModel normalizes explicit memory rows', async () => {
   assert.equal(viewModel.memories[0].kind, 'fact');
 });
 
-test('renderMemoryList shows remembered facts, pending saves, and memory connections as the default surface', async () => {
+test('renderMemoryList shows remembered facts, pending saves, and recall context as the default surface', async () => {
   const { renderMemoryList } = await helpersPromise;
   const els = {
     memoryList: {
@@ -270,7 +270,7 @@ test('renderMemoryList shows remembered facts, pending saves, and memory connect
   assert.match(els.memoryList.innerHTML, /Canonical explicit memory only/i);
   assert.doesNotMatch(els.memoryList.innerHTML, /Export archive/i);
   assert.match(els.memoryList.innerHTML, /Thinking about saving/i);
-  assert.match(els.memoryList.innerHTML, /Memory connections/i);
+  assert.match(els.memoryList.innerHTML, /Why this came up/i);
   assert.match(els.memoryList.innerHTML, /Favorite tea is lapsang souchong/i);
   assert.match(els.memoryList.innerHTML, /Current project focus is Penny release polish/i);
   assert.match(els.memoryList.innerHTML, /keyword_fallback/i);

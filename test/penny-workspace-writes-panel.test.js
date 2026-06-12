@@ -48,3 +48,21 @@ test('workspace writes panel renders empty and error states honestly', async () 
   assert.match(panelEl.innerHTML, /could not load/i);
   assert.match(panelEl.innerHTML, /token_required/);
 });
+
+test('workspace writes badge state only surfaces pending approvals', async () => {
+  const { buildWorkspaceWritesBadgeState } = await helpersPromise;
+
+  assert.deepEqual(buildWorkspaceWritesBadgeState({ pending: [], count: 0 }), {
+    count: 0,
+    visible: false,
+    label: '',
+    title: '',
+  });
+  assert.deepEqual(buildWorkspaceWritesBadgeState({ count: 3, pending: [{ id: 'a' }] }), {
+    count: 3,
+    visible: true,
+    label: '3',
+    title: '3 workspace edits awaiting approval',
+  });
+  assert.equal(buildWorkspaceWritesBadgeState({ count: 120 }).label, '99+');
+});

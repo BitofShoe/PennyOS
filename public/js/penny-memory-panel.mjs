@@ -1,3 +1,5 @@
+import { escapeHtml } from './penny-expression-runtime.mjs';
+
 /**
  * @typedef {Object} PennyAppState
  * @property {string} panel
@@ -12,15 +14,6 @@
  * @property {Object} memory
  * @property {Object|null} memoryInspector
  */
-
-function escapeHtml(text) {
-  return String(text || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
 
 export function ensureMemoryInspectorUi(els = {}) {
   if (els.memoryInspectorPanel) return els.memoryInspectorPanel;
@@ -374,7 +367,7 @@ export function renderMemoryList({ els = {}, memory = {}, inspector = null, esca
     els.memoryList.innerHTML = [
       renderMemorySurfaceSection('Remembered facts', renderRememberedFacts(viewModel.memories, escapeHtmlFn), '', escapeHtmlFn),
       renderMemorySurfaceSection('Thinking about saving', renderQueue(viewModel.queue, escapeHtmlFn), 'Reviewable suggestions wait here until you approve or reject them.', escapeHtmlFn),
-      renderMemorySurfaceSection('Memory connections', renderMemoryConnections(viewModel.memoryConnections, escapeHtmlFn), 'Plain labels from the latest memory/retrieval path; raw receipts stay in Advanced diagnostics.', escapeHtmlFn),
+      renderMemorySurfaceSection('Why this came up', renderMemoryConnections(viewModel.memoryConnections, escapeHtmlFn), 'Plain labels from the latest memory and recall path; detailed receipts stay tucked away.', escapeHtmlFn),
     ].join('');
   }
   if (els.clearAllMemories) els.clearAllMemories.textContent = 'Forget remembered facts';

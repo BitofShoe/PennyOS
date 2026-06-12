@@ -6,7 +6,7 @@
 > Use this for: first-run help, local model setup, feature orientation, and honest FAQ copy.
 > Do not use this for: binding runtime law, live model guarantees, or release proof. Use [../../README.md](../../README.md), [../../INSTALL.md](../../INSTALL.md), and current QA receipts for that.
 
-Hi. If you are reading this because Penny opened and then immediately started asking about "local brain lanes," congratulations: you have reached the part where the cute interface admits it still needs an actual model server.
+Hi. If you are reading this because Penny opened and immediately asked you to choose how she thinks, congratulations: you have reached the part where the cute interface admits it still needs an actual model server.
 
 This guide is for normal humans, not just the people who enjoy saying "OpenAI-compatible endpoint" before breakfast.
 

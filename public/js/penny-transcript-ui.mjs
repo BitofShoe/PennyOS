@@ -57,7 +57,7 @@ function renderCodeBlockHtml(code = '', language = '', escapeHtmlFn = escapeHtml
   return `<pre class="bubble-code"><code${codeAttrs}>${escapeHtmlFn(String(code || ''))}</code></pre>`;
 }
 
-export function renderTranscriptContentHtml(content = '', { escapeHtmlFn = escapeHtml } = {}) {
+export function renderTranscriptContentHtml(content = '', { escapeHtmlFn = escapeHtml, streaming = false } = {}) {
   const text = String(content || '');
   if (!text) return '';
 
@@ -101,7 +101,9 @@ export function renderTranscriptContentHtml(content = '', { escapeHtmlFn = escap
     codeLines.push(line);
   }
 
-  if (inCode) {
+  if (inCode && streaming) {
+    segments.push({ type: 'code', value: codeLines.join('\n'), language: codeLanguage });
+  } else if (inCode) {
     return renderPlainTranscriptText(text, escapeHtmlFn);
   }
 
@@ -242,7 +244,7 @@ export function renderTranscriptMessages({
     bubble.innerHTML = row.loading
       ? '<span></span><span></span><span></span>'
       : (row.content
-        ? renderTranscriptContentHtml(row.content, { escapeHtmlFn })
+        ? renderTranscriptContentHtml(row.content, { escapeHtmlFn, streaming: row.streaming })
         : (row.streaming ? '<span class="stream-caret" aria-hidden="true"></span>' : ''));
     item.appendChild(bubble);
 

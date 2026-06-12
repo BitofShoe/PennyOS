@@ -1,5 +1,37 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-prompt-builders-'));
+const SERVER_ENV_OVERRIDES = {
+  PENNY_DATA_DIR: TEST_DATA_DIR,
+  PENNY_CONFIG_DIR: TEST_DATA_DIR,
+  PENNY_MEMORY_FILE: path.join(TEST_DATA_DIR, 'penny-memory.test.json'),
+  PENNY_MEMORY_ARCHIVE_FILE: path.join(TEST_DATA_DIR, 'penny-memory-archive.test.json'),
+  PENNY_MEMORY_EMBEDDINGS_FILE: path.join(TEST_DATA_DIR, 'penny-memory-embeddings.test.json'),
+  PENNY_MEMORY_LEDGER_FILE: path.join(TEST_DATA_DIR, 'penny-memory-ledger.test.json'),
+  PENNY_MEMORY_BOOKS_FILE: path.join(TEST_DATA_DIR, 'penny-memory-books.test.json'),
+  PENNY_OPEN_LOOP_FILE: path.join(TEST_DATA_DIR, 'penny-open-loops.test.json'),
+  PENNY_STATIC_EMBED_MODE: 'off',
+  PENNY_STATIC_EMBED_CACHE_FILE: path.join(TEST_DATA_DIR, 'penny-memory-embeddings.static.test.json'),
+};
+const ORIGINAL_SERVER_ENV = Object.fromEntries(
+  Object.keys(SERVER_ENV_OVERRIDES).map((key) => [key, process.env[key]]),
+);
+
+Object.assign(process.env, SERVER_ENV_OVERRIDES);
+
+test.after(() => {
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  for (const key of Object.keys(SERVER_ENV_OVERRIDES)) {
+    if (ORIGINAL_SERVER_ENV[key] == null) delete process.env[key];
+    else process.env[key] = ORIGINAL_SERVER_ENV[key];
+  }
+  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+});
 
 test('LM Studio prompt builders keep prompt memories single-sourced per turn', () => {
   const modulePath = require.resolve('../server.js');

@@ -442,7 +442,10 @@ const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 /** Full request budget for /chat/completions and /responses (prompt eval + generation). Large quants (e.g. 30B+) and multi-step local tool turns can legitimately take a long time; LM Studio logs "Client disconnected" if this fires first. Override with PENNY_LMSTUDIO_TIMEOUT_MS (ms). */
 const LMSTUDIO_TIMEOUT_MS = Number(process.env.PENNY_LMSTUDIO_TIMEOUT_MS || 1800000);
-const LMSTUDIO_SETTINGS_FILE = path.join(process.env.APPDATA || '', 'LM Studio', 'settings.json');
+const LMSTUDIO_SETTINGS_FILE = process.env.PENNY_LMSTUDIO_SETTINGS_FILE
+  ? path.resolve(__dirname, process.env.PENNY_LMSTUDIO_SETTINGS_FILE)
+  : path.join(process.env.APPDATA || '', 'LM Studio', 'settings.json');
+const PENNY_LMSTUDIO_DISABLE_CLI_DISCOVERY = isEnabledEnv(process.env.PENNY_LMSTUDIO_DISABLE_CLI_DISCOVERY);
 const LMSTUDIO_STATUS_CACHE_MS = Number(process.env.PENNY_LMSTUDIO_STATUS_CACHE_MS || 30000);
 const LMSTUDIO_STATUS_ERROR_CACHE_MS = Number(process.env.PENNY_LMSTUDIO_STATUS_ERROR_CACHE_MS || 5000);
 /** GET /v1/models only — keep separate from chat timeout so a slow GPU load doesn’t leave the UI with an empty model list. */
@@ -1185,6 +1188,7 @@ const lmStudioStatusApi = createLmStudioStatusApi({
   PENNY_LMSTUDIO_RUNTIME_PREFERRED_MODEL: PENNY_LOCAL_RUNTIME_PREFERRED_MODEL,
   PENNY_LMSTUDIO_RUNTIME_PREFERRED_TOOL_MODEL: PENNY_LOCAL_RUNTIME_PREFERRED_TOOL_MODEL,
   PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK,
+  PENNY_LMSTUDIO_DISABLE_CLI_DISCOVERY,
 });
 const {
   getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,

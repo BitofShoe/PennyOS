@@ -5,6 +5,24 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const HOST_LMSTUDIO_ENV_KEYS = [
+  'PENNY_LMSTUDIO_SETTINGS_FILE',
+  'PENNY_LMSTUDIO_DISABLE_CLI_DISCOVERY',
+];
+const HOST_LMSTUDIO_ORIGINAL_ENV = Object.fromEntries(
+  HOST_LMSTUDIO_ENV_KEYS.map((key) => [key, process.env[key]]),
+);
+const HOST_LMSTUDIO_TEST_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-semantic-host-lmstudio-'));
+process.env.PENNY_LMSTUDIO_SETTINGS_FILE = path.join(HOST_LMSTUDIO_TEST_DIR, 'settings.json');
+process.env.PENNY_LMSTUDIO_DISABLE_CLI_DISCOVERY = '1';
+test.after(() => {
+  for (const [key, value] of Object.entries(HOST_LMSTUDIO_ORIGINAL_ENV)) {
+    if (value == null) delete process.env[key];
+    else process.env[key] = value;
+  }
+  fs.rmSync(HOST_LMSTUDIO_TEST_DIR, { recursive: true, force: true });
+});
+
 function readRequestBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';

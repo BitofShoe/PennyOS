@@ -44,7 +44,7 @@
           <div class="telemetry">
             <div class="telemetry-row">
               <span>Link status</span>
-              <strong id="statusValue"><span class="live-dot"></span>live</strong>
+              <strong id="statusValue"><span class="live-dot"></span>checking model</strong>
             </div>
           </div>
 
@@ -65,13 +65,16 @@
             </div>
 
             <div class="status-stack">
-              <div class="status-live" id="statusValueTop">live</div>
+              <div class="status-live" id="statusValueTop">checking model</div>
             </div>
           </div>
 
           <div class="tabbar">
             <button class="tab active" data-panel="chat" type="button">Chat</button>
-            <button class="tab" data-panel="memory" type="button">Memory</button>
+            <button class="tab" data-panel="memory" type="button">
+              <span class="tab-label">Memory</span>
+              <span id="workspaceWritesBadge" class="tab-badge" hidden></span>
+            </button>
             <button class="tab" data-panel="settings" type="button">Settings</button>
           </div>
 
@@ -158,7 +161,7 @@
                 <div>
                   <div class="section-label">Memory</div>
                   <div class="memory-toolbar-note">
-                    Remembered facts, pending suggestions, and memory connections live here. Deeper receipts stay tucked under Advanced diagnostics.
+                    Remembered facts, pending suggestions, and the trail behind recent replies live here. Detailed receipts stay tucked away.
                   </div>
                 </div>
 
@@ -179,6 +182,26 @@
 
           <section class="view" data-view="settings">
             <div class="panel-scroll settings-stack">
+              <section class="settings-block">
+                <div class="section-label">Setup</div>
+                <div class="setup-card setup-needs-setup" id="firstRunSetupPanel">
+                  <div class="setup-head">
+                    <div>
+                      <div class="settings-title">Choose how Penny thinks.</div>
+                      <p class="setup-status">
+                        Local models are recommended. The OpenAI API path is there when you need the easiest cloud fallback.
+                      </p>
+                    </div>
+                    <a class="secondary-btn tiny" href="/pennyos-help.html">Guide</a>
+                  </div>
+
+                  <div class="provider-choice-grid">
+                    <button id="firstRunUseLocal" class="secondary-btn" type="button">Use a local model</button>
+                    <button id="firstRunUseOpenAi" class="secondary-btn" type="button">Use OpenAI API</button>
+                  </div>
+                </div>
+              </section>
+
               <section class="settings-block">
                 <div class="section-label">Companion controls</div>
                 <div class="settings-title">Tune the vessel, not the personality.</div>
@@ -276,26 +299,6 @@
               </section>
 
               <section class="settings-block">
-                <div class="section-label">Setup</div>
-                <div class="setup-card setup-needs-setup" id="firstRunSetupPanel">
-                  <div class="setup-head">
-                    <div>
-                      <div class="settings-title">Choose how Penny thinks.</div>
-                      <p class="setup-status">
-                        Local models are recommended. The OpenAI API path is there when you need the easiest cloud fallback.
-                      </p>
-                    </div>
-                    <a class="secondary-btn tiny" href="/pennyos-help.html">Guide</a>
-                  </div>
-
-                  <div class="provider-choice-grid">
-                    <button id="firstRunUseLocal" class="secondary-btn" type="button">Use a local model</button>
-                    <button id="firstRunUseOpenAi" class="secondary-btn" type="button">Use OpenAI API</button>
-                  </div>
-                </div>
-              </section>
-
-              <section class="settings-block">
                 <div class="section-label">Model connection</div>
                 <div class="setup-card setup-ready" id="providerSetupPanel">
                   <div class="setup-head">
@@ -333,7 +336,7 @@
                     </label>
 
                     <label class="field">
-                      <span>Tools model</span>
+                      <span>File and project model</span>
                       <input id="openAiToolModel" class="input-lite" placeholder="defaults to the conversation model" />
                     </label>
 
@@ -385,7 +388,7 @@
                     <summary>Advanced model routing</summary>
 
                     <label class="field">
-                      <span>Tools model</span>
+                      <span>File and project model</span>
                       <select id="toolModelSelect" class="input-lite">
                         <option value="">loading models...</option>
                       </select>
@@ -424,7 +427,7 @@
                   </div>
 
                   <div class="diag-row">
-                    <span>Tools model</span>
+                    <span>File/project model</span>
                     <strong id="backendToolModel">pending</strong>
                   </div>
 

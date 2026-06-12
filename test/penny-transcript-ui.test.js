@@ -30,6 +30,25 @@ test('renderTranscriptContentHtml treats unclosed fences as escaped plain text',
   assert.match(html, /```html<br>&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
 
+test('renderTranscriptContentHtml keeps streaming unclosed fences as escaped code blocks', async () => {
+  const { renderTranscriptContentHtml } = await helpersPromise;
+  const html = renderTranscriptContentHtml('```js\nconst x = "<script>alert(1)</script>";', { streaming: true });
+
+  assert.match(html, /<pre class="bubble-code"><code class="language-js" data-language="js">/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /```js/);
+  assert.doesNotMatch(html, /<script\b/);
+});
+
+test('renderTranscriptContentHtml treats hostile fence info as escaped text', async () => {
+  const { renderTranscriptContentHtml } = await helpersPromise;
+  const html = renderTranscriptContentHtml('```js" onmouseover="alert(3)\nalert(1)\n```');
+
+  assert.doesNotMatch(html, /<pre\b/);
+  assert.doesNotMatch(html, /<[^>]+onmouseover=/);
+  assert.match(html, /```js&quot; onmouseover=&quot;alert\(3\)/);
+});
+
 test('buildTranscriptMessageViewModels preserves ordering and loading rows', async () => {
   const { buildTranscriptMessageViewModels } = await helpersPromise;
   const rows = buildTranscriptMessageViewModels([

@@ -1,11 +1,4 @@
-function escapeHtml(text) {
-  return String(text || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
+import { escapeHtml } from './penny-expression-runtime.mjs';
 
 function formatBytes(value = 0) {
   const bytes = Math.max(0, Number(value || 0));
@@ -41,6 +34,25 @@ export function buildWorkspaceWritesViewModel(payload = {}) {
     count: Math.max(0, Number(payload?.count ?? pending.length)),
     directWritesEnabled: payload?.directWritesEnabled === true,
     error: String(payload?.error || ''),
+  };
+}
+
+export function buildWorkspaceWritesBadgeState(payload = {}) {
+  const count = Math.max(0, Math.floor(Number(payload?.count || 0)));
+  if (!count) {
+    return {
+      count: 0,
+      visible: false,
+      label: '',
+      title: '',
+    };
+  }
+  const label = count > 99 ? '99+' : String(count);
+  return {
+    count,
+    visible: true,
+    label,
+    title: `${count} workspace edit${count === 1 ? '' : 's'} awaiting approval`,
   };
 }
 

@@ -245,6 +245,44 @@ test('LM Studio status does not treat embed-only runtime state as chat or tool r
   assert.match(status.hint, /no usable chat model/i);
 });
 
+test('LM Studio status can disable host lms CLI discovery for server-level tests', async () => {
+  const cliCalls = [];
+  const api = createLmStudioStatusApi({
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ data: [{ id: 'unsloth/gemma-4-31b-it' }] }),
+    }),
+    fs: {
+      existsSync: () => false,
+      readFileSync: () => '',
+    },
+    execFileText: async (_command, args = []) => {
+      cliCalls.push(args);
+      return { stdout: JSON.stringify([{ identifier: 'host-only-model', status: 'idle' }]) };
+    },
+    URL,
+    LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+    LMSTUDIO_API_KEY: 'lm-studio-local',
+    LMSTUDIO_SETTINGS_FILE: '',
+    LMSTUDIO_STATUS_CACHE_MS: 10,
+    LMSTUDIO_STATUS_ERROR_CACHE_MS: 10,
+    LMSTUDIO_MODELS_PROBE_MS: 5000,
+    LOCAL_LLM_TRANSPORT: 'auto',
+    PENNY_LMSTUDIO_CHAT_MODEL: 'unsloth/gemma-4-31b-it',
+    PENNY_LMSTUDIO_TOOL_MODEL: 'google/gemma-4-e4b',
+    PENNY_LMSTUDIO_DISABLE_CLI_DISCOVERY: '1',
+  });
+
+  const status = await api.getLmStudioConnectionStatus({ force: true });
+
+  assert.deepEqual(cliCalls, []);
+  assert.doesNotMatch(JSON.stringify(status), /host-only-model/);
+  assert.deepEqual(status.nativeAvailableModels, ['unsloth/gemma-4-31b-it']);
+  assert.deepEqual(status.installedModels, ['unsloth/gemma-4-31b-it']);
+  assert.equal(status.resolvedChatModel, 'unsloth/gemma-4-31b-it');
+});
+
 test('LM Studio status keeps embedding installs in the installed inventory', async () => {
   const api = makeStatusApi({
     models: ['google/gemma-4-e4b', 'text-embedding-nomic-embed-text-v1.5'],

@@ -73,6 +73,45 @@ test('updateBackendStatusUi keeps offline cold states explicit', async () => {
   assert.equal(els.backendToolModel.textContent, 'google/gemma-4-e4b');
 });
 
+test('summarizeShellModelConnection tells first-run users when no model is connected', async () => {
+  const { summarizeShellModelConnection } = await helpersPromise;
+
+  const summary = summarizeShellModelConnection({
+    lmStudio: {
+      reachable: true,
+      resolvedChatModel: '',
+      hint: 'LM Studio is reachable, but no usable chat model is currently loaded.',
+    },
+  });
+
+  assert.equal(summary.ready, false);
+  assert.equal(summary.statusText, 'no model');
+  assert.match(summary.noticeText, /Open Settings > Setup/i);
+  assert.match(summary.failurePrefix, /model is not connected yet/i);
+});
+
+test('summarizeShellModelConnection treats resolved local models as ready', async () => {
+  const { summarizeShellModelConnection } = await helpersPromise;
+
+  const summary = summarizeShellModelConnection({
+    lmStudio: {
+      reachable: true,
+      resolvedChatModel: 'unsloth/gemma-4-31b-it',
+    },
+  });
+
+  assert.equal(summary.ready, true);
+  assert.equal(summary.statusText, 'live');
+  assert.equal(summary.noticeText, '');
+});
+
+test('formatLastLane explains model fallback without raw jargon', async () => {
+  const { formatLastLane } = await helpersPromise;
+
+  assert.equal(formatLastLane({ localLane: 'tool', laneFallback: true }), 'tools path using best loaded model');
+  assert.equal(formatLastLane({ localLane: 'chat', laneFallback: false }), 'conversation path');
+});
+
 test('findBestModelMatch treats UD quant suffixes as model-family aliases', async () => {
   const { findBestModelMatch } = await helpersPromise;
 

@@ -166,8 +166,46 @@ function localRuntimeLabelFromStatus(status = null, lmStudio = {}) {
 export function formatLastLane(meta = null) {
   if (!meta || !meta.localLane) return 'pending';
   const lane = meta.localLane === 'tool' ? 'tools path' : 'conversation path';
-  const suffix = meta.laneFallback ? ' (fallback)' : '';
+  const suffix = meta.laneFallback ? ' using best loaded model' : '';
   return `${lane}${suffix}`;
+}
+
+export function summarizeShellModelConnection(status = null) {
+  if (!status) {
+    return {
+      ready: false,
+      checking: true,
+      statusText: 'checking model',
+      noticeText: '',
+      failurePrefix: 'Penny is still checking the model connection.',
+    };
+  }
+
+  const lmStudio = status?.lmStudio || status || {};
+  const localRuntimeLabel = localRuntimeLabelFromStatus(status, lmStudio);
+  const reachable = lmStudio.reachable === true;
+  const resolvedChatModel = String(lmStudio.resolvedChatModel || lmStudio.resolvedModel || '').trim();
+  const chatReady = reachable && !!resolvedChatModel;
+  if (chatReady) {
+    return {
+      ready: true,
+      checking: false,
+      statusText: 'live',
+      noticeText: '',
+      failurePrefix: '',
+    };
+  }
+
+  const detail = reachable
+    ? `${localRuntimeLabel} is reachable, but no conversation model is loaded or selected.`
+    : `${localRuntimeLabel} is not connected yet.`;
+  return {
+    ready: false,
+    checking: false,
+    statusText: 'no model',
+    noticeText: `${detail} Open Settings > Setup to choose a local model or connect the OpenAI API.`,
+    failurePrefix: `Penny's model is not connected yet. Open Settings > Setup to choose a local model or connect the OpenAI API.`,
+  };
 }
 
 export function buildFirstRunModelSetupViewModel(status = null) {
