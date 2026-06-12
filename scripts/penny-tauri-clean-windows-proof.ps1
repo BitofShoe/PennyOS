@@ -170,6 +170,7 @@ if (-not $InstallDir) {
 }
 
 New-Item -ItemType Directory -Force -Path $ProofDir | Out-Null
+$ProofDir = (Resolve-Path $ProofDir).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $proofPath = Join-Path $ProofDir "penny-tauri-clean-windows-proof-$stamp.json"
 $serverLog = Join-Path $ProofDir "penny-tauri-clean-windows-proof-$stamp-server.log"

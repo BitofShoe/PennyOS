@@ -284,6 +284,11 @@ test('Windows clean proof script installs launches screenshots and uninstalls th
   assert.match(script, /Clean Windows proof requires node, npm, cargo, and rustc to be absent/);
   assert.match(script, /PennyOS_0\.1\.0_x64-setup\.exe/);
   assert.match(script, /sideBySideInstaller/);
+  assert.match(script, /\$ProofDir = \(Resolve-Path \$ProofDir\)\.Path/);
+  assert.ok(
+    script.indexOf('$ProofDir = (Resolve-Path $ProofDir).Path') < script.indexOf('$serverLog = Join-Path $ProofDir'),
+    'clean proof log paths should be absolute before launching the installed app',
+  );
   assert.match(script, /\/S/);
   assert.match(script, /\/D=\$InstallDir/);
   assert.match(script, /Start Menu\\Programs\\PennyOS\.lnk/);
