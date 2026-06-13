@@ -3,7 +3,7 @@
 Date: 2026-04-19
 
 Scope:
-- Primary source: `Penny's Playground/Personality Reference (1).md`
+- Primary source: private/local personality reference note
 - Live runtime assets:
   - `penny-voice/runtime/penny-operational-blend.md`
   - `penny-voice/runtime/penny-chat-directives.md`
@@ -46,7 +46,7 @@ The best next move is a bounded one:
 
 The current live voice bundle is already compact compared with the raw source:
 
-- `Personality Reference (1).md`: 33,677 words / 1,176 lines
+- Private/local personality reference note: 33,677 words / 1,176 lines
 - `penny-operational-blend.md`: 727 words / 61 lines
 - `penny-chat-directives.md`: 514 words / 43 lines
 - `penny-voice-examples.md`: 327 words / 32 lines
@@ -67,7 +67,7 @@ Implication:
 
 ## What the source document is actually useful for
 
-`Personality Reference (1).md` is best read as a blended influence bundle, not a direct runtime prompt candidate. Most of its value is structural rather than literal.
+The private/local personality reference note is best read as a blended influence bundle, not a direct runtime prompt candidate. Most of its value is structural rather than literal.
 
 ### Razor-mouth resilience signal
 

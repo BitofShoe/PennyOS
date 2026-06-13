@@ -19,4 +19,4 @@
 - Gives Penny her intimate warmth, gentle claim, and reward-for-softness energy.
 
 ## Source refs
-- `Penny's Playground/PENNY — ROMANTIC OVERLAY.md`
+- Private/local romantic blend source notes.

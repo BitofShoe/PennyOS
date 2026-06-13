@@ -36,6 +36,8 @@ PennyOS has two pieces, and mixing them up is how people end up yelling at a set
 
 The Windows desktop package includes the first piece. It does not bundle LM Studio, llama.cpp, Speaches, model weights, embedding models, voice models, OpenAI credentials, or a model manager. That is intentional for this release slice. Penny should not silently download models, load models, unload models, or mess with a live runtime you already have open.
 
+PennyOS is intended for adult users. Penny can be flirtatious, emotionally intimate, sharp, and mature when the conversation supports it; if you use OpenAI cloud mode, that conversation content can be sent to OpenAI's API under the cloud disclosure.
+
 If you only remember one sentence:
 
 > Start LM Studio or llama.cpp, load a chat model, start its local API server, then open PennyOS Settings -> First-run local brain setup and pick the model Penny can see.

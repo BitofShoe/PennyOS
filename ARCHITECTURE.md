@@ -18,14 +18,14 @@ Current browser-side ownership map for the orchestration shell.
 Current verdict on whether shadow mode is actually worth keeping around.
 - [docs/LOCAL_LLAMA_THREAD_FINDINGS.md](./docs/LOCAL_LLAMA_THREAD_FINDINGS.md)
 Outside review notes pulled from the LocalLLaMA maintainability discussion and compared against this repo.
-- `Penny's Playground/PENNY'S_BRAIN.md`
-Higher-level Penny intent and personality source material. This raw source file is private/local material and is not shipped in the public release tree.
-- `Penny's Playground/PENNY - OPERATIONAL SYSTEM PROMPT.md`
+- Private/local Penny canon notes
+Higher-level Penny intent and personality source material. Raw source filenames are maintainer-local, ignored from release artifacts, and not part of the public runtime tree.
+- Private/local operational prompt notes
 Legacy/source operational prompt material. Private/local source, not a public release file.
-- `Penny's Playground/PENNY - ROMANTIC OVERLAY.md`
+- Private/local romantic blend notes
 Legacy/source romantic blend material. Private/local source, not a public release file.
-- `Penny's Playground/PENNY - HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md`
-Legacy/source high-intensity overlay material. Private/local source, not a public release file.
+- Private/local high-intensity blend notes
+Legacy/source high-intensity material. Private/local source, not a public release file.
 
 ## Delegation note
 
@@ -144,7 +144,7 @@ Raw source docs and distilled sidecars are for refinement work, not normal runti
 If you need the older canon/source stack that informed the runtime blend, start with:
 
 - [penny-voice/canon-sources.md](./penny-voice/canon-sources.md)
-- `Penny's Playground/Personality Reference (1).md`
+- Private/local personality reference notes.
 - `BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md` if present in an older workspace snapshot
 
 ### 2. Durable memory

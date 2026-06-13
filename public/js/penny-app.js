@@ -129,6 +129,7 @@ const els = {
   voiceReplay: document.getElementById('voiceReplay'),
   expressionOverrideSelect: document.getElementById('expressionOverrideSelect'),
   expressionDecisionNote: document.getElementById('expressionDecisionNote'),
+  brainModeShadowRow: document.getElementById('brainModeShadowRow'),
   brainModeShadow: document.getElementById('brainModeShadow'),
   brainModeLocal: document.getElementById('brainModeLocal'),
   brainModeNote: document.getElementById('brainModeNote'),
@@ -411,7 +412,7 @@ const ambientChrome = createAmbientChromeRuntime({
 });
 
 function updateBrainModeUi(meta = null) {
-  const mode = state.memory.brainMode === 'local' ? 'local' : 'shadow';
+  const mode = state.memory.brainMode === 'shadow' ? 'shadow' : 'local';
   if (els.brainModeShadow) els.brainModeShadow.checked = mode === 'shadow';
   if (els.brainModeLocal) els.brainModeLocal.checked = mode === 'local';
   if (els.backendLastLane) els.backendLastLane.textContent = formatLastLane(meta);
@@ -518,6 +519,9 @@ function updateTheme() {
 
 function updateBackendStatusUi(status = null) {
   updateBackendStatusUiHelper({ els, state, status });
+  if (els.brainModeShadowRow) {
+    els.brainModeShadowRow.hidden = status?.shadowEnabled !== true;
+  }
   updateModelConnectionNotice(status);
   updateTheme();
 }

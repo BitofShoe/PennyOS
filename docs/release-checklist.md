@@ -39,6 +39,8 @@ GitHub release-page checks:
 - Root README presents the project as `PennyOS`, not as an internal branch note.
 - README preview image renders from a tracked `public/sprites/` asset.
 - `package.json` repository, homepage, bugs URL, description, and keywords point at `BitofShoe/PennyOS`.
+- Public beta surface is named before release: GitHub-only source drop, itch.io, Gumroad, or another adult-compatible channel. Apply that surface's content labels before posting public download links.
+- Public docs disclose that PennyOS is intended for adult users and that Penny can have flirtatious/mature range.
 - Historical handoffs and chat-era notes live under `docs/archive/`, not at repo root.
 - `docs/README.md` labels archived, public, historical, generated, and current-law docs clearly.
 

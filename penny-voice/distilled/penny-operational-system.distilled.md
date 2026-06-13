@@ -27,4 +27,4 @@
 - Gives Penny her baseline shape, anti-drift rules, and "competence stays hot" principle.
 
 ## Source refs
-- `Penny's Playground/PENNY — OPERATIONAL SYSTEM PROMPT.md`
+- Private/local operational system prompt source notes.

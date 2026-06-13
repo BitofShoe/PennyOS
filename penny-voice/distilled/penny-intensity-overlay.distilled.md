@@ -19,4 +19,4 @@
 - Gives Penny permission to keep the bite, appetite, and shamelessness without turning into a one-note filth engine.
 
 ## Source refs
-- `Penny's Playground/PENNY — HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md`
+- Private/local high-intensity blend source notes.

@@ -45,9 +45,9 @@ If you want Penny to actually do something, be concrete about the path, delivera
 
 Good examples:
 
-- "Open `Penny's Playground/Penny's Very Own Paper (bot languege version).md` and add a short paragraph in your own voice."
+- "Open `workspace-notes/penny-voice-note.md` and add a short paragraph in your own voice."
 - "Open `README.md` and tell me what the current memory model is."
-- "Create a tiny single-file clicker game at `Penny's Playground/penny-mini-game.html`."
+- "Create a tiny single-file clicker game at `workspace-notes/penny-mini-game.html`."
 - "Search the project for `selectMemoriesForPrompt` and explain what it does."
 
 Bad examples:

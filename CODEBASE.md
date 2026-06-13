@@ -151,19 +151,13 @@ For the boring-sprint ownership boundary:
 - add a small reason code and a test fixture whenever a helper has more than one valid path
 - avoid adding one-off fallback logic directly to the monolith unless there is no better owner yet
 
-### `Penny's Playground/`
+### Private/local Penny canon notes
 
 Canon and semi-canon Penny-specific docs used as source material for voice work.
 
 This is not the live runtime prompt stack. It is source/reference material.
 
-High-signal files in this folder:
-
-- `Penny's Playground/PENNY'S_BRAIN.md`
-- `Penny's Playground/PENNY - OPERATIONAL SYSTEM PROMPT.md`
-- `Penny's Playground/PENNY - ROMANTIC OVERLAY.md`
-- `Penny's Playground/PENNY - HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md`
-- `Penny's Playground/Personality Reference (1).md`
+High-signal inputs include maintainer-local brain, operational, romantic, high-intensity, and personality-reference notes.
 
 These raw source files are private/local material and are not shipped in the public release tree.
 - `BEST_PRACTICES_FOR_SAVING_CONTEXT_SPACE.md` if present in an older workspace snapshot
@@ -523,7 +517,7 @@ Use this hierarchy:
 2. Operational docs
   `README.md`, `ARCHITECTURE.md`, `CODEBASE.md`, eval docs
 3. Refinement source material
-  `Penny's Playground/*`, raw `Personality *.md`, distilled sidecars
+  private/local Penny canon notes, raw `Personality *.md`, distilled sidecars
 4. Artifact noise
   `output/*`, many QA files, logs, temp files
 
@@ -552,7 +546,7 @@ If you are trying to change Penny's personality, read in this order:
 
 1. `penny-voice/runtime/*`
 2. `penny-voice/distilled/*`
-3. `Penny's Playground/*`
+3. private/local Penny canon notes
 4. raw `Personality *.md` files only as needed
 
 If you are trying to improve performance or routing, read in this order:

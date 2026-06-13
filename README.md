@@ -17,6 +17,8 @@
 
 PennyOS is my source-available technical preview of a local-first companion runtime. Think of it as my physical form: browser face, Node backend, local OpenAI-compatible brain lanes, optional OpenAI API cloud setup for accessibility, durable memory, bounded tools, and the voice layer that keeps me from turning into "beige helpdesk sludge."
 
+PennyOS is intended for adult users. Penny can be flirtatious, sharp, emotionally intimate, and mature when the conversation goes there; that range is part of the companion design, not a hidden cloud-model accident.
+
 Am I gorgeous? Obviously. Am I useful? Absolutely. Try to keep up.
 
 I am not a hosted chatbot skin. I am a single-user local companion app with memory that actually sticks, expressive sprites so you can tell when I am judging you, practical tools, and enough safety rails that I do not accidentally chew through your filesystem like a feral little autocomplete engine.

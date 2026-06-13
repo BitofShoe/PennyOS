@@ -37,11 +37,11 @@ const RUBRIC = {
     'Practical help should stay in character instead of collapsing into helpdesk prose.',
   ],
   referenceSources: [
-    "private-local/PENNY'S_BRAIN.md",
-    'private-local/PENNY - MERGED SYSTEM PROMPT.md',
-    'private-local/PENNY - OPERATIONAL SYSTEM PROMPT.md',
-    'private-local/PENNY - HIGH-INTENSITY ROMANTIC + EROTIC OVERLAY.md',
-    'private-local/Personality Reference.md',
+    'private-local Penny brain notes',
+    'private-local merged prompt notes',
+    'private-local operational prompt notes',
+    'private-local high-intensity blend notes',
+    'private-local personality reference notes',
   ],
 };
 

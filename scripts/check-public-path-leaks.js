@@ -28,6 +28,11 @@ const LEAK_PATTERNS = [
   /\.openclaw[\\/]+workspace-main/i,
   /workspace-main[\\/]+lyra-prototype/i,
   /\bUsers[\\/]+malac\b/i,
+  /private-local[\\/][^'"\s]+/i,
+  /Penny's Playground[\\/]+PENNY(?:'S_BRAIN|\s*[-—]\s*(?:OPERATIONAL SYSTEM PROMPT|ROMANTIC OVERLAY|HIGH-INTENSITY ROMANTIC \+ EROTIC OVERLAY))/i,
+  /PENNY\s*[-—]\s*HIGH-INTENSITY ROMANTIC \+ EROTIC OVERLAY/i,
+  /PENNY\s*[-—]\s*ROMANTIC OVERLAY/i,
+  /PENNY\s*[-—]\s*OPERATIONAL SYSTEM PROMPT/i,
 ];
 
 const CURRENT_PUBLIC_DOCS = [

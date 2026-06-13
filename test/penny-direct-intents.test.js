@@ -113,10 +113,10 @@ test('resolveDirectToolIntent keeps explicit file reads broad when earlier quote
 });
 
 test('resolveDirectToolIntent keeps apostrophe-heavy long-file summary requests on full-file reads', () => {
-  const intent = resolveDirectToolIntent("Read Penny's Playground/PENNY'S_BRAIN.md and tell me the three most important ideas in plain English.");
+  const intent = resolveDirectToolIntent("Read workspace-notes/Penny's Brain.md and tell me the three most important ideas in plain English.");
   assert.ok(intent);
   assert.equal(intent.name, 'read_project_file');
-  assert.equal(intent.args.path, "Penny's Playground/PENNY'S_BRAIN.md");
+  assert.equal(intent.args.path, "workspace-notes/Penny's Brain.md");
   assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.PROJECT_FILE_READ);
 });
 

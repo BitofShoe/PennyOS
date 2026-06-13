@@ -176,7 +176,7 @@ This section keeps current law first, then follows the interpretive order from [
 
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
-| private/local `Penny's Playground/`, [../penny-voice/distilled/](../penny-voice/distilled), and private/local root `Personality *.md` files | Voice and canon source inputs | Raw/source material | Needs verification | voice refinement, source instincts, historical canon | live runtime authority |
+| private/local Penny canon notes, `penny-voice/distilled/`, and private/local root `Personality *.md` files | Voice and canon source inputs | Raw/source material | Needs verification | voice refinement, source instincts, historical canon | live runtime authority |
 
 ### 10. Archived/superseded material
 

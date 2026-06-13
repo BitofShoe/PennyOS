@@ -5,3 +5,4 @@
 *.jpeg binary
 *.webp binary
 *.gif binary
+penny-voice/distilled export-ignore

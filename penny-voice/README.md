@@ -15,6 +15,10 @@ Layout:
 - `runtime/penny-voice-examples.md`: short flavor injector for phrasing and rhythm
 
 Use pattern:
-1. Read raw source only when refining the voice or resolving ambiguity.
+1. Read private/local raw source only when refining the voice or resolving ambiguity.
 2. Read distilled sidecars when adjusting the blend.
 3. Load runtime files in the live prompt stack.
+
+Release boundary:
+- `runtime/` is the only voice folder staged into the installed Tauri runtime.
+- `distilled/` is maintainer/source-review material. It can be visible in a public source repository, but it is not a packaged app prompt input.
