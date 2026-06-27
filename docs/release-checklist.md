@@ -14,6 +14,9 @@ Run before cutting a public release branch or package:
 - `cargo check` from `src-tauri/`
 - `npm run tauri:build:check`
 - `npm run check:harness-receipts`
+- `npm run check:runtime-contract`
+- `npm run check:p0-fixture-pack`
+- `npm run eval:p0-fixture-pack -- --out output/p0-eval-pack-release-check.json`
 - `npm pack --dry-run --json`
 - `npm pack --dry-run --ignore-scripts --json`
 - `git diff --check`
@@ -164,3 +167,4 @@ Clean Windows VM proof recipe:
 3. Keep the emitted `penny-tauri-clean-windows-proof-*.json`, server log, and screenshot. The proof should show installer exit code 0, Start Menu shortcut target, stripped-PATH launch, `/api/penny/status` HTTP 200 with `name: "Penny"`, seed-only install-dir data, app-data/config/log paths outside the install directory, silent uninstall, and no remaining `pennyos.exe`/`penny-node.exe` processes.
 4. Optional developer-machine rehearsal: run the same script with `-AllowDevToolsOnPath -NoScreenshot -InstallDir "$env:LOCALAPPDATA\Programs\PennyOSCleanProofHarness"` and label the result as rehearsal only, not clean Windows proof.
 5. Hosted CI fallback: a private Windows runner can provide a clean-`PATH` installed proof by downloading the NSIS installer and proof script, setting `PATH` to Windows/PowerShell directories only, verifying `node`, `npm`, `cargo`, and `rustc` are unavailable, then running the same proof script with `-NoScreenshot`. Label this as hosted clean-`PATH` proof, not as a bare VM screenshot proof.
+6. Do not publish raw proof receipts. They can contain local usernames, install paths, app-data file names/sizes, and machine tool inventory. Share a redacted summary unless the reviewer is explicitly trusted to see local machine details.

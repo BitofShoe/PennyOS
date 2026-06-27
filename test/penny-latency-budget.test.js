@@ -81,6 +81,13 @@ test('resolveLatencyBudget keeps casual turns voice-shaped and memory turns rich
   assert.equal(image.includeExamples, false);
 });
 
+test('latency budgets keep generous output ceilings so thinking tokens do not starve visible replies', () => {
+  assert.equal(resolveLatencyBudget({ userText: 'Hi pretty thing.' }).maxOutputTokens, 8192);
+  assert.equal(resolveLatencyBudget({ userText: 'Remember what my favorite tea is now?' }).maxOutputTokens, 8192);
+  assert.equal(resolveLatencyBudget({ userText: 'Open README.md and inspect it.', lane: 'tool' }).maxOutputTokens, 8192);
+  assert.equal(resolveLatencyBudget({ userText: 'What is in this picture?', attachmentType: 'image' }).maxOutputTokens, 4096);
+});
+
 test('getLatencyBudget returns cloned mutable copies instead of shared config objects', () => {
   const first = getLatencyBudget(LATENCY_CLASSES.CASUAL_COMPANION);
   const second = getLatencyBudget(LATENCY_CLASSES.CASUAL_COMPANION);

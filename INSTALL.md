@@ -67,6 +67,8 @@ The packaged wrapper opens a native PennyOS window, starts the bundled `penny-no
 
 `npm run tauri:sidecar:build` stages `src-tauri/gen/penny-runtime/`, `src-tauri/gen/penny-runtime-manifest.json`, and `src-tauri/binaries/penny-node-<target-triple>`. `npm run tauri:build:check` compiles the Rust desktop shell without building installers. Use it after `tauri:doctor` and before trying a full bundled `tauri:build`. `npm run tauri:consumer-smoke:windows` launches the Windows package executable with Node, npm, Cargo, and rustc hidden from `PATH`, probes `/api/penny/status`, writes a JSON receipt under `output/tauri-consumer-smoke/`, and stops the app it started. `npm run tauri:clean-proof:windows` is the stricter clean-user/VM harness for the NSIS installer: it expects Node/npm/Cargo/rustc to be absent from the normal user `PATH`, installs PennyOS, launches the installed shortcut target with a stripped `PATH`, captures status/log/screenshot/app-data receipts, uninstalls, and writes one JSON proof under `output/tauri-clean-windows-proof/`. A hosted private Windows proof has passed the same installed-app clean-`PATH` launch path; a bare VM screenshot is still the strongest final consumer receipt.
 
+Uninstall removes PennyOS app files and shortcuts. It intentionally leaves user memory/config/log state in the PennyOS app-data folders so an accidental uninstall does not wipe a companion's memory. Delete the `com.bitofshoe.pennyos` roaming/local app-data folders manually if you want a full data wipe after uninstall.
+
 For this WSL/Windows shared checkout, run this if one side suddenly reports a missing Tauri native binding after the other side ran `npm install`:
 
 ```powershell

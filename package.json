@@ -51,7 +51,9 @@
     "docs/penny-release-decisions-2026-05-18.md",
     "docs/penny-tauri-wrapper-options-2026-05-19.md",
     "docs/penny-harness-engineering-link-review-2026-06-10.md",
+    "docs/penny-experience-review-packet.md",
     "docs/penny-browser-manual-checklist.md",
+    "docs/sidecars/penny-sidecar-productized-workflows.md",
     "docs/release-checklist.md",
     "ARCHITECTURE.md",
     "CODEBASE.md",
@@ -87,10 +89,13 @@
     "check:handoff-receipts": "node scripts/check-penny-handoff-receipts.js docs/penny-harness-engineering-link-review-2026-06-10.md",
     "check:skill-baselines": "node scripts/check-penny-skill-baselines.js fixtures/penny-skill-baselines/source-review-fixture.json",
     "check:harness-receipts": "npm run check:source-reviews && npm run check:handoff-receipts && npm run check:skill-baselines",
+    "check:runtime-contract": "node --test test/penny-runtime-contract-receipt.test.js test/penny-runtime-contract-receipts-check.test.js",
+    "eval:p0-fixture-pack": "node scripts/eval-penny-p0-fixture-pack.js --fixture",
+    "check:p0-fixture-pack": "node --test test/penny-p0-eval-pack.test.js && npm run eval:p0-fixture-pack -- --out output/p0-eval-pack-release-check.json",
     "check:frontend-privacy": "node scripts/check-frontend-privacy.js",
     "check:public-path-leaks": "node scripts/check-public-path-leaks.js",
     "check:engine": "node scripts/check-release-engine.js",
-    "check:release": "npm run check:engine && npm run check:required-files && npm run check:release-artifacts && npm run check:frontend-privacy && npm run check:public-path-leaks && npm run check:harness-receipts && node --check server.js && npm test && npm run check:release-artifacts",
+    "check:release": "npm run check:engine && npm run check:required-files && npm run check:release-artifacts && npm run check:frontend-privacy && npm run check:public-path-leaks && npm run check:harness-receipts && npm run check:runtime-contract && npm run check:p0-fixture-pack && node --check server.js && npm test && npm run check:release-artifacts",
     "check": "npm run check:release",
     "prepack": "npm run check:engine && npm run check:required-files && npm run check:release-artifacts && npm run check:frontend-privacy && npm run check:public-path-leaks && npm run check:harness-receipts && node --check server.js",
     "qa:voice-redo": "node scripts/qa-penny-voice-redo.js",
@@ -176,7 +181,9 @@
     "tauri:clean-proof:windows": "powershell -ExecutionPolicy Bypass -File .\\scripts\\penny-tauri-clean-windows-proof.ps1",
     "tauri:info": "node scripts/penny-tauri-cli.js info",
     "bundle:review": "node scripts/build-review-bundle.js",
-    "bundle:review:experience": "node scripts/build-review-bundle.js --experience"
+    "bundle:review:experience": "node scripts/build-review-bundle.js --experience",
+    "bundle:social-kit": "node scripts/build-penny-social-kit.js",
+    "bundle:social-kit:zip": "npm run bundle:social-kit && powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path output/pennyos-social-kit.zip) { Remove-Item output/pennyos-social-kit.zip }; Compress-Archive -Path output/pennyos-social-kit/* -DestinationPath output/pennyos-social-kit.zip -Force\""
   },
   "optionalDependencies": {
     "@yarflam/potion-base-8m": "1.0.4"

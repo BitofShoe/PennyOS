@@ -25,6 +25,8 @@ const LEAK_PATTERNS = [
   /C:\\Users\\/i,
   /C:\/Users\//i,
   /\/mnt\/c\/Users\/malac\b/i,
+  /\/home\/malac\b/i,
+  /\/Users\/malac\b/i,
   /\.openclaw[\\/]+workspace-main/i,
   /workspace-main[\\/]+lyra-prototype/i,
   /\bUsers[\\/]+malac\b/i,
@@ -42,6 +44,9 @@ const CURRENT_PUBLIC_DOCS = [
   'docs/penny-for-new-developers.md',
   'docs/penny-configuration-profiles.md',
   'docs/penny-release-decisions-2026-05-18.md',
+  'docs/penny-tauri-wrapper-options-2026-05-19.md',
+  'docs/penny-harness-engineering-link-review-2026-06-10.md',
+  'docs/penny-experience-review-packet.md',
 ];
 
 function normalizeRel(filePath = '') {

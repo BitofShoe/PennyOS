@@ -296,6 +296,53 @@ test('chat completions record strip-only cleanup metadata when minor scaffolding
   });
 });
 
+test('chat completions record output-limit telemetry when LM Studio stops for length', async () => {
+  const laneRuntime = {};
+  const api = makeTransportApi({
+    postJsonSse: async () => {
+      throw new Error('postJsonSse should not be called in this test');
+    },
+    postJsonLongRunning: async () => ({
+      statusCode: 200,
+      bodyText: JSON.stringify({
+        choices: [
+          {
+            finish_reason: 'length',
+            message: {
+              content: 'Partial answer, boss.\n[MOOD:annoyed]',
+            },
+          },
+        ],
+        usage: {
+          completion_tokens: 900,
+          completion_tokens_details: {
+            reasoning_tokens: 700,
+          },
+        },
+      }),
+    }),
+  });
+
+  const result = await api.runLmStudioChatCompletionsApi({
+    userText: 'test',
+    messages: [],
+    memories: {},
+    laneRuntime,
+  });
+
+  assert.equal(result, 'Partial answer, boss.\n[MOOD:annoyed]');
+  assert.deepEqual(laneRuntime.responseLimit, {
+    hit: true,
+    reasonCode: 'output_limit',
+    finishReason: 'length',
+    source: 'chat-completions',
+    lane: 'chat',
+    maxTokens: 900,
+    completionTokens: 900,
+    reasoningTokens: 700,
+  });
+});
+
 test('chat completions mark reasoning salvage as reconstructed cleanup', async () => {
   const laneRuntime = {};
   const api = makeTransportApi({

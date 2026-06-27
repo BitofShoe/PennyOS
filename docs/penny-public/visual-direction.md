@@ -85,18 +85,16 @@ Use the larger Penny mood art for emotional hero moments.
 
 Use the decor/chibi assets as accent language, badges, separators, or playful supporting beats.
 
-### Workspace-root visual references
+### Shipped hero-capable sprite references
 
-From `workspace-main/`:
+From `public/sprites/packs/pen2/`:
 
-- `penny fav 2.png`
-- `penny fav 3.png`
-- `penny fav 4.png`
-- `penny fav 5.png`
-- `penny fav 6.png`
-- `penny fav 7.png`
+- `public/sprites/packs/pen2/pen2-smug-presenting.png`
+- `public/sprites/packs/pen2/pen2-flirty-soft-tease.png`
+- `public/sprites/packs/pen2/pen2-thinking-laptop-base.png`
+- `public/sprites/packs/pen2/pen2-happy-bright.png`
 
-These should be treated as higher-drama reference art for the eventual hero/feature panels if they are visually stronger than the in-app sprites.
+Use these public-bundle-safe sprites for higher-drama hero/feature references before reaching for any operator-local concept art.
 
 ## Suggested artifact structure
 

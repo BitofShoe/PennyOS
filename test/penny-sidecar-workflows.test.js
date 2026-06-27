@@ -27,8 +27,23 @@ test('search sidecar workflow returns a Penny-facing review receipt without memo
   assert.equal(receipt.authority.promptTruthChanged, false);
   assert.equal(receipt.authority.toolEvidenceReceiptChanged, false);
   assert.equal(receipt.authority.defaultContextChanged, false);
+  assert.equal(receipt.authority.runtimeVoiceChanged, false);
+  assert.equal(receipt.authority.defaultModelChanged, false);
+  assert.equal(receipt.authority.lmStudioModelStateChanged, false);
+  assert.equal(receipt.pipelineProvenance.source.kind, 'search');
+  assert.equal(receipt.pipelineProvenance.extraction.method, 'search-digest');
+  assert.equal(receipt.pipelineProvenance.cleaning.status, 'normalized');
+  assert.equal(receipt.pipelineProvenance.dedupe.status, 'stable-order');
+  assert.equal(typeof receipt.pipelineProvenance.quality.supportScore, 'number');
+  assert.equal(receipt.pipelineProvenance.privacy.flag, 'public-web-fixture');
+  assert.equal(receipt.pipelineProvenance.review.status, 'review_required');
+  assert.equal(receipt.pipelineProvenance.downstreamUse.memoryWrite, false);
+  assert.equal(receipt.pipelineProvenance.downstreamUse.promptTruthChanged, false);
+  assert.equal(receipt.pipelineProvenance.downstreamUse.runtimeVoiceChanged, false);
   assert.equal(receipt.digest.query, 'local-first sidecar search');
   assert.ok(receipt.digest.sources.length > 0);
+  assert.equal(receipt.sourceReceipts[0].pipelineProvenance.extraction.method, 'search-result');
+  assert.equal(receipt.sourceReceipts[0].pipelineProvenance.review.status, 'review_required');
   assert.deepEqual(
     receipt.sourceReceipts.map((source) => ({
       index: source.index,
@@ -62,6 +77,9 @@ test('search sidecar workflow blocks live probes without explicit operator permi
   assert.equal(receipt.authority.memoryWrite, false);
   assert.equal(receipt.authority.promptTruthChanged, false);
   assert.equal(receipt.authority.defaultContextChanged, false);
+  assert.equal(receipt.pipelineProvenance.source.kind, 'search');
+  assert.equal(receipt.pipelineProvenance.review.status, 'permission_required');
+  assert.equal(receipt.pipelineProvenance.downstreamUse.memoryWrite, false);
 });
 
 test('sidecar search route exposes the search workflow as a review-only API path', async () => {
@@ -170,6 +188,16 @@ test('docs sidecar workflow returns a cited RAG answer without memory or prompt 
   assert.equal(receipt.authority.promptTruthChanged, false);
   assert.equal(receipt.authority.toolEvidenceReceiptChanged, false);
   assert.equal(receipt.authority.defaultContextChanged, false);
+  assert.equal(receipt.authority.runtimeVoiceChanged, false);
+  assert.equal(receipt.authority.defaultModelChanged, false);
+  assert.equal(receipt.authority.lmStudioModelStateChanged, false);
+  assert.equal(receipt.pipelineProvenance.source.kind, 'docs');
+  assert.equal(receipt.pipelineProvenance.extraction.method, 'document-rag-fixture');
+  assert.equal(receipt.pipelineProvenance.privacy.flag, 'fixture-docs-only');
+  assert.equal(receipt.pipelineProvenance.review.status, 'review_required');
+  assert.equal(receipt.pipelineProvenance.downstreamUse.toolEvidenceReceiptChanged, false);
+  assert.equal(receipt.sourceReceipts[0].pipelineProvenance.extraction.method, 'document-chunk');
+  assert.equal(receipt.sourceReceipts[0].pipelineProvenance.privacy.flag, 'fixture-docs-only');
   assert.deepEqual(
     receipt.sourceReceipts.map((source) => ({
       title: source.title,
@@ -201,6 +229,8 @@ test('docs sidecar workflow blocks live Qdrant probes without explicit operator 
   assert.equal(receipt.authority.memoryWrite, false);
   assert.equal(receipt.authority.promptTruthChanged, false);
   assert.equal(receipt.authority.defaultContextChanged, false);
+  assert.equal(receipt.pipelineProvenance.source.kind, 'docs');
+  assert.equal(receipt.pipelineProvenance.review.status, 'permission_required');
 });
 
 test('sidecar docs route exposes the RAG workflow as a review-only API path', async () => {
@@ -281,6 +311,13 @@ test('audio sidecar workflow returns a Speaches/TTS review receipt without captu
   assert.equal(receipt.authority.toolEvidenceReceiptChanged, false);
   assert.equal(receipt.authority.defaultContextChanged, false);
   assert.equal(receipt.authority.runtimeVoiceChanged, false);
+  assert.equal(receipt.authority.defaultModelChanged, false);
+  assert.equal(receipt.authority.lmStudioModelStateChanged, false);
+  assert.equal(receipt.pipelineProvenance.source.kind, 'audio');
+  assert.equal(receipt.pipelineProvenance.extraction.method, 'transcript-review');
+  assert.equal(receipt.pipelineProvenance.privacy.sensitivity, 'private-audio-blocked');
+  assert.equal(receipt.pipelineProvenance.review.status, 'review_required');
+  assert.equal(receipt.pipelineProvenance.downstreamUse.runtimeVoiceChanged, false);
   assert.equal(Object.prototype.hasOwnProperty.call(receipt, 'promptTruth'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(receipt, 'toolEvidenceReceipt'), false);
 });
@@ -299,6 +336,8 @@ test('audio sidecar workflow blocks live Speaches TTS without explicit operator 
   assert.equal(receipt.live.ran, false);
   assert.equal(receipt.authority.memoryWrite, false);
   assert.equal(receipt.authority.runtimeVoiceChanged, false);
+  assert.equal(receipt.pipelineProvenance.source.kind, 'audio');
+  assert.equal(receipt.pipelineProvenance.review.status, 'permission_required');
 });
 
 test('audio sidecar workflow blocks Speaches model/TTS trial without separate permission', () => {

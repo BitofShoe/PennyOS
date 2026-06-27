@@ -16,7 +16,8 @@ Use it like this:
 3. Use [`penny-for-humans.md`](./penny-for-humans.md) if you want the plain-English explainer for someone who barely knows what an LLM is.
 4. Use [`how-to-use-penny.md`](./how-to-use-penny.md) if you want onboarding, prompt advice, and honest expectations.
 5. Use [`visual-direction.md`](./visual-direction.md) if you want the art direction and product-story spec behind the visual pitch.
-6. Open [`../../public/penny-pitch.html`](../../public/penny-pitch.html) if you want the actual slideshow-style prototype.
+6. Use [`social-kit.md`](./social-kit.md) if you want the polished social-post playbook, asset shortlist, captions, and public boundaries.
+7. Open [`../../public/penny-pitch.html`](../../public/penny-pitch.html) if you want the actual slideshow-style prototype.
 
 This pack is intentionally honest:
 

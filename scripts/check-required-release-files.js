@@ -16,9 +16,20 @@ const REQUIRED = [
   'stop-penny.ps1',
   'server.js',
   'public/index.html',
+  'docs/penny-public/README.md',
+  'docs/penny-public/penny-mental-model.md',
+  'docs/penny-public/pennyos-user-guide.md',
+  'docs/sidecars/penny-sidecar-productized-workflows.md',
   'penny-voice/runtime/penny-operational-blend.md',
   'data/penny-memory.seed.json',
   'data/penny-memory-books.seed.json',
+  'lib/penny-runtime-contract-receipt.js',
+  'scripts/check-penny-runtime-contract-receipts.js',
+  'test/penny-runtime-contract-receipt.test.js',
+  'test/penny-runtime-contract-receipts-check.test.js',
+  'lib/penny-p0-eval-pack.js',
+  'scripts/eval-penny-p0-fixture-pack.js',
+  'test/penny-p0-eval-pack.test.js',
 ];
 
 function main() {

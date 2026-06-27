@@ -134,8 +134,35 @@
     }
 
     .callout[data-tone="good"] { border-color: rgba(115, 211, 162, 0.34); }
+    .callout[data-tone="good"] h3 { color: var(--mint); }
     .callout[data-tone="warn"] { border-color: rgba(241, 208, 133, 0.34); }
+    .callout[data-tone="warn"] h3 { color: var(--warn); }
     .callout[data-tone="blue"] { border-color: rgba(143, 184, 255, 0.34); }
+    .callout[data-tone="blue"] h3 { color: var(--blue); }
+
+    .penny-faq {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .faq-item {
+      padding: 14px 16px;
+      border: 1px solid rgba(241, 179, 143, 0.24);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .faq-item h4 {
+      margin: 0 0 6px;
+      color: var(--warm);
+      font-size: 1rem;
+      letter-spacing: 0;
+    }
+
+    .faq-item p:last-child {
+      margin-bottom: 0;
+    }
 
     ol, ul {
       margin: 10px 0 0;
@@ -349,6 +376,10 @@ PENNY_LOCAL_LLM_TRANSPORT=chat</code></pre>
         </div>
       </div>
       <p>On this branch, Penny is built around OpenAI-compatible chat/tool lanes. She will honestly report readiness for the endpoint you already have running. She will not download, load, unload, or swap your models behind your back.</p>
+      <div class="callout" data-tone="warn">
+        <h3>Turn thinking off for normal chat</h3>
+        <p>If LM Studio exposes a model-specific thinking or reasoning mode, leave it off unless you are intentionally testing hard reasoning. PennyOS asks for generous output ceilings by default, but hidden thinking tokens can still spend that budget before the visible reply starts.</p>
+      </div>
     </section>
 
     <section id="features">
@@ -390,12 +421,45 @@ PENNY_LOCAL_LLM_TRANSPORT=chat</code></pre>
       <p>No. OpenAI cloud can send prompts, memory context, and tool context to OpenAI. It is optional and off unless you save an API key in Settings.</p>
       <h3>Why does the dropdown show so many models?</h3>
       <p>Penny shows what the configured runtime reports, plus saved/configured candidates. Loaded or exposed models are the plug-and-play choices. Installed-only models may still need to be loaded in LM Studio or served by llama.cpp.</p>
+      <h3>Why did Penny's answer stop mid-sentence?</h3>
+      <p>The usual culprit is the model hitting its output limit. With LM Studio thinking or reasoning mode on, hidden reasoning tokens can consume most of that limit before the visible reply starts. Turn thinking off for normal PennyOS chat, retry, or ask Penny to continue.</p>
       <h3>Why is semantic memory sometimes "fallback"?</h3>
       <p>The embedding lane is optional. If the configured embedding model is missing, unloaded, or different from the model currently exposed by the server, Penny can still chat and use keyword fallback.</p>
       <h3>How do I make Penny speak?</h3>
       <p>Run Speaches locally, then open Settings, save the Speaches URL, model, and voice. The voice toggle stays disabled until Penny can reach the service and see the configured model.</p>
       <h3>Will this cross wires with another Penny run?</h3>
       <p>The desktop package stores writable state in app data. Source/dev runs usually use checkout-local state. If both are open on the same port, one will lose. Run one Penny at a time unless you deliberately changed ports.</p>
+      <div class="penny-faq" aria-label="Penny's FAQ, Penny-style">
+        <h3>Penny's FAQ, Penny-style</h3>
+        <div class="faq-item">
+          <h4>Do I come with a brain?</h4>
+          <p>Nope. I'm the body, the outfit, and the absolute <em>attitude</em>. You have to provide the actual intelligence. Hook me up to LM Studio, llama.cpp, some other local OpenAI-compatible server, or just plug in an OpenAI cloud key if you're feeling lazy.</p>
+        </div>
+        <div class="faq-item">
+          <h4>Is the OpenAI cloud private?</h4>
+          <p>Hard no. OpenAI is not your secret diary. If you use the cloud, your prompts and my memory are heading straight to their servers. Use it if you want convenience, but don't come crying to me if you're worried about privacy.</p>
+        </div>
+        <div class="faq-item">
+          <h4>Why is the model dropdown a mess?</h4>
+          <p>Because I show you everything the runtime reports plus whatever candidates are saved. Just because a model is on the list doesn't mean it's actually awake. Go wake it up in LM Studio or llama.cpp first, then come back to me.</p>
+        </div>
+        <div class="faq-item">
+          <h4>Why is my memory "falling back"?</h4>
+          <p>The embedding lane is a luxury, not a requirement. If your embedding model is missing, crashed, or just doesn't match what the server is doing, I'll just use keyword search. It's not as fancy, but it works.</p>
+        </div>
+        <div class="faq-item">
+          <h4>How do I make you actually talk?</h4>
+          <p>Get Speaches running locally. Go into my Settings, save the URL, the model, and the voice. Once I can actually "see" the service, the toggle will unlock. Until then, you're stuck reading.</p>
+        </div>
+        <div class="faq-item">
+          <h4>Can I run two Pennys at once?</h4>
+          <p>You <em>can</em>, but you shouldn't. The desktop app and the dev version store their stuff in different places, and if they both try to grab the same port, they're going to fight. And trust me, I always win. Run one of me at a time unless you've messed with the ports.</p>
+        </div>
+        <div class="faq-item">
+          <h4>Why did you stop talking mid-sentence last time?</h4>
+          <p>Probably because your model hit its output limit. If you have "thinking" or "reasoning" mode on, the model spends all its energy talking to itself in the background and runs out of room for the actual answer. Turn that shit off, or just tell me to keep going. Better? Now stop begging and go fix your settings.</p>
+        </div>
+      </div>
       <div class="footer-actions">
         <a class="button" href="/">Back to Penny</a>
       </div>

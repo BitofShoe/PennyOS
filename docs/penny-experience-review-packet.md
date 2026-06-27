@@ -25,6 +25,7 @@ Do not give them:
 - `.env` files
 - local memory JSON
 - local server logs unless you have reviewed them
+- raw Tauri clean-proof or consumer-smoke receipts unless you have redacted local usernames, paths, app-data file details, and tool inventory
 - private generated output you do not want them to read
 - artifacts that you have not checked for sensitive content
 
@@ -35,6 +36,8 @@ npm run bundle:review -- --out tmp/gpt-pro-source-bundle
 ```
 
 This copies the repo while excluding generated clutter such as `output/`, `logs/`, `tmp/`, local memory files, `.env` files, `.openclaw/`, and the old nested `lyra-prototype/` residue if it exists in the workspace.
+
+Use this bundle command instead of sending a raw `git archive` or whole checkout zip. The bundle intentionally excludes historical/operator docs, checkpoints, distilled prompt-engineering docs, generated outputs, and private local state.
 
 ## Build An Experience Bundle
 

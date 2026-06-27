@@ -3,9 +3,11 @@ const path = require('node:path');
 
 const EXCLUDED_DIRS = new Set([
   '.git',
+  '.claude',
   '.codex',
   '.openclaw',
   'node_modules',
+  'artifacts',
   'output',
   'logs',
   'tmp',
@@ -18,6 +20,30 @@ const EXCLUDED_DIRS = new Set([
 ]);
 
 const EXPERIENCE_DIR = 'review-experience';
+
+const PUBLIC_REVIEW_DOCS = new Set([
+  'docs/README.md',
+  'docs/penny-browser-manual-checklist.md',
+  'docs/release-checklist.md',
+  'docs/penny-for-new-developers.md',
+  'docs/penny-configuration-profiles.md',
+  'docs/penny-release-decisions-2026-05-18.md',
+  'docs/penny-tauri-wrapper-options-2026-05-19.md',
+  'docs/penny-harness-engineering-link-review-2026-06-10.md',
+  'docs/penny-experience-review-packet.md',
+  'docs/sidecars/penny-sidecar-productized-workflows.md',
+]);
+
+const EXCLUDED_PATH_PREFIXES = [
+  'checkpoints',
+  'docs/archive',
+  'docs/plans',
+  'docs/sidecars',
+  'penny-voice/distilled',
+  'src-tauri/binaries',
+  'src-tauri/gen',
+  'src-tauri/target',
+];
 
 const EXPERIENCE_ARTIFACT_PATTERNS = [
   { kind: 'voice-qa', dir: 'output', regex: /^voice-redo-qa-.*\.json$/i },
@@ -40,13 +66,27 @@ function normalizeRelativePath(relativePath = '') {
     .trim();
 }
 
+function isPublicReviewPath(normalized = '') {
+  if (!normalized) return true;
+  if (PUBLIC_REVIEW_DOCS.has(normalized)) return true;
+  if (normalized === 'docs/penny-public' || normalized.startsWith('docs/penny-public/')) return true;
+  return [...PUBLIC_REVIEW_DOCS].some((allowedPath) => allowedPath.startsWith(`${normalized}/`));
+}
+
 function shouldIncludeRelativePath(relativePath = '') {
   const normalized = normalizeRelativePath(relativePath);
   if (!normalized) return true;
+  const publicReviewPath = isPublicReviewPath(normalized);
+  if (!publicReviewPath && EXCLUDED_PATH_PREFIXES.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`))) return false;
+  if (normalized.startsWith('docs/')
+    && !publicReviewPath) {
+    return false;
+  }
   const segments = normalized.split('/').filter(Boolean);
   if (segments.some((segment) => EXCLUDED_DIRS.has(segment))) return false;
   const base = segments[segments.length - 1] || '';
   if (base === '.lyra-server.pid' || base === '.lyra-server.meta.json') return false;
+  if (base === '.penny-server.pid' || base === '.penny-server.meta.json') return false;
   if (base === '.lyra-local-env.ps1' || base === '.lyra-local-preferences.json' || base === '.penny-local-preferences.json') return false;
   if (/^\.env(?:\..*)?$/i.test(base) && base !== '.env.example') return false;
   if (/\.log$/i.test(base)) return false;

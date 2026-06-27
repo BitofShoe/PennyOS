@@ -56,6 +56,43 @@ function requestJson(url, options = {}) {
   });
 }
 
+function requestRaw(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const body = typeof options.body === 'string' ? options.body : '';
+    const headers = {
+      ...(options.headers || {}),
+    };
+    if (body && !headers['Content-Length'] && !headers['content-length']) {
+      headers['Content-Length'] = Buffer.byteLength(body);
+    }
+    const req = http.request(url, {
+      method: options.method || 'GET',
+      headers,
+    }, (res) => {
+      let responseBody = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { responseBody += chunk; });
+      res.on('end', () => {
+        resolve({
+          statusCode: res.statusCode,
+          headers: res.headers,
+          body: responseBody,
+        });
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+function routeTokenHeaders(headers = {}, token = 'route-test-token') {
+  return {
+    ...headers,
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 function readRequestBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -437,7 +474,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
 
     const toolTurn = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: routeTokenHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         sessionId: 'route-tool-lane-test',
         messages: [
@@ -494,7 +531,7 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
 
     const cleanupTurn = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: routeTokenHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         sessionId: 'route-cleanup-probe',
         messages: [
@@ -514,7 +551,9 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     assert.equal(typeof cleanupTurn.json.meta.artifact.modelAdvisory.approximatePath.policyMode, 'string');
     assert.equal(typeof cleanupTurn.json.meta.artifact.modelAdvisory.advisoryMerge.lossyItems, 'number');
 
-    const inspectorTurn = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=route-cleanup-probe`);
+    const inspectorTurn = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=route-cleanup-probe`, {
+      headers: routeTokenHeaders(),
+    });
     assert.equal(inspectorTurn.statusCode, 200);
     assertArtifactShape(inspectorTurn.json.inspector.artifact, { requireEvidence: false });
     assert.equal(inspectorTurn.json.inspector.artifact.modelAdvisory.cleanup.cleanupApplied, true);
@@ -547,6 +586,91 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     if (originalEnv.PENNY_MEMORY_BOOKS_FILE == null) delete process.env.PENNY_MEMORY_BOOKS_FILE; else process.env.PENNY_MEMORY_BOOKS_FILE = originalEnv.PENNY_MEMORY_BOOKS_FILE;
     if (originalEnv.PENNY_WEB_SEARCH_ENABLED == null) delete process.env.PENNY_WEB_SEARCH_ENABLED; else process.env.PENNY_WEB_SEARCH_ENABLED = originalEnv.PENNY_WEB_SEARCH_ENABLED;
     if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('HTTP memory read, inspector, and export routes require token through the real server', async () => {
+  const envKeys = [
+    'PORT',
+    'PENNY_MEMORY_FILE',
+    'PENNY_MEMORY_ARCHIVE_FILE',
+    'PENNY_MEMORY_EMBEDDINGS_FILE',
+    'PENNY_MEMORY_BOOKS_FILE',
+    'PENNY_API_TOKEN',
+    'PENNY_API_ALLOW_LOCAL_NO_TOKEN',
+    'PENNY_REQUIRE_API_TOKEN',
+  ];
+  const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-memory-http-token-'));
+
+  try {
+    process.env.PORT = '0';
+    process.env.PENNY_MEMORY_FILE = path.join(tmpDir, 'penny-memory.test.json');
+    process.env.PENNY_MEMORY_ARCHIVE_FILE = path.join(tmpDir, 'penny-memory-archive.test.json');
+    process.env.PENNY_MEMORY_EMBEDDINGS_FILE = path.join(tmpDir, 'penny-memory-embeddings.test.json');
+    process.env.PENNY_MEMORY_BOOKS_FILE = path.join(tmpDir, 'penny-memory-books.test.json');
+    process.env.PENNY_API_TOKEN = 'route-test-token';
+    delete process.env.PENNY_API_ALLOW_LOCAL_NO_TOKEN;
+    delete process.env.PENNY_REQUIRE_API_TOKEN;
+
+    const modulePath = require.resolve('../server.js');
+    delete require.cache[modulePath];
+    const serverModule = require('../server.js');
+    const started = serverModule.startServer({ port: 0, silent: true });
+
+    try {
+      await new Promise((resolve, reject) => {
+        if (started.listening) {
+          resolve();
+          return;
+        }
+        started.once('listening', resolve);
+        started.once('error', reject);
+      });
+
+      const address = started.address();
+      assert.ok(address && typeof address === 'object' && address.port > 0);
+      const base = `http://127.0.0.1:${address.port}`;
+      const paths = [
+        '/api/penny/memory?sessionId=http-token-test',
+        '/api/penny/memory/inspector?sessionId=http-token-test',
+        '/api/penny/memory/export?sessionId=http-token-test',
+      ];
+
+      for (const routePath of paths) {
+        const unauthorized = await requestJson(`${base}${routePath}`);
+        assert.equal(unauthorized.statusCode, 401);
+        assert.equal(unauthorized.json.code, 'token_required');
+
+        const authorized = await requestJson(`${base}${routePath}`, {
+          headers: routeTokenHeaders(),
+        });
+        assert.equal(authorized.statusCode, 200);
+        assert.equal(authorized.json.ok, true);
+      }
+
+      const staticResponse = await requestRaw(`${base}/`);
+      const setCookie = Array.isArray(staticResponse.headers['set-cookie'])
+        ? staticResponse.headers['set-cookie']
+        : [];
+      const loopbackCookie = setCookie.find((value) => /^penny_access_token=/.test(value));
+      assert.ok(loopbackCookie);
+
+      const cookieAuthorized = await requestJson(`${base}/api/penny/memory?sessionId=http-token-test`, {
+        headers: { Cookie: loopbackCookie.split(';')[0] },
+      });
+      assert.equal(cookieAuthorized.statusCode, 200);
+      assert.equal(cookieAuthorized.json.ok, true);
+    } finally {
+      await new Promise((resolve) => started.close(() => resolve()));
+      delete require.cache[modulePath];
+    }
+  } finally {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -601,7 +725,7 @@ test('public chat route integration: request to mocked model to rendered reply t
   process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
   process.env.PENNY_ENABLE_BACKGROUND_CHAT_VECTORS = '0';
   process.env.PENNY_WEB_SEARCH_ENABLED = '0';
-  delete process.env.PENNY_API_TOKEN;
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -621,9 +745,24 @@ test('public chat route integration: request to mocked model to rendered reply t
     const address = started.address();
     assert.ok(address && typeof address === 'object' && address.port > 0);
 
-    const chat = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+    const unauthorizedChat = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'full-route-integration',
+        messages: [
+          { role: 'user', content: 'Say good morning in one sentence.' },
+        ],
+        memories: { brainMode: 'local', memories: [] },
+      }),
+    });
+    assert.equal(unauthorizedChat.statusCode, 401);
+    assert.equal(unauthorizedChat.json.code, 'token_required');
+    assert.equal(mockLmStudio.stats.chatRequests, 0);
+
+    const chat = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+      method: 'POST',
+      headers: routeTokenHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         sessionId: 'full-route-integration',
         messages: [
@@ -644,6 +783,7 @@ test('public chat route integration: request to mocked model to rendered reply t
 
     const stored = await requestJson(
       `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=full-route-integration`,
+      { headers: routeTokenHeaders() },
     );
     assert.equal(stored.statusCode, 200);
     assert.equal(stored.json.memory?.lastRoute?.artifact?.scope?.route, '/api/penny/chat');
@@ -797,6 +937,7 @@ test('chat route injects the turn-state prompt bridge only when the flag is enab
     PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
     PENNY_ENABLE_TURN_STATE_PROMPT: process.env.PENNY_ENABLE_TURN_STATE_PROMPT,
     PENNY_TURN_STATE_MAX_TOKENS: process.env.PENNY_TURN_STATE_MAX_TOKENS,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-turn-state-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -824,6 +965,7 @@ test('chat route injects the turn-state prompt bridge only when the flag is enab
   process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
   process.env.PENNY_ENABLE_TURN_STATE_PROMPT = '1';
   process.env.PENNY_TURN_STATE_MAX_TOKENS = '70';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -843,7 +985,7 @@ test('chat route injects the turn-state prompt bridge only when the flag is enab
     const address = started.address();
     const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: routeTokenHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         sessionId: 'route-turn-state-live',
         messages: [
@@ -888,6 +1030,7 @@ test('chat route injects the turn-state prompt bridge only when the flag is enab
 
     const storedMemory = await requestJson(
       `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=route-turn-state-live`,
+      { headers: routeTokenHeaders() },
     );
     assert.equal(storedMemory.statusCode, 200);
     const storedBridge = storedMemory.json.memory?.lastRoute?.artifact?.modelAdvisory?.turnStatePromptBridge;
@@ -913,6 +1056,7 @@ test('chat route injects the turn-state prompt bridge only when the flag is enab
     if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
     if (originalEnv.PENNY_ENABLE_TURN_STATE_PROMPT == null) delete process.env.PENNY_ENABLE_TURN_STATE_PROMPT; else process.env.PENNY_ENABLE_TURN_STATE_PROMPT = originalEnv.PENNY_ENABLE_TURN_STATE_PROMPT;
     if (originalEnv.PENNY_TURN_STATE_MAX_TOKENS == null) delete process.env.PENNY_TURN_STATE_MAX_TOKENS; else process.env.PENNY_TURN_STATE_MAX_TOKENS = originalEnv.PENNY_TURN_STATE_MAX_TOKENS;
+    if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -931,6 +1075,7 @@ test('shadow chat route uses the same runtime artifact contract on fallback repl
     PENNY_LMSTUDIO_CHAT_MODEL: process.env.PENNY_LMSTUDIO_CHAT_MODEL,
     PENNY_LMSTUDIO_TOOL_MODEL: process.env.PENNY_LMSTUDIO_TOOL_MODEL,
     PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-shadow-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -950,6 +1095,7 @@ test('shadow chat route uses the same runtime artifact contract on fallback repl
   process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
   process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
   process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -1003,6 +1149,7 @@ test('shadow chat route uses the same runtime artifact contract on fallback repl
     if (originalEnv.PENNY_LMSTUDIO_CHAT_MODEL == null) delete process.env.PENNY_LMSTUDIO_CHAT_MODEL; else process.env.PENNY_LMSTUDIO_CHAT_MODEL = originalEnv.PENNY_LMSTUDIO_CHAT_MODEL;
     if (originalEnv.PENNY_LMSTUDIO_TOOL_MODEL == null) delete process.env.PENNY_LMSTUDIO_TOOL_MODEL; else process.env.PENNY_LMSTUDIO_TOOL_MODEL = originalEnv.PENNY_LMSTUDIO_TOOL_MODEL;
     if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
+    if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -1017,6 +1164,7 @@ test('direct write route survives semantic-render gating on side-effecting turns
     PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
     PENNY_ENABLE_DIRECT_WORKSPACE_WRITES: process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-write-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -1034,6 +1182,7 @@ test('direct write route survives semantic-render gating on side-effecting turns
   process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
   process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES = '1';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -1053,7 +1202,7 @@ test('direct write route survives semantic-render gating on side-effecting turns
     const address = started.address();
     const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: routeTokenHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         sessionId: 'route-semantic-render-bug',
         messages: [
@@ -1079,6 +1228,7 @@ test('direct write route survives semantic-render gating on side-effecting turns
     if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES == null) delete process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES; else process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES = originalEnv.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     if (fs.existsSync(repoTempFile)) fs.rmSync(repoTempFile, { force: true });
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -1098,6 +1248,7 @@ test('public chat route persists tool-loop and semantic_render receipt items int
     PENNY_LMSTUDIO_CHAT_MODEL: process.env.PENNY_LMSTUDIO_CHAT_MODEL,
     PENNY_LMSTUDIO_TOOL_MODEL: process.env.PENNY_LMSTUDIO_TOOL_MODEL,
     PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-tool-evidence-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -1161,6 +1312,7 @@ test('public chat route persists tool-loop and semantic_render receipt items int
   process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
   process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
   process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -1180,7 +1332,7 @@ test('public chat route persists tool-loop and semantic_render receipt items int
     const address = started.address();
     const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: routeTokenHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         sessionId: 'route-tool-evidence-semantic',
         messages: [
@@ -1240,6 +1392,7 @@ test('public chat route persists tool-loop and semantic_render receipt items int
 
     const storedMemory = await requestJson(
       `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=route-tool-evidence-semantic`,
+      { headers: routeTokenHeaders() },
     );
     assert.equal(storedMemory.statusCode, 200);
     const storedArtifact = storedMemory.json.memory?.lastRoute?.artifact;
@@ -1251,6 +1404,7 @@ test('public chat route persists tool-loop and semantic_render receipt items int
 
     const inspectorResponse = await requestJson(
       `http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=route-tool-evidence-semantic`,
+      { headers: routeTokenHeaders() },
     );
     assert.equal(inspectorResponse.statusCode, 200);
     assertArtifactShape(inspectorResponse.json.inspector.artifact);
@@ -1290,6 +1444,7 @@ test('public chat route persists tool-loop and semantic_render receipt items int
     if (originalEnv.PENNY_LMSTUDIO_CHAT_MODEL == null) delete process.env.PENNY_LMSTUDIO_CHAT_MODEL; else process.env.PENNY_LMSTUDIO_CHAT_MODEL = originalEnv.PENNY_LMSTUDIO_CHAT_MODEL;
     if (originalEnv.PENNY_LMSTUDIO_TOOL_MODEL == null) delete process.env.PENNY_LMSTUDIO_TOOL_MODEL; else process.env.PENNY_LMSTUDIO_TOOL_MODEL = originalEnv.PENNY_LMSTUDIO_TOOL_MODEL;
     if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
+    if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -1308,6 +1463,7 @@ test('seeded persisted lastRoute toolEvidenceReceipt survives disk readback into
     PENNY_LMSTUDIO_CHAT_MODEL: process.env.PENNY_LMSTUDIO_CHAT_MODEL,
     PENNY_LMSTUDIO_TOOL_MODEL: process.env.PENNY_LMSTUDIO_TOOL_MODEL,
     PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-seeded-tool-evidence-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -1506,6 +1662,7 @@ test('seeded persisted lastRoute toolEvidenceReceipt survives disk readback into
   process.env.PENNY_LMSTUDIO_CHAT_MODEL = 'unsloth/gemma-4-31b-it';
   process.env.PENNY_LMSTUDIO_TOOL_MODEL = 'google/gemma-4-e4b';
   process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -1525,6 +1682,7 @@ test('seeded persisted lastRoute toolEvidenceReceipt survives disk readback into
     const address = started.address();
     const memoryResponse = await requestJson(
       `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=${seededSessionId}`,
+      { headers: routeTokenHeaders() },
     );
     assert.equal(memoryResponse.statusCode, 200);
     const storedArtifact = memoryResponse.json.memory?.lastRoute?.artifact;
@@ -1538,6 +1696,7 @@ test('seeded persisted lastRoute toolEvidenceReceipt survives disk readback into
 
     const inspectorResponse = await requestJson(
       `http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=${seededSessionId}`,
+      { headers: routeTokenHeaders() },
     );
     assert.equal(inspectorResponse.statusCode, 200);
     assertArtifactShape(inspectorResponse.json.inspector.artifact);
@@ -1563,6 +1722,7 @@ test('seeded persisted lastRoute toolEvidenceReceipt survives disk readback into
 
     const oldMemoryResponse = await requestJson(
       `http://127.0.0.1:${address.port}/api/penny/memory?sessionId=${oldSessionId}`,
+      { headers: routeTokenHeaders() },
     );
     assert.equal(oldMemoryResponse.statusCode, 200);
     const oldStoredArtifact = oldMemoryResponse.json.memory?.lastRoute?.artifact;
@@ -1574,6 +1734,7 @@ test('seeded persisted lastRoute toolEvidenceReceipt survives disk readback into
 
     const oldInspectorResponse = await requestJson(
       `http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=${oldSessionId}`,
+      { headers: routeTokenHeaders() },
     );
     assert.equal(oldInspectorResponse.statusCode, 200);
     assertArtifactShape(oldInspectorResponse.json.inspector.artifact);
@@ -1597,6 +1758,7 @@ test('seeded persisted lastRoute toolEvidenceReceipt survives disk readback into
     if (originalEnv.PENNY_LMSTUDIO_CHAT_MODEL == null) delete process.env.PENNY_LMSTUDIO_CHAT_MODEL; else process.env.PENNY_LMSTUDIO_CHAT_MODEL = originalEnv.PENNY_LMSTUDIO_CHAT_MODEL;
     if (originalEnv.PENNY_LMSTUDIO_TOOL_MODEL == null) delete process.env.PENNY_LMSTUDIO_TOOL_MODEL; else process.env.PENNY_LMSTUDIO_TOOL_MODEL = originalEnv.PENNY_LMSTUDIO_TOOL_MODEL;
     if (originalEnv.PENNY_LMSTUDIO_EMBED_MODEL == null) delete process.env.PENNY_LMSTUDIO_EMBED_MODEL; else process.env.PENNY_LMSTUDIO_EMBED_MODEL = originalEnv.PENNY_LMSTUDIO_EMBED_MODEL;
+    if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -1610,6 +1772,7 @@ test('direct web inspect fallback stays deterministic on the public chat route',
     PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
     PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-web-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -1622,6 +1785,7 @@ test('direct web inspect fallback stays deterministic on the public chat route',
   process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
   process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const toolRegistryModulePath = require.resolve('../lib/penny-tool-registry');
   const modulePath = require.resolve('../server.js');
@@ -1687,7 +1851,7 @@ test('direct web inspect fallback stays deterministic on the public chat route',
     const address = started.address();
     const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: routeTokenHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         sessionId: 'route-web-fallback-test',
         messages: [
@@ -1713,6 +1877,7 @@ test('direct web inspect fallback stays deterministic on the public chat route',
     if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
     if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -1726,6 +1891,7 @@ test('natural top-stories site asks stay deterministic on the public chat route'
     PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
     PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-web-natural-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -1738,6 +1904,7 @@ test('natural top-stories site asks stay deterministic on the public chat route'
   process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
   process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const toolRegistryModulePath = require.resolve('../lib/penny-tool-registry');
   const modulePath = require.resolve('../server.js');
@@ -1793,7 +1960,7 @@ test('natural top-stories site asks stay deterministic on the public chat route'
     const address = started.address();
     const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: routeTokenHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         sessionId: 'route-web-natural-test',
         messages: [
@@ -1820,6 +1987,7 @@ test('natural top-stories site asks stay deterministic on the public chat route'
     if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
     if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -1884,7 +2052,9 @@ test('memory inspector tracks archived turns and review approval promotes a pend
     let inspector = null;
     const inspectorDeadline = Date.now() + 2000;
     while (Date.now() < inspectorDeadline) {
-      inspector = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=archive-route-test`);
+      inspector = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=archive-route-test`, {
+        headers: routeTokenHeaders(),
+      });
       const episodeCount = Number(inspector?.json?.inspector?.archive?.session?.episodeCount || 0);
       const queueCount = Number(inspector?.json?.inspector?.archive?.global?.promotionQueue?.length || 0);
       const backgroundStatus = String(inspector?.json?.inspector?.embeddings?.backgroundVectorization?.status || '');
@@ -1946,6 +2116,7 @@ test('memory inspector route serializes bounded provenance details from lastRetr
     PENNY_LMSTUDIO_NATIVE_BASE: process.env.PENNY_LMSTUDIO_NATIVE_BASE,
     PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-provenance-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -1962,6 +2133,7 @@ test('memory inspector route serializes bounded provenance details from lastRetr
   process.env.PENNY_LMSTUDIO_NATIVE_BASE = mockLmStudio.nativeBaseUrl;
   process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];
@@ -2067,7 +2239,9 @@ test('memory inspector route serializes bounded provenance details from lastRetr
     }, null, 2)}\n`);
 
     const address = started.address();
-    const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=provenance-route-test`);
+    const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=provenance-route-test`, {
+      headers: routeTokenHeaders(),
+    });
     assert.equal(response.statusCode, 200);
     assert.equal(response.json.inspector.archive.session.lastRetrieval.mode, 'semantic');
     assert.equal(response.json.inspector.archive.session.lastRetrieval.provenance.length, 6);
@@ -2099,6 +2273,7 @@ test('memory inspector route serializes bounded provenance details from lastRetr
     if (originalEnv.PENNY_LMSTUDIO_NATIVE_BASE == null) delete process.env.PENNY_LMSTUDIO_NATIVE_BASE; else process.env.PENNY_LMSTUDIO_NATIVE_BASE = originalEnv.PENNY_LMSTUDIO_NATIVE_BASE;
     if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
+    if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -2117,6 +2292,7 @@ test('chat route reports experimental epistemic caution and archive synthesis wh
     PENNY_LMSTUDIO_EMBED_MODEL: process.env.PENNY_LMSTUDIO_EMBED_MODEL,
     PENNY_ENABLE_EPISTEMIC_CAUTION: process.env.PENNY_ENABLE_EPISTEMIC_CAUTION,
     PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS: process.env.PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS,
+    PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-epistemic-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -2136,6 +2312,7 @@ test('chat route reports experimental epistemic caution and archive synthesis wh
   process.env.PENNY_LMSTUDIO_EMBED_MODEL = 'qa-missing-embed-model';
   process.env.PENNY_ENABLE_EPISTEMIC_CAUTION = '1';
   process.env.PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS = '1';
+  process.env.PENNY_API_TOKEN = 'route-test-token';
 
   fs.writeFileSync(archiveFile, `${JSON.stringify({
     meta: {
@@ -2240,7 +2417,7 @@ test('chat route reports experimental epistemic caution and archive synthesis wh
     const address = started.address();
     const response = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: routeTokenHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         sessionId: 'epistemic-route-test',
         messages: [
@@ -2260,7 +2437,9 @@ test('chat route reports experimental epistemic caution and archive synthesis wh
     assert.equal(response.json.meta.artifact.synthesis.generated, true);
     assert.match(response.json.meta.artifact.synthesis.summary, /lapsang souchong/i);
 
-    const inspector = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=epistemic-route-test`);
+    const inspector = await requestJson(`http://127.0.0.1:${address.port}/api/penny/memory/inspector?sessionId=epistemic-route-test`, {
+      headers: routeTokenHeaders(),
+    });
     assert.equal(inspector.statusCode, 200);
     assertArtifactShape(inspector.json.inspector.artifact);
     assert.equal(inspector.json.inspector.artifact.epistemics.triggered, true);

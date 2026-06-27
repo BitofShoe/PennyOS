@@ -57,6 +57,13 @@ const DEFAULT_QA_TOOL_MODEL = 'google/gemma-4-e4b';
 const CHAT_MODEL = String(process.env.PENNY_QA_CHAT_MODEL || DEFAULT_QA_CHAT_MODEL).trim();
 const TOOL_MODEL = String(process.env.PENNY_QA_TOOL_MODEL || process.env.PENNY_LMSTUDIO_TOOL_MODEL || DEFAULT_QA_TOOL_MODEL).trim();
 const EMBED_MODEL = String(process.env.PENNY_QA_EMBED_MODEL || process.env.PENNY_LMSTUDIO_EMBED_MODEL || 'text-embedding-nomic-embed-text-v1.5').trim();
+const QA_API_TOKEN = String(
+  process.env.PENNY_API_TOKEN
+    || process.env.PENNY_ACCESS_TOKEN
+    || process.env.PENNY_LOCAL_API_TOKEN
+    || (SPAWN_SERVER ? 'penny-qa-local-token' : ''),
+).trim();
+let qaLocalSessionCookie = '';
 
 function hasArgFlag(name, argv = process.argv.slice(2)) {
   const dashed = `--${name}`;
@@ -1105,11 +1112,57 @@ function fetchJson(url, options = {}, timeoutMs = GENERAL_TIMEOUT_MS) {
   });
 }
 
+function apiAuthHeaders(headers = {}) {
+  const out = { ...(headers || {}) };
+  if (QA_API_TOKEN && !out.Authorization && !out.authorization) {
+    out.Authorization = `Bearer ${QA_API_TOKEN}`;
+  }
+  if (qaLocalSessionCookie && !out.Cookie && !out.cookie) {
+    out.Cookie = qaLocalSessionCookie;
+  }
+  return out;
+}
+
+function fetchLoopbackSessionCookie(baseUrl, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL('/', baseUrl);
+    const transport = parsed.protocol === 'https:' ? https : http;
+    const req = transport.request({
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: `${parsed.pathname}${parsed.search}`,
+      method: 'GET',
+    }, (res) => {
+      res.resume();
+      res.on('end', () => {
+        const cookies = (Array.isArray(res.headers['set-cookie']) ? res.headers['set-cookie'] : [])
+          .map((cookie) => String(cookie || '').split(';')[0].trim())
+          .filter(Boolean);
+        resolve(cookies.join('; '));
+      });
+    });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Client timed out after ${timeoutMs}ms while bootstrapping local session cookie`));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function ensureApiAuth(baseUrl) {
+  if (QA_API_TOKEN || qaLocalSessionCookie) return;
+  qaLocalSessionCookie = await fetchLoopbackSessionCookie(baseUrl);
+}
+
 async function waitForServerReady(baseUrl, timeoutMs = 120000) {
   const started = Date.now();
   while ((Date.now() - started) < timeoutMs) {
     try {
-      const status = await fetchJson(`${baseUrl}/api/penny/status`, {}, 15000);
+      await ensureApiAuth(baseUrl).catch(() => {});
+      const status = await fetchJson(`${baseUrl}/api/penny/status`, {
+        headers: apiAuthHeaders(),
+      }, 15000);
       if (status?.ok) return status;
     } catch {}
     await sleep(1500);
@@ -1165,7 +1218,10 @@ async function chatRequest(baseUrl, sessionId, prompt, timeoutMs = null) {
 }
 
 async function getInspector(baseUrl, sessionId) {
-  const data = await fetchJson(`${baseUrl}/api/penny/memory/inspector?sessionId=${encodeURIComponent(sessionId)}`, {}, 30000);
+  await ensureApiAuth(baseUrl);
+  const data = await fetchJson(`${baseUrl}/api/penny/memory/inspector?sessionId=${encodeURIComponent(sessionId)}`, {
+    headers: apiAuthHeaders(),
+  }, 30000);
   validateRuntimeArtifact(data?.inspector?.artifact, {
     label: 'inspector artifact',
     minEvidence: 1,
@@ -1175,21 +1231,26 @@ async function getInspector(baseUrl, sessionId) {
 }
 
 async function getMemory(baseUrl, sessionId) {
-  return fetchJson(`${baseUrl}/api/penny/memory?sessionId=${encodeURIComponent(sessionId)}`, {}, 30000);
+  await ensureApiAuth(baseUrl);
+  return fetchJson(`${baseUrl}/api/penny/memory?sessionId=${encodeURIComponent(sessionId)}`, {
+    headers: apiAuthHeaders(),
+  }, 30000);
 }
 
 async function patchMemory(baseUrl, sessionId, patch) {
+  await ensureApiAuth(baseUrl);
   return fetchJson(`${baseUrl}/api/penny/memory`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ sessionId, patch }),
   }, 30000);
 }
 
 async function purgeMemory(baseUrl, sessionId, options = {}) {
+  await ensureApiAuth(baseUrl);
   return fetchJson(`${baseUrl}/api/penny/memory/purge`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ sessionId, ...options }),
   }, 30000);
 }
@@ -1243,6 +1304,7 @@ function buildQaServerEnv({ suiteSlug, suitePaths, embedModel, env = process.env
   return {
     ...env,
     PORT: String(PORT),
+    PENNY_API_TOKEN: QA_API_TOKEN || env.PENNY_API_TOKEN || env.PENNY_ACCESS_TOKEN || env.PENNY_LOCAL_API_TOKEN || '',
     PENNY_MEMORY_FILE: suitePaths.memoryFile,
     PENNY_MEMORY_ARCHIVE_FILE: suitePaths.archiveFile,
     PENNY_MEMORY_EMBEDDINGS_FILE: suitePaths.embeddingsFile,

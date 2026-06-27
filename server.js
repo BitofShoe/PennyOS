@@ -15,6 +15,9 @@ const {
   probeOpenAiCloudProvider,
   upsertPennyEnvFile,
 } = require('./lib/penny-cloud-provider-config');
+const {
+  resolveLmStudioTokenLimits,
+} = require('./lib/penny-lmstudio-token-limits');
 
 loadPennyEnvFile({
   envFile: process.env.PENNY_ENV_FILE || path.join(__dirname, '.env'),
@@ -201,15 +204,7 @@ const OPENCLAW_ENABLED = process.env.PENNY_OPENCLAW_ENABLED === '1';
 const OPENCLAW_TIMEOUT_MS = Number(process.env.PENNY_OPENCLAW_TIMEOUT_MS || 20000);
 const GATEWAY_PORT = Number(process.env.PENNY_GATEWAY_PORT || 18789);
 const GATEWAY_BASE = `http://127.0.0.1:${GATEWAY_PORT}`;
-const GATEWAY_TOKEN = process.env.PENNY_GATEWAY_TOKEN || (() => {
-  try {
-    const cfgPath = path.join(process.env.USERPROFILE || '', '.openclaw', 'openclaw.json');
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    return cfg?.gateway?.auth?.token || '';
-  } catch {
-    return '';
-  }
-})();
+const GATEWAY_TOKEN = process.env.PENNY_GATEWAY_TOKEN || '';
 const LMSTUDIO_BASE = (process.env.PENNY_LMSTUDIO_BASE || 'http://127.0.0.1:1234/v1').replace(/\/$/, '');
 const LMSTUDIO_EMBED_BASE = (process.env.PENNY_LMSTUDIO_EMBED_BASE || LMSTUDIO_BASE).replace(/\/$/, '');
 function deriveLmStudioNativeBase(base) {
@@ -584,19 +579,20 @@ async function resetLocalProviderForRoute(payload = {}) {
     },
   };
 }
-/** Output ceiling, not a target. A higher cap avoids clipped long replies without forcing extra tokens if the model stops earlier. */
-const LMSTUDIO_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS || 6144);
+/** Output ceilings, not targets. Higher caps avoid clipped long replies without forcing extra tokens if the model stops earlier. */
+const LMSTUDIO_TOKEN_LIMITS = resolveLmStudioTokenLimits(process.env);
+const LMSTUDIO_MAX_OUTPUT_TOKENS = LMSTUDIO_TOKEN_LIMITS.maxOutputTokens;
 const LMSTUDIO_CHAT_TEMPERATURE = Number(process.env.PENNY_LMSTUDIO_CHAT_TEMPERATURE || 1.0);
 const LMSTUDIO_CHAT_TOP_P = Number(process.env.PENNY_LMSTUDIO_CHAT_TOP_P || 0.95);
 const LMSTUDIO_CHAT_TOP_K = Number(process.env.PENNY_LMSTUDIO_CHAT_TOP_K || 64);
 const LMSTUDIO_TOOL_TEMPERATURE = Number(process.env.PENNY_LMSTUDIO_TOOL_TEMPERATURE || 0.35);
 const LMSTUDIO_TOOL_SUMMARY_TEMPERATURE = Number(process.env.PENNY_LMSTUDIO_TOOL_SUMMARY_TEMPERATURE || 0.55);
-const LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS || 1024);
-const LMSTUDIO_TOOL_SUMMARY_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_TOOL_SUMMARY_MAX_OUTPUT_TOKENS || 900);
-const LMSTUDIO_TOOL_PLANNER_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_TOOL_PLANNER_MAX_OUTPUT_TOKENS || 320);
+const LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS = LMSTUDIO_TOKEN_LIMITS.toolMaxOutputTokens;
+const LMSTUDIO_TOOL_SUMMARY_MAX_OUTPUT_TOKENS = LMSTUDIO_TOKEN_LIMITS.toolSummaryMaxOutputTokens;
+const LMSTUDIO_TOOL_PLANNER_MAX_OUTPUT_TOKENS = LMSTUDIO_TOKEN_LIMITS.toolPlannerMaxOutputTokens;
 const LMSTUDIO_SEMANTIC_RENDER_TEMPERATURE = Number(process.env.PENNY_LMSTUDIO_SEMANTIC_RENDER_TEMPERATURE || 0.45);
-const LMSTUDIO_SEMANTIC_RENDER_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_SEMANTIC_RENDER_MAX_OUTPUT_TOKENS || 700);
-const LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS = Number(process.env.PENNY_LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS || 900);
+const LMSTUDIO_SEMANTIC_RENDER_MAX_OUTPUT_TOKENS = LMSTUDIO_TOKEN_LIMITS.semanticRenderMaxOutputTokens;
+const LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS = LMSTUDIO_TOKEN_LIMITS.chatMaxOutputTokens;
 const PENNY_CHAT_HISTORY_LIMIT = Number(process.env.PENNY_CHAT_HISTORY_LIMIT || 6);
 const SEMANTIC_RENDER_MAX_TOOL_RECORDS = Number(process.env.PENNY_SEMANTIC_RENDER_MAX_TOOL_RECORDS || 8);
 /** Set to 1 only for debugging — surfaces chain-of-thought in the chat bubble */

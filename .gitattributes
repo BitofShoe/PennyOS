@@ -5,4 +5,25 @@
 *.jpeg binary
 *.webp binary
 *.gif binary
+
+# Public source archives are narrower than the private working repo.
+checkpoints export-ignore
+checkpoints/ export-ignore
+checkpoints/** export-ignore
 penny-voice/distilled export-ignore
+penny-voice/distilled/ export-ignore
+penny-voice/distilled/** export-ignore
+docs/** export-ignore
+docs/README.md -export-ignore
+docs/penny-browser-manual-checklist.md -export-ignore
+docs/release-checklist.md -export-ignore
+docs/penny-for-new-developers.md -export-ignore
+docs/penny-configuration-profiles.md -export-ignore
+docs/penny-release-decisions-2026-05-18.md -export-ignore
+docs/penny-tauri-wrapper-options-2026-05-19.md -export-ignore
+docs/penny-harness-engineering-link-review-2026-06-10.md -export-ignore
+docs/penny-experience-review-packet.md -export-ignore
+docs/penny-public/ -export-ignore
+docs/penny-public/** -export-ignore
+docs/sidecars/ -export-ignore
+docs/sidecars/penny-sidecar-productized-workflows.md -export-ignore

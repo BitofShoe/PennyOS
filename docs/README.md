@@ -4,6 +4,8 @@ This is the map for Penny's documentation. Use it to tell current law from philo
 
 If a document is persuasive but the code, tests, or runtime artifacts disagree, trust the code, tests, and receipts first, then fix the doc.
 
+Curated public/source-review bundles intentionally include only the current public docs, release docs, and selected source/dev boundary docs. Deeper working-repo research, plan, sidecar, and archive documents named below may be absent from those bundles on purpose; treat those rows as private working-repo map entries unless the file is actually present in the artifact you are reviewing.
+
 ## Read this first
 
 If you are a new agent or contributor, use this order:
@@ -176,7 +178,7 @@ This section keeps current law first, then follows the interpretive order from [
 
 | Document | Category | Authority level | Current status | Use this for | Do not use this for |
 | --- | --- | --- | --- | --- | --- |
-| private/local Penny canon notes, `penny-voice/distilled/`, and private/local root `Personality *.md` files | Voice and canon source inputs | Raw/source material | Needs verification | voice refinement, source instincts, historical canon | live runtime authority |
+| private/local Penny canon notes and private/local root `Personality *.md` files | Voice and canon source inputs | Raw/source material | Needs verification | voice refinement, source instincts, historical canon | live runtime authority |
 
 ### 10. Archived/superseded material
 

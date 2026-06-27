@@ -56,6 +56,34 @@ export function ensureMemoryInspectorUi(els = {}) {
   return panel;
 }
 
+const LOW_SIGNAL_PROMOTION_WORDS = new Set([
+  'think',
+  'thinking',
+  'thought',
+  'thoughts',
+  'penny',
+  'pennyos',
+  'lol',
+  'lmao',
+  'haha',
+  'hey',
+  'heey',
+  'heeeey',
+  'hello',
+]);
+
+function isLowSignalPromotionQueueItem(item = {}) {
+  const text = String(item?.text || '').trim().toLowerCase();
+  const match = text.match(/^they keep returning to\s+(.+?)[.!?]?$/i);
+  if (!match) return false;
+  const words = match[1]
+    .replace(/[^a-z0-9'\s-]/g, ' ')
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+  return !!words.length && words.every((word) => LOW_SIGNAL_PROMOTION_WORDS.has(word));
+}
+
 export function buildMemoryPanelViewModel(memory = {}, inspector = null) {
   const inspectorViewModel = inspector ? buildMemoryInspectorViewModel(inspector) : null;
   return {
@@ -68,7 +96,7 @@ export function buildMemoryPanelViewModel(memory = {}, inspector = null) {
           kind: String(item?.kind || 'memory'),
         }))
       : [],
-    queue: inspectorViewModel?.queue || [],
+    queue: (inspectorViewModel?.queue || []).filter((item) => !isLowSignalPromotionQueueItem(item)),
     memoryConnections: buildMemoryConnectionsViewModel(inspectorViewModel),
   };
 }
@@ -423,6 +451,44 @@ function renderRoutingSummary(routing = {}, escapeHtmlFn = escapeHtml) {
       <div class="memory-copy">
         Requested mode: <strong>${escapeHtmlFn(requestedMode)}</strong> &middot; Selected lane: <strong>${escapeHtmlFn(selectedLane)}</strong> &middot; Backend: <strong>${escapeHtmlFn(backend)}</strong>
         <small>${escapeHtmlFn(repairBits.join(' · ') || 'No runtime repair was needed on the last reply.')}</small>
+      </div>
+    </div>
+  `;
+}
+
+function renderRuntimeContractReceiptSummary(receipt = null, escapeHtmlFn = escapeHtml) {
+  if (!receipt || typeof receipt !== 'object') {
+    return `
+      <div class="list-item">
+        <div class="memory-copy">
+          Runtime contract receipt: <strong>not recorded</strong>
+          <small>No runtime contract receipt was attached to this inspector snapshot.</small>
+        </div>
+      </div>
+    `;
+  }
+  const runtime = receipt.runtime || {};
+  const model = receipt.model || {};
+  const prompt = receipt.prompt_contract || {};
+  const smoke = receipt.smoke || {};
+  const state = receipt.state_preservation || {};
+  const memory = receipt.memory_lane || {};
+  const privacy = receipt.privacy || {};
+  const sampling = receipt.sampling_defaults || {};
+  const stateText = state.model_state_preserved === true ? 'model state preserved' : 'model state not proven preserved';
+  const template = prompt.chat_template || prompt.prompt_template || 'unknown';
+  const samplingText = [
+    `temperature ${sampling.temperature ?? 'unknown'}`,
+    `top_p ${sampling.top_p ?? 'unknown'}`,
+    `top_k ${sampling.top_k ?? 'unknown'}`,
+  ].join(' | ');
+  return `
+    <div class="list-item">
+      <div class="memory-copy">
+        Runtime contract receipt: <strong>${escapeHtmlFn(receipt.measurement_mode || 'unknown')}</strong> &middot; backend ${escapeHtmlFn(runtime.backend || 'unknown')} &middot; ${escapeHtmlFn(runtime.local_cloud_mode || 'unknown')}
+        <small>${escapeHtmlFn(`endpoint ${runtime.endpoint || 'unknown'} | model ${model.id_or_path || 'unknown'} | template ${template} | ${samplingText}`)}</small>
+        <small>${escapeHtmlFn(`memory lane ${memory.status || 'unknown'} | privacy ${privacy.warning_state || 'unknown'} | smoke ${smoke.status || 'unknown'} | ${stateText}`)}</small>
+        <small>${escapeHtmlFn('Inspector-only status receipt; not PromptTruth, not toolEvidenceReceipt, and not a live smoke prompt unless smoke status says so.')}</small>
       </div>
     </div>
   `;
@@ -2043,6 +2109,8 @@ export function renderMemoryInspector({ els = {}, inspector = null, escapeHtmlFn
       ${renderBackgroundVectorizationSummary(viewModel.backgroundVectorization, viewModel.session, escapeHtmlFn)}
       ${renderScopedSectionHeading('Routing summary', 'Latest/current', escapeHtmlFn, { withGap: true })}
       ${renderRoutingSummary(viewModel.routing, escapeHtmlFn)}
+      ${renderScopedSectionHeading('Runtime contract receipt', 'Latest/current', escapeHtmlFn, { withGap: true })}
+      ${renderRuntimeContractReceiptSummary(viewModel.runtime?.runtimeContract, escapeHtmlFn)}
       ${renderScopedSectionHeading('Runtime artifact', 'Latest/current', escapeHtmlFn, { withGap: true })}
       ${renderArtifactSummary(viewModel.artifact, escapeHtmlFn)}
       ${renderScopedSectionHeading('Trace artifact', 'Latest/current', escapeHtmlFn, { withGap: true })}

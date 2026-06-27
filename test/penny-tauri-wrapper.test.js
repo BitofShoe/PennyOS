@@ -130,6 +130,16 @@ test('Rust Tauri wrapper starts bundled Penny runtime on loopback and waits for 
   assert.match(mainRs, /exited before Penny became ready/);
 });
 
+test('Rust Tauri wrapper does not attach packaged builds to an existing Penny-looking port', () => {
+  const mainRs = readText('src-tauri/src/main.rs');
+  const startFn = mainRs.match(/fn start_penny_server[\s\S]*?\n}\n\nfn escape_loading_status_message/)?.[0] || '';
+  const packagedAttachGuard = startFn.indexOf('PennyOS packaged runtime will not attach to an existing server');
+
+  assert.match(startFn, /PennyOS packaged runtime will not attach to an existing server/);
+  assert.match(startFn, /status_probe\(port\)[\s\S]*return Err\(/);
+  assert.equal(startFn.indexOf('return Ok(None);', packagedAttachGuard), -1);
+});
+
 test('Tauri sidecar staging manifest bundles runtime resources without private state', () => {
   const builder = require('../scripts/penny-tauri-build-sidecar.js');
   const script = readText('scripts/penny-tauri-build-sidecar.js');

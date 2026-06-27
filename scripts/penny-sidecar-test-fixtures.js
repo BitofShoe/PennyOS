@@ -60,7 +60,7 @@ function buildFixtureBundle() {
       app: 'Pi',
       repo: 'tmp/sidecars/pi-disposable-trial',
       model: 'qwen-local-coding',
-      commandStatus: { present: true, command_path: '/home/malac/.nvm/versions/node/v24.15.0/bin/pi', version: '0.74.0' },
+      commandStatus: { present: true, command_path: '/home/example/.local/bin/pi', version: '0.74.0' },
       endpointArtifact: {
         endpoint: 'http://127.0.0.1:1234/v1',
         health_status: 'available',

@@ -1,0 +1,221 @@
+{
+  "schema": "pennyos-social-kit.v1",
+  "title": "PennyOS Social Kit",
+  "tagline": "A local companion with teeth.",
+  "oneLiner": "PennyOS is a source-available technical preview for a local-first AI companion runtime: expressive UI, local memory, bounded tools, model lanes, and a character who feels more like a presence than a chatbot skin.",
+  "positioningTags": [
+    "local-first",
+    "expressive companion",
+    "memory with receipts",
+    "bounded tools",
+    "adult technical preview"
+  ],
+  "disclosures": [
+    "PennyOS is intended for adult users. Penny can be flirtatious, emotionally intimate, sharp, and mature.",
+    "PennyOS is source-available under all-rights-reserved terms, not open source.",
+    "Technical preview. Local setup, model choice, hardware, and runtime state matter.",
+    "PennyOS does not bundle model runtimes, model weights, embeddings, voice models, Speaches, or OpenAI credentials.",
+    "Optional OpenAI cloud mode is not private/local and can send prompts, memory context, and tool context to OpenAI."
+  ],
+  "assets": [
+    {
+      "id": "hero-presenting",
+      "type": "image",
+      "source": "public/sprites/packs/pen2/pen2-smug-presenting.png",
+      "target": "assets/images/hero-presenting.png",
+      "role": "Hero cover image",
+      "dimensions": "1254x1254",
+      "alt": "Penny presenting herself in a warm pixel-anime style, one hand raised with confident expression.",
+      "caption": "A local companion with teeth.",
+      "socialUse": "Pinned post image, thread cover, thumbnail, profile-card crop.",
+      "publicSafety": "Tracked shipped expression-pack art with no local paths or runtime data."
+    },
+    {
+      "id": "hero-happy",
+      "type": "image",
+      "source": "public/sprites/packs/pen2/pen2-happy-bright.png",
+      "target": "assets/images/hero-happy.png",
+      "role": "Friendly hero image",
+      "dimensions": "1254x1254",
+      "alt": "Penny smiling brightly in the shipped expression pack, styled like a playful local companion character.",
+      "caption": "She remembers. She reacts. She talks back.",
+      "socialUse": "First-reply image, friendly intro post, onboarding carousel.",
+      "publicSafety": "Tracked shipped expression-pack art."
+    },
+    {
+      "id": "laptop-thinking",
+      "type": "image",
+      "source": "public/sprites/packs/pen2/pen2-thinking-laptop-base.png",
+      "target": "assets/images/laptop-thinking.png",
+      "role": "Local brain setup image",
+      "dimensions": "624x624",
+      "alt": "Penny leaning over a laptop, suggesting local model setup, memory, and technical work.",
+      "caption": "The app is the body. The model runtime is the brain.",
+      "socialUse": "Setup explainer, technical thread, local-first reply.",
+      "publicSafety": "Tracked shipped expression-pack art."
+    },
+    {
+      "id": "excited-cheer",
+      "type": "image",
+      "source": "public/sprites/packs/pen2/pen2-excited-cheer.png",
+      "target": "assets/images/excited-cheer.png",
+      "role": "Energy beat",
+      "dimensions": "1254x1254",
+      "alt": "Penny cheering with excited body language in the shipped expression pack.",
+      "caption": "More presence. Less assistant.",
+      "socialUse": "Launch-day reply image, milestone post, quick reaction.",
+      "publicSafety": "Tracked shipped expression-pack art."
+    },
+    {
+      "id": "smug-glasses",
+      "type": "image",
+      "source": "public/sprites/packs/pen2/pen2-smug-glasses.png",
+      "target": "assets/images/smug-glasses.png",
+      "role": "Attitude beat",
+      "dimensions": "1254x1254",
+      "alt": "Penny posing with a smug expression and glasses, matching the app's playful technical attitude.",
+      "caption": "Not a beige bot.",
+      "socialUse": "Quote tweet image, spicy reply, comparison post.",
+      "publicSafety": "Tracked shipped expression-pack art."
+    },
+    {
+      "id": "chibi-wink",
+      "type": "image",
+      "source": "public/sprites/decor/chibi-penny-wink.png",
+      "target": "assets/images/chibi-wink.png",
+      "role": "Mascot accent",
+      "dimensions": "1376x768",
+      "alt": "A chibi Penny accent illustration winking against a transparent-style presentation frame.",
+      "caption": "Tiny chaos, local address.",
+      "socialUse": "Small thumbnail, footer accent, thread section break.",
+      "publicSafety": "Tracked decor art."
+    },
+    {
+      "id": "chibi-excited",
+      "type": "image",
+      "source": "public/sprites/decor/chibi-avatar-excited.png",
+      "target": "assets/images/chibi-excited.png",
+      "role": "Avatar accent",
+      "dimensions": "1376x768",
+      "alt": "An excited chibi-style Penny avatar used as a playful companion UI accent.",
+      "caption": "The interface has a face.",
+      "socialUse": "Avatar crop, sticker-style reply, accessibility-friendly image post.",
+      "publicSafety": "Tracked decor art."
+    },
+    {
+      "id": "pixel-monitor",
+      "type": "image",
+      "source": "public/sprites/decor/pixel-monitor.png",
+      "target": "assets/images/pixel-monitor.png",
+      "role": "Local machine accent",
+      "dimensions": "1376x768",
+      "alt": "A pixel-art monitor accent that points to PennyOS running locally on a user's machine.",
+      "caption": "Lives on your machine.",
+      "socialUse": "Local-first diagram accent, thread divider, setup carousel.",
+      "publicSafety": "Tracked decor art."
+    },
+    {
+      "id": "pixel-chip",
+      "type": "image",
+      "source": "public/sprites/decor/pixel-chip.png",
+      "target": "assets/images/pixel-chip.png",
+      "role": "Model/runtime accent",
+      "dimensions": "1376x768",
+      "alt": "A pixel-art computer chip accent representing local model runtime and machine intelligence.",
+      "caption": "Bring your own brain runtime.",
+      "socialUse": "Model setup carousel, technical post, docs thumbnail.",
+      "publicSafety": "Tracked decor art."
+    },
+    {
+      "id": "app-icon",
+      "type": "image",
+      "source": "src-tauri/icons/icon.png",
+      "target": "assets/images/app-icon.png",
+      "role": "App icon",
+      "dimensions": "1254x1254",
+      "alt": "The PennyOS app icon using Penny's shipped character art.",
+      "caption": "PennyOS desktop app icon.",
+      "socialUse": "Profile icon, release post thumbnail, install note.",
+      "publicSafety": "Tracked app icon art."
+    },
+    {
+      "id": "demo-contact-sheet",
+      "type": "image",
+      "source": "output/pennyos-product-demo-2026-06-21/pennyos-social-demo-contact-sheet.jpg",
+      "target": "assets/images/demo-contact-sheet.jpg",
+      "role": "Demo contact sheet",
+      "alt": "A contact sheet of frames from the PennyOS social demo video.",
+      "caption": "Six fast proof-of-life frames from the PennyOS social demo.",
+      "socialUse": "Thread carousel, thumbnail selection, video preview.",
+      "publicSafety": "Output artifact selected from public-facing product demo after excluding proof receipts.",
+      "optional": true
+    },
+    {
+      "id": "demo-frame-01",
+      "type": "image",
+      "source": "output/pennyos-product-demo-2026-06-21/final-frames/frame-01.jpg",
+      "target": "assets/images/demo-frame-01.jpg",
+      "role": "Demo still 1",
+      "alt": "A still frame from the PennyOS product demo prepared for social sharing.",
+      "caption": "A quick still from the polished PennyOS social demo.",
+      "socialUse": "Carousel still, thumbnail option.",
+      "publicSafety": "Output still from the public-facing social demo.",
+      "optional": true
+    },
+    {
+      "id": "demo-frame-03",
+      "type": "image",
+      "source": "output/pennyos-product-demo-2026-06-21/final-frames/frame-03.jpg",
+      "target": "assets/images/demo-frame-03.jpg",
+      "role": "Demo still 3",
+      "alt": "A still frame from the PennyOS product demo showing the app in use.",
+      "caption": "A social-ready app moment from the demo cut.",
+      "socialUse": "Carousel still, quote post visual.",
+      "publicSafety": "Output still from the public-facing social demo.",
+      "optional": true
+    },
+    {
+      "id": "help-top-screenshot",
+      "type": "image",
+      "source": "output/playwright/pennyos-help-top-20260617.png",
+      "target": "assets/images/help-top-screenshot.png",
+      "role": "Help page screenshot",
+      "alt": "A PennyOS help page screenshot showing public setup guidance and app documentation.",
+      "caption": "The setup story is part of the product.",
+      "socialUse": "Setup thread, documentation carousel.",
+      "publicSafety": "Public help-page screenshot candidate. Review once before posting.",
+      "optional": true
+    },
+    {
+      "id": "help-faq-cards",
+      "type": "image",
+      "source": "output/playwright/pennyos-help-faq-cards-20260617.png",
+      "target": "assets/images/help-faq-cards.png",
+      "role": "FAQ card screenshot",
+      "alt": "A PennyOS FAQ screenshot with card-style setup and capability guidance.",
+      "caption": "Honest setup notes, not mystery-box hype.",
+      "socialUse": "FAQ carousel, support reply, install caveat.",
+      "publicSafety": "Public help-page screenshot candidate. Review once before posting.",
+      "optional": true
+    }
+  ],
+  "postTemplates": {
+    "xLaunch": [
+      "I built PennyOS because I wanted a local AI companion that feels like someone, not another chatbot skin. She lives on your machine, has expressive UI, local memory, bounded tools, and enough attitude to make the app feel alive.",
+      "PennyOS is the local-first companion runtime I kept wishing existed: browser face, local model lanes, memory with receipts, approval-gated tools, and a character who talks like she means it.",
+      "Not a beige bot. PennyOS is a source-available technical preview for a local AI companion with a face, memory, local-first defaults, and practical tools that stay behind consent gates."
+    ],
+    "xThread": [
+      "PennyOS is a local-first AI companion runtime, not a hosted chatbot skin.",
+      "The app gives Penny a browser face, expressive sprites, memory surfaces, model controls, image attachments, and bounded tool paths.",
+      "The brain is still yours to choose: LM Studio, llama.cpp, another OpenAI-compatible endpoint, or an explicit OpenAI API fallback if you accept the cloud tradeoff.",
+      "The interesting part is the combination: presence, private memory, practical tools, and enough safety rails that the app stays useful without pretending setup does not matter.",
+      "Technical preview. Adult users. Source-available, not open source. Local setup and model choice matter."
+    ],
+    "videoCaptions": [
+      "PennyOS in 33 seconds: a local companion with a face, memory, model lanes, and tools that stay on a leash.",
+      "The pitch is simple: your AI companion should live with you, belong to you, remember with receipts, and still have a personality.",
+      "PennyOS is not trying to be another assistant box. It is a local companion runtime with presence, boundaries, and teeth."
+    ]
+  }
+}

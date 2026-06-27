@@ -62,6 +62,7 @@ function createFixture({
     ],
     loaded: [...(loadedModels || ['google/gemma-4-e4b'])],
     embedReady: false,
+    embeddingBodies: [],
     loadCommands: [],
   };
 
@@ -91,6 +92,7 @@ function createFixture({
   const fetchImpl = async (url, options = {}) => {
     if (String(url).endsWith('/embeddings')) {
       const payload = JSON.parse(String(options.body || '{}'));
+      state.embeddingBodies.push(payload);
       const matchesEmbed = /text-embedding-nomic-embed-text-v1\.5|embedding[-_]?gemma[-_]?300m/i.test(String(payload.model || ''));
       if (matchesEmbed && state.embedReady) {
         return {
@@ -333,6 +335,7 @@ test('prepareLmStudio normalizes EmbeddingGemma aliases without replacing the em
   assert.equal(report.embedLoadAttempted, true);
   assert.equal(report.embedLoadSucceeded, true);
   assert.equal(report.semanticMemoryReady, true);
+  assert.ok(fixture.state.embeddingBodies.some((body) => body.input === 'penny semantic memory probe<eos>'));
 });
 
 test('prepareLmStudio warns when the requested chat model is missing but a chat fallback is already loaded', async () => {

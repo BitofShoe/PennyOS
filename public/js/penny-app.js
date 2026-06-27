@@ -42,6 +42,7 @@ import {
   chatDecorSrcs as chatDecorSrcsRuntime,
   buildCompanionFaceHtml as buildCompanionFaceHtmlRuntime,
   applyMoodCssVariables,
+  syncIdleDecorBounds as syncIdleDecorBoundsRuntime,
 } from './penny-expression-runtime.mjs';
 import {
   renderTranscriptMessages as renderTranscriptMessagesUi,
@@ -396,6 +397,23 @@ function companionFaceHtml(mood, profile = null) {
   });
 }
 
+function applyCompanionArtFallback(container) {
+  if (!container) return;
+  for (const img of Array.from(container.querySelectorAll('.penny-art[data-fallback-src]'))) {
+    const fallbackSrc = img.dataset.fallbackSrc || '';
+    if (!fallbackSrc) continue;
+    const useFallback = () => {
+      if (img.getAttribute('src') !== fallbackSrc) img.setAttribute('src', fallbackSrc);
+    };
+    img.addEventListener('error', useFallback, { once: true });
+    if (img.complete && !img.naturalWidth) useFallback();
+  }
+}
+
+function applyCompanionArtFallbacks(containers = []) {
+  for (const container of containers) applyCompanionArtFallback(container);
+}
+
 const ambientChrome = createAmbientChromeRuntime({
   windowRef: window,
   documentRef: document,
@@ -465,6 +483,7 @@ function renderSprite(mood, palette) {
       container.style.transition = '';
       container.style.opacity = '1';
     }
+    applyCompanionArtFallbacks(containers);
     _lastSpriteKey = spriteKey;
     _lastRenderedMood = mood;
     _lastPresentationProfile = profile;
@@ -485,6 +504,7 @@ function renderSprite(mood, palette) {
     for (const container of containers) {
       container.innerHTML = html;
     }
+    applyCompanionArtFallbacks(containers);
     applyIntensityClass();
     for (const container of containers) {
       container.style.transition = `opacity ${Number(profile.fadeInMs || 180)}ms ease-in`;
@@ -534,6 +554,18 @@ function pennyAvatarSrc(mood = state.mood) {
   return getMoodAvatarSrcRuntime(activeExpressionPack, mood);
 }
 
+function syncStaticCyberDecorBounds() {
+  return syncIdleDecorBoundsRuntime(els.cyberDecor, els.chatWrap || els.chat?.parentElement);
+}
+
+function queueStaticCyberDecorBoundsSync() {
+  if (window.requestAnimationFrame) {
+    window.requestAnimationFrame(() => syncStaticCyberDecorBounds());
+    return;
+  }
+  syncStaticCyberDecorBounds();
+}
+
 function renderMessages() {
   renderTranscriptMessagesUi({
     chatEl: els.chat,
@@ -548,6 +580,7 @@ function renderMessages() {
     formatBytesFn: formatBytes,
     escapeHtmlFn: escapeHtml,
   });
+  queueStaticCyberDecorBoundsSync();
 }
 
 function updateStreamingAssistantBubble(text = '') {
@@ -558,6 +591,7 @@ function updateStreamingAssistantBubble(text = '') {
     stripDraftMoodFn: stripDraftMood,
     escapeHtmlFn: escapeHtml,
   });
+  queueStaticCyberDecorBoundsSync();
 }
 
 async function readPennyEventStream(response, handlers = {}) {
@@ -631,6 +665,7 @@ function switchPanel(panel) {
     loadBackendStatus();
     refreshRuntimeVoiceStatus();
   }
+  if (panel === 'chat') queueStaticCyberDecorBoundsSync();
 }
 
 function maybeSpeak(text) {
@@ -1191,6 +1226,11 @@ async function sendMessage() {
     state.presence = 'present';
     state.turns = finalData.meta?.turns || state.turns + 1;
     applyMemory(finalData.memory, { preserveVoiceOn: shouldSpeakAfterReply });
+    if (finalData.meta?.responseLimit?.hit === true) {
+      setComposerNotice('Penny hit the model output limit. Turn off LM Studio thinking mode for normal chat, then retry or ask her to continue.', 'warn', 'response-limit');
+    } else if (els.composerNotice?.dataset.source === 'response-limit') {
+      setComposerNotice('', 'muted', 'response-limit');
+    }
     if (shouldSpeakAfterReply) runtimeVoice.speak(parsed.text);
     else maybeSpeak(parsed.text);
     updateBrainModeUi(finalData.meta || null);
@@ -1232,6 +1272,7 @@ async function sendMessage() {
 
 ensureMemoryInspectorUi();
 for (const tab of els.tabs) tab.addEventListener('click', () => switchPanel(tab.dataset.panel));
+window.addEventListener('resize', queueStaticCyberDecorBoundsSync);
 els.send.addEventListener('click', sendMessage);
 
 if (els.imageBtn) els.imageBtn.addEventListener('click', () => els.imageInput?.click());
@@ -1407,7 +1448,7 @@ els.clearMemory?.addEventListener('click', async () => {
   applyExpressionDecision({
     autoMood: 'calm',
     decisionSource: 'session-reset',
-    decisionReason: 'Clearing local state reset the expression shell to calm.',
+    decisionReason: 'Resetting the local shell reset the expression shell to calm.',
   });
   state.presence = 'idle';
   renderMessages(); renderMemory(); updateTheme(); saveState(); await syncMemoryToDisk();

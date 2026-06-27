@@ -537,7 +537,8 @@ export function buildCompanionFaceHtml({
 } = {}) {
   const variant = getMoodSpriteVariant(pack, mood, variantIndex);
   const entry = getActiveMoodEntry(pack, mood);
-  const src = variant?.src || getMoodAvatarSrc(pack, mood);
+  const fallbackSrc = getMoodAvatarSrc(pack, mood) || CHIBI_AVATARS.calm;
+  const src = variant?.src || fallbackSrc;
   const label = variant?.label || pickChibiHudLabel(pack, mood, rng);
   const pos = variant?.pos || '50% 46%';
   const packId = escapeHtmlFn(pack?.id || 'default');
@@ -547,7 +548,7 @@ export function buildCompanionFaceHtml({
     : getMoodPresentationProfile({ mood, intensity: 0 });
   return `
     <div class="penny-display penny-chibi penny-${safeMood}" data-variant="${variant?.index ?? 0}" data-expression-pack="${packId}" data-expression-scene="${escapeHtmlFn(entry.sceneHint || '')}" data-expression-background="${escapeHtmlFn(entry.backgroundHint || '')}" data-expression-secondary-count="${variant?.secondaryVariantCount ?? 0}" data-expression-profile="${escapeHtmlFn(profile.profile || String(mood || 'calm'))}" data-expression-impact="${escapeHtmlFn(profile.impact || 'soft')}" data-expression-closeup="${profile.closeUp ? '1' : '0'}" data-expression-intensity="${Number(profile.intensity || 0)}">
-      <img src="${escapeHtmlFn(src)}" class="penny-art penny-art-chibi" style="object-position:${escapeHtmlFn(pos)}" alt="Penny" draggable="false" />
+      <img src="${escapeHtmlFn(src)}" data-fallback-src="${escapeHtmlFn(fallbackSrc)}" class="penny-art penny-art-chibi" style="object-position:${escapeHtmlFn(pos)}" alt="Penny" draggable="false" />
       <div class="penny-hud">
         <span class="penny-hud-left">PENNY.EXE</span>
         <span class="penny-hud-right">${escapeHtmlFn(label)}</span>

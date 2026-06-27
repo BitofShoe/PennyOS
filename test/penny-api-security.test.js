@@ -128,9 +128,11 @@ test('API security ignores malformed cookie encoding instead of throwing', () =>
   assert.equal(security.validateApiRequest(request, url).code, 'token_required');
 });
 
-test('memory mutation and review routes require a local token outside LAN mode', () => {
+test('memory read, inspector, mutation, and review routes require a local token outside LAN mode', () => {
   const security = buildSecurity();
   const cases = [
+    ['GET', '/api/penny/memory'],
+    ['GET', '/api/penny/memory/inspector'],
     ['POST', '/api/penny/memory'],
     ['PATCH', '/api/penny/memory'],
     ['GET', '/api/penny/memory/export'],
@@ -151,6 +153,31 @@ test('memory mutation and review routes require a local token outside LAN mode',
       security.validateApiRequest(req({ method, contentType: needsJson ? 'application/json' : '', token: 'test-token' }), url).ok,
       true,
       `${method} ${pathname} should admit the configured token`,
+    );
+  }
+});
+
+test('chat and review sidecar POST routes require a local token outside LAN mode', () => {
+  const security = buildSecurity();
+  const cases = [
+    '/api/penny/chat',
+    '/api/companion/chat',
+    '/api/penny/sidecars/search',
+    '/api/penny/sidecars/docs',
+    '/api/penny/sidecars/audio',
+  ];
+
+  for (const pathname of cases) {
+    const url = new URL(`http://localhost:4317${pathname}`);
+    assert.equal(
+      security.validateApiRequest(req({ method: 'POST', contentType: 'application/json' }), url).code,
+      'token_required',
+      `${pathname} should require a token`,
+    );
+    assert.equal(
+      security.validateApiRequest(req({ method: 'POST', contentType: 'application/json', token: 'test-token' }), url).ok,
+      true,
+      `${pathname} should admit the configured token`,
     );
   }
 });

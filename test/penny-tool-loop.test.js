@@ -281,6 +281,51 @@ test('runLmStudioToolLoop still allows plain final text for read-only tool turns
   assert.equal(api.toolCalls.length, 0);
 });
 
+test('runLmStudioToolLoop records output-limit telemetry on length-capped final replies', async () => {
+  const laneRuntime = {};
+  const api = buildToolLoopApi({
+    responses: [
+      {
+        choices: [
+          {
+            finish_reason: 'length',
+            message: {
+              content: 'i got clipped by the token ceiling.\n[MOOD:annoyed]',
+              tool_calls: [],
+            },
+          },
+        ],
+        usage: {
+          completion_tokens: 600,
+          completion_tokens_details: {
+            reasoning_tokens: 451,
+          },
+        },
+      },
+    ],
+  });
+
+  const result = await api.runLmStudioToolLoop({
+    userText: 'Penny-fy the FAQ',
+    messages: [],
+    memories: {},
+    laneRuntime,
+  });
+
+  assert.equal(result.text, 'i got clipped by the token ceiling.\n[MOOD:annoyed]');
+  assert.deepEqual(laneRuntime.responseLimit, {
+    hit: true,
+    reasonCode: 'output_limit',
+    finishReason: 'length',
+    source: 'tool-loop',
+    lane: 'tool',
+    step: 0,
+    maxTokens: 600,
+    completionTokens: 600,
+    reasoningTokens: 451,
+  });
+});
+
 test('runLmStudioToolLoop requires read handoff before accepting search-only exact code claims', async () => {
   const api = buildToolLoopApi({
     responses: [

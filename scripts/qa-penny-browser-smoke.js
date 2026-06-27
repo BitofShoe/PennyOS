@@ -913,7 +913,12 @@ async function main() {
 
     report.currentStep = 'image_upload_turn_inspector_artifact';
     persistReport(report);
-    const inspector = await fetchJson(`${BASE_URL}/api/penny/memory/inspector?sessionId=${SESSION_ID}`, {}, 30000);
+    const inspector = await page.evaluate(async (sessionId) => {
+      const response = await fetch(`/api/penny/memory/inspector?sessionId=${encodeURIComponent(sessionId)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+      return data;
+    }, SESSION_ID);
     const artifact = inspector?.inspector?.artifact || null;
     report.checks.push({
       name: 'image_upload_turn_uses_attachment_bounded_chat_lane',

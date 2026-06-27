@@ -6,6 +6,7 @@ Penny is local-first. The app is built to run on your machine and talk to your l
 
 - browser settings and transcript shell state in localStorage
 - live memory files under ignored `data/` paths
+- packaged desktop memory/config/log state under the app's user app-data paths
 - optional QA/eval artifacts under ignored output/artifact paths
 
 Browser snapshots strip raw uploaded image data before persistence.
@@ -34,6 +35,12 @@ The README uses remote badge images for GitHub display. The local Penny browser 
 
 `PENNY_LAN_SHARE=1` exposes Penny on your local network. Use a long `PENNY_API_TOKEN`, enter it only on devices you control, and turn LAN mode off when you no longer need it.
 
-## Localhost Reads
+## Localhost API Access
 
-The default release posture treats loopback as trusted for non-mutating API reads. Other programs on your machine can reach ordinary local GET routes if they can connect to `127.0.0.1:4317`. Set `PENNY_REQUIRE_API_TOKEN=1` if you want every `/api/*` route token-gated.
+The local desktop UI receives a loopback session cookie. Memory reads, memory inspector, memory export, memory mutation/review/consolidation, workspace-write approval, model changes, and voice generation require that local session token even when LAN sharing is off.
+
+Other programs on your machine can still reach ordinary non-sensitive local GET routes if they can connect to `127.0.0.1:4317`. Set `PENNY_REQUIRE_API_TOKEN=1` if you want every `/api/*` route token-gated.
+
+## Uninstall And Data Retention
+
+Uninstalling PennyOS removes the installed app files and shortcuts. It does not automatically delete your user memory/config/log state. To wipe packaged desktop state too, delete the PennyOS app-data folders for `com.bitofshoe.pennyos` under your Windows roaming/local app-data locations.

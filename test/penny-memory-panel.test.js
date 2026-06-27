@@ -1,6 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const {
+  buildRuntimeContractReceipt,
+} = require('../lib/penny-runtime-contract-receipt');
+
 const helpersPromise = import('../public/js/penny-memory-panel.mjs');
 
 function createInspectorPanelStub() {
@@ -278,6 +282,56 @@ test('renderMemoryList shows remembered facts, pending saves, and recall context
   assert.match(els.memoryList.innerHTML, /rendered-advisory/i);
   assert.doesNotMatch(els.memoryList.innerHTML, /penny:claim:sha256:current-mascot/i);
   assert.equal(els.clearAllMemories.textContent, 'Forget remembered facts');
+});
+
+test('renderMemoryList hides old low-signal promotion queue items', async () => {
+  const { renderMemoryList } = await helpersPromise;
+  const els = {
+    memoryList: {
+      className: '',
+      innerHTML: '',
+    },
+  };
+
+  const viewModel = renderMemoryList({
+    els,
+    memory: {},
+    inspector: {
+      archive: {
+        global: {
+          promotionQueue: [
+            {
+              id: 'thin-think',
+              text: 'They keep returning to think.',
+              sourceLabel: 'pattern',
+              evidenceCount: 3,
+              confidence: 0.7,
+            },
+            {
+              id: 'thin-penny',
+              text: 'They keep returning to penny.',
+              sourceLabel: 'pattern',
+              evidenceCount: 3,
+              confidence: 0.7,
+            },
+            {
+              id: 'real-pattern',
+              text: 'They keep returning to black cherry perfume.',
+              sourceLabel: 'pattern',
+              evidenceCount: 3,
+              confidence: 0.7,
+            },
+          ],
+        },
+      },
+    },
+  });
+
+  assert.equal(viewModel.queue.length, 1);
+  assert.equal(viewModel.queue[0].text, 'They keep returning to black cherry perfume.');
+  assert.doesNotMatch(els.memoryList.innerHTML, /They keep returning to think/i);
+  assert.doesNotMatch(els.memoryList.innerHTML, /They keep returning to penny/i);
+  assert.match(els.memoryList.innerHTML, /black cherry perfume/i);
 });
 
 test('ensureMemoryInspectorUi makes receipts an advanced diagnostics section', async () => {
@@ -1022,6 +1076,62 @@ test('renderMemoryInspector keeps selected older snapshots strict when fields ar
   assert.match(panel.innerHTML, /Research continuity ledger<\/div>\s*<span class="inspector-scope-pill scope-session-wide">Session-wide<\/span>/i);
   assert.doesNotMatch(panel.innerHTML, /supported the reply/i);
   assert.doesNotMatch(panel.innerHTML, /\bproved\b/i);
+});
+
+test('renderMemoryInspector displays runtime contract receipts as read-only status evidence', async () => {
+  const { renderMemoryInspector } = await helpersPromise;
+  const els = { memoryInspectorPanel: createInspectorPanelStub() };
+  const runtimeContract = buildRuntimeContractReceipt({
+    generatedAt: '2026-06-19T20:10:00.000Z',
+    endpoint: 'http://127.0.0.1:18080/v1',
+    backend: 'llama_cpp',
+    modelId: 'unknown',
+    chatTemplate: 'unknown',
+    promptTemplate: 'unknown',
+    samplingDefaults: {
+      temperature: 1,
+      top_p: 0.95,
+      top_k: 64,
+    },
+    capabilities: {
+      tool_function_support: 'unknown',
+      structured_output: 'unknown',
+    },
+    memoryLaneStatus: {
+      status: 'keyword',
+      privacyFlag: 'local-only',
+      reviewStatus: 'status-only',
+    },
+    privacyWarningState: 'local-first',
+    smokePrompt: {
+      status: 'not_run',
+    },
+    statePreservation: {
+      model_state_preserved: true,
+    },
+  });
+
+  renderMemoryInspector({
+    els,
+    inspector: {
+      sessionId: 'runtime-contract-ui',
+      explicit: { count: 0 },
+      archive: { session: {}, global: {} },
+      embeddings: { semanticMemory: { ready: false, mode: 'keyword' } },
+      runtime: {
+        readiness: { warmState: 'degraded' },
+        performance: {},
+        runtimeContract,
+      },
+    },
+  });
+
+  assert.match(els.memoryInspectorPanel.innerHTML, /Runtime contract receipt/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /llama_cpp/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /status-only/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /smoke not_run/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /model state preserved/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /not PromptTruth/i);
 });
 
 test('renderMemoryInspector exposes runtime artifact evidence sources and tool labels', async () => {

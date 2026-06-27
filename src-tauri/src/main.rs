@@ -531,14 +531,13 @@ fn start_penny_server(
     port: u16,
     server_state: &PennyServer,
 ) -> Result<Option<PennyChild>, String> {
-    if status_probe(port) {
-        return Ok(None);
-    }
-
     if force_dev_runtime()
         || env::var_os("PENNY_TAURI_SERVER_ROOT").is_some()
         || env::var_os("PENNY_TAURI_NODE").is_some()
     {
+        if status_probe(port) {
+            return Ok(None);
+        }
         let root = dev_penny_root().ok_or_else(|| {
             "Could not find Penny server.js. Set PENNY_TAURI_SERVER_ROOT to the Penny checkout."
                 .to_string()
@@ -548,8 +547,17 @@ fn start_penny_server(
 
     if cfg!(debug_assertions) && !force_packaged_runtime() {
         if let Some(root) = dev_penny_root() {
+            if status_probe(port) {
+                return Ok(None);
+            }
             return start_dev_penny_server(port, root);
         }
+    }
+
+    if status_probe(port) {
+        return Err(format!(
+            "PennyOS packaged runtime will not attach to an existing server on port {port}. Stop that server or choose a different PENNY_TAURI_PORT."
+        ));
     }
 
     match start_packaged_penny_server(app, port, server_state) {

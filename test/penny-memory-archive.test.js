@@ -176,6 +176,53 @@ test('semantic memory probes a dedicated embedding base when chat models omit em
   }
 });
 
+test('EmbeddingGemma embedding requests append eos without storing eos in memory text', async () => {
+  const files = makeTempFiles();
+  const bodies = [];
+  const embedModel = 'text-embedding-embeddinggemma-300m@f32';
+  const { api } = buildArchiveApi({
+    ...files,
+    embedModel,
+    statusInstalledModels: [embedModel],
+    statusNativeAvailableModels: [embedModel],
+    statusAvailableModels: [embedModel],
+    fetchImpl: async (_url, options = {}) => {
+      const body = JSON.parse(String(options.body || '{}'));
+      bodies.push(body);
+      return {
+        ok: true,
+        async text() {
+          return JSON.stringify({
+            data: [
+              { embedding: buildEmbeddingVector(body.input) },
+            ],
+          });
+        },
+      };
+    },
+  });
+
+  try {
+    await api.archiveCompletedTurn({
+      sessionId: 'embeddinggemma-eos',
+      userText: 'The blue vending machine hummed after midnight.',
+      assistantText: 'I can keep that blue vending machine detail close.',
+    });
+
+    assert.ok(bodies.length >= 2);
+    assert.ok(bodies.every((body) => String(body.input || '').endsWith('<eos>')));
+    assert.equal(bodies[0].input, 'penny semantic memory probe<eos>');
+
+    const stored = Object.values(api.readEmbeddingsStore().items)
+      .find((item) => /blue vending machine/i.test(item.text));
+    assert.ok(stored);
+    assert.equal(stored.text.includes('<eos>'), false);
+    assert.equal(stored.requestFormat, 'embeddinggemma-eos-v1');
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 function buildAuditSlice({
   turnId = 'turn-1',
   usedAt = '2026-04-13T12:00:00.000Z',
@@ -501,6 +548,35 @@ test('archiveCompletedTurn suppresses low-signal filler themes in stylized chat'
     assert.doesNotMatch(summaryText, /\bi'm\b|honestly|high\b|just saying|still saying/i);
     assert.match(patternText, /black cherry perfume/i);
     assert.doesNotMatch(patternText, /\bi'm\b|honestly|high\b|just saying|still saying/i);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
+test('archiveCompletedTurn does not promote Penny self-name or filler thinking loops', async () => {
+  const files = makeTempFiles();
+  const { api } = buildArchiveApi(files);
+
+  try {
+    const turns = [
+      'Ah, I think I finally got your voice down. Go ahead, say something Penny lol.',
+      'heeeey penny!! nice to meet you!',
+      'I think I finally got your voice down. Say something Penny.',
+      'Penny lol, I think it is working now.',
+    ];
+    for (const userText of turns) {
+      await api.archiveCompletedTurn({
+        sessionId: 'demo',
+        userText,
+        assistantText: 'Voice setup test acknowledged.',
+      });
+    }
+
+    const archive = api.readArchiveStore();
+    const patterns = archive.global.patterns.map((item) => item.text).join('\n');
+    const queue = archive.global.promotionQueue.map((item) => item.text).join('\n');
+    assert.doesNotMatch(patterns, /They keep returning to (?:think|penny|penny think|think penny)/i);
+    assert.doesNotMatch(queue, /They keep returning to (?:think|penny|penny think|think penny)/i);
   } finally {
     fs.rmSync(files.root, { recursive: true, force: true });
   }

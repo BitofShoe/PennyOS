@@ -120,7 +120,7 @@ Think of the prompt stack as a bento box. Each compartment has a job. If you pou
 
 ## Runtime voice assets: Penny's active personality kit
 
-Penny has large source material: personality docs, canon notes, playground text, distilled sidecars, review notes, and historical artifacts. But the live runtime should not inject all of that every turn. The active voice should come from smaller runtime assets that represent the current operating version of Penny.
+Penny has large source material: personality docs, canon notes, playground text, review notes, and historical artifacts. But the live runtime should not inject all of that every turn. The active voice should come from smaller runtime assets that represent the current operating version of Penny.
 
 This distinction is crucial. Giant personality docs are useful for development and refinement, but they can become prompt molasses if shoved directly into runtime. They slow the model, increase conflict, and can push Penny toward overperformed character behavior. Runtime voice assets are the outfit she actually wears today, not the entire wardrobe closet dumped on the floor.
 

@@ -14,3 +14,11 @@ test('security docs mention local no-token opt-out alongside API token controls'
   assert.match(security, /PENNY_API_ALLOW_LOCAL_NO_TOKEN/);
   assert.match(security, /loopback|localhost/i);
 });
+
+test('security docs match memory route token requirements', () => {
+  const security = readText('SECURITY.md');
+
+  assert.match(security, /Memory read\/inspector\/export routes: local token required by default/i);
+  assert.match(security, /ordinary non-sensitive local GET routes/i);
+  assert.doesNotMatch(security, /memory\/status inspector surfaces, without presenting a token/i);
+});

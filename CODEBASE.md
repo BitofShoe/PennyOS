@@ -44,10 +44,10 @@ Quick run/use notes.
 Runtime architecture overview.
 - [frontend-section-map.md](./frontend-section-map.md)
 Current-state map for the browser-side orchestration split.
-- [docs/LOCAL_LLAMA_THREAD_FINDINGS.md](./docs/LOCAL_LLAMA_THREAD_FINDINGS.md)
-Outside-eye review notes on maintainability patterns that do and do not fit this repo.
-- [docs/OPENCLAW_SHADOW_EVAL.md](./docs/OPENCLAW_SHADOW_EVAL.md)
-Current verdict on shadow mode.
+- `docs/LOCAL_LLAMA_THREAD_FINDINGS.md`
+Private working-repo outside-eye review notes on maintainability patterns that do and do not fit this repo; intentionally absent from curated public/source-review bundles unless explicitly selected.
+- `docs/OPENCLAW_SHADOW_EVAL.md`
+Private working-repo current verdict on shadow mode; intentionally absent from curated public/source-review bundles unless explicitly selected.
 - [docs/PENNY_MODEL_EVAL.md](./docs/PENNY_MODEL_EVAL.md)
 Model and QA harness notes.
 - [server-js-section-map.md](./server-js-section-map.md)
@@ -58,7 +58,7 @@ Delegation note:
 - when a task crosses backend, frontend, tests, and docs, split the read-only exploration, QA inspection, and doc mapping before any writing
 - codex only supports six active subagents at once; if spawning another one fails because of that ceiling, close or reuse agents immediately instead of silently continuing
 - keep one primary editing agent per file boundary and consolidate the evidence before patching
-- when the task needs a written cross-cutting plan, start from [docs/plans/TEMPLATE.md](./docs/plans/TEMPLATE.md) instead of inventing a fresh handoff format
+- when the task needs a written cross-cutting plan, start from the private working-repo `docs/plans/TEMPLATE.md` instead of inventing a fresh handoff format
 
 ### Planning / handoff docs
 
@@ -127,8 +127,6 @@ Substructure:
 
 - [penny-voice/canon-sources.md](./penny-voice/canon-sources.md)
 What counts as source material.
-- `penny-voice/distilled/`
-Distilled sidecars and influence summaries.
 - `penny-voice/runtime/`
 Live prompt-facing runtime assets.
 
@@ -503,7 +501,7 @@ Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-re
 Start here:
 
 - `server.js`
-- `docs/OPENCLAW_SHADOW_EVAL.md`
+- private working-repo `docs/OPENCLAW_SHADOW_EVAL.md`
 - `README.md`
 
 ## Runtime vs source-of-truth
@@ -545,9 +543,8 @@ If you are trying to understand the repo quickly, read in this order:
 If you are trying to change Penny's personality, read in this order:
 
 1. `penny-voice/runtime/*`
-2. `penny-voice/distilled/*`
-3. private/local Penny canon notes
-4. raw `Personality *.md` files only as needed
+2. private/local Penny canon notes
+3. raw `Personality *.md` files only as needed
 
 If you are trying to improve performance or routing, read in this order:
 

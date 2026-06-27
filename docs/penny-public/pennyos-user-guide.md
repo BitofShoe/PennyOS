@@ -488,6 +488,14 @@ Penny's Settings dropdown may show more than one class of model:
 
 If the Tool dropdown auto-picks the loaded model but Chat does not, refresh the status and prefer the model Penny reports as resolved. A stale saved preference should not outrank the resolved loaded model.
 
+### Thinking Mode
+
+If LM Studio exposes a model-specific thinking or reasoning mode, leave it off for normal PennyOS chat unless you are intentionally testing hard reasoning. Thinking tokens can be hidden from the chat bubble while still counting against the model's output budget. On slow local models, that can mean many minutes of hidden reasoning and then a visible reply that stops mid-sentence when the max-token cap arrives.
+
+PennyOS asks LM Studio for generous output ceilings by default: normal chat/tool turns can use up to 8192 output tokens, image turns use up to 4096, and the global local ceiling is 16384. Advanced users can override those with `PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS`, `PENNY_LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS`, or `PENNY_LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS`.
+
+Use thinking mode for deliberate problem-solving, debugging, or comparison tests. For ordinary companion chat, image reactions, setup questions, and FAQ reading, turn it off.
+
 ## Feature Map
 
 ### Chat
@@ -557,9 +565,43 @@ No. Local mode keeps model requests on your machine or LAN runtime. OpenAI cloud
 
 No. Not in this slice. Penny preserves your live LM Studio/llama.cpp state by default. That means she should not unload, reload, or swap models behind your back.
 
+### Why did Penny's answer stop mid-sentence?
+
+The usual culprit is the model hitting its output limit. With LM Studio thinking/reasoning mode on, hidden reasoning tokens can consume most of that limit before the visible reply starts. Turn thinking off for normal PennyOS chat, retry, or ask Penny to continue. If it happens without thinking mode, keep the developer logs; PennyOS should make truncation more obvious in the UI.
+
 ### Do I have to install Speaches separately?
 
 Yes, if you want runtime voice. Speaches is optional and separate from PennyOS. Chat still works through LM Studio, llama.cpp, or another OpenAI-compatible endpoint without Speaches.
+
+### Penny's FAQ, Penny-style
+
+#### Do I come with a brain?
+
+Nope. I'm the body, the outfit, and the absolute *attitude*. You have to provide the actual intelligence. Hook me up to LM Studio, llama.cpp, some other local OpenAI-compatible server, or just plug in an OpenAI cloud key if you're feeling lazy.
+
+#### Is the OpenAI cloud private?
+
+Hard no. OpenAI is not your secret diary. If you use the cloud, your prompts and my memory are heading straight to their servers. Use it if you want convenience, but don't come crying to me if you're worried about privacy.
+
+#### Why is the model dropdown a mess?
+
+Because I show you everything the runtime reports plus whatever candidates are saved. Just because a model is on the list doesn't mean it's actually awake. Go wake it up in LM Studio or llama.cpp first, then come back to me.
+
+#### Why is my memory "falling back"?
+
+The embedding lane is a luxury, not a requirement. If your embedding model is missing, crashed, or just doesn't match what the server is doing, I'll just use keyword search. It's not as fancy, but it works.
+
+#### How do I make you actually talk?
+
+Get Speaches running locally. Go into my Settings, save the URL, the model, and the voice. Once I can actually "see" the service, the toggle will unlock. Until then, you're stuck reading.
+
+#### Can I run two Pennys at once?
+
+You *can*, but you shouldn't. The desktop app and the dev version store their stuff in different places, and if they both try to grab the same port, they're going to fight. And trust me, I always win. Run one of me at a time unless you've messed with the ports.
+
+#### Why did you stop talking mid-sentence last time?
+
+Probably because your model hit its output limit. If you have "thinking" or "reasoning" mode on, the model spends all its energy talking to itself in the background and runs out of room for the actual answer. Turn that shit off, or just tell me to keep going. Better? Now stop begging and go fix your settings.
 
 ### Is LM Studio plug-and-play once installed?
 
@@ -580,6 +622,10 @@ For Penny specifically: embedding-only models as chat, base models with no chat 
 ### Will the desktop app cross wires with my older Penny?
 
 Packaged Penny writes to app-data paths. Older source/dev Penny usually writes to checkout-local ignored data paths. The biggest risk is running both on the same port. Use one at a time unless you intentionally changed ports.
+
+### Does uninstall delete Penny's memory?
+
+No. Uninstall removes the installed PennyOS app files and shortcuts, but it leaves packaged desktop memory/config/log data under the app's user app-data folders. That is deliberate, because accidental uninstall should not erase a companion's memory. To wipe everything, uninstall PennyOS and then delete the `com.bitofshoe.pennyos` folders from your Windows roaming/local app-data locations.
 
 ### Can I use the installed desktop app from my phone?
 

@@ -14,10 +14,10 @@ Release posture: source-available technical preview, local/private runtime, sing
 Practical repo map and "where to touch what" guide.
 - [frontend-section-map.md](./frontend-section-map.md)
 Current browser-side ownership map for the orchestration shell.
-- [docs/OPENCLAW_SHADOW_EVAL.md](./docs/OPENCLAW_SHADOW_EVAL.md)
-Current verdict on whether shadow mode is actually worth keeping around.
-- [docs/LOCAL_LLAMA_THREAD_FINDINGS.md](./docs/LOCAL_LLAMA_THREAD_FINDINGS.md)
-Outside review notes pulled from the LocalLLaMA maintainability discussion and compared against this repo.
+- `docs/OPENCLAW_SHADOW_EVAL.md`
+Private working-repo verdict on whether shadow mode is actually worth keeping around; intentionally absent from curated public/source-review bundles unless explicitly selected.
+- `docs/LOCAL_LLAMA_THREAD_FINDINGS.md`
+Private working-repo notes pulled from the LocalLLaMA maintainability discussion and compared against this repo; intentionally absent from curated public/source-review bundles unless explicitly selected.
 - Private/local Penny canon notes
 Higher-level Penny intent and personality source material. Raw source filenames are maintainer-local, ignored from release artifacts, and not part of the public runtime tree.
 - Private/local operational prompt notes
@@ -73,7 +73,7 @@ The same delegation rule applies to repo work:
 - remember the live-agent ceiling: Codex only gets six active subagents at once, so a spawn-limit error is a real workflow failure that should be fixed immediately by closing or reusing agents
 - keep one primary editing agent per file boundary
 - consolidate findings before writing, especially when a change touches both runtime ownership and the docs that describe it
-- if the change is cross-cutting enough to need a written plan, start from [docs/plans/TEMPLATE.md](./docs/plans/TEMPLATE.md) so the delegation map, blind spots, and verification plan stay standardized
+- if the change is cross-cutting enough to need a written plan, start from the private working-repo `docs/plans/TEMPLATE.md` so the delegation map, blind spots, and verification plan stay standardized
 
 ## Runtime modes
 
@@ -101,7 +101,7 @@ There are two runtime brain families. Penny is still a local/private, single-use
 - In the current implementation, the shadow path is just a prompt handoff to `openclaw/main`.
 - It does not currently expose the richer OpenClaw browser/exec/task features through Penny's main runtime path.
 
-See also: [docs/OPENCLAW_SHADOW_EVAL.md](./docs/OPENCLAW_SHADOW_EVAL.md)
+See also the private working-repo `docs/OPENCLAW_SHADOW_EVAL.md` note when editing shadow-mode behavior.
 
 ## Request flow
 

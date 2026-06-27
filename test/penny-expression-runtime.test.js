@@ -192,6 +192,8 @@ test('main app keeps the chatbox cyber-decor animation CSS without the reseeding
   const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'penny-app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
+  assert.match(appJs, /syncIdleDecorBounds as syncIdleDecorBoundsRuntime/);
+  assert.match(appJs, /syncStaticCyberDecorBounds/);
   assert.equal(appJs.includes('createIdleDecorRuntime'), false);
   assert.equal(appJs.includes('startIdleDecorScreensaver'), false);
   assert.match(css, /\.decor-float\s*\{[^}]*animation:\s*decorDrift\s+22s/s);
@@ -285,4 +287,23 @@ test('companion face html carries presentation profile hooks for the UI runtime'
   assert.match(html, /data-expression-profile="flirty"/);
   assert.match(html, /data-expression-impact="close"/);
   assert.match(html, /data-expression-closeup="1"/);
+});
+
+test('companion face html carries a fallback sprite for failed selected art loads', async () => {
+  const {
+    createDefaultExpressionPack,
+    buildCompanionFaceHtml,
+    getMoodPresentationProfile,
+  } = await helpersPromise;
+
+  const profile = getMoodPresentationProfile({ mood: 'calm', intensity: 0, variantCount: 4, cycleSeed: 1 });
+  const html = buildCompanionFaceHtml({
+    pack: createDefaultExpressionPack(),
+    mood: 'calm',
+    variantIndex: profile.variantIndex,
+    presentationProfile: profile,
+  });
+
+  assert.match(html, /class="penny-art penny-art-chibi"/);
+  assert.match(html, /data-fallback-src="\/sprites\/decor\/chibi-avatar-calm\.png"/);
 });

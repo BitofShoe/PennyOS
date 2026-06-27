@@ -12,8 +12,10 @@ Penny is a local companion app. It is not designed to be hosted on the public in
 - Host and Origin validation: enabled for `/api/*`
 - JSON content type required for API mutations
 - Workspace writes: pending approval by default
-- Memory mutation/review/consolidation routes: local token required by default
+- Memory read/inspector/export routes: local token required by default
+- Memory mutation/review/purge/consolidation routes: local token required by default
 - OpenAI provider setup routes: local token required by default, API key redacted from responses
+- Model changes and voice generation routes: local token required by default
 - Secret-bearing project file reads: blocked by default, while `.env.example` remains readable
 - Web reading/search: off by default
 - Private-network web fetches: blocked by default
@@ -35,9 +37,9 @@ Pending workspace edits are stored only in ignored local state at `data/penny-pe
 
 ## Loopback Trust Boundary
 
-By default, Penny trusts localhost for non-mutating API reads. That means a local process on the same machine can read ordinary `/api/*` GET routes, including memory/status inspector surfaces, without presenting a token. LAN clients do not get that trust: `PENNY_LAN_SHARE=1` requires a token for every `/api/*` route.
+By default, Penny trusts localhost only for ordinary non-sensitive local GET routes. Memory reads, memory inspector, memory export, memory mutations/review/purge/consolidation, workspace-write approvals, model changes, provider setup, and voice generation require the local token by default. LAN clients do not get loopback trust: `PENNY_LAN_SHARE=1` requires a token for every `/api/*` route.
 
-Sensitive local mutations still require the local token by default, and the browser gets that token through an HttpOnly loopback bootstrap cookie. If you do not want localhost reads trusted, set `PENNY_REQUIRE_API_TOKEN=1` so every `/api/*` route requires the token too. This protects against curious local processes better, but it also makes direct API poking less convenient.
+The browser gets that token through an HttpOnly loopback bootstrap cookie. This is a web/origin and accidental-local-access boundary, not a malware boundary: software already running as you on the same machine can still interact with local loopback services. If you do not want any localhost API route trusted without a token, set `PENNY_REQUIRE_API_TOKEN=1` so every `/api/*` route requires the token too. This protects against curious local processes better, but it also makes direct API poking less convenient.
 
 `PENNY_API_ALLOW_LOCAL_NO_TOKEN=1` deliberately bypasses those strong local route token checks for loopback callers only. Keep it off for consumer builds unless you are doing controlled local diagnostics.
 
