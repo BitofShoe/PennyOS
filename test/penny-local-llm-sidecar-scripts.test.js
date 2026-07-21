@@ -16,6 +16,19 @@ const {
 
 const ROOT = path.resolve(__dirname, '..');
 
+function listJsonFiles(relativeDirectory, { recursive = false } = {}) {
+  const absoluteDirectory = path.join(ROOT, relativeDirectory);
+  return fs.readdirSync(absoluteDirectory, { withFileTypes: true })
+    .flatMap((entry) => {
+      const relativePath = path.join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) {
+        return recursive ? listJsonFiles(relativePath, { recursive: true }) : [];
+      }
+      return entry.isFile() && entry.name.endsWith('.json') ? [relativePath] : [];
+    })
+    .sort();
+}
+
 function runScript(script, args = []) {
   return execFileSync(process.execPath, [path.join(ROOT, script), ...args], {
     cwd: ROOT,
@@ -225,10 +238,10 @@ test('checked-in sidecar config and fixture JSON examples validate structurally'
   const piConfig = JSON.parse(fs.readFileSync(path.join(ROOT, 'configs/sidecars/pi-local-models.example.json'), 'utf8'));
   const qwenProfile = JSON.parse(fs.readFileSync(path.join(ROOT, 'configs/sidecars/qwen-local-model-profile.example.json'), 'utf8'));
   const gemmaProfile = JSON.parse(fs.readFileSync(path.join(ROOT, 'configs/sidecars/gemma-local-model-profile.example.json'), 'utf8'));
-  const jsonFiles = execFileSync('bash', ['-lc', 'printf "%s\\n" configs/sidecars/*.json fixtures/**/*.json'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  }).trim().split('\n').filter(Boolean);
+  const jsonFiles = [
+    ...listJsonFiles('configs/sidecars'),
+    ...listJsonFiles('fixtures', { recursive: true }),
+  ];
 
   for (const file of jsonFiles) {
     assert.doesNotThrow(() => JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8')), file);

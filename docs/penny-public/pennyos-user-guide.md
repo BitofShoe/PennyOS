@@ -191,7 +191,7 @@ If you want the local-first promise, use LM Studio or llama.cpp instead. If you 
 
 OpenAI's API docs describe bearer API-key authentication and say API keys are secrets that should not be exposed in client-side code. Penny's setup route stores the key server-side in the app config `.env`, not in browser localStorage.
 
-OpenAI currently documents `gpt-5.5` as the latest model slug and `text-embedding-3-small` as a current embedding model. Penny uses those as the cloud defaults for this setup path.
+OpenAI documents `gpt-5.6` as the flagship-family alias, routing to GPT-5.6 Sol, and `text-embedding-3-small` as a current embedding model. Penny uses those as the cloud defaults for this setup path.
 
 ### Get An OpenAI Platform API Key
 
@@ -239,8 +239,8 @@ If Penny says the key is invalid:
 4. Click Connect OpenAI cloud.
 5. Paste your OpenAI Platform API key.
 6. Leave the default models unless you know what you are doing:
-   - Chat model: `gpt-5.5`
-   - Tool model: `gpt-5.5`
+   - Chat model: `gpt-5.6`
+   - Tool model: `gpt-5.6`
    - Embedding model: `text-embedding-3-small`
 7. Check the cloud disclosure.
 8. Click Save OpenAI cloud setup.

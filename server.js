@@ -16,6 +16,13 @@ const {
   upsertPennyEnvFile,
 } = require('./lib/penny-cloud-provider-config');
 const {
+  WEB_SETTINGS_MANAGED_KEYS,
+  buildWebSettingsEnvPatch,
+  buildWebSettingsStatus,
+  chooseConfiguredDirectIntent,
+  normalizeWebAnswerMode,
+} = require('./lib/penny-web-settings');
+const {
   resolveLmStudioTokenLimits,
 } = require('./lib/penny-lmstudio-token-limits');
 
@@ -437,6 +444,7 @@ const LMSTUDIO_MODEL = PENNY_LMSTUDIO_CHAT_MODEL;
 const LMSTUDIO_API_KEY = process.env.PENNY_LMSTUDIO_API_KEY || 'lm-studio-local';
 /** Full request budget for /chat/completions and /responses (prompt eval + generation). Large quants (e.g. 30B+) and multi-step local tool turns can legitimately take a long time; LM Studio logs "Client disconnected" if this fires first. Override with PENNY_LMSTUDIO_TIMEOUT_MS (ms). */
 const LMSTUDIO_TIMEOUT_MS = Number(process.env.PENNY_LMSTUDIO_TIMEOUT_MS || 1800000);
+const PENNY_HTTP_REQUEST_TIMEOUT_MS = Number(process.env.PENNY_HTTP_REQUEST_TIMEOUT_MS || (LMSTUDIO_TIMEOUT_MS + 60000));
 const LMSTUDIO_SETTINGS_FILE = process.env.PENNY_LMSTUDIO_SETTINGS_FILE
   ? path.resolve(__dirname, process.env.PENNY_LMSTUDIO_SETTINGS_FILE)
   : path.join(process.env.APPDATA || '', 'LM Studio', 'settings.json');
@@ -466,6 +474,7 @@ const LOCAL_LLM_BACKEND = normalizeLocalLlmBackend(process.env.PENNY_LOCAL_LLM_B
 const LOCAL_RUNTIME_LABEL = String(process.env.PENNY_LOCAL_RUNTIME_LABEL || localRuntimeLabelForBackend(LOCAL_LLM_BACKEND)).trim();
 const LOCAL_ENDPOINT_BASE = LMSTUDIO_BASE;
 let pendingProviderConfig = null;
+let pendingWebConfig = null;
 
 function createHttpStatusError(statusCode, message) {
   const error = new Error(message);
@@ -481,6 +490,37 @@ function getProviderStatusForRoute() {
     envFileWritable: true,
     restartRequired: false,
     pending: pendingProviderConfig,
+  };
+}
+
+function getWebSettingsForRoute() {
+  return {
+    ...buildWebSettingsStatus({ env: process.env, pending: pendingWebConfig }),
+    envFileConfigured: Boolean(PENNY_ENV_FILE),
+    envFileWritable: true,
+  };
+}
+
+function saveWebSettingsForRoute(payload = {}) {
+  const patch = buildWebSettingsEnvPatch({
+    enabled: payload.enabled === true,
+    answerMode: payload.answerMode,
+  });
+  const write = upsertPennyEnvFile({
+    envFile: PENNY_ENV_FILE,
+    patch,
+    managedKeys: WEB_SETTINGS_MANAGED_KEYS,
+  });
+  pendingWebConfig = {
+    enabled: patch.PENNY_WEB_SEARCH_ENABLED === '1',
+    answerMode: patch.PENNY_WEB_ANSWER_MODE,
+    updatedAt: new Date().toISOString(),
+  };
+  return {
+    ...getWebSettingsForRoute(),
+    updatedKeys: write.updatedKeys,
+    restartRequired: true,
+    restartHint: 'Close and reopen PennyOS to apply web access changes.',
   };
 }
 
@@ -627,6 +667,7 @@ const PENNY_WEB_ALLOW_PRIVATE_NET = isEnabledEnv(process.env.PENNY_WEB_ALLOW_PRI
 const PENNY_ENABLE_DIRECT_WORKSPACE_WRITES = isEnabledEnv(process.env.PENNY_ENABLE_DIRECT_WORKSPACE_WRITES);
 const PENNY_ENABLE_REVIEW_SIDECARS = isEnabledEnv(process.env.PENNY_ENABLE_REVIEW_SIDECARS);
 const WEB_SEARCH_ENABLED = process.env.PENNY_WEB_SEARCH_ENABLED === '1';
+const WEB_ANSWER_MODE = normalizeWebAnswerMode(process.env.PENNY_WEB_ANSWER_MODE);
 const WEB_SEARCH_TIMEOUT_MS = Number(process.env.PENNY_WEB_SEARCH_TIMEOUT_MS || 15000);
 const WEB_SEARCH_MAX_RESULTS = Number(process.env.PENNY_WEB_SEARCH_MAX_RESULTS || 6);
 const WEB_FETCH_MAX_CHARS = Number(process.env.PENNY_WEB_FETCH_MAX_CHARS || 12000);
@@ -1447,12 +1488,16 @@ const {
   looksLikeWeakToolReply,
   shouldUseDirectReadReply,
 } = directIntentApi;
+const resolveConfiguredDirectToolIntent = (text = '') => chooseConfiguredDirectIntent(
+  resolveDirectToolIntent(text),
+  WEB_ANSWER_MODE,
+);
 const {
   selectLocalLane,
 } = createLocalLaneApi({
   shouldOfferLocalTools,
   shouldForceLocalToolLoop,
-  resolveDirectToolIntent,
+  resolveDirectToolIntent: resolveConfiguredDirectToolIntent,
   resolveAttachedFileIntent,
 });
 const {
@@ -3252,7 +3297,7 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
   ) {
     clearLmStudioThread(memories);
   }
-  if (!image && resolvedLaneSelection.directIntent) {
+  if (!image && resolvedLaneSelection.directIntent && resolvedLaneSelection.directIntent.modelDriven !== true) {
       const result = await runLmStudioDirectToolAssist({
         userText: toolUserText,
         messages,
@@ -3432,7 +3477,7 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
     memories,
     memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
   });
-  if (!image && resolvedLaneSelection.directIntent) {
+  if (!image && resolvedLaneSelection.directIntent && resolvedLaneSelection.directIntent.modelDriven !== true) {
       const result = await runLmStudioDirectToolAssist({ userText: toolUserText, messages, memories, file, latencyBudget: budget, intent: resolvedLaneSelection.directIntent, onToolEvent: onEvent, abortSignal, laneRuntime });
       if (result.modelUsed === true) {
         laneRuntime.modelUsed = true;
@@ -3598,6 +3643,8 @@ const routeHandlers = createPennyRouteHandlers({
   getProviderStatus: getProviderStatusForRoute,
   connectOpenAiProvider: connectOpenAiProviderForRoute,
   resetLocalProvider: resetLocalProviderForRoute,
+  getWebSettings: getWebSettingsForRoute,
+  saveWebSettings: saveWebSettingsForRoute,
   listPendingWorkspaceWrites: listPendingWorkspaceWritesTool,
   approvePendingWorkspaceWrite: approvePendingWorkspaceWriteTool,
   denyPendingWorkspaceWrite: denyPendingWorkspaceWriteTool,
@@ -3622,6 +3669,7 @@ const routeHandlers = createPennyRouteHandlers({
     MEMORY_ARCHIVE_FILE,
     MEMORY_EMBEDDINGS_FILE,
     WEB_SEARCH_ENABLED,
+    WEB_ANSWER_MODE,
     PENNY_ENABLE_REVIEW_SIDECARS,
   },
 });
@@ -3652,6 +3700,9 @@ const server = http.createServer(async (req, res) => {
   }
   serveFile(res, filePath, { headers: apiSecurity.staticSecurityHeaders(req) });
 });
+server.requestTimeout = PENNY_HTTP_REQUEST_TIMEOUT_MS;
+server.timeout = PENNY_HTTP_REQUEST_TIMEOUT_MS;
+server.headersTimeout = Math.min(60000, PENNY_HTTP_REQUEST_TIMEOUT_MS);
 
 function listLanIPv4Addresses() {
   const nets = os.networkInterfaces();

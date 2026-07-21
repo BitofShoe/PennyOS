@@ -27,7 +27,7 @@ When OpenAI cloud mode is enabled, Penny may send model prompts, memory context,
 
 ## Web Reading
 
-Penny's web tools are off by default. When `PENNY_WEB_SEARCH_ENABLED=1`, they can fetch public pages, but they block private/internal/local network targets by default. Set `PENNY_WEB_ALLOW_PRIVATE_NET=1` only for deliberate local-network testing.
+Penny's web tools are off by default. You can opt in from Settings -> Web access or with `PENNY_WEB_SEARCH_ENABLED=1`. When enabled, searches and public page contents may leave your computer, but Penny blocks private/internal/local network targets by default. Set `PENNY_WEB_ALLOW_PRIVATE_NET=1` only for deliberate local-network testing. Web-answer style changes how Penny presents fetched results; it does not change these network boundaries.
 
 The README uses remote badge images for GitHub display. The local Penny browser UI itself does not fetch third-party fonts, CDN assets, or telemetry.
 

@@ -82,6 +82,7 @@ test('sensitive mutation routes require a token outside LAN mode', () => {
     '/api/penny/lmstudio/model',
     '/api/penny/provider/openai/connect',
     '/api/penny/provider/local/reset',
+    '/api/penny/web-settings',
     '/api/penny/voice/config',
     '/api/penny/voice/speech',
   ];

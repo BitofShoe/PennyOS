@@ -22,7 +22,7 @@ function readText(relPath) {
 test('OpenAI cloud patch uses explicit cloud labels and compatible Penny env keys', () => {
   const patch = buildOpenAiCloudEnvPatch({
     apiKey: 'sk-test-secret',
-    chatModel: 'gpt-5.5',
+    chatModel: 'gpt-5.6',
   });
 
   assert.equal(patch.PENNY_LOCAL_LLM_BACKEND, 'openai_compatible');
@@ -31,20 +31,20 @@ test('OpenAI cloud patch uses explicit cloud labels and compatible Penny env key
   assert.equal(patch.PENNY_LMSTUDIO_EMBED_BASE, 'https://api.openai.com/v1');
   assert.equal(patch.PENNY_LOCAL_LLM_TRANSPORT, 'chat');
   assert.equal(patch.PENNY_SKIP_LMSTUDIO_PREP, '1');
-  assert.equal(patch.PENNY_LMSTUDIO_CHAT_MODEL, 'gpt-5.5');
-  assert.equal(patch.PENNY_LMSTUDIO_TOOL_MODEL, 'gpt-5.5');
+  assert.equal(patch.PENNY_LMSTUDIO_CHAT_MODEL, 'gpt-5.6');
+  assert.equal(patch.PENNY_LMSTUDIO_TOOL_MODEL, 'gpt-5.6');
   assert.equal(patch.PENNY_LMSTUDIO_EMBED_MODEL, 'text-embedding-3-small');
   assert.equal(patch.PENNY_LMSTUDIO_API_KEY, 'sk-test-secret');
 });
 
 test('OpenAI cloud model defaults have one backend owner instead of browser literals', () => {
   assert.deepEqual(DEFAULT_OPENAI_CLOUD_MODELS, {
-    chat: 'gpt-5.5',
-    tool: 'gpt-5.5',
+    chat: 'gpt-5.6',
+    tool: 'gpt-5.6',
     embed: 'text-embedding-3-small',
   });
-  assert.doesNotMatch(readText('public/index.html'), /gpt-5\.5|text-embedding-3-small/);
-  assert.doesNotMatch(readText('public/js/penny-app.js'), /gpt-5\.5|text-embedding-3-small/);
+  assert.doesNotMatch(readText('public/index.html'), /gpt-5\.6|text-embedding-3-small/);
+  assert.doesNotMatch(readText('public/js/penny-app.js'), /gpt-5\.6|text-embedding-3-small/);
 });
 
 test('OpenAI cloud env writer preserves unrelated values and never returns the API key', () => {
@@ -62,7 +62,7 @@ test('OpenAI cloud env writer preserves unrelated values and never returns the A
     envFile,
     patch: buildOpenAiCloudEnvPatch({
       apiKey: 'sk-live-secret',
-      chatModel: 'gpt-5.5',
+      chatModel: 'gpt-5.6',
       embedModel: 'text-embedding-3-small',
     }),
   });
@@ -84,8 +84,8 @@ test('cloud provider status is explicit about privacy and active provider', () =
       PENNY_LOCAL_LLM_BACKEND: 'openai_compatible',
       PENNY_LOCAL_RUNTIME_LABEL: 'OpenAI API (cloud)',
       PENNY_LMSTUDIO_BASE: 'https://api.openai.com/v1',
-      PENNY_LMSTUDIO_CHAT_MODEL: 'gpt-5.5',
-      PENNY_LMSTUDIO_TOOL_MODEL: 'gpt-5.5',
+      PENNY_LMSTUDIO_CHAT_MODEL: 'gpt-5.6',
+      PENNY_LMSTUDIO_TOOL_MODEL: 'gpt-5.6',
       PENNY_LMSTUDIO_EMBED_MODEL: 'text-embedding-3-small',
       PENNY_LMSTUDIO_API_KEY: 'sk-test-secret',
     },
@@ -132,7 +132,7 @@ test('OpenAI cloud probe sends bearer auth and returns only model summary', asyn
         async text() {
           return JSON.stringify({
             data: [
-              { id: 'gpt-5.5' },
+              { id: 'gpt-5.6' },
               { id: 'text-embedding-3-small' },
             ],
           });
@@ -143,6 +143,6 @@ test('OpenAI cloud probe sends bearer auth and returns only model summary', asyn
 
   assert.equal(request.url, 'https://api.openai.com/v1/models');
   assert.equal(request.options.headers.Authorization, 'Bearer sk-test-secret');
-  assert.deepEqual(result.sampleModels, ['gpt-5.5', 'text-embedding-3-small']);
+  assert.deepEqual(result.sampleModels, ['gpt-5.6', 'text-embedding-3-small']);
   assert.equal(JSON.stringify(result).includes('sk-test-secret'), false);
 });

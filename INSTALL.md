@@ -114,8 +114,8 @@ In the installed app:
 3. Click Connect OpenAI cloud.
 4. Paste an OpenAI Platform API key.
 5. Leave the defaults unless you know you want different models:
-   - Chat model: `gpt-5.5`
-   - Tool model: `gpt-5.5`
+   - Chat model: `gpt-5.6`
+   - Tool model: `gpt-5.6`
    - Embedding model: `text-embedding-3-small`
 6. Check the cloud disclosure.
 7. Click Save OpenAI cloud setup.
@@ -143,10 +143,11 @@ Web reading is off by default. To let Penny fetch public web pages:
 
 ```dotenv
 PENNY_WEB_SEARCH_ENABLED=1
+PENNY_WEB_ANSWER_MODE=model
 PENNY_WEB_ALLOW_PRIVATE_NET=0
 ```
 
-Private/internal/local network targets remain blocked unless you explicitly set `PENNY_WEB_ALLOW_PRIVATE_NET=1` for deliberate local-network testing.
+The same choices are available under Settings -> Web access. `model` lets Penny shape search results into a natural answer; `direct` keeps the older fast deterministic result list. Settings writes the app's `.env`, so close and reopen PennyOS after saving. Private/internal/local network targets remain blocked unless you explicitly set `PENNY_WEB_ALLOW_PRIVATE_NET=1` for deliberate local-network testing.
 
 ## LAN / Phone Access
 

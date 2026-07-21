@@ -142,7 +142,8 @@ For LAN/phone mode, runtime state, and workspace-write notes, read [INSTALL.md](
 - LAN API access requires `PENNY_API_TOKEN`.
 - Sensitive workspace writes stage pending patches by default.
 - Direct workspace writes require `PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=1`.
-- Web reading is off by default; set `PENNY_WEB_SEARCH_ENABLED=1` to allow public web reads.
+- Web reading is off by default; enable it in Settings -> Web access or set `PENNY_WEB_SEARCH_ENABLED=1` to allow public web reads.
+- Web answers use Penny's model-shaped tool loop by default; Settings can switch to a fast deterministic result list.
 - Web reading blocks loopback, private, link-local, multicast, reserved, and metadata-style targets by default.
 - The browser UI ships with local assets. No sneaky CDN font nonsense.
 

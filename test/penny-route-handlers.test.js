@@ -254,6 +254,49 @@ test('provider routes expose cloud status and save OpenAI config without echoing
   }]);
 });
 
+test('web settings routes expose active state and save restart-required preferences', async () => {
+  let response = null;
+  let savedPayload = null;
+  const handlers = createPennyRouteHandlers({
+    sendJson(_res, statusCode, json) {
+      response = { statusCode, json };
+    },
+    async safeReadBody() {
+      return JSON.stringify({ enabled: true, answerMode: 'model' });
+    },
+    getWebSettings() {
+      return { ok: true, enabled: false, answerMode: 'model', restartRequired: false };
+    },
+    saveWebSettings(payload) {
+      savedPayload = payload;
+      return {
+        ok: true,
+        enabled: false,
+        answerMode: 'model',
+        pending: { enabled: true, answerMode: 'model' },
+        restartRequired: true,
+      };
+    },
+  });
+
+  assert.equal(await handlers.handleApiRoute({
+    req: { method: 'GET' },
+    res: {},
+    url: new URL('http://localhost/api/penny/web-settings'),
+  }), true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.enabled, false);
+
+  assert.equal(await handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://localhost/api/penny/web-settings'),
+  }), true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.restartRequired, true);
+  assert.deepEqual(savedPayload, { enabled: true, answerMode: 'model' });
+});
+
 function createToolReceiptRouteHarness({
   sessionId = 'tool-receipt-session',
   userText = 'Inspect README.md',

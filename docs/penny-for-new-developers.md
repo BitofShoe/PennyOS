@@ -34,7 +34,7 @@ Workspace write tools stage pending edits by default. Pending workspace edits ar
 
 ## Web Reading And Privacy
 
-Web reading is off by default. Set `PENNY_WEB_SEARCH_ENABLED=1` to allow Penny's web tools to fetch public pages. Private/internal/local network targets remain blocked unless `PENNY_WEB_ALLOW_PRIVATE_NET=1` is explicitly set for deliberate local-network testing.
+Web reading is off by default. Settings -> Web access (or `PENNY_WEB_SEARCH_ENABLED=1`) allows Penny's web tools to fetch public pages. `PENNY_WEB_ANSWER_MODE=model` sends explicit web requests through the model tool loop for natural answers; `direct` keeps the deterministic result-list path. Private/internal/local network targets remain blocked unless `PENNY_WEB_ALLOW_PRIVATE_NET=1` is explicitly set for deliberate local-network testing.
 
 ## Optional Static Embedding Dependency
 

@@ -5,12 +5,18 @@ const {
   createLmStudioToolLoopApi,
 } = require('../lib/penny-tool-loop');
 
-function buildToolLoopApi({ responses = [], executePennyTool = null, maxToolSteps = 6 } = {}) {
+function buildToolLoopApi({
+  responses = [],
+  executePennyTool = null,
+  maxToolSteps = 6,
+  model = 'qwen/qwen3.6-35b-a3b',
+  baseUrl = 'http://127.0.0.1:1234/v1',
+} = {}) {
   const payloads = [];
   const toolCalls = [];
   let responseIndex = 0;
   const api = createLmStudioToolLoopApi({
-    withLmStudioLaneModel: async (_lane, fn) => fn('qwen/qwen3.6-35b-a3b'),
+    withLmStudioLaneModel: async (_lane, fn) => fn(model),
     postJsonLongRunning: async (_url, options = {}) => {
       payloads.push(JSON.parse(String(options.body || '{}')));
       const next = responses[responseIndex];
@@ -106,7 +112,7 @@ function buildToolLoopApi({ responses = [], executePennyTool = null, maxToolStep
     composeToolRecordFallback(toolRecords = []) {
       return `fallback from ${toolRecords.length} tool records\n[MOOD:annoyed]`;
     },
-    LMSTUDIO_BASE: 'http://127.0.0.1:1234/v1',
+    LMSTUDIO_BASE: baseUrl,
     LMSTUDIO_API_KEY: 'lm-studio-local',
     LMSTUDIO_TIMEOUT_MS: 5000,
     LMSTUDIO_TOOL_TEMPERATURE: 0.1,
@@ -279,6 +285,41 @@ test('runLmStudioToolLoop still allows plain final text for read-only tool turns
 
   assert.match(result.text, /local companion prototype/i);
   assert.equal(api.toolCalls.length, 0);
+});
+
+test('runLmStudioToolLoop applies GPT-5.6 Chat Completions function-tool compatibility only to OpenAI', async () => {
+  const response = {
+    choices: [
+      {
+        message: {
+          content: 'README says Penny is a local companion prototype.\n[MOOD:thinking]',
+          tool_calls: [],
+        },
+      },
+    ],
+  };
+  const cloudApi = buildToolLoopApi({
+    responses: [response],
+    model: 'gpt-5.6',
+    baseUrl: 'https://api.openai.com/v1',
+  });
+  const localApi = buildToolLoopApi({ responses: [response] });
+
+  await cloudApi.runLmStudioToolLoop({
+    userText: 'Inspect README.md and tell me what Penny is. Do not edit anything.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+  await localApi.runLmStudioToolLoop({
+    userText: 'Inspect README.md and tell me what Penny is. Do not edit anything.',
+    messages: [],
+    memories: {},
+    laneRuntime: {},
+  });
+
+  assert.equal(cloudApi.payloads[0].reasoning_effort, 'none');
+  assert.equal(Object.hasOwn(localApi.payloads[0], 'reasoning_effort'), false);
 });
 
 test('runLmStudioToolLoop records output-limit telemetry on length-capped final replies', async () => {

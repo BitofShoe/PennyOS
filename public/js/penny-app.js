@@ -135,6 +135,7 @@ const els = {
   brainModeLocal: document.getElementById('brainModeLocal'),
   brainModeNote: document.getElementById('brainModeNote'),
   firstRunSetupPanel: document.getElementById('firstRunSetupPanel'),
+  firstRunSetupSection: document.getElementById('firstRunSetupSection'),
   firstRunUseLocal: document.getElementById('firstRunUseLocal'),
   firstRunUseOpenAi: document.getElementById('firstRunUseOpenAi'),
   backendReachability: document.getElementById('backendReachability'),
@@ -166,6 +167,11 @@ const els = {
   connectOpenAiProvider: document.getElementById('connectOpenAiProvider'),
   resetLocalProvider: document.getElementById('resetLocalProvider'),
   providerSetupNote: document.getElementById('providerSetupNote'),
+  webSettingsPanel: document.getElementById('webSettingsPanel'),
+  webSearchToggle: document.getElementById('webSearchToggle'),
+  webAnswerMode: document.getElementById('webAnswerMode'),
+  saveWebSettings: document.getElementById('saveWebSettings'),
+  webSettingsNote: document.getElementById('webSettingsNote'),
   newChat: document.getElementById('newChat'),
   clearMemory: document.getElementById('clearMemory'),
   refreshMemory: document.getElementById('refreshMemory'),
@@ -843,6 +849,7 @@ async function loadBackendStatus() {
     updateBackendStatusUi(data);
     await loadAvailableModels(data);
     await refreshProviderStatus({ quiet: true });
+    await refreshWebSettings({ quiet: true });
     if (!data.shadowEnabled && state.memory.brainMode === 'shadow') {
       state.memory.brainMode = 'local';
       renderMemory();
@@ -888,6 +895,12 @@ function renderProviderStatus(status = null) {
   const pendingProvider = String(status?.pendingProvider || status?.pending?.provider || '');
   const isCloudActive = activeProvider === 'openai-cloud';
   const hasPending = !!pendingProvider;
+  if (els.firstRunSetupPanel) {
+    const localModelReady = summarizeShellModelConnection(state.backendStatus).ready === true;
+    const hideFirstRun = isCloudActive || hasPending || localModelReady;
+    els.firstRunSetupPanel.hidden = hideFirstRun;
+    if (els.firstRunSetupSection) els.firstRunSetupSection.hidden = hideFirstRun;
+  }
   if (els.providerSetupPanel) {
     els.providerSetupPanel.dataset.severity = hasPending ? 'needs-setup' : 'ready';
     els.providerSetupPanel.className = `setup-card setup-${hasPending ? 'needs-setup' : 'ready'}`;
@@ -937,6 +950,78 @@ async function refreshProviderStatus({ quiet = false } = {}) {
   } catch (error) {
     if (!quiet) setProviderSetupNote(error?.message || 'Provider status failed.', 'warn');
     return null;
+  }
+}
+
+function renderWebSettings(status = null) {
+  if (!els.webSettingsPanel) return;
+  const pending = status?.pending && typeof status.pending === 'object' ? status.pending : null;
+  const enabled = pending ? pending.enabled === true : status?.enabled === true;
+  const answerMode = String(pending?.answerMode || status?.answerMode || 'model') === 'direct' ? 'direct' : 'model';
+  if (els.webSearchToggle) els.webSearchToggle.checked = enabled;
+  if (els.webAnswerMode) {
+    els.webAnswerMode.value = answerMode;
+    els.webAnswerMode.disabled = !enabled;
+  }
+  els.webSettingsPanel.className = `setup-card setup-${enabled ? 'ready' : 'needs-setup'}`;
+  if (!els.webSettingsNote) return;
+  if (status?.restartRequired) {
+    els.webSettingsNote.textContent = status.restartHint || 'Saved. Close and reopen PennyOS to apply web access changes.';
+    els.webSettingsNote.dataset.tone = 'warn';
+  } else if (!enabled) {
+    els.webSettingsNote.textContent = 'Web access is off. Penny stays local unless you enable and save it here.';
+    els.webSettingsNote.dataset.tone = 'muted';
+  } else {
+    els.webSettingsNote.textContent = answerMode === 'direct'
+      ? 'Web access is on with fast deterministic result lists.'
+      : 'Web access is on. Penny will shape search results into a natural answer.';
+    els.webSettingsNote.dataset.tone = 'muted';
+  }
+}
+
+async function refreshWebSettings({ quiet = false } = {}) {
+  if (!els.webSettingsPanel) return null;
+  try {
+    const res = await apiFetch('/api/penny/web-settings');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Web settings failed: ${res.status}`);
+    renderWebSettings(data);
+    return data;
+  } catch (error) {
+    if (!quiet && els.webSettingsNote) {
+      els.webSettingsNote.textContent = error?.message || 'Web settings could not be loaded.';
+      els.webSettingsNote.dataset.tone = 'warn';
+    }
+    return null;
+  }
+}
+
+async function saveWebSettingsFromControls() {
+  if (!els.saveWebSettings) return;
+  els.saveWebSettings.disabled = true;
+  if (els.webSettingsNote) {
+    els.webSettingsNote.textContent = 'Saving web settings...';
+    els.webSettingsNote.dataset.tone = 'muted';
+  }
+  try {
+    const res = await apiFetch('/api/penny/web-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: els.webSearchToggle?.checked === true,
+        answerMode: els.webAnswerMode?.value || 'model',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Web settings save failed: ${res.status}`);
+    renderWebSettings(data);
+  } catch (error) {
+    if (els.webSettingsNote) {
+      els.webSettingsNote.textContent = error?.message || 'Web settings could not be saved.';
+      els.webSettingsNote.dataset.tone = 'warn';
+    }
+  } finally {
+    els.saveWebSettings.disabled = false;
   }
 }
 
@@ -1076,6 +1161,10 @@ els.modelSetupFallback?.addEventListener('change', saveModelSetupFromControls);
 els.saveModelSetup?.addEventListener('click', saveModelSetupFromControls);
 els.refreshModelSetup?.addEventListener('click', () => loadBackendStatus());
 els.providerRefresh?.addEventListener('click', () => refreshProviderStatus());
+els.webSearchToggle?.addEventListener('change', () => {
+  if (els.webAnswerMode) els.webAnswerMode.disabled = !els.webSearchToggle.checked;
+});
+els.saveWebSettings?.addEventListener('click', saveWebSettingsFromControls);
 els.providerShowOpenAi?.addEventListener('click', () => {
   setOpenAiCloudPanelVisible(true);
   setProviderSetupNote('Paste an OpenAI Platform API key, confirm the warning, then save. Reopen PennyOS after it succeeds.', 'muted');

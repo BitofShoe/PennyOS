@@ -1882,7 +1882,7 @@ test('direct web inspect fallback stays deterministic on the public chat route',
   }
 });
 
-test('natural top-stories site asks stay deterministic on the public chat route', async () => {
+test('direct web answer mode keeps natural top-stories asks deterministic on the public chat route', async () => {
   const originalEnv = {
     PORT: process.env.PORT,
     PENNY_MEMORY_FILE: process.env.PENNY_MEMORY_FILE,
@@ -1892,6 +1892,7 @@ test('natural top-stories site asks stay deterministic on the public chat route'
     PENNY_LOCAL_LLM_TRANSPORT: process.env.PENNY_LOCAL_LLM_TRANSPORT,
     PENNY_LMSTUDIO_MODELS_PROBE_MS: process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS,
     PENNY_API_TOKEN: process.env.PENNY_API_TOKEN,
+    PENNY_WEB_ANSWER_MODE: process.env.PENNY_WEB_ANSWER_MODE,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-route-web-natural-'));
   const memoryFile = path.join(tmpDir, 'penny-memory.test.json');
@@ -1905,6 +1906,7 @@ test('natural top-stories site asks stay deterministic on the public chat route'
   process.env.PENNY_LOCAL_LLM_TRANSPORT = 'chat';
   process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = '1500';
   process.env.PENNY_API_TOKEN = 'route-test-token';
+  process.env.PENNY_WEB_ANSWER_MODE = 'direct';
 
   const toolRegistryModulePath = require.resolve('../lib/penny-tool-registry');
   const modulePath = require.resolve('../server.js');
@@ -1988,6 +1990,7 @@ test('natural top-stories site asks stay deterministic on the public chat route'
     if (originalEnv.PENNY_LOCAL_LLM_TRANSPORT == null) delete process.env.PENNY_LOCAL_LLM_TRANSPORT; else process.env.PENNY_LOCAL_LLM_TRANSPORT = originalEnv.PENNY_LOCAL_LLM_TRANSPORT;
     if (originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS == null) delete process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS; else process.env.PENNY_LMSTUDIO_MODELS_PROBE_MS = originalEnv.PENNY_LMSTUDIO_MODELS_PROBE_MS;
     if (originalEnv.PENNY_API_TOKEN == null) delete process.env.PENNY_API_TOKEN; else process.env.PENNY_API_TOKEN = originalEnv.PENNY_API_TOKEN;
+    if (originalEnv.PENNY_WEB_ANSWER_MODE == null) delete process.env.PENNY_WEB_ANSWER_MODE; else process.env.PENNY_WEB_ANSWER_MODE = originalEnv.PENNY_WEB_ANSWER_MODE;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

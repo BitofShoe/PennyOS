@@ -21,6 +21,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -1381,6 +1385,48 @@ button {
   border-radius: 18px 18px 18px 6px;
 }
 
+.bubble-paragraph {
+  margin: 0;
+}
+
+.bubble-paragraph + .bubble-paragraph,
+.bubble-paragraph + .bubble-list,
+.bubble-list + .bubble-paragraph,
+.bubble-code + .bubble-paragraph,
+.bubble-paragraph + .bubble-code {
+  margin-top: 0.9rem;
+}
+
+.bubble-heading {
+  margin: 0 0 0.45rem;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 1rem;
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+}
+
+.bubble-heading:not(:first-child) {
+  margin-top: 1rem;
+}
+
+.bubble-list {
+  margin: 0.45rem 0 0;
+  padding-left: 1.35rem;
+}
+
+.bubble-list li + li {
+  margin-top: 0.3rem;
+}
+
+.bubble-inline-code {
+  padding: 0.12rem 0.34rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background: rgba(8, 12, 18, 0.56);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.88em;
+}
+
 .bubble-code {
   display: block;
   margin: 0.65rem 0;
@@ -1903,6 +1949,49 @@ select.input-lite option {
 .button-stack.compact-buttons {
   gap: 8px;
   margin-top: 12px;
+}
+
+.settings-action-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.settings-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.settings-action-row .card-note {
+  flex: 1 1 260px;
+  margin: 0;
+}
+
+.settings-details {
+  margin-top: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.settings-details summary {
+  padding: 0.85rem 1rem;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.84);
+  font-weight: 650;
+}
+
+.settings-details-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 1rem 1rem;
+}
+
+.settings-details-body .field,
+.settings-details-body .button-stack,
+.settings-details-body .card-note {
+  margin-top: 0;
 }
 
 .settings-block {
@@ -2510,6 +2599,64 @@ select.input-lite option {
 
 .check-row.compact {
   margin-top: 0.55rem;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0.9rem 0;
+  cursor: pointer;
+}
+
+.switch-row > span {
+  display: grid;
+  gap: 4px;
+}
+
+.switch-row small {
+  color: var(--muted-soft);
+  line-height: 1.4;
+}
+
+.switch-row input[role="switch"] {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 26px;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.switch-row input[role="switch"]::before {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 2px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.76);
+  transition: transform 150ms ease, background 150ms ease;
+}
+
+.switch-row input[role="switch"]:checked {
+  border-color: color-mix(in srgb, var(--primary) 58%, rgba(255, 255, 255, 0.18));
+  background: color-mix(in srgb, var(--primary) 45%, rgba(255, 255, 255, 0.08));
+}
+
+.switch-row input[role="switch"]:checked::before {
+  transform: translateX(20px);
+  background: #fff4ee;
+}
+
+.switch-row input[role="switch"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 74%, white);
+  outline-offset: 3px;
 }
 
 .mode-block,

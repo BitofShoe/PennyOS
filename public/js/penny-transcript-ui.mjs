@@ -45,8 +45,49 @@ function sanitizeCodeLanguage(value = '') {
     .slice(0, 32);
 }
 
+function renderInlineTranscriptText(text = '', escapeHtmlFn = escapeHtml) {
+  return String(text || '')
+    .split(/(`[^`\n]+`)/g)
+    .map((part) => {
+      if (/^`[^`\n]+`$/.test(part)) {
+        return `<code class="bubble-inline-code">${escapeHtmlFn(part.slice(1, -1))}</code>`;
+      }
+      return escapeHtmlFn(part)
+        .replace(/\*\*([^*\n][\s\S]*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([^_\n][\s\S]*?)__/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    })
+    .join('');
+}
+
 function renderPlainTranscriptText(text = '', escapeHtmlFn = escapeHtml) {
-  return escapeHtmlFn(String(text || '')).replace(/\n/g, '<br>');
+  const normalized = String(text || '').replace(/\r\n/g, '\n');
+  if (!normalized.trim()) return '';
+
+  return normalized
+    .split(/\n{2,}/)
+    .map((rawBlock) => {
+      const lines = rawBlock.split('\n');
+      const heading = lines.length === 1 ? lines[0].match(/^(#{1,3})\s+(.+)$/) : null;
+      if (heading) {
+        const level = Math.min(3, heading[1].length);
+        return `<h${level + 2} class="bubble-heading">${renderInlineTranscriptText(heading[2], escapeHtmlFn)}</h${level + 2}>`;
+      }
+
+      const unordered = lines.every((line) => /^\s*[-*+]\s+/.test(line));
+      const ordered = lines.every((line) => /^\s*\d+[.)]\s+/.test(line));
+      if (unordered || ordered) {
+        const tag = ordered ? 'ol' : 'ul';
+        const marker = ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/;
+        const items = lines
+          .map((line) => `<li>${renderInlineTranscriptText(line.replace(marker, ''), escapeHtmlFn)}</li>`)
+          .join('');
+        return `<${tag} class="bubble-list">${items}</${tag}>`;
+      }
+
+      return `<p class="bubble-paragraph">${lines.map((line) => renderInlineTranscriptText(line, escapeHtmlFn)).join('<br>')}</p>`;
+    })
+    .join('');
 }
 
 function renderCodeBlockHtml(code = '', language = '', escapeHtmlFn = escapeHtml) {
@@ -114,7 +155,7 @@ export function renderTranscriptContentHtml(content = '', { escapeHtmlFn = escap
       ? renderCodeBlockHtml(segment.value, segment.language, escapeHtmlFn)
       : renderPlainTranscriptText(segment.value, escapeHtmlFn)))
     .filter(Boolean)
-    .join('<br>');
+    .join('');
 }
 
 /**
@@ -285,7 +326,7 @@ export function updateStreamingAssistantBubble({
   bubble.classList.add('streaming');
   row.classList.add('streaming');
   bubble.innerHTML = visible
-    ? renderTranscriptContentHtml(visible, { escapeHtmlFn })
+    ? renderTranscriptContentHtml(visible, { escapeHtmlFn, streaming: true })
     : '<span class="stream-caret" aria-hidden="true"></span>';
   const scrollHost = chatWrapEl || chatEl.parentElement;
   if (scrollHost) {

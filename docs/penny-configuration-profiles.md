@@ -11,6 +11,7 @@ HOST=127.0.0.1
 PORT=4317
 PENNY_LAN_SHARE=0
 PENNY_WEB_SEARCH_ENABLED=0
+PENNY_WEB_ANSWER_MODE=model
 PENNY_ENABLE_DIRECT_WORKSPACE_WRITES=0
 PENNY_STATIC_EMBED_MODE=off
 PENNY_ENABLE_OPEN_LOOP_PROMPT=1
@@ -45,8 +46,8 @@ PENNY_LMSTUDIO_BASE=https://api.openai.com/v1
 PENNY_LMSTUDIO_EMBED_BASE=https://api.openai.com/v1
 PENNY_LOCAL_LLM_TRANSPORT=chat
 PENNY_SKIP_LMSTUDIO_PREP=1
-PENNY_LMSTUDIO_CHAT_MODEL=gpt-5.5
-PENNY_LMSTUDIO_TOOL_MODEL=gpt-5.5
+PENNY_LMSTUDIO_CHAT_MODEL=gpt-5.6
+PENNY_LMSTUDIO_TOOL_MODEL=gpt-5.6
 PENNY_LMSTUDIO_EMBED_MODEL=text-embedding-3-small
 PENNY_LMSTUDIO_API_KEY=sk-your-openai-platform-api-key
 ```
@@ -59,8 +60,11 @@ Use this when you explicitly want Penny to read public web pages.
 
 ```dotenv
 PENNY_WEB_SEARCH_ENABLED=1
+PENNY_WEB_ANSWER_MODE=model
 PENNY_WEB_ALLOW_PRIVATE_NET=0
 ```
+
+Use `PENNY_WEB_ANSWER_MODE=direct` for the older fast deterministic result-list response. The Settings -> Web access card manages both values and requires a PennyOS restart after saving.
 
 Boundary: public web fetches are allowed, but loopback, private, link-local, multicast, reserved, and metadata-style targets remain blocked.
 

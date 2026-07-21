@@ -13,7 +13,7 @@ test('renderTranscriptContentHtml renders fenced code without allowing raw HTML'
     'After <b>x</b>',
   ].join('\n'));
 
-  assert.match(html, /Before<br>/);
+  assert.match(html, /<p class="bubble-paragraph">Before<\/p>/);
   assert.match(html, /<pre class="bubble-code"><code class="language-js" data-language="js">/);
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
   assert.match(html, /After &lt;b&gt;x&lt;\/b&gt;/);
@@ -28,6 +28,31 @@ test('renderTranscriptContentHtml treats unclosed fences as escaped plain text',
   assert.doesNotMatch(html, /<pre\b/);
   assert.doesNotMatch(html, /<script\b/);
   assert.match(html, /```html<br>&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+test('renderTranscriptContentHtml turns completed reply paragraphs and common Markdown into readable blocks', async () => {
+  const { renderTranscriptContentHtml } = await helpersPromise;
+  const html = renderTranscriptContentHtml([
+    'First paragraph with **actual emphasis**.',
+    '',
+    'Second paragraph with `inline code`.',
+    '',
+    '- one',
+    '- two',
+  ].join('\n'));
+
+  assert.equal((html.match(/class="bubble-paragraph"/g) || []).length, 2);
+  assert.match(html, /<strong>actual emphasis<\/strong>/);
+  assert.match(html, /<code class="bubble-inline-code">inline code<\/code>/);
+  assert.match(html, /<ul class="bubble-list"><li>one<\/li><li>two<\/li><\/ul>/);
+});
+
+test('renderTranscriptContentHtml keeps Markdown rendering escaped', async () => {
+  const { renderTranscriptContentHtml } = await helpersPromise;
+  const html = renderTranscriptContentHtml('**<img src=x onerror=alert(1)>**');
+
+  assert.match(html, /<strong>&lt;img src=x onerror=alert\(1\)&gt;<\/strong>/);
+  assert.doesNotMatch(html, /<img\b/);
 });
 
 test('renderTranscriptContentHtml keeps streaming unclosed fences as escaped code blocks', async () => {

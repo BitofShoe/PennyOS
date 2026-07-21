@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PennyOS Local Companion</title>
-    <link rel="stylesheet" href="/styles.css?v=20260411d" />
+    <link rel="stylesheet" href="/styles.css?v=20260721a" />
   </head>
   <body>
     <div class="app-shell" id="shell" data-mood="calm">
@@ -182,7 +182,7 @@
 
           <section class="view" data-view="settings">
             <div class="panel-scroll settings-stack">
-              <section class="settings-block">
+              <section class="settings-block" id="firstRunSetupSection">
                 <div class="section-label">Setup</div>
                 <div class="setup-card setup-needs-setup" id="firstRunSetupPanel">
                   <div class="setup-head">
@@ -194,7 +194,6 @@
                     </div>
                     <a class="secondary-btn tiny" href="/pennyos-help.html">Guide</a>
                   </div>
-
                   <div class="provider-choice-grid">
                     <button id="firstRunUseLocal" class="secondary-btn" type="button">Use a local model</button>
                     <button id="firstRunUseOpenAi" class="secondary-btn" type="button">Use OpenAI API</button>
@@ -219,6 +218,10 @@
                 <div class="card-note">
                   <span id="voiceStatus">Checking local voice...</span>
                 </div>
+
+                <details class="settings-details">
+                  <summary>Voice setup and controls</summary>
+                  <div class="settings-details-body">
 
                 <label class="field">
                   <span>Speaches URL</span>
@@ -248,7 +251,7 @@
                   <input id="voiceSpeed" class="input-lite" type="range" min="0.5" max="2" step="0.05" value="1" />
                 </label>
 
-                <div class="button-stack">
+                <div class="button-stack settings-action-grid">
                   <button id="saveVoiceSetup" class="secondary-btn" type="button">Save voice</button>
                   <button id="refreshVoiceStatus" class="secondary-btn" type="button">Refresh voice</button>
                   <button id="voiceTest" class="secondary-btn" type="button" disabled>Test voice</button>
@@ -263,6 +266,8 @@
                 <a class="secondary-btn guide-link" href="/pennyos-help.html">
                   Open setup guide
                 </a>
+                  </div>
+                </details>
 
                 <label class="field">
                   <span>Expression</span>
@@ -350,7 +355,7 @@
                       <span>I understand this sends prompts/context off this computer.</span>
                     </label>
 
-                    <div class="button-stack">
+                    <div class="button-stack settings-action-grid">
                       <button id="connectOpenAiProvider" class="secondary-btn" type="button">Save OpenAI cloud setup</button>
                       <button id="resetLocalProvider" class="secondary-btn danger" type="button">Switch back to local default</button>
                     </div>
@@ -358,6 +363,40 @@
 
                   <div class="card-note" id="providerSetupNote">
                     OpenAI cloud setup writes Penny's app config and takes effect after you close and reopen PennyOS.
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-block">
+                <div class="section-label">Web access</div>
+                <div class="settings-title">Choose when Penny can leave the room.</div>
+                <p class="setup-hint">
+                  Web access is opt-in. Public searches and pages may leave this computer; local, private, and metadata-style addresses stay blocked.
+                </p>
+
+                <div class="setup-card" id="webSettingsPanel">
+                  <label class="switch-row" for="webSearchToggle">
+                    <span>
+                      <strong>Allow public web search</strong>
+                      <small>Lets Penny search and read public pages when a request needs current information.</small>
+                    </span>
+                    <input id="webSearchToggle" type="checkbox" role="switch" />
+                  </label>
+
+                  <label class="field">
+                    <span>Web answer style</span>
+                    <select id="webAnswerMode" class="input-lite">
+                      <option value="model">Penny-shaped answer</option>
+                      <option value="direct">Fast result list</option>
+                    </select>
+                  </label>
+                  <div class="field-hint">
+                    Penny-shaped answers let the model decide how to use search results. Fast result lists keep the older deterministic template.
+                  </div>
+
+                  <div class="settings-action-row">
+                    <button id="saveWebSettings" class="secondary-btn" type="button">Save web settings</button>
+                    <span id="webSettingsNote" class="card-note">Checking web access...</span>
                   </div>
                 </div>
               </section>
@@ -452,7 +491,7 @@
                     <span>Access token</span>
                     <input id="apiTokenInput" class="input-lite" type="password" autocomplete="off" placeholder="required for LAN sharing" />
                   </label>
-                  <div class="button-stack">
+                  <div class="button-stack settings-action-grid">
                     <button id="saveApiToken" class="secondary-btn" type="button">Save token</button>
                     <button id="clearApiToken" class="secondary-btn danger" type="button">Clear token</button>
                   </div>
@@ -467,7 +506,7 @@
                     Browser cache is just the local shell. Durable memory, archives, logs, and config stay on disk until you clear those scopes or delete app data.
                   </p>
 
-                  <div class="button-stack">
+                  <div class="button-stack settings-action-grid">
                     <button id="newChat" class="secondary-btn" type="button">New chat</button>
                     <button id="clearMemory" class="secondary-btn danger" type="button">Reset local shell</button>
                   </div>
@@ -479,6 +518,6 @@
       </div>
     </div>
 
-  <script type="module" src="/app.js?v=20260415a"></script>
+  <script type="module" src="/app.js?v=20260721a"></script>
 </body>
 </html>
