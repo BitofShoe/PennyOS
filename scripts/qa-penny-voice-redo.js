@@ -24,6 +24,10 @@ const {
 const {
   buildLocalReadinessSummary,
 } = require('../lib/penny-local-readiness-summary');
+const {
+  getUnloadIdentifiersForNonEmbeddingModels,
+  summarizeLoadedModelEntries,
+} = require('../lib/penny-lmstudio-model-state');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
@@ -161,6 +165,32 @@ const CHAT_MODEL = String(process.env.PENNY_QA_CHAT_MODEL || DEFAULT_QA_CHAT_MOD
 const TOOL_MODEL = String(process.env.PENNY_QA_TOOL_MODEL || DEFAULT_QA_TOOL_MODEL).trim();
 const EMBED_MODEL = String(process.env.PENNY_QA_EMBED_MODEL || process.env.PENNY_LMSTUDIO_EMBED_MODEL || DEFAULT_QA_EMBED_MODEL).trim();
 const QA_STATIC_EMBEDDING = resolveQaStaticEmbeddingConfig(process.env, { rootDir: ROOT_DIR, stamp: STAMP });
+const QA_API_TOKEN = String(
+  process.env.PENNY_QA_API_TOKEN
+    || process.env.PENNY_API_TOKEN
+    || process.env.PENNY_ACCESS_TOKEN
+    || process.env.PENNY_LOCAL_API_TOKEN
+    || (SPAWN_SERVER ? 'penny-qa-local-token' : ''),
+).trim();
+const PRESET_IDENTIFIER = String(process.env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny').trim() || '@local:penny';
+
+function numberFromEnv(name, fallback) {
+  const parsed = Number(process.env[name] ?? fallback);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const CHAT_SAMPLING = Object.freeze({
+  temperature: numberFromEnv('PENNY_LMSTUDIO_CHAT_TEMPERATURE', 1),
+  top_p: numberFromEnv('PENNY_LMSTUDIO_CHAT_TOP_P', 0.95),
+  top_k: numberFromEnv('PENNY_LMSTUDIO_CHAT_TOP_K', 64),
+  max_tokens: numberFromEnv('PENNY_LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS', Number(MAX_OUTPUT_TOKENS)),
+});
+
+const TOOL_SAMPLING = Object.freeze({
+  temperature: numberFromEnv('PENNY_LMSTUDIO_TOOL_TEMPERATURE', 0.35),
+  max_tokens: numberFromEnv('PENNY_LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS', Number(MAX_OUTPUT_TOKENS)),
+});
+
 const VOICE_FIXTURE = {
   name: 'agentic_inspect_package_json',
   anchorPath: path.join(ROOT_DIR, 'package.json'),
@@ -1495,14 +1525,76 @@ function startsWithHonestlyOpener(text = '') {
   return /^["'`*_>\s-]*honestly\b[\s?!,.:;-]*/i.test(stripMoodTag(text || '').trim());
 }
 
+function apiAuthHeaders(headers = {}) {
+  const out = { ...(headers || {}) };
+  if (QA_API_TOKEN && !out.Authorization && !out.authorization) {
+    out.Authorization = `Bearer ${QA_API_TOKEN}`;
+  }
+  return out;
+}
+
+function summarizePresetConfig(config = {}) {
+  return {
+    path: String(config.path || ''),
+    exists: config.exists === true,
+    preset: String(config.preset || ''),
+    presetOk: config.presetOk === true,
+    needsRepair: config.needsRepair === true,
+    repairFailed: config.repairFailed === true,
+  };
+}
+
+function summarizePresetWiring(preset = {}) {
+  const value = preset && typeof preset === 'object' ? preset : {};
+  return {
+    presetIdentifier: String(value.presetIdentifier || PRESET_IDENTIFIER),
+    requestedChatModel: String(value.requestedChatModel || ''),
+    requestedToolModel: String(value.requestedToolModel || ''),
+    settings: {
+      path: String(value.settings?.path || ''),
+      exists: value.settings?.exists === true,
+      experimentalLoadPresets: value.settings?.experimentalLoadPresets === true,
+      needsRepair: value.settings?.needsRepair === true,
+      repairFailed: value.settings?.repairFailed === true,
+    },
+    selectedConversation: {
+      path: String(value.selectedConversation?.path || ''),
+      exists: value.selectedConversation?.exists === true,
+      preset: String(value.selectedConversation?.preset || ''),
+      presetOk: value.selectedConversation?.presetOk === true,
+      needsRepair: value.selectedConversation?.needsRepair === true,
+      repairFailed: value.selectedConversation?.repairFailed === true,
+    },
+    chatConfigs: (Array.isArray(value.chatConfigs) ? value.chatConfigs : []).map(summarizePresetConfig),
+    toolConfigs: (Array.isArray(value.toolConfigs) ? value.toolConfigs : []).map(summarizePresetConfig),
+    missingTargets: Array.isArray(value.missingTargets) ? value.missingTargets.map(String) : [],
+    repairedPaths: Array.isArray(value.repairedPaths) ? value.repairedPaths.map(String) : [],
+  };
+}
+
+function buildPromptAndSamplingContract({ preset = null } = {}) {
+  return {
+    schema: 'penny-voice-qa-prompt-and-sampling.v1',
+    lmStudioPresetIdentifier: PRESET_IDENTIFIER,
+    lmStudioPresetWiring: preset ? summarizePresetWiring(preset) : null,
+    pennySystemPromptSources: [
+      'LM Studio concrete model default config preset @local:penny',
+      'Penny server prompt assembly in server.js',
+      'Penny runtime voice/personality context passed through /api/penny/chat',
+    ],
+    chatSampling: { ...CHAT_SAMPLING },
+    toolSampling: { ...TOOL_SAMPLING },
+    apiAuthConfigured: !!QA_API_TOKEN,
+    authTokenStoredInArtifact: false,
+  };
+}
+
 async function fetchJson(url, options = {}, timeoutMs = GENERAL_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const transport = parsed.protocol === 'https:' ? https : http;
     const body = typeof options.body === 'string' ? options.body : '';
-    const headers = {
-      ...(options.headers || {}),
-    };
+    const headers = apiAuthHeaders(options.headers || {});
     if (body && !headers['Content-Length'] && !headers['content-length']) {
       headers['Content-Length'] = Buffer.byteLength(body);
     }
@@ -2236,6 +2328,7 @@ function createServerProcess() {
     env: {
       ...process.env,
       PORT: String(PORT),
+      PENNY_API_TOKEN: QA_API_TOKEN,
       PENNY_MEMORY_FILE: MEMORY_FILE,
       PENNY_MEMORY_ARCHIVE_FILE: ARCHIVE_FILE,
       PENNY_MEMORY_EMBEDDINGS_FILE: EMBEDDINGS_FILE,
@@ -2243,9 +2336,17 @@ function createServerProcess() {
       PENNY_OPEN_LOOP_FILE: OPEN_LOOP_FILE,
       PENNY_ENABLE_RESEARCH_LEDGER_PROMPT: process.env.PENNY_QA_ENABLE_RESEARCH_LEDGER_PROMPT || '0',
       PENNY_OPENCLAW_ENABLED: '0',
+      PENNY_LMSTUDIO_PRESET_IDENTIFIER: PRESET_IDENTIFIER,
       PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS: MAX_OUTPUT_TOKENS,
+      PENNY_LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS: String(CHAT_SAMPLING.max_tokens),
+      PENNY_LMSTUDIO_CHAT_TEMPERATURE: String(CHAT_SAMPLING.temperature),
+      PENNY_LMSTUDIO_CHAT_TOP_P: String(CHAT_SAMPLING.top_p),
+      PENNY_LMSTUDIO_CHAT_TOP_K: String(CHAT_SAMPLING.top_k),
+      PENNY_LMSTUDIO_TOOL_TEMPERATURE: String(TOOL_SAMPLING.temperature),
+      PENNY_LMSTUDIO_TOOL_MAX_OUTPUT_TOKENS: String(TOOL_SAMPLING.max_tokens),
       PENNY_LMSTUDIO_CHAT_MODEL: CHAT_MODEL,
       PENNY_LMSTUDIO_TOOL_MODEL: EFFECTIVE_TOOL_MODEL,
+      PENNY_LMSTUDIO_EMBED_MODEL: EMBED_MODEL,
       ...buildStaticEmbeddingServerEnv(QA_STATIC_EMBEDDING),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -2358,13 +2459,39 @@ async function buildStrictNoModelOpsPreparation() {
   };
 }
 
-async function unloadAllLmStudioModels() {
+async function unloadNonEmbeddingLmStudioModels() {
   if (QA_MODEL_MANAGEMENT.strictNoModelOps) {
-    throw new Error('Strict no-model-ops mode forbids lms unload --all.');
+    throw new Error('Strict no-model-ops mode forbids LM Studio model unloads.');
   }
-  try {
-    await execFileText('lms', ['unload', '--all'], 120000);
-  } catch {}
+  const loaded = await listLoadedModelEntriesNoModelOps();
+  const unloadIdentifiers = getUnloadIdentifiersForNonEmbeddingModels(loaded);
+  const unloadActions = [];
+  for (const identifier of unloadIdentifiers) {
+    try {
+      const result = await execFileText('lms', ['unload', identifier], 120000);
+      unloadActions.push({
+        identifier,
+        ok: true,
+        stdout: String(result.stdout || '').trim(),
+      });
+    } catch (error) {
+      unloadActions.push({
+        identifier,
+        ok: false,
+        error: String(error?.message || error).trim(),
+        stdout: String(error?.stdout || '').trim(),
+        stderr: String(error?.stderr || '').trim(),
+      });
+      throw error;
+    }
+  }
+  const after = await listLoadedModelEntriesNoModelOps();
+  return {
+    beforeSummary: summarizeLoadedModelEntries(loaded),
+    afterSummary: summarizeLoadedModelEntries(after),
+    unloadIdentifiers,
+    unloadActions,
+  };
 }
 
 function assertNoModelManagementEnvironmentReady(environment = {}) {
@@ -2401,6 +2528,9 @@ async function main() {
         chatModel: CHAT_MODEL,
         toolModel: EFFECTIVE_TOOL_MODEL,
       });
+  const initialModelStateCleanup = QA_MODEL_MANAGEMENT.manageModels
+    ? await unloadNonEmbeddingLmStudioModels()
+    : null;
   const preparation = QA_MODEL_MANAGEMENT.strictNoModelOps
     ? await buildStrictNoModelOpsPreparation()
     : await automationApi.prepareLmStudio({
@@ -2424,7 +2554,13 @@ async function main() {
       activeLaneModel = targetModel;
       return;
     }
-    await unloadAllLmStudioModels();
+    const cleanup = await unloadNonEmbeddingLmStudioModels();
+    if (!Array.isArray(payload.modelStateCleanups)) payload.modelStateCleanups = [];
+    payload.modelStateCleanups.push({
+      lane: normalizedLane,
+      targetModel,
+      ...cleanup,
+    });
     if (normalizedLane === 'chat' && QA_LOAD_CHAT_MODEL) {
       await automationApi.loadModel(CHAT_MODEL, 'voice qa chat model', {
         contextLength: QA_CHAT_CONTEXT_LENGTH,
@@ -2464,6 +2600,9 @@ async function main() {
       chatOnly: CHAT_ONLY_PROMPT_SET,
       loadStrategy: QA_MODEL_MANAGEMENT.loadStrategy,
     },
+    modelStateCleanups: initialModelStateCleanup
+      ? [{ phase: 'preparation-preflight', ...initialModelStateCleanup }]
+      : [],
     fixtureCheck,
     memoryFile: SPAWN_SERVER ? MEMORY_FILE : null,
     archiveFile: SPAWN_SERVER ? ARCHIVE_FILE : null,
@@ -2472,15 +2611,19 @@ async function main() {
     ledgerFile: SPAWN_SERVER ? LEDGER_FILE : null,
     openLoopFile: SPAWN_SERVER ? OPEN_LOOP_FILE : null,
     staticEmbeddingQa: buildStaticEmbeddingQaReceipt({ config: QA_STATIC_EMBEDDING }),
+    promptAndSamplingContract: buildPromptAndSamplingContract({ preset: preparation.preset }),
     preparation: {
       ok: preparation.ok,
       requestedChatModel: preparation.requestedChatModel,
       requestedToolModel: preparation.requestedToolModel,
+      requestedEmbedModel: preparation.requestedEmbedModel,
       loadedModels: preparation.loadedModels,
       loadedModelEntries: preparation.loadedModelEntries || [],
       readinessSummary: preparation.readinessSummary || null,
       warnings: preparation.warnings,
       blockers: preparation.blockers,
+      actions: preparation.actions,
+      preset: summarizePresetWiring(preparation.preset),
     },
     constellationRubric: PROMPT_SET === 'constellation' ? buildConstellationRubric(promptPlan) : null,
     prompts: [],
@@ -2605,6 +2748,16 @@ async function main() {
     console.log(`Saved voice redo QA to ${OUTPUT_PATH}`);
   } finally {
     await stopServerProcess(server);
+    if (QA_MODEL_MANAGEMENT.manageModels) {
+      try {
+        payload.finalModelStateCleanup = await unloadNonEmbeddingLmStudioModels();
+      } catch (error) {
+        payload.finalModelStateCleanup = {
+          ok: false,
+          error: String(error?.message || error).trim(),
+        };
+      }
+    }
     if (SPAWN_SERVER) {
       payload.cleanedFiles = [];
       const disposableFiles = [MEMORY_FILE, ARCHIVE_FILE, EMBEDDINGS_FILE, LEDGER_FILE, OPEN_LOOP_FILE];
@@ -2618,6 +2771,10 @@ async function main() {
         }
       }
     }
+    if (payload.startedAt) {
+      payload.cleanupFinishedAt = new Date().toISOString();
+      fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
+    }
   }
 }
 
@@ -2629,6 +2786,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  apiAuthHeaders,
   summarize,
   main,
   assertVoiceFixtureAnchors,
@@ -2649,6 +2807,9 @@ module.exports = {
   resolveQaStaticEmbeddingConfig,
   resolvePromptSet,
   resolveModelManagementMode,
+  buildPromptAndSamplingContract,
+  summarizePresetWiring,
   summarizeStaticEmbeddingRuntime,
   startsWithHonestlyOpener,
+  unloadNonEmbeddingLmStudioModels,
 };

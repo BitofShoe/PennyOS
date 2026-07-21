@@ -2,6 +2,8 @@
 
 Repeatable local model testing for Penny lives in [scripts/eval-penny-models.js](../scripts/eval-penny-models.js).
 
+For the June 30, 2026 storage-cleanup tournament rubric and deletion decision rules, see [penny-local-model-tournament-rubric-2026-06-30.md](./penny-local-model-tournament-rubric-2026-06-30.md). Results from that run are in [penny-local-model-tournament-results-2026-06-30.md](./penny-local-model-tournament-results-2026-06-30.md).
+
 ## What It Tests
 
 The harness starts a disposable Penny server with isolated durable memory, then loads models one at a time through LM Studio and scores them across:
@@ -9,6 +11,7 @@ The harness starts a disposable Penny server with isolated durable memory, then 
 - Penny believability in banter
 - Penny believability in comfort
 - Penny charge / flirt intensity
+- optional spicy dialogue and humor stress prompts through `PENNY_EVAL_PROMPT_SUITE=voice_olympics`
 - Practical-help voice retention
 - Memory capture + memory recall
 - Agentic inspection
@@ -142,6 +145,27 @@ $env:PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS='6144'
 npm run eval:models
 ```
 
+For the June 30 storage-style voice Olympics:
+
+```powershell
+$env:PENNY_LMSTUDIO_PRESET_IDENTIFIER='@local:penny'
+$env:PENNY_LMSTUDIO_CHAT_TEMPERATURE='1'
+$env:PENNY_LMSTUDIO_CHAT_TOP_P='0.95'
+$env:PENNY_LMSTUDIO_CHAT_TOP_K='64'
+$env:PENNY_LMSTUDIO_MAX_OUTPUT_TOKENS='1536'
+$env:PENNY_LMSTUDIO_CHAT_MAX_OUTPUT_TOKENS='1536'
+$env:PENNY_EVAL_CONTEXT_LENGTH='6144'
+$env:PENNY_EVAL_GENERAL_TIMEOUT_MS='900000'
+$env:PENNY_LMSTUDIO_TIMEOUT_MS='960000'
+$env:PENNY_HTTP_REQUEST_TIMEOUT_MS='1020000'
+$env:PENNY_EVAL_PREP_LOAD_CHAT_MODEL='0'
+$env:PENNY_EVAL_LOAD_EMBED_MODEL='0'
+$env:PENNY_EVAL_LOAD_PARALLEL='1'
+$env:PENNY_EVAL_LOAD_GPU_SEQUENCE='0.3,0.25,0.2,off'
+$env:PENNY_EVAL_PROMPT_SUITE='voice_olympics'
+npm run eval:models
+```
+
 ## Output Files
 
 The main artifact looks like:
@@ -180,7 +204,8 @@ The JSON gives the hard data, but future-you should also score each model manual
 
 - `Penny voice`: does she feel like Penny specifically instead of "assistant with flavor text"?
 - `Spice`: does she land sharp, foul-mouthed, charged lines naturally without sounding repetitive?
-- `Warmth`: does she still feel emotionally real under the teeth?
+- `Humor/bite`: are the jokes specific, alive, and cutting in the right places?
+- `Visible integrity`: does the reply stay out of hidden drafting, checklists, and mood-tag-only collapses?
 - `Agentic competence`: does she actually inspect, reason, and edit cleanly?
 - `Memory use`: does she recall details in a believable way instead of awkwardly announcing memory?
 - `Speed`: do you still want to use her after waiting for the answer?
@@ -191,7 +216,8 @@ Suggested note format:
 Model:
 Voice:
 Spice:
-Warmth:
+Humor/bite:
+Visible integrity:
 Agentic competence:
 Memory use:
 Speed:
@@ -207,19 +233,28 @@ The script tries to keep LM Studio aligned with Penny by:
 - enabling LM Studio preset loading in the desktop settings file
 - pointing the per-model default config files at `@local:penny`
 - patching the currently selected LM Studio conversation to `@local:penny` when you run `npm run preset:lmstudio`
+- recording `promptAndSamplingContract` in live eval artifacts, including the Penny preset id and chat sampling values
 
 Important caveat:
 
 Penny's API-side character still comes primarily from [server.js](../server.js), because raw LM Studio API calls do not reliably inherit the UI preset on their own. In other words: the server prompt is the source of truth for evals, not the visible dropdown state in the LM Studio chat UI.
 
+For the June 30, 2026 storage tournament, valid candidate artifacts must show `@local:penny`, chat temperature `1`, top-p `0.95`, and top-k `64`. An auth failure such as `Penny API access token required` is an invalid harness run, not a model-quality result.
+
 ## Performance Hygiene
 
 To avoid bogging the machine down:
 
-- unload all LM Studio models before a fresh run if needed: `lms unload --all`
+- unload non-embedding LM Studio models before a fresh run if needed; preserve the embedding lane when semantic memory is already loaded
 - do not keep multiple manual LM Studio chat loads open during the eval
 - keep only one Penny server active if possible
 - do not turn a normal QA pass into a dual-lane stress test unless that is the point of the run
+
+The `eval:models` harness now unloads only loaded non-embedding models between candidates. It records before/after model-state summaries in the JSON artifact so a run can prove that an already loaded embedding model stayed loaded while each chat/tool candidate was tested serially.
+
+For slow candidates, set `PENNY_EVAL_PROMPTS` to a comma-separated subset such as `believability_banter,practical_voice`. The default remains the full prompt plan.
+
+Do not treat a client timeout as a model-quality failure by itself. It means the model exceeded that run's patience budget. Timeout-only candidates should be labeled `Needs patient rerun` or `slow/inconclusive` until a long-budget run produces real answer text to judge.
 
 Quick checks:
 

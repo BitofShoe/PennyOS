@@ -5,8 +5,10 @@ const {
   buildRuntimeArtifact,
 } = require('../lib/penny-runtime-artifacts');
 const {
+  apiAuthHeaders,
   buildConstellationRubric,
   buildOverComplianceAudit,
+  buildPromptAndSamplingContract,
   buildPressureWatchAudit,
   buildRepetitionAudit,
   buildVoiceQaTrace,
@@ -144,6 +146,29 @@ test('resolveModelManagementMode has a strict prompt-only mode with no prepare/l
     assert.equal(strict.repairPreset, false);
     assert.equal(strict.loadStrategy, 'strict-no-model-ops');
   }
+});
+
+test('voice QA runner sends local API auth without exposing the token in receipts', () => {
+  const headers = apiAuthHeaders({ 'Content-Type': 'application/json' });
+  assert.equal(headers['Content-Type'], 'application/json');
+  assert.match(headers.Authorization || '', /^Bearer\s+\S+/);
+
+  const contract = buildPromptAndSamplingContract({
+    preset: {
+      presetIdentifier: '@local:penny',
+      chatConfigs: [{ path: 'chat.json', exists: true, preset: '@local:penny', presetOk: true }],
+      toolConfigs: [{ path: 'tool.json', exists: true, preset: '@local:penny', presetOk: true }],
+      repairedPaths: [],
+      missingTargets: [],
+    },
+  });
+
+  assert.equal(contract.lmStudioPresetIdentifier, process.env.PENNY_LMSTUDIO_PRESET_IDENTIFIER || '@local:penny');
+  assert.equal(contract.authTokenStoredInArtifact, false);
+  assert.equal(contract.apiAuthConfigured, true);
+  assert.equal(contract.chatSampling.temperature, Number(process.env.PENNY_LMSTUDIO_CHAT_TEMPERATURE || 1));
+  assert.equal(contract.chatSampling.top_k, Number(process.env.PENNY_LMSTUDIO_CHAT_TOP_K || 64));
+  assert.equal(contract.lmStudioPresetWiring.chatConfigs[0].presetOk, true);
 });
 
 test('voice QA static embedding config uses explicit QA env and isolated cache by default', () => {
