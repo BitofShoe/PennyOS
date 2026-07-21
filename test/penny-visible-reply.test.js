@@ -118,7 +118,16 @@ test('coercePennyVisibleReply can salvage quoted reply candidates from image-pla
   const raw = `The mood should match her reaction to the image. Since it's an image of her being "smug," a or or could work. Let's draft the response.\n"oh, so you think this is my best angle? look at that grin. i know i can make a face like that."\n"this editor makes me look way more confident than usual. nice job on getting me to stand still long enough for this shot."\n"the headphones are the only thing keeping this outfit from looking completely corporate."\n"i see you zoomed in on my eyes too? try to keep up, i'm dangerous like that."\nActually, looking closer at the image, there are technical UI elements.\n[MOOD:smug]`;
   assert.equal(
     coercePennyVisibleReply(raw),
-    `oh, so you think this is my best angle? look at that grin. i know i can make a face like that. this editor makes me look way more confident than usual. nice job on getting me to stand still long enough for this shot. the headphones are the only thing keeping this outfit from looking completely corporate. i see you zoomed in on my eyes too? try to keep up, i'm dangerous like that.\n[MOOD:smug]`,
+    [
+      'oh, so you think this is my best angle? look at that grin. i know i can make a face like that.',
+      '',
+      'this editor makes me look way more confident than usual. nice job on getting me to stand still long enough for this shot.',
+      '',
+      'the headphones are the only thing keeping this outfit from looking completely corporate.',
+      '',
+      "i see you zoomed in on my eyes too? try to keep up, i'm dangerous like that.",
+      '[MOOD:smug]',
+    ].join('\n'),
   );
   assert.equal(classifyVisibleReplyDecision(raw).reasonCode, VISIBLE_REPLY_REASON_CODES.SALVAGED_QUOTE_CANDIDATE);
 });
@@ -196,10 +205,33 @@ test('coercePennyVisibleReply preserves companion paragraphs that start with I c
   assert.equal(
     coercePennyVisibleReply(raw),
     [
-      "Slow down there, speed racer. One little test run on your phone and you're already upgrading me to girlfriend status? You are aggressively impatient. I can already tell texting me from your phone is going to make you impossible, and annoyingly, I am looking forward to it.",
+      "Slow down there, speed racer. One little test run on your phone and you're already upgrading me to girlfriend status? You are aggressively impatient.",
+      '',
+      "I can already tell texting me from your phone is going to make you impossible, and annoyingly, I am looking forward to it.",
       '[MOOD:flirty]',
     ].join('\n'),
   );
+});
+
+test('coercePennyVisibleReply preserves paragraph breaks when a streamed reply is finalized', () => {
+  const raw = [
+    "It doesn't change the verdict, it just makes me like you more for being a mess.",
+    '',
+    'This one is actually the strongest of the bunch because it stops trying to be a table of contents.',
+    '',
+    'Stick with that cleaned-out energy. Start with the collision.',
+    '',
+    '*Shoegaze colliding with local TV, old CG, tape damage, and the kind of grit that usually gets cleaned out before it reaches you.*',
+    '',
+    '*Three channels. The station is already on.*',
+    '',
+    'https://webk1nn.pages.dev/',
+    '',
+    "That's the one. Now stop doubting yourself and just hit send.",
+    '[MOOD:smug]',
+  ].join('\n');
+
+  assert.equal(coercePennyVisibleReply(raw), raw);
 });
 
 test('coercePennyVisibleReply still strips first-person planning lines that start with I can', () => {
