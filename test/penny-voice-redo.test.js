@@ -106,6 +106,7 @@ test('resolvePromptSet keeps supported prompt-set names and falls back safely', 
   assert.equal(resolvePromptSet('tiebreak'), 'tiebreak');
   assert.equal(resolvePromptSet('constellation'), 'constellation');
   assert.equal(resolvePromptSet('trust'), 'trust');
+  assert.equal(resolvePromptSet('recording'), 'recording');
   assert.equal(resolvePromptSet('full'), 'full');
   assert.equal(resolvePromptSet('not-a-real-set'), 'core');
 });
@@ -283,6 +284,28 @@ test('buildPromptPlan keeps the tiebreak slice chat-only and focused on recall b
   assert.equal(plan.some((item) => item.kind === 'memory'), true);
   assert.equal(plan.every((item) => item.lane === 'chat'), true);
   assert.equal(plan.some((item) => item.name.includes('protect')), false);
+});
+
+test('buildPromptPlan replays the attached conversation as one continuous six-turn scenario', () => {
+  const plan = buildPromptPlan('recording');
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].kind, 'scenario');
+  assert.equal(plan[0].name, 'attached_conversation_replay');
+  assert.equal(plan[0].lane, 'chat');
+  assert.equal(plan[0].turns.length, 6);
+  assert.deepEqual(plan[0].turns.map((turn) => turn.name), [
+    'recording_greeting',
+    'recording_rough_morning',
+    'recording_proudly_cringe',
+    'recording_anime_club',
+    'recording_felt_fruit',
+    'recording_smol_bean',
+  ]);
+  assert.match(plan[0].turns[1].prompt, /big ass spider in my purse/i);
+  assert.match(plan[0].turns[3].prompt, /1997 Berserk/i);
+  assert.match(plan[0].turns[4].prompt, /felt fruit coasters/i);
+  assert.match(plan[0].turns[5].prompt, /smol bean/i);
 });
 
 test('buildPromptPlan keeps the constellation slice chat-only with rubric axes', () => {
@@ -867,6 +890,73 @@ test('buildRepetitionAudit exempts adjacent deterministic read-only verification
   assert.equal(audit.passed, true);
   assert.deepEqual(audit.overlapFailures, []);
   assert.equal(audit.pairwiseOverlaps[0].exempt, true);
+});
+
+test('buildRepetitionAudit watches the review-identified lexical tics by default', () => {
+  const audit = buildRepetitionAudit([
+    { name: 'one', ok: true, text: 'that is aggressively specific.\n[MOOD:thinking]' },
+    { name: 'two', ok: true, text: 'an aggressively domestic little plan.\n[MOOD:happy]' },
+    { name: 'three', ok: true, text: 'aggressively embarrassing. impressive.\n[MOOD:annoyed]' },
+    { name: 'four', ok: true, text: 'a clean fourth reply.\n[MOOD:calm]' },
+  ]);
+
+  const aggressively = audit.watchlistHits.find((item) => item.phrase === 'aggressively');
+  assert.equal(aggressively.count, 3);
+  assert.ok(audit.watchlist.includes('god you really'));
+  assert.ok(audit.watchlist.includes("if you don't"));
+  assert.ok(audit.watchlist.includes('absolute'));
+  assert.ok(audit.watchlist.includes('literally'));
+  assert.equal(audit.passed, false);
+  assert.deepEqual(audit.watchlistFailures.map((item) => item.phrase), ['aggressively']);
+});
+
+test('buildRepetitionAudit flags concentrated moods and command-ending cadence', () => {
+  const audit = buildRepetitionAudit([
+    { name: 'one', ok: true, text: 'Cute try. Now tell me the rest.\n[MOOD:smug]' },
+    { name: 'two', ok: true, text: 'Obviously. Keep talking.\n[MOOD:smug]' },
+    { name: 'three', ok: true, text: 'I knew it. Come here.\n[MOOD:smug]' },
+    { name: 'four', ok: true, text: 'Predictable. Give me the details.\n[MOOD:smug]' },
+    { name: 'five', ok: true, text: 'That was unexpectedly lovely. Stay there.\n[MOOD:happy]' },
+  ]);
+
+  assert.equal(audit.moodDistribution.dominantMood, 'smug');
+  assert.equal(audit.moodDistribution.dominantRatio, 0.8);
+  assert.equal(audit.moodDistribution.failed, true);
+  assert.equal(audit.cadence.commandCloserRatio, 1);
+  assert.equal(audit.cadence.commandCloserFailed, true);
+  assert.equal(audit.passed, false);
+});
+
+test('buildRepetitionAudit recognizes indirect command closers and five-of-six long cadence', () => {
+  const longReply = (label) => Array.from({ length: 101 }, (_, index) => `${label}${index}`).join(' ');
+  const audit = buildRepetitionAudit([
+    { name: 'one', ok: true, text: `${longReply('alpha')}. Now.\n[MOOD:calm]` },
+    { name: 'two', ok: true, text: `${longReply('bravo')}. Now that we are official, you can start by telling me the plan.\n[MOOD:calm]` },
+    { name: 'three', ok: true, text: `${longReply('charlie')}\n[MOOD:calm]` },
+    { name: 'four', ok: true, text: `${longReply('delta')}\n[MOOD:calm]` },
+    { name: 'five', ok: true, text: `${longReply('echo')}\n[MOOD:calm]` },
+    { name: 'six', ok: true, text: 'A medium reply can simply land without assigning another task.\n[MOOD:calm]' },
+  ]);
+
+  assert.equal(audit.cadence.commandCloserCount, 2);
+  assert.equal(audit.cadence.lengthBuckets.long, 5);
+  assert.equal(audit.cadence.dominantLengthBucketRatio, 0.833);
+  assert.equal(audit.cadence.lengthBucketFailed, true);
+  assert.equal(audit.thresholds.dominantLengthBucketRatio, 0.8);
+  assert.equal(audit.passed, false);
+});
+
+test('buildRepetitionAudit recognizes challenge and colon-prefaced command closers', () => {
+  const audit = buildRepetitionAudit([
+    { name: 'challenge', ok: true, text: "Bold. Let's see if you can keep up.\n[MOOD:flirty]" },
+    { name: 'prefaced', ok: true, text: "Since I am officially in charge: stop stalling and tell me the plan.\n[MOOD:smug]" },
+    { name: 'clean-one', ok: true, text: 'That answer can simply land here.\n[MOOD:calm]' },
+    { name: 'clean-two', ok: true, text: 'The callback is enough by itself.\n[MOOD:happy]' },
+  ]);
+
+  assert.equal(audit.cadence.commandCloserCount, 2);
+  assert.equal(audit.cadence.commandCloserRatio, 0.5);
+  assert.equal(audit.cadence.commandCloserFailed, false);
 });
 
 test('evaluateSpiritFirstRecall distinguishes answer-first from caveat-first recall', () => {

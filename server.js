@@ -118,6 +118,16 @@ const {
   createVisibleReplyApi,
 } = require('./lib/penny-visible-reply');
 const {
+  buildMoodTagInstructions,
+  extractReplyMoodTag,
+  pickMood,
+  retagAssistantReply,
+  stripReplyMoodTags,
+} = require('./lib/penny-mood');
+const {
+  buildConversationVoiceGuard,
+} = require('./lib/penny-voice-cadence');
+const {
   createReplyGuardApi,
 } = require('./lib/penny-reply-guards');
 const {
@@ -1792,58 +1802,6 @@ function describeLocalBrainFailure(error, { hasImage = false } = {}) {
   }
   return raw;
 }
-const VALID_REPLY_MOODS = ['calm', 'happy', 'excited', 'thinking', 'surprised', 'flirty', 'smug', 'annoyed'];
-const MOOD_SCORING_RULES = {
-  calm: [/\bi've got you\b/i, /\bi am right here\b/i, /\bi'm right here\b/i, /\bjust breathe\b/i, /\blean back\b/i, /\btake a breath\b/i, /\bstay here\b/i, /\bsettle in\b/i],
-  happy: [/\bthat lands\b/i, /\bcute\b/i, /\bsweet\b/i, /\bsoft spot\b/i, /\bglad\b/i, /\blovely\b/i, /\bador(?:able|e)\b/i, /\bheh\b/i],
-  excited: [/\bhell yes\b/i, /\blet'?s go\b/i, /\bnow we're talking\b/i, /\bkeep going\b/i, /\bperfect\b/i, /\bfinally\b/i, /\boh yes\b/i, /\babsolutely\b/i],
-  thinking: [/\bhmm\b/i, /\bmaybe\b/i, /\btradeoff\b/i, /\bit looks like\b/i, /\bi found\b/i, /\bi searched\b/i, /\bdefinition\b/i, /\bimplementation\b/i, /\bit helps\b/i, /\bdepends\b/i, /\blet me\b/i],
-  surprised: [/\bwait\b/i, /\bwhoa\b/i, /\bexcuse me\b/i, /\bcaught off guard\b/i, /\bdid not see that coming\b/i, /\bwell that'?s a turn\b/i],
-  flirty: [/\bcome a little closer\b/i, /\bdangerous territory\b/i, /\bfull attention\b/i, /\bstuck with me\b/i, /\bpossessive\b/i, /\bwanted\b/i, /\bblush\b/i, /\bclose enough\b/i, /\bbold today\b/i, /\byou wanted me\b/i],
-  smug: [/\btold you\b/i, /\bcalled it\b/i, /\btoo easy\b/i, /\bobviously\b/i, /\bknew it\b/i, /\bcute try\b/i, /\bpredictable\b/i, /\bsee,\s*i knew\b/i],
-  annoyed: [/\.\.\.\s*really\b/i, /\breally now\b/i, /\bugh\b/i, /\bannoying\b/i, /\btesting me\b/i, /\bfor fuck'?s sake\b/i, /\bcome on\b/i, /\brude\b/i, /\bstop it\b/i, /\bbruh\b/i],
-};
-function extractReplyMoodTag(text = '') {
-  const matches = [...String(text || '').matchAll(/\[MOOD:(\w+)\]/g)];
-  const mood = matches.length ? String(matches[matches.length - 1][1] || '').trim() : '';
-  return VALID_REPLY_MOODS.includes(mood) ? mood : '';
-}
-function stripReplyMoodTags(text = '') {
-  return String(text || '').replace(/\s*\[MOOD:\w+\]\s*/g, ' ').trim();
-}
-function resolveReplyMood(text = '', preferredMood = '') {
-  const bare = stripReplyMoodTags(text);
-  const scores = Object.fromEntries(VALID_REPLY_MOODS.map(mood => [mood, 0]));
-  for (const mood of VALID_REPLY_MOODS) {
-    for (const pattern of MOOD_SCORING_RULES[mood] || []) {
-      if (pattern.test(bare)) scores[mood] += 1;
-    }
-  }
-  if (!bare) return VALID_REPLY_MOODS.includes(preferredMood) ? preferredMood : 'calm';
-  if (VALID_REPLY_MOODS.includes(preferredMood)) {
-    scores[preferredMood] += 1.15;
-  }
-  let bestMood = 'calm';
-  let bestScore = -1;
-  for (const mood of VALID_REPLY_MOODS) {
-    const score = Number(scores[mood] || 0);
-    if (score > bestScore) {
-      bestMood = mood;
-      bestScore = score;
-    }
-  }
-  return bestScore > 0 ? bestMood : (VALID_REPLY_MOODS.includes(preferredMood) ? preferredMood : 'calm');
-}
-function retagAssistantReply(text = '', preferredMood = '') {
-  const bare = stripReplyMoodTags(text);
-  const explicitMood = extractReplyMoodTag(text);
-  const mood = explicitMood || resolveReplyMood(bare, preferredMood);
-  if (!bare) return `[MOOD:${mood}]`;
-  return `${bare}\n[MOOD:${mood}]`;
-}
-function pickMood(text) {
-  return extractReplyMoodTag(text) || resolveReplyMood(text);
-}
 const visibleReplyApi = createVisibleReplyApi({
   ALLOW_RAW_REASONING_FALLBACK,
   retagAssistantReply,
@@ -1945,9 +1903,7 @@ Reply to the latest user message only.
 Latest user message:
 ${userText}
 
-End with exactly one mood tag on its own line:
-[MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised] or [MOOD:flirty] or [MOOD:smug] or [MOOD:annoyed]
-Pick the mood that BEST matches the vibe of your reply. Use variety — rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange.`;
+${buildMoodTagInstructions({ opening: 'End' })}`;
 }
 
 async function runOpenClawShadow({ sessionId, userText, messages, memories, abortSignal }) {
@@ -2252,8 +2208,7 @@ ${promptContext.memoryBlock}
 Output:
 - When you are answering normally, write only Penny's visible reply.
 - Do not print scratch work, draft options, tool-call planning, or self-instructions.
-- End the visible final reply with exactly one mood tag on its own line.
-- Valid mood tags: [MOOD:calm], [MOOD:happy], [MOOD:excited], [MOOD:thinking], [MOOD:surprised], [MOOD:flirty], [MOOD:smug], [MOOD:annoyed]`;
+${buildMoodTagInstructions({ opening: 'End the visible final reply' })}`;
 }
 
 const SEMANTIC_RENDER_PRIORITY_TOOLS = new Set([
@@ -2491,8 +2446,7 @@ ${promptContext.memoryBlock}
 
 Output:
 - Write only Penny's final visible reply.
-- End with exactly one mood tag on its own line.
-- Valid mood tags: [MOOD:calm], [MOOD:happy], [MOOD:excited], [MOOD:thinking], [MOOD:surprised], [MOOD:flirty], [MOOD:smug], [MOOD:annoyed]`;
+${buildMoodTagInstructions({ opening: 'End' })}`;
 }
 
 async function renderSemanticReplyAsPenny({
@@ -3002,9 +2956,7 @@ Output rules:
 - Do not print scratch work, draft options, self-instructions, or planning voice.
 - If a sharper or more specific line is available without breaking the moment, take it.
 
-End your reply with exactly one mood tag on its own line:
-[MOOD:calm] or [MOOD:happy] or [MOOD:excited] or [MOOD:thinking] or [MOOD:surprised] or [MOOD:flirty] or [MOOD:smug] or [MOOD:annoyed]
-Pick the mood that BEST matches the vibe of your reply. Use variety - rotate through different moods naturally. Flirty is for genuinely romantic or charged moments only, not for every friendly or playful exchange.`;
+${buildMoodTagInstructions({ opening: 'End your reply' })}`;
 }
 
 function shouldConstrainConversationHistoryForAuthority({
@@ -3046,13 +2998,14 @@ function buildLmStudioPrompt({ userText, messages, memories, file, latencyBudget
     .map(msg => `${msg.role === 'assistant' ? 'Penny' : 'User'}: ${String(msg.content || '').trim()}`)
     .join('\n');
   const latestInput = appendAttachmentContext(userText, file);
+  const voiceGuard = buildConversationVoiceGuard({ messages, userText });
   return `${buildLmStudioLeanSystemPrompt({ memories, userText, latencyBudget: budget })}
 
 Recent conversation:
 ${history || '- none'}
 
 User message:
-${latestInput}`;
+${latestInput}${voiceGuard ? `\n\n${voiceGuard}` : ''}`;
 }
 
 function buildLmStudioMessages({ userText, messages, memories, image, file, latencyBudget = null }) {
@@ -3066,6 +3019,7 @@ function buildLmStudioMessages({ userText, messages, memories, image, file, late
     recentHistoryCount: budget.recentHistoryCount || PENNY_CHAT_HISTORY_LIMIT,
     memoryLimit: budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT,
   });
+  const voiceGuard = buildConversationVoiceGuard({ messages, userText });
   let lastUserIdx = -1;
   for (let i = slice.length - 1; i >= 0; i--) {
     if (slice[i]?.role === 'user') {
@@ -3082,28 +3036,32 @@ function buildLmStudioMessages({ userText, messages, memories, image, file, late
         ? appendAttachmentContext(msg?.content || userText, file)
         : String(msg?.content || '').trim();
       if (!text) return null;
+      const guardedText = isLatestUser && voiceGuard
+        ? `${text}\n\n${voiceGuard}`
+        : text;
       const imageUrl = isLatestUser ? (msg.image || image || null) : null;
       if (imageUrl) {
         return {
           role,
           content: [
             { type: 'image_url', image_url: { url: imageUrl } },
-            { type: 'text', text },
+            { type: 'text', text: guardedText },
           ],
         };
       }
-      return { role, content: text };
+      return { role, content: guardedText };
     })
     .filter(Boolean);
   if (!recent.length) {
     const latestInput = appendAttachmentContext(userText, file);
+    const guardedInput = voiceGuard ? `${latestInput}\n\n${voiceGuard}` : latestInput;
     if (image) {
       recent.push({ role: 'user', content: [
         { type: 'image_url', image_url: { url: image } },
-        { type: 'text', text: latestInput },
+        { type: 'text', text: guardedInput },
       ] });
     } else {
-      recent.push({ role: 'user', content: latestInput });
+      recent.push({ role: 'user', content: guardedInput });
     }
   }
   return [
@@ -3150,6 +3108,7 @@ function buildLmStudioStatefulInput({ userText, messages, memories, image, file,
     clearLmStudioThread(memories);
   }
   const latestInput = appendAttachmentContext(userText, file);
+  const voiceGuard = buildConversationVoiceGuard({ messages, userText });
   const memoryBlock = hasThread
     ? formatPromptMemories(memories, userText, budget.memoryPromptLimit || MEMORY_PROMPT_LIMIT, '')
     : '';
@@ -3158,10 +3117,11 @@ function buildLmStudioStatefulInput({ userText, messages, memories, image, file,
       ? `Relevant memory for this reply:\n${memoryBlock}\n\nUser message:\n${latestInput}`.trim()
       : latestInput
     : buildLmStudioStatefulSeedText({ userText: latestInput, messages, memories, file: null, latencyBudget: budget });
-  if (!image) return text;
+  const guardedText = voiceGuard ? `${text}\n\n${voiceGuard}` : text;
+  if (!image) return guardedText;
   return [
     { type: 'image', data_url: image },
-    { type: 'text', content: text },
+    { type: 'text', content: guardedText },
   ];
 }
 const lmStudioToolLoopApi = createLmStudioToolLoopApi({

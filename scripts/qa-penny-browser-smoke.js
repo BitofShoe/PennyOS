@@ -170,6 +170,9 @@ function readRequestBody(req) {
 
 function buildMockLmStudioReply(payload = {}) {
   const raw = JSON.stringify(payload);
+  if (/streaming scroll ownership/i.test(raw)) {
+    return `${Array.from({ length: 180 }, (_, index) => `scroll-token-${index + 1}`).join(' ')} [MOOD:thinking]`;
+  }
   if (/"image_url"|"data:image\/|"type":"image"/i.test(raw)) {
     return 'I can see the image you attached. Tiny little test square, clean edges, very deliberate. [MOOD:thinking]';
   }
@@ -502,6 +505,7 @@ async function main() {
     PENNY_MEMORY_EMBEDDINGS_FILE: embeddingsFile,
     PENNY_OPEN_LOOP_FILE: openLoopFile,
     PENNY_OPENCLAW_ENABLED: '0',
+    PENNY_API_ALLOW_LOCAL_NO_TOKEN: '1',
     PENNY_LOCAL_LLM_TRANSPORT: 'chat',
     PENNY_LMSTUDIO_BASE: mockLmStudio.baseUrl,
     PENNY_LMSTUDIO_NATIVE_BASE: mockLmStudio.nativeBaseUrl,
@@ -619,12 +623,12 @@ async function main() {
             responseTextPreview: '',
             responseCloneError: '',
           };
-          try {
-            entry.responseTextPreview = (await response.clone().text()).slice(0, 5000);
-          } catch (error) {
-            entry.responseCloneError = error?.message || String(error);
-          }
           ensureDebug().lastChatFetch = entry;
+          response.clone().text().then((text) => {
+            entry.responseTextPreview = String(text || '').slice(0, 5000);
+          }).catch((error) => {
+            entry.responseCloneError = error?.message || String(error);
+          });
         }
         return response;
       };
@@ -946,18 +950,92 @@ async function main() {
     persistReport(report);
     console.log('Checking new-chat reset...');
     await page.click('.tab[data-panel="settings"]');
+    await page.evaluate(() => {
+      const decor = document.querySelector('.cyber-decor');
+      const chatWrap = document.querySelector('#chatWrap');
+      if (decor) decor.style.height = '4200px';
+      if (chatWrap) chatWrap.scrollTop = chatWrap.scrollHeight;
+    });
     await page.click('#newChat');
+    await page.click('.tab[data-panel="chat"]');
     await waitForPagePredicate(page, () => {
       const chat = document.querySelector('#chat');
+      const chatWrap = document.querySelector('#chatWrap');
+      const decor = document.querySelector('.cyber-decor');
       const turns = document.querySelector('#turnsValue')?.textContent || '';
-      return !chat?.textContent?.trim() && turns === '0';
+      const decorHeight = Number.parseInt(decor?.style?.height || '0', 10);
+      return !chat?.textContent?.trim()
+        && turns === '0'
+        && decorHeight <= Number(chatWrap?.clientHeight || 0) + 1
+        && Number(chatWrap?.scrollTop || 0) <= 1;
     }, undefined, { timeout: 10000 });
-    report.checks.push({ name: 'new_chat_resets_transcript_and_turns', ok: true });
+    const newChatDebug = await page.evaluate(() => {
+      const chatWrap = document.querySelector('#chatWrap');
+      const decor = document.querySelector('.cyber-decor');
+      return {
+        decorHeight: Number.parseInt(decor?.style?.height || '0', 10),
+        clientHeight: Number(chatWrap?.clientHeight || 0),
+        scrollHeight: Number(chatWrap?.scrollHeight || 0),
+        scrollTop: Number(chatWrap?.scrollTop || 0),
+      };
+    });
+    report.checks.push({
+      name: 'new_chat_resets_transcript_turns_and_stale_scroll_height',
+      ok: true,
+      ...newChatDebug,
+    });
     persistReport(report);
+
+    report.currentStep = 'streaming_preserves_manual_scroll';
+    persistReport(report);
+    console.log('Checking manual scroll ownership during streaming...');
+    await page.fill('#composer', 'Run the streaming scroll ownership check.');
+    await page.click('#send');
+    await waitForPagePredicate(page, () => {
+      const chatWrap = document.querySelector('#chatWrap');
+      const assistantRow = document.querySelector('#chat .msg-row.assistant.streaming');
+      return !!assistantRow
+        && Number(chatWrap?.scrollHeight || 0) - Number(chatWrap?.clientHeight || 0) > 80;
+    }, undefined, { timeout: 10000 });
+    await page.evaluate(() => {
+      const chatWrap = document.querySelector('#chatWrap');
+      if (chatWrap) chatWrap.scrollTop = 0;
+    });
+    await page.waitForTimeout(500);
+    const streamingScrollDebug = await page.evaluate(() => {
+      const chatWrap = document.querySelector('#chatWrap');
+      return {
+        stillStreaming: !!document.querySelector('#chat .msg-row.assistant.streaming'),
+        scrollTop: Number(chatWrap?.scrollTop || 0),
+        scrollHeight: Number(chatWrap?.scrollHeight || 0),
+        clientHeight: Number(chatWrap?.clientHeight || 0),
+      };
+    });
+    if (!streamingScrollDebug.stillStreaming || streamingScrollDebug.scrollTop > 1) {
+      throw new Error(`Streaming overrode manual scroll: ${JSON.stringify(streamingScrollDebug)}`);
+    }
+    report.checks.push({
+      name: 'streaming_preserves_manual_upward_scroll',
+      ok: true,
+      ...streamingScrollDebug,
+    });
+    persistReport(report);
+    await waitForPagePredicate(page, (storageKey) => {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return false;
+      try {
+        const snapshot = JSON.parse(raw);
+        const last = snapshot?.messages?.[snapshot.messages.length - 1];
+        return last?.role === 'assistant' && last?.streaming !== true;
+      } catch {
+        return false;
+      }
+    }, STORAGE_KEY, { timeout: 15000 });
 
     report.currentStep = 'clear_memory_resets_override_and_turns';
     persistReport(report);
     console.log('Checking clear-memory reset...');
+    await page.click('.tab[data-panel="settings"]');
     await page.selectOption('#expressionOverrideSelect', 'smug');
     await page.waitForTimeout(300);
     await page.click('#clearMemory');
@@ -979,6 +1057,7 @@ async function main() {
     report.currentStep = 'finished';
     persistReport(report);
     await browser.close();
+    browser = null;
     console.log(`Saved Penny browser smoke to ${OUTPUT_PATH}`);
   } catch (error) {
     try {
@@ -993,6 +1072,9 @@ async function main() {
     } catch {}
     throw error;
   } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
     await stopServerProcess(server);
     await mockLmStudio.close();
     await mockSpeaches.close();

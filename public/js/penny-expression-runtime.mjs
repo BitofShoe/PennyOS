@@ -643,12 +643,20 @@ export function applyIdleDecorFrame(item, timestamp = 0) {
 
 export function syncIdleDecorBounds(container, scrollHost) {
   if (!container || !scrollHost) return false;
+  const previousHeight = container.style.height;
+  // The decor layer is absolutely positioned, so its old inline height can keep
+  // scrollHeight pinned to a long transcript after New Chat clears the messages.
+  // Remove that self-reference before measuring the current flow content.
+  container.style.height = '';
   const targetHeight = Math.max(scrollHost.scrollHeight, scrollHost.clientHeight);
   const targetWidth = scrollHost.clientWidth;
-  if (!targetHeight || !targetWidth) return false;
+  if (!targetHeight || !targetWidth) {
+    container.style.height = previousHeight;
+    return false;
+  }
   const nextHeight = `${Math.ceil(targetHeight)}px`;
   const nextWidth = `${Math.ceil(targetWidth)}px`;
-  const changed = container.style.height !== nextHeight || container.style.width !== nextWidth;
+  const changed = previousHeight !== nextHeight || container.style.width !== nextWidth;
   container.style.height = nextHeight;
   container.style.width = nextWidth;
   return changed;

@@ -120,6 +120,72 @@ test('buildTranscriptMessageViewModels gives stable decor seeds from message ide
   assert.equal(typed[1].decorSeed, first[1].decorSeed);
 });
 
+test('streaming updates preserve manual upward scrolling instead of forcing the latest token into view', async () => {
+  const { updateStreamingAssistantBubble } = await helpersPromise;
+  const classes = { add() {} };
+  const bubble = {
+    classList: classes,
+    innerHTML: '',
+  };
+  const row = {
+    classList: classes,
+    querySelector(selector) {
+      return selector === '.bubble.assistant' ? bubble : null;
+    },
+  };
+  const chatEl = {
+    parentElement: null,
+    querySelectorAll(selector) {
+      return selector === '.msg-row.assistant' ? [row] : [];
+    },
+  };
+  const chatWrapEl = {
+    clientHeight: 500,
+    scrollHeight: 2400,
+    scrollTop: 900,
+  };
+
+  assert.equal(updateStreamingAssistantBubble({
+    chatEl,
+    chatWrapEl,
+    text: 'new streamed text',
+  }), true);
+  assert.equal(chatWrapEl.scrollTop, 900);
+});
+
+test('streaming updates continue following the reply while the reader remains near the bottom', async () => {
+  const { updateStreamingAssistantBubble } = await helpersPromise;
+  const classes = { add() {} };
+  const bubble = {
+    classList: classes,
+    innerHTML: '',
+  };
+  const row = {
+    classList: classes,
+    querySelector() {
+      return bubble;
+    },
+  };
+  const chatEl = {
+    parentElement: null,
+    querySelectorAll() {
+      return [row];
+    },
+  };
+  const chatWrapEl = {
+    clientHeight: 500,
+    scrollHeight: 2400,
+    scrollTop: 1870,
+  };
+
+  assert.equal(updateStreamingAssistantBubble({
+    chatEl,
+    chatWrapEl,
+    text: 'new streamed text',
+  }), true);
+  assert.equal(chatWrapEl.scrollTop, 2400);
+});
+
 test('readPennyEventStream parses SSE frames and JSON payloads', async () => {
   const { readPennyEventStream } = await helpersPromise;
   const encoder = new TextEncoder();

@@ -226,6 +226,41 @@ export function buildTranscriptMessageViewModels(messages = [], {
   return rows;
 }
 
+export function captureTranscriptScrollState(scrollHost, {
+  threshold = 48,
+  forceStickToLatest = false,
+} = {}) {
+  if (!scrollHost) {
+    return {
+      stickToLatest: true,
+      scrollTop: 0,
+      bottomGap: 0,
+    };
+  }
+  const scrollTop = Math.max(0, Number(scrollHost.scrollTop) || 0);
+  const scrollHeight = Math.max(0, Number(scrollHost.scrollHeight) || 0);
+  const clientHeight = Math.max(0, Number(scrollHost.clientHeight) || 0);
+  const bottomGap = Math.max(0, scrollHeight - clientHeight - scrollTop);
+  return {
+    stickToLatest: forceStickToLatest || bottomGap <= Math.max(0, Number(threshold) || 0),
+    scrollTop,
+    bottomGap,
+  };
+}
+
+export function restoreTranscriptScrollState(scrollHost, snapshot = {}) {
+  if (!scrollHost) return;
+  if (snapshot.stickToLatest !== false) {
+    scrollHost.scrollTop = scrollHost.scrollHeight;
+    return;
+  }
+  const maxScrollTop = Math.max(
+    0,
+    (Number(scrollHost.scrollHeight) || 0) - (Number(scrollHost.clientHeight) || 0),
+  );
+  scrollHost.scrollTop = Math.min(Math.max(0, Number(snapshot.scrollTop) || 0), maxScrollTop);
+}
+
 export function renderTranscriptMessages({
   chatEl,
   introEl = null,
@@ -238,8 +273,11 @@ export function renderTranscriptMessages({
   appendMessageDecor,
   formatBytesFn = defaultFormatBytes,
   escapeHtmlFn = escapeHtml,
+  forceStickToLatest = false,
 } = {}) {
   if (!chatEl) return [];
+  const scrollHost = chatWrapEl || chatEl.parentElement;
+  const scrollState = captureTranscriptScrollState(scrollHost, { forceStickToLatest });
   const rows = buildTranscriptMessageViewModels(messages, { loading, stateMood, formatBytesFn });
 
   chatEl.innerHTML = '';
@@ -300,11 +338,7 @@ export function renderTranscriptMessages({
     chatEl.appendChild(item);
   }
 
-  if (chatWrapEl) {
-    chatWrapEl.scrollTop = chatWrapEl.scrollHeight;
-  } else if (chatEl.parentElement) {
-    chatEl.parentElement.scrollTop = chatEl.parentElement.scrollHeight;
-  }
+  restoreTranscriptScrollState(scrollHost, scrollState);
 
   return rows;
 }
@@ -317,6 +351,8 @@ export function updateStreamingAssistantBubble({
   escapeHtmlFn = escapeHtml,
 } = {}) {
   if (!chatEl) return false;
+  const scrollHost = chatWrapEl || chatEl.parentElement;
+  const scrollState = captureTranscriptScrollState(scrollHost);
   const rows = chatEl.querySelectorAll('.msg-row.assistant');
   const row = rows[rows.length - 1];
   if (!row) return false;
@@ -328,10 +364,7 @@ export function updateStreamingAssistantBubble({
   bubble.innerHTML = visible
     ? renderTranscriptContentHtml(visible, { escapeHtmlFn, streaming: true })
     : '<span class="stream-caret" aria-hidden="true"></span>';
-  const scrollHost = chatWrapEl || chatEl.parentElement;
-  if (scrollHost) {
-    scrollHost.scrollTop = scrollHost.scrollHeight;
-  }
+  restoreTranscriptScrollState(scrollHost, scrollState);
   return true;
 }
 

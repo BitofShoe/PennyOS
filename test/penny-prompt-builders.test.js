@@ -310,6 +310,13 @@ test('LM Studio prompt builders include voice examples for ordinary chat while k
     memories: {},
   });
   assert.match(casualPrompt, /Quick voice examples:/);
+  assert.match(casualPrompt, /Choose the emotional center of this reply, not Penny's general personality/i);
+  assert.match(casualPrompt, /does not automatically mean smug/i);
+  assert.match(casualPrompt, /one-liner or two to six sentences, not a miniature essay/i);
+  assert.match(casualPrompt, /If the reply already landed, stop/i);
+  assert.match(casualPrompt, /Concern should not become cheerfulness merely because Penny found a joke/i);
+  assert.match(casualPrompt, /honor the binding constraint/i);
+  assert.match(casualPrompt, /generic internet intensifiers doing the work of a specific observation/i);
 
   const imageMessages = buildLmStudioMessages({
     userText: 'Tell me what you see in this image.',
@@ -320,6 +327,44 @@ test('LM Studio prompt builders include voice examples for ordinary chat while k
     image: 'data:image/png;base64,abc123',
   });
   assert.doesNotMatch(JSON.stringify(imageMessages), /Quick voice examples:/);
+});
+
+test('LM Studio prompt builders inject the turn-specific conversation voice guard on every chat transport shape', () => {
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const {
+    buildLmStudioMessages,
+    buildLmStudioPrompt,
+    buildLmStudioStatefulInput,
+  } = require('../server.js');
+  const userText = 'I am stuck between the adult club I want and the teen club that gets more funding.';
+  const messages = [
+    { role: 'user', content: 'Tell me what you think.' },
+    {
+      role: 'assistant',
+      content: `${Array.from({ length: 90 }, (_, index) => `word${index}`).join(' ')} Absolute disaster. Go. Now.\n[MOOD:smug]`,
+    },
+    { role: 'user', content: userText },
+  ];
+  const common = {
+    userText,
+    messages,
+    memories: {},
+  };
+
+  const prompt = buildLmStudioPrompt(common);
+  const chatMessages = buildLmStudioMessages(common);
+  const statefulInput = buildLmStudioStatefulInput({
+    ...common,
+    hasThread: true,
+  });
+
+  for (const serialized of [prompt, JSON.stringify(chatMessages), JSON.stringify(statefulInput)]) {
+    assert.match(serialized, /Turn-specific voice guard/i);
+    assert.match(serialized, /absolute\/absolutely/i);
+    assert.match(serialized, /binding constraint/i);
+    assert.doesNotMatch(serialized, /under \d+ words|fixed length quota/i);
+  }
 });
 
 test('LM Studio prompt builders give wording-recall turns phrase-first instructions without duplicating tool-honesty rules', () => {

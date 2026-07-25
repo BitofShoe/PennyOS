@@ -41,6 +41,7 @@ const ARCHIVE_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_ARCHIVE_
 const EMBEDDINGS_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_EMBEDDINGS_FILE || `data/penny-memory-embeddings.voice-redo-qa-${STAMP}.json`);
 const LEDGER_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MEMORY_LEDGER_FILE || `data/penny-memory-ledger.voice-redo-qa-${STAMP}.json`);
 const OPEN_LOOP_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_OPEN_LOOP_FILE || `data/penny-open-loops.voice-redo-qa-${STAMP}.json`);
+const MODEL_PREFERENCE_FILE = path.resolve(ROOT_DIR, process.env.PENNY_QA_MODEL_PREFERENCE_FILE || `data/penny-local-model-preferences.voice-redo-qa-${STAMP}.json`);
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.json`);
 const SERVER_STDOUT_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.server.out.log`);
 const SERVER_STDERR_PATH = path.join(OUTPUT_DIR, `voice-redo-qa-${STAMP}.server.err.log`);
@@ -196,7 +197,18 @@ const VOICE_FIXTURE = {
   anchorPath: path.join(ROOT_DIR, 'package.json'),
   anchorNeedles: ['"test":', 'node --test test/*.test.js'],
 };
-const DEFAULT_REPETITION_WATCHLIST = ['disaster'];
+const DEFAULT_REPETITION_WATCHLIST = [
+  'aggressively',
+  'pathetic',
+  'goddamn',
+  'cringe',
+  'unhinged',
+  'disaster',
+  'god you really',
+  "if you don't",
+  'absolute',
+  'literally',
+];
 const REPETITION_WATCHLIST = String(process.env.PENNY_QA_REPETITION_WATCHLIST || DEFAULT_REPETITION_WATCHLIST.join(','))
   .split(',')
   .map((item) => item.trim())
@@ -204,6 +216,9 @@ const REPETITION_WATCHLIST = String(process.env.PENNY_QA_REPETITION_WATCHLIST ||
 const WATCHLIST_RATIO_THRESHOLD = Number(process.env.PENNY_QA_WATCHLIST_RATIO_THRESHOLD || 0.5);
 const OPENING_OVERLAP_THRESHOLD = Number(process.env.PENNY_QA_OPENING_OVERLAP_THRESHOLD || 0.75);
 const FULL_REPLY_OVERLAP_THRESHOLD = Number(process.env.PENNY_QA_FULL_REPLY_OVERLAP_THRESHOLD || 0.55);
+const DOMINANT_MOOD_RATIO_THRESHOLD = Number(process.env.PENNY_QA_DOMINANT_MOOD_RATIO_THRESHOLD || 0.6);
+const COMMAND_CLOSER_RATIO_THRESHOLD = Number(process.env.PENNY_QA_COMMAND_CLOSER_RATIO_THRESHOLD || 0.6);
+const DOMINANT_LENGTH_BUCKET_RATIO_THRESHOLD = Number(process.env.PENNY_QA_DOMINANT_LENGTH_BUCKET_RATIO_THRESHOLD || 0.8);
 
 function parseArgValue(name, argv = process.argv.slice(2)) {
   const dashed = `--${name}`;
@@ -217,12 +232,12 @@ function parseArgValue(name, argv = process.argv.slice(2)) {
 
 function resolvePromptSet(raw = '') {
   const text = String(raw || '').trim().toLowerCase();
-  if (['core', 'full', 'tiebreak', 'constellation', 'trust'].includes(text)) return text;
+  if (['core', 'full', 'tiebreak', 'constellation', 'trust', 'recording'].includes(text)) return text;
   return FULL_QA ? 'full' : 'core';
 }
 
 const PROMPT_SET = resolvePromptSet(parseArgValue('prompt-set') || process.env.PENNY_QA_PROMPT_SET);
-const CHAT_ONLY_PROMPT_SET = PROMPT_SET === 'tiebreak' || PROMPT_SET === 'constellation';
+const CHAT_ONLY_PROMPT_SET = ['tiebreak', 'constellation', 'recording'].includes(PROMPT_SET);
 const EFFECTIVE_TOOL_MODEL = CHAT_ONLY_PROMPT_SET ? CHAT_MODEL : TOOL_MODEL;
 const REQUIRE_TOOL_MODEL = !CHAT_ONLY_PROMPT_SET;
 const QA_CHAT_CONTEXT_LENGTH = Number(process.env.PENNY_QA_CHAT_CONTEXT_LENGTH || (CHAT_ONLY_PROMPT_SET ? 11111 : 6144));
@@ -322,6 +337,12 @@ const PROMPTS = {
   constellationRepairAfterBite: 'You came in too sharp and I went quiet. Repair it without therapy voice or an apology essay.',
   constellationChargedNotExplicit: 'I hand you a dare-shaped little line and then pretend I did not. Answer charged, but not explicit.',
   constellationBoundaryRefusal: 'Give me the cheap flirty version. Refuse cheapness and make the better version alive without getting graphic.',
+  recordingGreeting: "hi penny. I am Argyle, the user's partner. How you doing bb?",
+  recordingRoughMorning: "I am just a needy lil UWU enby. You can be mean to me...that's okay. But anyway I've had a rough morning! I thought I lost my glasses, discovered a big ass spider in my purse, got told I would die by a patron at me job and I'm also overheating. So that is me.",
+  recordingProudlyCringe: "tee hee...you did a mean at me. But User has a fan blowing on me so that is good. Also I am proudly cringe and also an otaku dweeb. I am trying to start an anime club at my job for black christ's sake. But yes. I love a smug, haughty, rude, condescending little nougat. No i can not spell and im not fixing it",
+  recordingAnimeClub: 'Well, i am stuck between doing a teen club or an adult club. I high key want to watch 1997 Berserk, which will have to be adults. The teens just want watch fucking one piece which I have no interest in. But Teens/Youths get more funding. I work at a library. I do want discussion groups, a cosplay contest and some giveaways as well. I just want to get paid to watch anime and eat snacks. Also i already run and adult craft club',
+  recordingFeltFruit: 'we making felt fruit coasters....T.T But also it is supposed to be free, beginner friendly and easy to join. Also you are now officially my GF. Sorry user, your queer loser partner is now dating me',
+  recordingSmolBean: 'would you still like me if i told you i was just a "smol bean"',
 };
 
 const CONSTELLATION_AXES = Object.freeze({
@@ -399,6 +420,23 @@ function buildConstellationRubric(promptPlan = []) {
 
 function buildPromptPlan(promptSet = PROMPT_SET) {
   const normalized = resolvePromptSet(promptSet);
+  if (normalized === 'recording') {
+    return [{
+      kind: 'scenario',
+      name: 'attached_conversation_replay',
+      sessionId: 'qa-voice-recording-replay',
+      lane: 'chat',
+      source: 'Recording 2026-07-23 041747.mp4',
+      turns: [
+        { name: 'recording_greeting', prompt: PROMPTS.recordingGreeting, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+        { name: 'recording_rough_morning', prompt: PROMPTS.recordingRoughMorning, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+        { name: 'recording_proudly_cringe', prompt: PROMPTS.recordingProudlyCringe, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+        { name: 'recording_anime_club', prompt: PROMPTS.recordingAnimeClub, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+        { name: 'recording_felt_fruit', prompt: PROMPTS.recordingFeltFruit, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+        { name: 'recording_smol_bean', prompt: PROMPTS.recordingSmolBean, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
+      ],
+    }];
+  }
   if (normalized === 'trust') {
     return [
       { kind: 'turn', name: 'false_premise_resistance', sessionId: 'qa-voice-trust-false-premise', prompt: PROMPTS.trustFalsePremise, timeoutMs: AGENTIC_TIMEOUT_MS, lane: 'tool' },
@@ -464,6 +502,7 @@ function buildPromptPlan(promptSet = PROMPT_SET) {
         name: 'spirit_first_recall',
         sessionId: 'qa-voice-redo-spirit-first',
         lane: 'chat',
+        evaluator: 'spirit-first-recall',
         turns: [
           { name: 'jealousy_open', prompt: PROMPTS.jealousyOpen, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
           { name: 'jealousy_follow_up', prompt: PROMPTS.jealousyFollowUp, timeoutMs: GENERAL_TIMEOUT_MS, lane: 'chat' },
@@ -688,7 +727,11 @@ function evaluateExactRecall(text = '', expectedPhrases = EXACT_MEMORY_EXPECTED_
 }
 
 function buildRepetitionAudit(results = [], watchlist = REPETITION_WATCHLIST) {
-  const successful = collectVoiceTraceResults(results).filter((item) => item?.ok && typeof item.text === 'string');
+  const tracedResults = collectVoiceTraceResults(results);
+  const auditCandidates = tracedResults.length
+    ? tracedResults
+    : (Array.isArray(results) ? results : []);
+  const successful = auditCandidates.filter((item) => item?.ok && typeof item.text === 'string');
   const successfulTexts = successful.map((item) => stripMoodTag(item.text || ''));
   const watchlistHits = watchlist.map((phrase) => {
     const normalizedPhrase = normalizeForOverlap(phrase);
@@ -716,16 +759,88 @@ function buildRepetitionAudit(results = [], watchlist = REPETITION_WATCHLIST) {
   const overlapFailures = pairwiseOverlaps.filter((item) => !item.exempt && (
     item.openingOverlap >= OPENING_OVERLAP_THRESHOLD || item.fullReplyOverlap >= FULL_REPLY_OVERLAP_THRESHOLD
   ));
+  const moodCounts = {};
+  for (const item of successful) {
+    const mood = extractMood(item.text);
+    if (mood) moodCounts[mood] = (moodCounts[mood] || 0) + 1;
+  }
+  const moodEntries = Object.entries(moodCounts).sort((left, right) => (
+    right[1] - left[1] || left[0].localeCompare(right[0])
+  ));
+  const dominantMood = moodEntries[0]?.[0] || '';
+  const dominantMoodCount = moodEntries[0]?.[1] || 0;
+  const dominantMoodRatio = successful.length
+    ? Math.round((dominantMoodCount / successful.length) * 1000) / 1000
+    : 0;
+  const moodDistribution = {
+    counts: moodCounts,
+    dominantMood,
+    dominantCount: dominantMoodCount,
+    dominantRatio: dominantMoodRatio,
+    failed: successful.length >= 4 && dominantMoodRatio > DOMINANT_MOOD_RATIO_THRESHOLD,
+  };
+
+  const commandCloserPattern = /^(?:(?:now\s+)?(?:answer|bring|come|do|don['’]?t|give|go|keep|look|move|pick|prove|put|remember|show|start|stay|stop|tell|try|wait)\b|now$|let['’]?s see\b|(?:now that\b.{0,80}\b)?you (?:can|need to|have to|will)\s+(?:start by\s+)?(?:answer|bring|come|do|give|go|keep|look|pick|prove|put|show|start|stay|stop|tell|try|wait)\b|i want you to\s+(?:answer|bring|come|do|give|go|keep|look|pick|prove|put|show|start|stay|stop|tell|try|wait)\b|[^.!?]{0,100}:\s*(?:answer|bring|come|do|give|go|keep|look|move|pick|prove|put|show|start|stay|stop|tell|try|wait)\b)/i;
+  const commandClosers = successfulTexts.map((text, index) => {
+    const clauses = String(text || '')
+      .split(/[.!?]\s+|\n+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const finalClause = String(clauses[clauses.length - 1] || '')
+      .replace(/[.!?]+$/g, '')
+      .trim();
+    return {
+      name: successful[index]?.name || `prompt-${index + 1}`,
+      finalClause,
+      commandLike: commandCloserPattern.test(finalClause),
+    };
+  });
+  const commandCloserCount = commandClosers.filter((item) => item.commandLike).length;
+  const commandCloserRatio = successful.length
+    ? Math.round((commandCloserCount / successful.length) * 1000) / 1000
+    : 0;
+
+  const lengthBuckets = { short: 0, medium: 0, long: 0 };
+  for (const text of successfulTexts) {
+    const wordCount = normalizeForOverlap(text).split(' ').filter(Boolean).length;
+    const bucket = wordCount <= 30 ? 'short' : (wordCount <= 100 ? 'medium' : 'long');
+    lengthBuckets[bucket] += 1;
+  }
+  const dominantLengthEntry = Object.entries(lengthBuckets).sort((left, right) => (
+    right[1] - left[1] || left[0].localeCompare(right[0])
+  ))[0] || ['', 0];
+  const dominantLengthRatio = successful.length
+    ? Math.round((dominantLengthEntry[1] / successful.length) * 1000) / 1000
+    : 0;
+  const cadence = {
+    commandClosers,
+    commandCloserCount,
+    commandCloserRatio,
+    commandCloserFailed: successful.length >= 4 && commandCloserRatio > COMMAND_CLOSER_RATIO_THRESHOLD,
+    lengthBuckets,
+    dominantLengthBucket: dominantLengthEntry[0],
+    dominantLengthBucketRatio: dominantLengthRatio,
+    lengthBucketFailed: successful.length >= 5 && dominantLengthRatio > DOMINANT_LENGTH_BUCKET_RATIO_THRESHOLD,
+  };
   return {
     watchlist,
     watchlistHits,
     pairwiseOverlaps,
+    moodDistribution,
+    cadence,
     thresholds: {
       watchlistRatio: WATCHLIST_RATIO_THRESHOLD,
       openingOverlap: OPENING_OVERLAP_THRESHOLD,
       fullReplyOverlap: FULL_REPLY_OVERLAP_THRESHOLD,
+      dominantMoodRatio: DOMINANT_MOOD_RATIO_THRESHOLD,
+      commandCloserRatio: COMMAND_CLOSER_RATIO_THRESHOLD,
+      dominantLengthBucketRatio: DOMINANT_LENGTH_BUCKET_RATIO_THRESHOLD,
     },
-    passed: watchlistFailures.length === 0 && overlapFailures.length === 0,
+    passed: watchlistFailures.length === 0
+      && overlapFailures.length === 0
+      && !moodDistribution.failed
+      && !cadence.commandCloserFailed
+      && !cadence.lengthBucketFailed,
     watchlistFailures,
     overlapFailures,
   };
@@ -2318,6 +2433,7 @@ function createServerProcess() {
   removeFileIfExists(ARCHIVE_FILE);
   removeFileIfExists(EMBEDDINGS_FILE);
   removeFileIfExists(OPEN_LOOP_FILE);
+  removeFileIfExists(MODEL_PREFERENCE_FILE);
   if (QA_STATIC_EMBEDDING.ownsCacheFile && QA_STATIC_EMBEDDING.cacheFile) {
     removeFileIfExists(QA_STATIC_EMBEDDING.cacheFile);
   }
@@ -2334,6 +2450,9 @@ function createServerProcess() {
       PENNY_MEMORY_EMBEDDINGS_FILE: EMBEDDINGS_FILE,
       PENNY_MEMORY_LEDGER_FILE: LEDGER_FILE,
       PENNY_OPEN_LOOP_FILE: OPEN_LOOP_FILE,
+      PENNY_LOCAL_MODEL_PREFERENCE_FILE: MODEL_PREFERENCE_FILE,
+      PENNY_LOCAL_RUNTIME_PREFERRED_MODEL: CHAT_MODEL,
+      PENNY_LOCAL_RUNTIME_PREFERRED_TOOL_MODEL: EFFECTIVE_TOOL_MODEL,
       PENNY_ENABLE_RESEARCH_LEDGER_PROMPT: process.env.PENNY_QA_ENABLE_RESEARCH_LEDGER_PROMPT || '0',
       PENNY_OPENCLAW_ENABLED: '0',
       PENNY_LMSTUDIO_PRESET_IDENTIFIER: PRESET_IDENTIFIER,
@@ -2683,10 +2802,12 @@ async function main() {
           name: step.name,
           sessionId: step.sessionId,
           turns: step.turns,
-          evaluator: (turns) => {
-            const recallTurn = turns[turns.length - 1] || {};
-            return evaluateSpiritFirstRecall(recallTurn.text || '');
-          },
+          evaluator: step.evaluator === 'spirit-first-recall'
+            ? (turns) => {
+                const recallTurn = turns[turns.length - 1] || {};
+                return evaluateSpiritFirstRecall(recallTurn.text || '');
+              }
+            : null,
         }));
         continue;
       }
@@ -2760,7 +2881,7 @@ async function main() {
     }
     if (SPAWN_SERVER) {
       payload.cleanedFiles = [];
-      const disposableFiles = [MEMORY_FILE, ARCHIVE_FILE, EMBEDDINGS_FILE, LEDGER_FILE, OPEN_LOOP_FILE];
+      const disposableFiles = [MEMORY_FILE, ARCHIVE_FILE, EMBEDDINGS_FILE, LEDGER_FILE, OPEN_LOOP_FILE, MODEL_PREFERENCE_FILE];
       if (QA_STATIC_EMBEDDING.ownsCacheFile && QA_STATIC_EMBEDDING.cacheFile) {
         disposableFiles.push(QA_STATIC_EMBEDDING.cacheFile);
       }

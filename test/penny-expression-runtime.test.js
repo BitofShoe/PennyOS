@@ -188,6 +188,28 @@ test('idle decor bounds tolerate composer height changes without reseeding the s
   );
 });
 
+test('idle decor bounds shrink after a long transcript is cleared for a new chat', async () => {
+  const { syncIdleDecorBounds } = await helpersPromise;
+  const container = {
+    style: {
+      height: '4200px',
+      width: '900px',
+    },
+  };
+  const scrollHost = {
+    clientHeight: 620,
+    clientWidth: 900,
+    get scrollHeight() {
+      const decorHeight = Number.parseInt(container.style.height, 10) || 0;
+      return Math.max(620, decorHeight);
+    },
+  };
+
+  assert.equal(syncIdleDecorBounds(container, scrollHost), true);
+  assert.equal(container.style.height, '620px');
+  assert.equal(container.style.width, '900px');
+});
+
 test('main app keeps the chatbox cyber-decor animation CSS without the reseeding screensaver runtime', () => {
   const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'penny-app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');

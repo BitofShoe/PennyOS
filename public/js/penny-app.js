@@ -572,7 +572,7 @@ function queueStaticCyberDecorBoundsSync() {
   syncStaticCyberDecorBounds();
 }
 
-function renderMessages() {
+function renderMessages({ forceStickToLatest = false } = {}) {
   renderTranscriptMessagesUi({
     chatEl: els.chat,
     introEl: els.intro,
@@ -585,6 +585,7 @@ function renderMessages() {
     appendMessageDecor,
     formatBytesFn: formatBytes,
     escapeHtmlFn: escapeHtml,
+    forceStickToLatest,
   });
   queueStaticCyberDecorBoundsSync();
 }
@@ -1243,7 +1244,7 @@ async function sendMessage() {
   state.messages.push(assistantDraft);
   els.composer.value = '';
   els.composer.dispatchEvent(new Event('input', { bubbles: true }));
-  attachmentUi.clearPendingAttachments(); state.loading = true; state.presence = 'thinking'; renderMessages(); updateTheme(); saveState();
+  attachmentUi.clearPendingAttachments(); state.loading = true; state.presence = 'thinking'; renderMessages({ forceStickToLatest: true }); updateTheme(); saveState();
   try {
     const body = { sessionId: state.memory.sessionId, messages: serializeMessagesForApi(), memories: buildChatMemoryPayload(state.memory), stream: true };
     if (imageData) body.image = imageData;

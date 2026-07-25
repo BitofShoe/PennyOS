@@ -1511,6 +1511,7 @@ test('chat route keeps image uploads on the chat lane and records attachment-bou
 
 test('streamed chat route sends image replies through message.delta and done events', async () => {
   const events = [];
+  const retagCalls = [];
 
   const handlers = createPennyRouteHandlers({
     async safeReadBody() {
@@ -1638,7 +1639,8 @@ test('streamed chat route sends image replies through message.delta and done eve
     runOpenClawShadow() {
       return '';
     },
-    retagAssistantReply(text = '') {
+    retagAssistantReply(text = '', preferredMood = '', options = {}) {
+      retagCalls.push({ preferredMood, options });
       return text;
     },
     extractReplyMoodTag() {
@@ -1679,7 +1681,7 @@ test('streamed chat route sends image replies through message.delta and done eve
     },
     sessionState: {
       turns: 0,
-      lastMood: 'calm',
+      lastMood: 'smug',
       memory: [],
     },
     constants: {
@@ -1720,4 +1722,11 @@ test('streamed chat route sends image replies through message.delta and done eve
   assert.equal(handled, true);
   assert.equal(events.some((item) => item.event === 'message.delta' && /tiny little test square/i.test(String(item.data?.text || ''))), true);
   assert.equal(events.some((item) => item.event === 'done' && /tiny little test square/i.test(String(item.data?.text || ''))), true);
+  assert.deepEqual(retagCalls[0], {
+    preferredMood: '',
+    options: {
+      balanceMood: true,
+      previousMood: 'smug',
+    },
+  });
 });
