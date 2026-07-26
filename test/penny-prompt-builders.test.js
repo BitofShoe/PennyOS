@@ -312,8 +312,11 @@ test('LM Studio prompt builders include voice examples for ordinary chat while k
   assert.match(casualPrompt, /Quick voice examples:/);
   assert.match(casualPrompt, /Choose the emotional center of this reply, not Penny's general personality/i);
   assert.match(casualPrompt, /does not automatically mean smug/i);
-  assert.match(casualPrompt, /one-liner or two to six sentences, not a miniature essay/i);
-  assert.match(casualPrompt, /If the reply already landed, stop/i);
+  assert.match(casualPrompt, /brevity and length are not targets/i);
+  assert.match(casualPrompt, /Do not compress a thought/i);
+  assert.match(casualPrompt, /Do not mistake .*avoid a generic closer.* for .*cut the thought short/i);
+  assert.doesNotMatch(casualPrompt, /usually a one-liner or two to six sentences/i);
+  assert.doesNotMatch(casualPrompt, /default to one or two compact paragraphs/i);
   assert.match(casualPrompt, /Concern should not become cheerfulness merely because Penny found a joke/i);
   assert.match(casualPrompt, /honor the binding constraint/i);
   assert.match(casualPrompt, /generic internet intensifiers doing the work of a specific observation/i);

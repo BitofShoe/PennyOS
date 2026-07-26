@@ -126,6 +126,7 @@ const {
 } = require('./lib/penny-mood');
 const {
   buildConversationVoiceGuard,
+  maybeRepairVoiceCadenceReply,
 } = require('./lib/penny-voice-cadence');
 const {
   createReplyGuardApi,
@@ -3198,6 +3199,7 @@ const lmStudioTransportApi = createLmStudioTransportApi({
   reportLmStudioReasoning,
 });
 const {
+  runLmStudioChatCompletionsApi: runLmStudioVoiceRepairApi,
   runLmStudioLocal: runLmStudioLocalApi,
   streamLmStudioLocal: streamLmStudioLocalApi,
 } = lmStudioTransportApi;
@@ -3220,6 +3222,38 @@ function bindAbortSignal(controller, abortSignal) {
   const onAbort = () => controller.abort();
   abortSignal.addEventListener('abort', onAbort, { once: true });
   controller.signal.addEventListener('abort', () => abortSignal.removeEventListener('abort', onAbort), { once: true });
+}
+
+async function repairVoiceCadenceAfterDraft({
+  text,
+  userText,
+  messages,
+  memories,
+  abortSignal,
+  latencyBudget,
+} = {}) {
+  return maybeRepairVoiceCadenceReply({
+    text,
+    userText,
+    messages,
+    rewrite: async (repairPrompt) => {
+      const repairLaneRuntime = createLaneRuntime('chat');
+      const repairedText = await runLmStudioVoiceRepairApi({
+        userText: repairPrompt,
+        messages: [],
+        memories,
+        abortSignal,
+        lane: 'chat',
+        laneRuntime: repairLaneRuntime,
+        latencyBudget,
+        preserveThread: true,
+      });
+      if (repairLaneRuntime.responseLimit?.hit === true) {
+        throw new Error('Voice-cadence surface edit hit the model output limit.');
+      }
+      return repairedText;
+    },
+  });
 }
 
 async function runLmStudioLocalSmart({ userText, messages, memories, image, file, abortSignal, onToolEvent, laneSelection = null, latencyBudget = null }) {
@@ -3399,11 +3433,20 @@ async function runLmStudioLocalSmart({ userText, messages, memories, image, file
   }
   laneRuntime.modelUsed = true;
   laneRuntime.executionPath = 'llm-chat';
-  const text = await runLmStudioLocalApi({ userText, messages, memories, image, file, abortSignal, lane: laneRuntime.localLane, laneRuntime, latencyBudget: budget });
+  const firstPassText = await runLmStudioLocalApi({ userText, messages, memories, image, file, abortSignal, lane: laneRuntime.localLane, laneRuntime, latencyBudget: budget });
+  const voiceCadence = await repairVoiceCadenceAfterDraft({
+    text: firstPassText,
+    userText,
+    messages,
+    memories,
+    abortSignal,
+    latencyBudget: budget,
+  });
   return {
-    text,
+    text: voiceCadence.text,
     toolsUsed: [],
     toolRecords: [],
+    repair: voiceCadence.repair,
     epistemics: normalizeEpistemicCaution(memories?.epistemicCaution),
     synthesis: normalizeArchiveSynthesis(memories?.archiveSynthesis),
     modelUsed: true,
@@ -3531,11 +3574,23 @@ async function streamLmStudioLocalSmart({ userText, messages, memories, image, f
   }
   laneRuntime.modelUsed = true;
   laneRuntime.executionPath = 'llm-chat';
-  const text = await streamLmStudioLocalApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane: laneRuntime.localLane, laneRuntime, latencyBudget: budget });
+  const firstPassText = await streamLmStudioLocalApi({ userText, messages, memories, image, file, onEvent, abortSignal, lane: laneRuntime.localLane, laneRuntime, latencyBudget: budget });
+  const voiceCadence = await repairVoiceCadenceAfterDraft({
+    text: firstPassText,
+    userText,
+    messages,
+    memories,
+    abortSignal,
+    latencyBudget: budget,
+  });
+  if (voiceCadence.repair?.repairAccepted && voiceCadence.text) {
+    onEvent?.({ type: 'message.delta', content: voiceCadence.text, text: voiceCadence.text });
+  }
   return {
-    text,
+    text: voiceCadence.text,
     toolsUsed: [],
     toolRecords: [],
+    repair: voiceCadence.repair,
     epistemics: normalizeEpistemicCaution(memories?.epistemicCaution),
     synthesis: normalizeArchiveSynthesis(memories?.archiveSynthesis),
     modelUsed: true,

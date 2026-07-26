@@ -18,6 +18,7 @@ function makeTransportApi({
   },
   collectLmStudioStatefulChatStrings = () => ({ responseId: 'resp_stateful', outputText: '', reasoningText: '' }),
   collectLmStudioResponsesStrings = () => ({ outputText: '', reasoningText: '' }),
+  clearLmStudioThread = () => {},
   reportLmStudioReasoning = () => {},
   extractPennyFromPlanningBlob = () => '',
   extractPennyFromReasoning = () => '',
@@ -44,7 +45,7 @@ function makeTransportApi({
     buildLmStudioLeanSystemPrompt: () => 'system',
     hashText: () => 'hash',
     normalizeLmStudioThread: () => null,
-    clearLmStudioThread: () => {},
+    clearLmStudioThread,
     bindAbortSignal: () => {},
     collectLmStudioResponsesStrings,
     collectLmStudioStatefulChatStrings,
@@ -108,6 +109,40 @@ test('OpenAI cloud chat/completions payload omits LM Studio-only top_k sampling'
   assert.equal(request.payload.temperature, 1.0);
   assert.equal(request.payload.top_p, 0.95);
   assert.equal(Object.prototype.hasOwnProperty.call(request.payload, 'top_k'), false);
+});
+
+test('chat-completions repair calls can preserve the active stateful thread', async () => {
+  let clears = 0;
+  const api = makeTransportApi({
+    postJsonSse: async () => {
+      throw new Error('postJsonSse should not be called in this test');
+    },
+    clearLmStudioThread: () => {
+      clears += 1;
+    },
+    postJsonLongRunning: async () => ({
+      statusCode: 200,
+      bodyText: JSON.stringify({
+        choices: [
+          { message: { content: 'Revised visible reply.' } },
+        ],
+      }),
+    }),
+  });
+
+  await api.runLmStudioChatCompletionsApi({
+    userText: 'ordinary call',
+    messages: [],
+    memories: {},
+  });
+  await api.runLmStudioChatCompletionsApi({
+    userText: 'surface edit',
+    messages: [],
+    memories: {},
+    preserveThread: true,
+  });
+
+  assert.equal(clears, 1);
 });
 
 test('all LM Studio chat transports include Gemma 4 chat sampling fields', async () => {

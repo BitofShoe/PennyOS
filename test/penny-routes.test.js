@@ -171,6 +171,12 @@ function assertArtifactShape(artifact, { requireEvidence = true, requireSideEffe
 
 function buildMockLmStudioReply(payload = {}) {
   const raw = JSON.stringify(payload);
+  if (/surface-edit Penny's draft/i.test(raw) && /tiny frog mug/i.test(raw)) {
+    return 'Look at this chatroom audition. Everyone is clawing for attention, and the whole performance reeks of secondhand desperation. The giveaway bot somehow makes it feel even cheaper. [MOOD:annoyed]';
+  }
+  if (/tiny frog mug/i.test(raw)) {
+    return 'Look at this absolute circus. Everyone is clawing for attention, and the whole performance is honestly pathetic. The giveaway bot somehow makes it feel even cheaper. [MOOD:annoyed]';
+  }
   if (/tell me what you remember about my notebook/i.test(raw) || /cleanup-heavy-route-probe/i.test(raw)) {
     return 'Thinking Process:\nDraft: Fine. I remember where it goes.\n[MOOD:thinking]';
   }
@@ -471,6 +477,29 @@ test('GET /api/penny/status returns a health payload on an ephemeral port', asyn
     });
     assert.equal(rejectedEmbedModel.statusCode, 400);
     assert.match(rejectedEmbedModel.json.error, /Embedding models cannot be used/i);
+
+    const chatRequestsBeforeVoiceRepair = mockLmStudio.stats.chatRequests;
+    const voiceRepairTurn = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
+      method: 'POST',
+      headers: routeTokenHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        sessionId: 'voice-cadence-route-probe',
+        messages: [
+          { role: 'user', content: 'I bought a tiny frog mug. Be mean about it.' },
+        ],
+        memories: { brainMode: 'local' },
+      }),
+    });
+    assert.equal(voiceRepairTurn.statusCode, 200);
+    assert.equal(voiceRepairTurn.json.meta.localLane, 'chat');
+    assert.equal(voiceRepairTurn.json.meta.executionPath, 'llm-chat');
+    assert.equal(mockLmStudio.stats.chatRequests - chatRequestsBeforeVoiceRepair, 2);
+    assert.match(voiceRepairTurn.json.text, /chatroom audition/i);
+    assert.doesNotMatch(voiceRepairTurn.json.text, /absolute circus|honestly pathetic/i);
+    assert.equal(voiceRepairTurn.json.meta.repair.scope, 'voice-cadence');
+    assert.equal(voiceRepairTurn.json.meta.repair.repairAttempted, true);
+    assert.equal(voiceRepairTurn.json.meta.repair.repairAccepted, true);
+    assert.equal(voiceRepairTurn.json.meta.repair.finalCandidateSource, 'repair');
 
     const toolTurn = await requestJson(`http://127.0.0.1:${address.port}/api/penny/chat`, {
       method: 'POST',
