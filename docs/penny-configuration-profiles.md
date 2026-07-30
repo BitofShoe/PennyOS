@@ -103,6 +103,18 @@ PENNY_QA_MANAGE_MODELS=0
 
 Boundary: preserve loaded model state unless a specific QA task explicitly grants model-management permission.
 
+In strict no-model-ops mode, the memory and voice harnesses probe the configured provider's HTTP `/models` endpoint. They do not construct LM Studio automation or execute `lms`. Non-strict model preparation/management remains a separate, explicit path.
+
+## Isolated Performance Matrix
+
+Use this to verify performance-receipt plumbing without touching loaded models:
+
+```powershell
+npm run eval:performance-matrix
+```
+
+The versioned matrix records hardware-acceleration state, reasoning state, prompt size, projector state, cache state, prompt evaluation, first provider event, first visible token, visible generation, Penny overhead, cadence-repair second calls, and repeated warm runs. The default command starts only an isolated localhost mock provider and can support `transport-plumbing-only` claims. Real model or interactive conclusions require a separately authorized live-provider profile with the exact model, transport, hardware, projector, reasoning, context, output cap, and cache state recorded.
+
 ## Static Embedding Experiment
 
 Use this only for local experiments or explicit compare runs.

@@ -16,6 +16,7 @@ const {
   buildPressureWatchArtifact,
   buildStaticEmbeddingQaReceipt,
   buildStaticEmbeddingServerEnv,
+  buildStrictNoModelOpsPreparation,
   classifyLatencyBucket,
   classifyPremiseCaveatPosition,
   evaluateExactRecall,
@@ -147,6 +148,38 @@ test('resolveModelManagementMode has a strict prompt-only mode with no prepare/l
     assert.equal(strict.repairPreset, false);
     assert.equal(strict.loadStrategy, 'strict-no-model-ops');
   }
+});
+
+test('strict voice QA preparation uses the provider endpoint and never invokes an LM Studio CLI path', async () => {
+  let providerProbeCalls = 0;
+  const preparation = await buildStrictNoModelOpsPreparation({
+    env: {
+      PENNY_LMSTUDIO_BASE: 'http://provider.example/v1',
+      PENNY_LMSTUDIO_API_KEY: 'provider-key',
+    },
+    probeModels: async ({ baseUrl, apiKey }) => {
+      providerProbeCalls += 1;
+      assert.equal(baseUrl, 'http://provider.example/v1');
+      assert.equal(apiKey, 'provider-key');
+      return {
+        schema: 'penny-provider-model-probe.v1',
+        ok: true,
+        models: [
+          'unsloth/gemma-4-31b-it@q6_k',
+          'google/gemma-4-e4b',
+          'text-embedding-nomic-embed-text-v1.5',
+        ],
+        error: '',
+      };
+    },
+  });
+
+  assert.equal(providerProbeCalls, 1);
+  assert.equal(preparation.ok, true);
+  assert.equal(preparation.strictNoModelOps, true);
+  assert.equal(preparation.providerNeutral, true);
+  assert.equal(preparation.loadedModelEntries.every(item => item.source === 'provider-models-endpoint'), true);
+  assert.match(preparation.warnings.join(' '), /no LM Studio CLI/i);
 });
 
 test('voice QA runner sends local API auth without exposing the token in receipts', () => {

@@ -25,6 +25,11 @@ test('local readiness summary treats Q6 and E4B co-loading as healthy when lanes
   });
 
   assert.equal(summary.state, READINESS_STATES.HEALTHY);
+  assert.equal(summary.version, 'penny-local-readiness-summary.v2');
+  assert.equal(summary.availability.ready, true);
+  assert.equal(summary.compatibilityFallback.active, false);
+  assert.equal(summary.semanticDegradation.active, false);
+  assert.equal(summary.degradation.active, false);
   assert.equal(summary.coLoadedChatTool, true);
   assert.match(summary.policy.coLoading, /Q6 \+ E4B co-loading is okay/i);
   assert.match(formatLocalReadinessSummary(summary), /chat -> Q6/i);
@@ -46,6 +51,11 @@ test('local readiness summary separates optional embed fallback from lane-routin
   });
 
   assert.equal(optionalEmbed.state, READINESS_STATES.READY_WITH_OPTIONAL_FALLBACK);
+  assert.equal(optionalEmbed.availability.ready, true);
+  assert.equal(optionalEmbed.compatibilityFallback.active, false);
+  assert.equal(optionalEmbed.semanticDegradation.active, true);
+  assert.equal(optionalEmbed.legacyFallbackProjection.active, true);
+  assert.deepEqual(optionalEmbed.legacyFallbackProjection.sources, ['semantic-degradation']);
   assert.match(optionalEmbed.semanticMemory.message, /optional fallback/i);
 
   const swappedLanes = buildLocalReadinessSummary({
@@ -65,6 +75,9 @@ test('local readiness summary separates optional embed fallback from lane-routin
   });
 
   assert.equal(swappedLanes.state, READINESS_STATES.INVALID);
+  assert.equal(swappedLanes.availability.ready, false);
+  assert.equal(swappedLanes.compatibilityFallback.active, true);
+  assert.equal(swappedLanes.degradation.active, true);
   assert.match(swappedLanes.headline, /needs attention/i);
   assert.equal(swappedLanes.coLoadedChatTool, false);
 });

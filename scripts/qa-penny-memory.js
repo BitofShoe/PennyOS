@@ -36,6 +36,12 @@ const { buildPromptMemoryContext } = require('../lib/penny-memory');
 const { buildQaTrace, validateQaTrace } = require('../lib/penny-qa-trace');
 const { buildQaTrust, validateRuntimeArtifact } = require('../lib/penny-qa-trust');
 const { buildQaEnvironmentValidity } = require('../lib/penny-qa-validity');
+const {
+  modelsLookCompatible,
+} = require('../lib/penny-local-readiness-summary');
+const {
+  probeProviderModels,
+} = require('../lib/penny-provider-model-probe');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
@@ -104,6 +110,71 @@ const MEMORY_QA_SEGMENT_ORDER = Object.freeze([
   MEMORY_QA_SEGMENT_IDS.CONTRADICTION_PREMISE,
   MEMORY_QA_SEGMENT_IDS.MIXED_DRIFT,
 ]);
+
+async function buildStrictNoModelOpsMemoryPreparation({
+  env = process.env,
+  probeModels = probeProviderModels,
+  chatModel = CHAT_MODEL,
+  toolModel = TOOL_MODEL,
+  embedModel = EMBED_MODEL,
+} = {}) {
+  const providerProbe = await probeModels({
+    baseUrl: String(env.PENNY_LMSTUDIO_BASE || 'http://127.0.0.1:1234/v1').trim(),
+    apiKey: String(env.PENNY_LMSTUDIO_API_KEY || 'lm-studio').trim(),
+  });
+  const loadedModels = Array.isArray(providerProbe.models) ? providerProbe.models : [];
+  const blockers = [];
+  const warnings = [
+    'Strict no-model-ops mode used only the configured provider /models endpoint; no LM Studio CLI or model mutation path was invoked.',
+  ];
+  if (!providerProbe.ok) blockers.push(providerProbe.error || 'The configured provider models endpoint was unavailable.');
+  if (!loadedModels.some(model => modelsLookCompatible(model, chatModel))) {
+    blockers.push(`Strict no-model-ops mode requires the chat model to already be exposed: ${chatModel}.`);
+  }
+  if (toolModel && !loadedModels.some(model => modelsLookCompatible(model, toolModel))) {
+    blockers.push(`Strict no-model-ops mode requires the tool model to already be exposed: ${toolModel}.`);
+  }
+  return {
+    ok: blockers.length === 0,
+    requestedChatModel: chatModel,
+    requestedToolModel: toolModel,
+    requestedEmbedModel: embedModel,
+    loadedModels,
+    warnings,
+    blockers,
+    reportOnly: true,
+    strictNoModelOps: true,
+    providerNeutral: true,
+    providerProbe,
+  };
+}
+
+async function prepareMemoryQaRuntime({
+  modelManagement = QA_MODEL_MANAGEMENT,
+  env = process.env,
+  automationFactory = createAutomationApi,
+  probeModels = probeProviderModels,
+} = {}) {
+  if (modelManagement.strictNoModelOps) {
+    return {
+      automationApi: null,
+      preparation: await buildStrictNoModelOpsMemoryPreparation({ env, probeModels }),
+    };
+  }
+  const automationApi = automationFactory({
+    chatModel: CHAT_MODEL,
+    toolModel: TOOL_MODEL,
+  });
+  const preparation = await automationApi.prepareLmStudio({
+    reportOnly: modelManagement.prepareReportOnly,
+    repairPreset: modelManagement.repairPreset,
+    loadChatModel: false,
+    loadEmbedModel: false,
+    chatModel: CHAT_MODEL,
+    toolModel: TOOL_MODEL,
+  });
+  return { automationApi, preparation };
+}
 
 function parseMemoryQaArgs(argv = process.argv.slice(2)) {
   let smokeMode = process.env.PENNY_QA_MEMORY_SMOKE === '1';
@@ -2464,18 +2535,7 @@ async function main() {
     console.log(`Saved candidate-survival archive-unit memory QA to ${result.outputPath}`);
     return;
   }
-  const automationApi = createAutomationApi({
-    chatModel: CHAT_MODEL,
-    toolModel: TOOL_MODEL,
-  });
-  const preparation = await automationApi.prepareLmStudio({
-    reportOnly: QA_MODEL_MANAGEMENT.prepareReportOnly,
-    repairPreset: QA_MODEL_MANAGEMENT.repairPreset,
-    loadChatModel: false,
-    loadEmbedModel: false,
-    chatModel: CHAT_MODEL,
-    toolModel: TOOL_MODEL,
-  });
+  const { automationApi, preparation } = await prepareMemoryQaRuntime();
   if (!preparation.ok) {
     throw new Error(`LM Studio is not ready for memory QA: ${preparation.blockers.join(' ')}`);
   }
@@ -2584,6 +2644,8 @@ module.exports = {
   scoreTruthReplacement,
   summarizeSuites,
   buildMemoryQaTrace,
+  buildStrictNoModelOpsMemoryPreparation,
+  prepareMemoryQaRuntime,
   runSmokeSuite,
   SOURCE_SENSITIVE_MEMORY_CASES,
   SOURCE_SENSITIVE_OUTCOMES,

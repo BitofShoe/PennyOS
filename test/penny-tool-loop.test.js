@@ -643,6 +643,7 @@ test('runLmStudioToolLoop records prompt-visible raw-json evidence facts for nat
 
 test('runLmStudioToolLoop preserves tool calls while keeping reasoning_content out of follow-up payloads and evidence', async () => {
   const hiddenReasoning = '<|channel>thought\nI should inspect README before answering.\n<channel|>';
+  const laneRuntime = {};
   const api = buildToolLoopApi({
     responses: [
       {
@@ -692,7 +693,7 @@ test('runLmStudioToolLoop preserves tool calls while keeping reasoning_content o
     userText: 'Read README.md and tell me what Penny is.',
     messages: [],
     memories: {},
-    laneRuntime: {},
+    laneRuntime,
   });
 
   assert.match(result.text, /local companion prototype/i);
@@ -703,6 +704,11 @@ test('runLmStudioToolLoop preserves tool calls while keeping reasoning_content o
   assert.doesNotMatch(serializedPayloads, /I should inspect README/i);
   assert.doesNotMatch(serializedPayloads, /reasoning_content/);
   assert.doesNotMatch(serializedResult, /I should inspect README|reasoning_content|<\|channel>thought/i);
+  assert.equal(laneRuntime.reasoningContract.requested.state, 'not-requested');
+  assert.equal(laneRuntime.reasoningContract.effective.state, 'enabled');
+  assert.equal(laneRuntime.reasoningContract.observed.state, 'reasoning-observed');
+  assert.equal(laneRuntime.reasoningContract.observed.reasoningChars, hiddenReasoning.length);
+  assert.doesNotMatch(JSON.stringify(laneRuntime.reasoningContract), /I should inspect README/i);
   assert.deepEqual(result.toolEvidenceFacts, [
     {
       path: 'native_tool_loop',

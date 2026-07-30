@@ -21,6 +21,12 @@ const STORAGE_KEY = 'penny:v3';
 const SESSION_ID = `penny-browser-smoke-${Date.now().toString(36)}`;
 const INSTALL_BROWSER_ONLY = process.argv.includes('--install-browser');
 const PLAYWRIGHT_VERSION = '1.60.0';
+const PRIVACY_CANARIES = Object.freeze([
+  'PENNY_PRIVATE_PROVIDER_BODY_CANARY_8b42',
+  'PENNY_PRIVATE_PROVIDER_REASONING_CANARY_6cc1',
+  'PENNY_PRIVATE_PROVIDER_MEMORY_CANARY_24da',
+  'PENNY_PRIVATE_PROVIDER_PROMPT_CANARY_75ef',
+]);
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -213,7 +219,8 @@ async function streamMockChatCompletion(res, {
     .split(/(\s+)/)
     .filter((piece) => piece);
 
-  for (const piece of pieces) {
+  for (let index = 0; index < pieces.length; index += 1) {
+    const piece = pieces[index];
     writeSseFrame(res, {
       id: 'chatcmpl-mock',
       object: 'chat.completion.chunk',
@@ -222,7 +229,10 @@ async function streamMockChatCompletion(res, {
       choices: [
         {
           index: 0,
-          delta: { content: piece },
+          delta: {
+            content: piece,
+            ...(index === 0 ? { reasoning_content: PRIVACY_CANARIES[1] } : {}),
+          },
           finish_reason: null,
         },
       ],
@@ -289,6 +299,16 @@ async function createMockLmStudioServer() {
       stats.chatRequests += 1;
       const rawBody = (await readRequestBody(req)) || '{}';
       const body = JSON.parse(rawBody);
+      if (/privacy error boundary fixture/i.test(rawBody)) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+          error: PRIVACY_CANARIES[0],
+          reasoning: PRIVACY_CANARIES[1],
+          memory: PRIVACY_CANARIES[2],
+          prompt: PRIVACY_CANARIES[3],
+        }));
+        return;
+      }
       const reply = buildMockLmStudioReply(body);
       stats.lastChatRequestPath = url.pathname;
       stats.lastChatRequestPreview = rawBody.slice(0, 1200);
@@ -314,6 +334,7 @@ async function createMockLmStudioServer() {
             message: {
               role: 'assistant',
               content: reply,
+              reasoning_content: PRIVACY_CANARIES[1],
             },
           },
         ],
@@ -506,6 +527,8 @@ async function main() {
     PENNY_OPEN_LOOP_FILE: openLoopFile,
     PENNY_OPENCLAW_ENABLED: '0',
     PENNY_API_ALLOW_LOCAL_NO_TOKEN: '1',
+    PENNY_SKIP_LMSTUDIO_PREP: '1',
+    PENNY_LMSTUDIO_DISABLE_CLI_DISCOVERY: '1',
     PENNY_LOCAL_LLM_TRANSPORT: 'chat',
     PENNY_LMSTUDIO_BASE: mockLmStudio.baseUrl,
     PENNY_LMSTUDIO_NATIVE_BASE: mockLmStudio.nativeBaseUrl,
@@ -516,6 +539,7 @@ async function main() {
     PENNY_SPEACHES_BASE_URL: mockSpeaches.baseUrl,
     PENNY_SPEACHES_MODEL: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
     PENNY_SPEACHES_VOICE: 'af_heart',
+    PENNY_LOG_LMSTUDIO_REASONING: '1',
   });
 
   const report = {
@@ -928,10 +952,21 @@ async function main() {
       name: 'image_upload_turn_uses_attachment_bounded_chat_lane',
       ok: artifact?.scope?.selectedLane === 'chat'
         && artifact?.modelAdvisory?.reasoningPolicy?.mode === 'attachment-bounded'
-        && artifact?.trace?.reasoningPolicy?.mode === 'attachment-bounded',
+        && artifact?.trace?.reasoningPolicy?.mode === 'attachment-bounded'
+        && artifact?.reasoningContract?.requested?.state === 'not-requested'
+        && artifact?.reasoningContract?.effective?.state === 'enabled'
+        && artifact?.reasoningContract?.observed?.state === 'reasoning-observed'
+        && !Object.prototype.hasOwnProperty.call(artifact?.reasoningContract?.observed || {}, 'text')
+        && artifact?.readiness?.schema === 'penny-runtime-readiness.v2'
+        && typeof artifact?.readiness?.availability?.requiredReady === 'boolean'
+        && typeof artifact?.readiness?.compatibilityFallback?.active === 'boolean'
+        && typeof artifact?.readiness?.semanticDegradation?.active === 'boolean'
+        && artifact?.readiness?.legacyFallbackProjection?.deprecatedField === 'fallbackActive',
       seconds: imageReplySeconds,
       selectedLane: artifact?.scope?.selectedLane || '',
       reasoningMode: artifact?.modelAdvisory?.reasoningPolicy?.mode || '',
+      reasoningContract: artifact?.reasoningContract || null,
+      readinessContract: artifact?.readiness || null,
     });
     persistReport(report);
 
@@ -941,9 +976,20 @@ async function main() {
     await page.click('.tab[data-panel="memory"]');
     await waitForPagePredicate(page, () => {
       const panel = document.querySelector('#memoryInspectorPanel');
-      return /penny-runtime-artifact\.v1/i.test(panel?.textContent || '');
+      const text = panel?.textContent || '';
+      return /penny-runtime-artifact\.v1/i.test(text)
+        && /Reasoning contract:\s*penny-reasoning-contract\.v1/i.test(text)
+        && /requested not-requested/i.test(text)
+        && /effective enabled/i.test(text)
+        && /observed reasoning-observed/i.test(text)
+        && /Readiness:\s*(?:ready|degraded|unavailable|compatibility-fallback)/i.test(text)
+        && /compatibility fallback\s+(?:active|none)/i.test(text)
+        && /semantic degradation\s+(?:semantic|keyword|unavailable|active|none)/i.test(text);
     }, undefined, { timeout: 10000 });
-    report.checks.push({ name: 'memory_inspector_shows_runtime_artifact', ok: true });
+    report.checks.push({
+      name: 'memory_inspector_shows_runtime_artifact_reasoning_and_readiness_contracts',
+      ok: true,
+    });
     persistReport(report);
 
     report.currentStep = 'new_chat_resets_transcript_and_turns';
@@ -983,6 +1029,54 @@ async function main() {
       name: 'new_chat_resets_transcript_turns_and_stale_scroll_height',
       ok: true,
       ...newChatDebug,
+    });
+    persistReport(report);
+
+    report.currentStep = 'history_architecture_truth_answer';
+    persistReport(report);
+    console.log('Checking deterministic recent-history architecture truth...');
+    const historyCapabilityChatRequestsBefore = mockLmStudio.stats.chatRequests;
+    await page.fill('#composer', 'Do you always remember the last five turns?');
+    await page.click('#send');
+    await waitForPagePredicate(page, (storageKey) => {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return false;
+      try {
+        const snapshot = JSON.parse(raw);
+        const last = snapshot?.messages?.[snapshot.messages.length - 1];
+        const text = String(last?.content || '');
+        return last?.role === 'assistant'
+          && last?.streaming !== true
+          && /do not have one fixed .*last N turns.* rule/i.test(text)
+          && /message entries, not conversational turns/i.test(text)
+          && /casual chat 6/i.test(text)
+          && /memory-heavy recall 10/i.test(text)
+          && !/\blast five turns\b/i.test(text);
+      } catch {
+        return false;
+      }
+    }, STORAGE_KEY, { timeout: 15000 });
+    const historyCapabilityInspector = await page.evaluate(async (storageKey) => {
+      const snapshot = JSON.parse(window.localStorage.getItem(storageKey) || '{}');
+      const sessionId = String(snapshot?.memory?.sessionId || '').trim();
+      if (!sessionId) throw new Error('Current browser session id is missing.');
+      const response = await fetch(`/api/penny/memory/inspector?sessionId=${encodeURIComponent(sessionId)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+      return data;
+    }, STORAGE_KEY);
+    const historyCapabilityArtifact = historyCapabilityInspector?.inspector?.artifact || null;
+    report.checks.push({
+      name: 'history_architecture_answer_is_truthful_deterministic_and_model_free',
+      ok: mockLmStudio.stats.chatRequests === historyCapabilityChatRequestsBefore
+        && historyCapabilityArtifact?.scope?.selectedLane === 'tool'
+        && historyCapabilityArtifact?.executionPath === 'deterministic-tool'
+        && historyCapabilityArtifact?.readiness?.modelUsage === 'not-used',
+      modelChatRequestsBefore: historyCapabilityChatRequestsBefore,
+      modelChatRequestsAfter: mockLmStudio.stats.chatRequests,
+      selectedLane: historyCapabilityArtifact?.scope?.selectedLane || '',
+      executionPath: historyCapabilityArtifact?.executionPath || '',
+      modelUsage: historyCapabilityArtifact?.readiness?.modelUsage || '',
     });
     persistReport(report);
 
@@ -1032,6 +1126,59 @@ async function main() {
       }
     }, STORAGE_KEY, { timeout: 15000 });
 
+    report.currentStep = 'provider_privacy_error_boundary';
+    persistReport(report);
+    console.log('Checking provider privacy boundary across browser, storage, and logs...');
+    await page.fill('#composer', 'Run the privacy error boundary fixture.');
+    await page.click('#send');
+    await waitForPagePredicate(page, (storageKey) => {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return false;
+      try {
+        const snapshot = JSON.parse(raw);
+        const last = snapshot?.messages?.[snapshot.messages.length - 1];
+        return last?.role === 'assistant'
+          && last?.streaming !== true
+          && /could not complete that model request/i.test(String(last?.content || ''));
+      } catch {
+        return false;
+      }
+    }, STORAGE_KEY, { timeout: 15000 });
+    await page.waitForTimeout(500);
+    const privacyBrowserSinks = await page.evaluate((storageKey) => ({
+      domText: String(document.documentElement?.innerText || ''),
+      localStorage: String(window.localStorage.getItem(storageKey) || ''),
+      debug: JSON.stringify(window.__pennyDebug || {}),
+    }), STORAGE_KEY);
+    const privacyDiskSinks = [
+      SERVER_STDOUT_PATH,
+      SERVER_STDERR_PATH,
+      memoryFile,
+      archiveFile,
+      embeddingsFile,
+    ].map((filePath) => {
+      try {
+        return fs.readFileSync(filePath, 'utf8');
+      } catch {
+        return '';
+      }
+    });
+    const privacySinkText = JSON.stringify({
+      browser: privacyBrowserSinks,
+      disk: privacyDiskSinks,
+    });
+    const leakedCanaries = PRIVACY_CANARIES.filter(canary => privacySinkText.includes(canary));
+    if (leakedCanaries.length) {
+      throw new Error(`Provider privacy canary reached a public or persistent sink: ${leakedCanaries.join(', ')}`);
+    }
+    report.checks.push({
+      name: 'provider_privacy_boundary_dom_storage_debug_logs_and_memory',
+      ok: true,
+      sinkCount: 8,
+      canonicalErrorVisible: /could not complete that model request/i.test(privacyBrowserSinks.domText),
+    });
+    persistReport(report);
+
     report.currentStep = 'clear_memory_resets_override_and_turns';
     persistReport(report);
     console.log('Checking clear-memory reset...');
@@ -1046,6 +1193,11 @@ async function main() {
     }, undefined, { timeout: 15000 });
     report.checks.push({ name: 'clear_memory_resets_override_and_turns', ok: true });
     persistReport(report);
+
+    const failedChecks = report.checks.filter((check) => check?.ok !== true);
+    if (failedChecks.length) {
+      throw new Error(`Browser smoke checks failed: ${failedChecks.map((check) => check?.name || 'unnamed').join(', ')}`);
+    }
 
     report.currentStep = 'capture_screenshot';
     persistReport(report);

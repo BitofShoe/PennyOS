@@ -141,6 +141,11 @@ const {
   createPennyServerHttpApi,
 } = require('./lib/penny-server-http');
 const {
+  createProviderError,
+  isProviderError,
+  toPublicProviderError,
+} = require('./lib/penny-provider-errors');
+const {
   isPathInsideRoot,
   isRealPathInsideRoot,
 } = require('./lib/penny-path-safety');
@@ -649,7 +654,6 @@ const SEMANTIC_RENDER_MAX_TOOL_RECORDS = Number(process.env.PENNY_SEMANTIC_RENDE
 /** Set to 1 only for debugging — surfaces chain-of-thought in the chat bubble */
 const ALLOW_RAW_REASONING_FALLBACK = process.env.PENNY_ALLOW_RAW_REASONING_FALLBACK === '1';
 const LOG_LMSTUDIO_REASONING = process.env.PENNY_LOG_LMSTUDIO_REASONING === '1';
-const LOG_LMSTUDIO_REASONING_MAX_CHARS = Number(process.env.PENNY_LOG_LMSTUDIO_REASONING_MAX_CHARS || 6000);
 /** When /v1/responses returns only reasoning_text (no output_text), retry with /v1/chat/completions */
 const RESPONSES_THEN_CHAT_FALLBACK = process.env.PENNY_RESPONSES_CHAT_FALLBACK !== '0';
 const PENNY_ENABLE_CONTRADICTION_GUARDS = process.env.PENNY_ENABLE_CONTRADICTION_GUARDS !== '0';
@@ -777,18 +781,14 @@ const sendEventStream = serverHttpApi.sendEventStream;
 const startEventStreamKeepAlive = (res, options = {}) => serverHttpApi.startEventStreamKeepAlive(res, { intervalMs: STREAM_KEEPALIVE_MS, ...options });
 const serveFile = (res, filePath, options = {}) => serverHttpApi.serveFile(res, filePath, options);
 
-function trimReasoningForLog(text = '', limit = LOG_LMSTUDIO_REASONING_MAX_CHARS) {
-  const value = String(text || '').replace(/\r\n/g, '\n').trim();
-  if (!value) return '';
-  if (value.length <= limit) return value;
-  return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}...`;
-}
 function reportLmStudioReasoning({ transport = '', lane = 'chat', model = '', reasoningText = '' } = {}) {
   if (!LOG_LMSTUDIO_REASONING) return;
-  const snippet = trimReasoningForLog(reasoningText, LOG_LMSTUDIO_REASONING_MAX_CHARS);
-  if (!snippet) return;
-  console.log(`[PENNY_REASONING lane=${lane} transport=${transport || 'unknown'} model=${model || 'unknown'}]`);
-  console.log(snippet);
+  const value = String(reasoningText || '');
+  if (!value.trim()) return;
+  const digest = crypto.createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
+  console.log(
+    `[PENNY_REASONING_METADATA lane=${lane} transport=${transport || 'unknown'} model=${model || 'unknown'} chars=${value.length} sha256=${digest}]`,
+  );
 }
 
 function ensureDataDir() {
@@ -1283,6 +1283,7 @@ const memoryArchiveApi = createMemoryArchiveApi({
   LMSTUDIO_BASE,
   PENNY_LMSTUDIO_EMBED_BASE: LMSTUDIO_EMBED_BASE,
   LMSTUDIO_API_KEY,
+  LOCAL_LLM_BACKEND,
   PENNY_LMSTUDIO_EMBED_MODEL,
   PENNY_ARCHIVE_SCORING_PROFILE,
   ENABLE_BACKGROUND_CHAT_VECTORS: PENNY_ENABLE_BACKGROUND_CHAT_VECTORS,
@@ -1789,6 +1790,7 @@ function sanitizeToolMessages(messages = [], limit = TOOL_CHAT_HISTORY_LIMIT) {
   return sanitizeChatMessages(messages, limit);
 }
 function describeLocalBrainFailure(error, { hasImage = false } = {}) {
+  if (isProviderError(error)) return toPublicProviderError(error).message;
   const raw = String(error?.message || 'Local model request failed.');
   if (hasImage) {
     if (/responses fallback cannot carry vision/i.test(raw)) {
@@ -1931,8 +1933,13 @@ async function runOpenClawShadow({ sessionId, userText, messages, memories, abor
       signal: controller.signal,
     });
     if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Gateway responses error ${response.status}: ${body}`);
+      await response.text();
+      throw createProviderError({
+        code: 'provider_upstream_error',
+        provider: 'openclaw',
+        operation: 'shadow-responses',
+        upstreamStatus: response.status,
+      });
     }
     const parsed = await response.json();
     const text = (parsed?.output || [])
@@ -1941,10 +1948,22 @@ async function runOpenClawShadow({ sessionId, userText, messages, memories, abor
       .map(part => part?.text)
       .filter(Boolean)
       .join('\n') || parsed?.output_text;
-    if (!text) throw new Error('No output text from Gateway responses transport');
+    if (!text) {
+      throw createProviderError({
+        code: 'provider_no_visible_text',
+        provider: 'openclaw',
+        operation: 'shadow-responses',
+      });
+    }
     return String(text).trim();
   } catch (error) {
-    if (error?.name === 'AbortError') throw new Error(`Shadow request timed out after ${OPENCLAW_TIMEOUT_MS}ms`);
+    if (error?.name === 'AbortError') {
+      throw createProviderError({
+        code: 'provider_timeout',
+        provider: 'openclaw',
+        operation: 'shadow-responses',
+      });
+    }
     throw error;
   } finally {
     clearTimeout(timer);
@@ -2508,21 +2527,40 @@ async function renderSemanticReplyAsPenny({
       });
       const bodyText = response.bodyText;
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        const err = new Error(`LM Studio semantic render error ${response.statusCode}: ${bodyText}`);
-        err.statusCode = response.statusCode;
-        throw err;
+        throw createProviderError({
+          code: 'provider_upstream_error',
+          provider: LOCAL_LLM_BACKEND || 'lm_studio',
+          operation: 'semantic-render',
+          upstreamStatus: response.statusCode,
+        });
       }
       let parsed;
       try {
         parsed = JSON.parse(bodyText);
       } catch {
-        throw new Error(`LM Studio semantic render: invalid JSON: ${bodyText.slice(0, 400)}`);
+        throw createProviderError({
+          code: 'provider_invalid_response',
+          provider: LOCAL_LLM_BACKEND || 'lm_studio',
+          operation: 'semantic-render',
+        });
       }
       const text = textFromChatMessageApi(parsed?.choices?.[0]?.message);
-      if (!text) throw new Error(`No assistant text from semantic render: ${bodyText.slice(0, 800)}`);
+      if (!text) {
+        throw createProviderError({
+          code: 'provider_no_visible_text',
+          provider: LOCAL_LLM_BACKEND || 'lm_studio',
+          operation: 'semantic-render',
+        });
+      }
       return text.trim();
     } catch (error) {
-      if (error?.name === 'AbortError') throw new Error(`LM Studio request timed out after ${LMSTUDIO_TIMEOUT_MS}ms`);
+      if (error?.name === 'AbortError') {
+        throw createProviderError({
+          code: 'provider_timeout',
+          provider: LOCAL_LLM_BACKEND || 'lm_studio',
+          operation: 'semantic-render',
+        });
+      }
       throw error;
     } finally {
       clearTimeout(timer);
@@ -3139,6 +3177,7 @@ const lmStudioToolLoopApi = createLmStudioToolLoopApi({
   PENNY_TOOL_DEFINITIONS,
   composeToolRecordFallback,
   LMSTUDIO_BASE,
+  LOCAL_LLM_BACKEND,
   LMSTUDIO_API_KEY,
   LMSTUDIO_TIMEOUT_MS,
   LMSTUDIO_TOOL_TEMPERATURE,

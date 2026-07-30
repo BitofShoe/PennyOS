@@ -176,6 +176,35 @@ test('semantic memory probes a dedicated embedding base when chat models omit em
   }
 });
 
+test('semantic memory status and inspector never retain an embedding response body', async () => {
+  const files = makeTempFiles('penny-embedding-privacy-');
+  const canary = 'PENNY_PRIVATE_EMBEDDING_BODY_CANARY_31f8';
+  const { api } = buildArchiveApi({
+    ...files,
+    embedReady: false,
+    embedModel: 'google/embedding-gemma-300m',
+    embedBase: 'http://127.0.0.1:18082/v1',
+    fetchImpl: async () => ({
+      ok: false,
+      status: 500,
+      async text() {
+        return JSON.stringify({ error: canary, prompt: canary });
+      },
+    }),
+  });
+
+  try {
+    const status = await api.getSemanticMemoryStatus({ force: true });
+    const inspector = api.getMemoryInspector({ sessionId: 'privacy' });
+
+    assert.equal(status.ready, false);
+    assert.doesNotMatch(JSON.stringify(status), new RegExp(canary));
+    assert.doesNotMatch(JSON.stringify(inspector), new RegExp(canary));
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('EmbeddingGemma embedding requests append eos without storing eos in memory text', async () => {
   const files = makeTempFiles();
   const bodies = [];

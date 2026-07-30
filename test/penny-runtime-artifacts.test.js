@@ -3,9 +3,145 @@ const assert = require('node:assert/strict');
 
 const {
   appendToolEvidenceFact,
+  buildRuntimeReadiness,
   buildRuntimeArtifact,
+  normalizeToolOutcome,
+  normalizeReadiness,
   normalizeRuntimeArtifact,
 } = require('../lib/penny-runtime-artifacts');
+
+test('runtime artifacts never retain raw provider shadow errors', () => {
+  const canary = 'PENNY_PRIVATE_SHADOW_ERROR_CANARY_a7c3';
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'privacy-test',
+    requestedMode: 'shadow',
+    selectedLane: 'shadow',
+    backend: 'shadow-failed',
+    shadowEnabled: true,
+    shadowError: `upstream reasoning: ${canary}`,
+  });
+
+  assert.doesNotMatch(JSON.stringify(artifact), new RegExp(canary));
+  assert.equal(artifact.modelAdvisory.shadowError, 'Shadow provider request failed.');
+});
+
+test('runtime artifacts preserve the four-part reasoning contract without hidden text', () => {
+  const artifact = buildRuntimeArtifact({
+    sessionId: 'reasoning-contract-test',
+    reasoningContract: {
+      measurementMode: 'runtime-turn',
+      modelCall: true,
+      capability: { state: 'supported', source: 'response-signal' },
+      requested: { state: 'not-requested', source: 'request-payload', control: 'omitted' },
+      effective: { state: 'enabled', source: 'response-signal' },
+      observed: {
+        state: 'reasoning-observed',
+        source: 'provider-response',
+        signal: 'reasoning-tokens',
+        reasoningTokens: 700,
+        reasoningChars: 8192,
+        truncated: true,
+        text: 'hidden text must be discarded',
+      },
+    },
+  });
+
+  assert.equal(artifact.reasoningContract.capability.state, 'supported');
+  assert.equal(artifact.reasoningContract.requested.state, 'not-requested');
+  assert.equal(artifact.reasoningContract.effective.state, 'enabled');
+  assert.equal(artifact.reasoningContract.observed.state, 'reasoning-observed');
+  assert.equal(artifact.reasoningContract.observed.reasoningTokens, 700);
+  assert.equal(artifact.reasoningContract.observed.reasoningChars, 8192);
+  assert.equal(artifact.reasoningContract.observed.truncated, true);
+  assert.doesNotMatch(JSON.stringify(artifact.reasoningContract), /hidden text/i);
+});
+
+test('readiness v2 separates availability, compatibility fallback, and semantic degradation', () => {
+  const readiness = buildRuntimeReadiness({
+    lmStudio: {
+      reachable: true,
+      chatPreferredModel: 'chat-model',
+      toolPreferredModel: 'tool-model',
+      resolvedChatModel: 'chat-model',
+      resolvedToolModel: 'tool-model',
+    },
+    semanticMemory: {
+      ready: false,
+      fallback: true,
+      mode: 'keyword-fallback',
+      reason: 'embedding-not-ready',
+    },
+  });
+
+  assert.equal(readiness.schema, 'penny-runtime-readiness.v2');
+  assert.equal(readiness.readinessState, 'ready-with-semantic-degradation');
+  assert.equal(readiness.availability.requiredReady, true);
+  assert.equal(readiness.compatibilityFallback.active, false);
+  assert.equal(readiness.semanticDegradation.active, true);
+  assert.equal(readiness.semanticDegradation.mode, 'keyword-fallback');
+  assert.equal(readiness.degradation.active, true);
+  assert.deepEqual(readiness.legacyFallbackProjection.sources, ['semantic-degradation']);
+  assert.equal(readiness.fallbackActive, true);
+  assert.equal(readiness.modelUsage, 'not-used');
+});
+
+test('readiness v2 migrates legacy fallbackActive without inventing a fallback category', () => {
+  const readiness = normalizeReadiness({
+    chatModelReady: true,
+    toolModelReady: true,
+    embeddingReady: true,
+    fallbackActive: true,
+  });
+
+  assert.equal(readiness.compatibilityFallback.active, false);
+  assert.equal(readiness.semanticDegradation.active, false);
+  assert.equal(readiness.degradation.active, true);
+  assert.deepEqual(readiness.degradation.reasons, ['legacy-fallback-active']);
+  assert.deepEqual(readiness.legacyFallbackProjection.sources, ['legacy-fallback-active']);
+  assert.equal(readiness.fallbackActive, true);
+});
+
+test('readiness v2 reports compatibility fallback independently from model availability', () => {
+  const readiness = buildRuntimeReadiness({
+    lmStudio: {
+      reachable: true,
+      chatPreferredModel: 'preferred-chat-model',
+      toolPreferredModel: 'preferred-tool-model',
+      resolvedChatModel: 'compatible-fallback-chat',
+      resolvedToolModel: 'preferred-tool-model',
+    },
+    semanticMemory: {
+      ready: true,
+      fallback: false,
+      mode: 'semantic',
+    },
+  });
+
+  assert.equal(readiness.availability.requiredReady, true);
+  assert.equal(readiness.compatibilityFallback.active, true);
+  assert.equal(readiness.compatibilityFallback.chat, true);
+  assert.equal(readiness.semanticDegradation.active, false);
+  assert.equal(readiness.readinessState, 'compatibility-fallback');
+});
+
+test('tool outcome normalization never retains write-rescue response bodies', () => {
+  const canary = 'PENNY_PRIVATE_WRITE_RESCUE_CANARY_91ac';
+  const outcome = normalizeToolOutcome({
+    writeIntentRequired: true,
+    writeIntentSatisfied: false,
+    debug: {
+      writeRescue: {
+        attempted: true,
+        status: 'http-error',
+        responseStatusCode: 500,
+        responseBody: canary,
+      },
+    },
+  });
+
+  assert.equal(outcome.debug.writeRescue.responseBody, '');
+  assert.doesNotMatch(JSON.stringify(outcome), new RegExp(canary));
+});
 
 test('appendToolEvidenceFact deduplicates equivalent tool-evidence facts without changing order', () => {
   const firstFact = {

@@ -12,7 +12,9 @@ function retag(text = '', preferredMood = 'smug') {
 }
 
 function makeTransportApi({
-  postJsonSse,
+  postJsonSse = async () => {
+    throw new Error('postJsonSse should not be called in this test');
+  },
   postJsonLongRunning = async () => {
     throw new Error('postJsonLongRunning should not be called in this test');
   },
@@ -27,9 +29,14 @@ function makeTransportApi({
   chatTopK = 64,
   lmStudioBase = 'http://127.0.0.1:1234/v1',
   localLlmBackend = 'lm_studio',
+  localTransport = 'stateful',
+  allowRawReasoningFallback = false,
+  normalizeLmStudioThread = () => null,
+  isMissingLmStudioThreadError = () => false,
+  bindAbortSignal = () => {},
 } = {}) {
   const visibleReplyApi = createVisibleReplyApi({
-    ALLOW_RAW_REASONING_FALLBACK: false,
+    ALLOW_RAW_REASONING_FALLBACK: allowRawReasoningFallback,
     retagAssistantReply: retag,
   });
   return createLmStudioTransportApi({
@@ -44,9 +51,9 @@ function makeTransportApi({
     buildLmStudioStatefulInput: () => 'input',
     buildLmStudioLeanSystemPrompt: () => 'system',
     hashText: () => 'hash',
-    normalizeLmStudioThread: () => null,
+    normalizeLmStudioThread,
     clearLmStudioThread,
-    bindAbortSignal: () => {},
+    bindAbortSignal,
     collectLmStudioResponsesStrings,
     collectLmStudioStatefulChatStrings,
     extractPennyFromPlanningBlob,
@@ -57,10 +64,10 @@ function makeTransportApi({
     textValueFromField: (value) => String(value || '').trim(),
     collectTextParts: (value) => Array.isArray(value) ? value.map(v => String(v || '')) : [],
     looksOnlyLikeCoT: () => false,
-    isMissingLmStudioThreadError: () => false,
+    isMissingLmStudioThreadError,
     lmStudioStageLabel: () => '',
-    LOCAL_LLM_TRANSPORT: 'stateful',
-    ALLOW_RAW_REASONING_FALLBACK: false,
+    LOCAL_LLM_TRANSPORT: localTransport,
+    ALLOW_RAW_REASONING_FALLBACK: allowRawReasoningFallback,
     RESPONSES_THEN_CHAT_FALLBACK: false,
     LOCAL_LLM_BACKEND: localLlmBackend,
     LMSTUDIO_BASE: lmStudioBase,
@@ -378,7 +385,7 @@ test('chat completions record output-limit telemetry when LM Studio stops for le
   });
 });
 
-test('chat completions mark reasoning salvage as reconstructed cleanup', async () => {
+test('chat completions do not reconstruct a visible reply from private reasoning by default', async () => {
   const laneRuntime = {};
   const api = makeTransportApi({
     postJsonSse: async () => {
@@ -400,22 +407,293 @@ test('chat completions mark reasoning salvage as reconstructed cleanup', async (
     extractPennyFromReasoning: (text) => String(text || '').trim(),
   });
 
-  const result = await api.runLmStudioChatCompletionsApi({
+  await assert.rejects(
+    api.runLmStudioChatCompletionsApi({
+      userText: 'test',
+      messages: [],
+      memories: {},
+      laneRuntime,
+    }),
+    (error) => {
+      assert.equal(error.code, 'provider_no_visible_text');
+      assert.equal(error.statusCode, 502);
+      assert.doesNotMatch(error.message, /Fine\. I remember/);
+      return true;
+    },
+  );
+  assert.equal(laneRuntime.cleanup, undefined);
+});
+
+test('chat completions never copy an upstream error body into the thrown public error', async () => {
+  const canary = 'PENNY_PRIVATE_PROVIDER_BODY_CANARY_4d2a';
+  const api = makeTransportApi({
+    postJsonSse: async () => {
+      throw new Error('postJsonSse should not be called in this test');
+    },
+    postJsonLongRunning: async () => ({
+      statusCode: 500,
+      bodyText: JSON.stringify({ error: canary, reasoning: `secret ${canary}` }),
+    }),
+  });
+
+  await assert.rejects(
+    api.runLmStudioChatCompletionsApi({
+      userText: 'test',
+      messages: [],
+      memories: {},
+    }),
+    (error) => {
+      assert.equal(error.code, 'provider_upstream_error');
+      assert.equal(error.upstreamStatus, 500);
+      assert.doesNotMatch(error.message, new RegExp(canary));
+      assert.doesNotMatch(JSON.stringify(error), new RegExp(canary));
+      return true;
+    },
+  );
+});
+
+test('all six transport adapters reject reasoning-only output without exposing it', async () => {
+  const canary = 'PENNY_PRIVATE_REASONING_MATRIX_CANARY_e613';
+  const cases = [
+    {
+      name: 'responses',
+      method: 'runLmStudioResponsesApi',
+      options: {
+        postJsonLongRunning: async () => ({
+          statusCode: 200,
+          bodyText: JSON.stringify({ reasoning: canary }),
+        }),
+        collectLmStudioResponsesStrings: () => ({ outputText: '', reasoningText: canary }),
+      },
+    },
+    {
+      name: 'stateful',
+      method: 'runLmStudioStatefulChatApi',
+      options: {
+        postJsonLongRunning: async () => ({
+          statusCode: 200,
+          bodyText: JSON.stringify({ reasoning: canary }),
+        }),
+        collectLmStudioStatefulChatStrings: () => ({ responseId: '', outputText: '', reasoningText: canary }),
+      },
+    },
+    {
+      name: 'chat-completions',
+      method: 'runLmStudioChatCompletionsApi',
+      options: {
+        postJsonLongRunning: async () => ({
+          statusCode: 200,
+          bodyText: JSON.stringify({
+            choices: [{ message: { content: '', reasoning_content: canary } }],
+          }),
+        }),
+      },
+    },
+    {
+      name: 'stateful-stream',
+      method: 'streamLmStudioStatefulChatApi',
+      options: {
+        postJsonSse: async (_url, options) => {
+          options.onEvent({ event: 'reasoning.delta', data: { content: canary } });
+          options.onEvent({ event: 'chat.end', data: { result: {} } });
+        },
+        collectLmStudioStatefulChatStrings: () => ({ responseId: '', outputText: '', reasoningText: canary }),
+      },
+    },
+    {
+      name: 'responses-stream',
+      method: 'streamLmStudioResponsesApi',
+      options: {
+        postJsonSse: async (_url, options) => {
+          options.onEvent({
+            event: 'message',
+            data: { type: 'response.reasoning.delta', delta: canary },
+          });
+        },
+        collectLmStudioResponsesStrings: () => ({ outputText: '', reasoningText: canary }),
+      },
+    },
+    {
+      name: 'chat-completions-stream',
+      method: 'streamLmStudioChatCompletionsApi',
+      options: {
+        postJsonSse: async (_url, options) => {
+          options.onEvent({
+            event: 'message',
+            data: { choices: [{ delta: { reasoning_content: canary } }] },
+          });
+          options.onEvent({ event: 'message', data: '[DONE]' });
+        },
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const events = [];
+    const api = makeTransportApi(testCase.options);
+    await assert.rejects(
+      api[testCase.method]({
+        userText: 'test',
+        messages: [],
+        memories: {},
+        onEvent: event => events.push(event),
+      }),
+      (error) => {
+        assert.equal(error.code, 'provider_no_visible_text', testCase.name);
+        assert.doesNotMatch(JSON.stringify(error), new RegExp(canary), testCase.name);
+        return true;
+      },
+    );
+    assert.doesNotMatch(JSON.stringify(events), new RegExp(canary), testCase.name);
+  }
+});
+
+test('auto transport preserves stateful-to-chat fallback with typed provider errors', async () => {
+  let calls = 0;
+  const api = makeTransportApi({
+    localTransport: 'auto',
+    postJsonSse: async () => {
+      throw new Error('postJsonSse should not be called in this test');
+    },
+    postJsonLongRunning: async (url) => {
+      calls += 1;
+      if (/\/api\/v1\/chat$/i.test(url)) {
+        return { statusCode: 500, bodyText: '{"error":"private upstream detail"}' };
+      }
+      return {
+        statusCode: 200,
+        bodyText: JSON.stringify({ choices: [{ message: { content: 'Fallback reply.' } }] }),
+      };
+    },
+  });
+
+  const result = await api.runLmStudioLocal({
     userText: 'test',
     messages: [],
     memories: {},
-    laneRuntime,
   });
 
-  assert.equal(result, 'Fine. I remember.\n[MOOD:smug]');
-  assert.equal(laneRuntime.cleanup.cleanupApplied, true);
-  assert.equal(laneRuntime.cleanup.materialChange, true);
-  assert.equal(laneRuntime.cleanup.reconstructedReply, true);
-  assert.equal(laneRuntime.cleanup.usedReasoningFallback, true);
+  assert.equal(result, 'Fallback reply.\n[MOOD:smug]');
+  assert.equal(calls, 2);
+});
+
+test('stateful stale-thread retry uses safe reason codes after discarding the body', async () => {
+  const memories = {
+    lmStudioThread: {
+      responseId: 'missing-response',
+      model: 'google/gemma-4-31b',
+      systemPromptHash: 'hash',
+    },
+  };
+  let calls = 0;
+  const api = makeTransportApi({
+    normalizeLmStudioThread: value => value || null,
+    clearLmStudioThread: target => {
+      target.lmStudioThread = null;
+    },
+    isMissingLmStudioThreadError: error => (
+      error?.reasonCode === 'missing_thread'
+      || /previous response.*not found/i.test(String(error?.message || ''))
+    ),
+    postJsonLongRunning: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          statusCode: 404,
+          bodyText: '{"error":"previous response id not found; private detail"}',
+        };
+      }
+      return {
+        statusCode: 200,
+        bodyText: JSON.stringify({ output_text: 'Fresh thread reply.' }),
+      };
+    },
+    collectLmStudioStatefulChatStrings: parsed => ({
+      responseId: '',
+      outputText: parsed.output_text || '',
+      reasoningText: '',
+    }),
+  });
+
+  const result = await api.runLmStudioStatefulChatApi({
+    userText: 'test',
+    messages: [],
+    memories,
+  });
+
+  assert.equal(result, 'Fresh thread reply.\n[MOOD:smug]');
+  assert.equal(calls, 2);
+});
+
+test('stream fallback resets a partial attempt before emitting the retry output', async () => {
+  const events = [];
+  const api = makeTransportApi({
+    localTransport: 'auto',
+    postJsonSse: async (url, options) => {
+      if (/\/api\/v1\/chat$/i.test(url)) {
+        options.onEvent({ event: 'message.delta', data: { content: 'partial attempt' } });
+        options.onEvent({ event: 'error', data: { error: 'retry me' } });
+        return;
+      }
+      options.onEvent({
+        event: 'message',
+        data: { choices: [{ delta: { content: 'Clean retry output.' } }] },
+      });
+      options.onEvent({ event: 'message', data: '[DONE]' });
+    },
+  });
+
+  const result = await api.streamLmStudioLocal({
+    userText: 'test',
+    messages: [],
+    memories: {},
+    onEvent: event => events.push(event),
+  });
+
+  assert.equal(result, 'Clean retry output.\n[MOOD:smug]');
+  assert.equal(events.filter(event => event.type === 'stream.reset').length, 1);
+  const resetIndex = events.findIndex(event => event.type === 'stream.reset');
+  assert.ok(resetIndex > 0);
+  assert.equal(events.slice(resetIndex + 1).filter(event => event.type === 'message.delta').map(event => event.content).join(''), 'Clean retry output.');
+});
+
+test('external stream cancellation remains an AbortError and never retries', async () => {
+  const externalController = new AbortController();
+  let calls = 0;
+  const api = makeTransportApi({
+    localTransport: 'chat',
+    bindAbortSignal(controller, signal) {
+      signal?.addEventListener('abort', () => controller.abort(), { once: true });
+    },
+    postJsonSse: async (_url, options) => {
+      calls += 1;
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          const error = new Error('aborted');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+        externalController.abort();
+      });
+    },
+  });
+
+  await assert.rejects(
+    api.streamLmStudioLocal({
+      userText: 'test',
+      messages: [],
+      memories: {},
+      abortSignal: externalController.signal,
+      onEvent: () => {},
+    }),
+    error => error?.name === 'AbortError',
+  );
+  assert.equal(calls, 1);
 });
 
 test('stateful stream can report reasoning to server logs without leaking it into the visible reply', async () => {
   const reported = [];
+  const laneRuntime = {};
   const api = makeTransportApi({
     postJsonSse: async (_url, options) => {
       options.onEvent({ event: 'message.delta', data: { content: 'Visible reply only.' } });
@@ -434,6 +712,7 @@ test('stateful stream can report reasoning to server logs without leaking it int
     userText: 'test',
     messages: [],
     memories: {},
+    laneRuntime,
     onEvent: () => {},
   });
 
@@ -442,10 +721,60 @@ test('stateful stream can report reasoning to server logs without leaking it int
   assert.equal(reported[0].transport, 'native-stateful-stream');
   assert.equal(reported[0].lane, 'chat');
   assert.match(reported[0].reasoningText, /Internal chain goes here/);
+  assert.equal(laneRuntime.reasoningContract.requested.state, 'not-requested');
+  assert.equal(laneRuntime.reasoningContract.effective.state, 'enabled');
+  assert.equal(laneRuntime.reasoningContract.observed.state, 'reasoning-observed');
+  assert.equal(laneRuntime.reasoningContract.observed.reasoningChars, 25);
+});
+
+test('stateful stream bounds 1,000 hidden reasoning chunks and emits one thinking transition', async () => {
+  const events = [];
+  const reported = [];
+  const laneRuntime = {};
+  const reasoningChunk = 'hidden-reasoning-fragment-'.padEnd(64, 'x');
+  const api = makeTransportApi({
+    postJsonSse: async (_url, options) => {
+      for (let index = 0; index < 1_000; index += 1) {
+        options.onEvent({ event: 'reasoning.delta', data: { content: reasoningChunk } });
+      }
+      options.onEvent({ event: 'message.delta', data: { content: 'Bounded visible reply.' } });
+      options.onEvent({ event: 'chat.end', data: { result: {} } });
+    },
+    collectLmStudioStatefulChatStrings: () => ({
+      responseId: 'resp_bounded_reasoning',
+      outputText: 'Bounded visible reply.',
+      reasoningText: '',
+    }),
+    reportLmStudioReasoning: payload => reported.push(payload),
+  });
+
+  const result = await api.streamLmStudioStatefulChatApi({
+    userText: 'test',
+    messages: [],
+    memories: {},
+    laneRuntime,
+    onEvent: event => events.push(event),
+  });
+
+  assert.equal(result, 'Bounded visible reply.\n[MOOD:smug]');
+  assert.equal(events.filter(event => event.type === 'status' && event.stage === 'thinking').length, 1);
+  assert.equal(events.some(event => JSON.stringify(event).includes(reasoningChunk)), false);
+  assert.deepEqual(laneRuntime.reasoningStream, {
+    capturedChars: 8192,
+    totalChars: reasoningChunk.length * 1_000,
+    truncated: true,
+  });
+  assert.equal(reported.length, 1);
+  assert.equal(reported[0].reasoningText.length, 8192);
+  assert.equal(laneRuntime.reasoningContract.capability.state, 'supported');
+  assert.equal(laneRuntime.reasoningContract.effective.state, 'enabled');
+  assert.equal(laneRuntime.reasoningContract.observed.reasoningChars, reasoningChunk.length * 1_000);
+  assert.equal(laneRuntime.reasoningContract.observed.truncated, true);
 });
 
 test('chat completions can report separate reasoning without leaking it into the visible reply', async () => {
   const reported = [];
+  const laneRuntime = {};
   const api = makeTransportApi({
     postJsonSse: async () => {
       throw new Error('postJsonSse should not be called in this test');
@@ -470,10 +799,14 @@ test('chat completions can report separate reasoning without leaking it into the
     userText: 'test',
     messages: [],
     memories: {},
+    laneRuntime,
   });
 
   assert.equal(result, 'Visible reply only.\n[MOOD:smug]');
   assert.equal(reported.length, 1);
   assert.equal(reported[0].transport, 'chat-completions');
   assert.match(reported[0].reasoningText, /Hidden scratchpad/);
+  assert.equal(laneRuntime.reasoningContract.requested.state, 'not-requested');
+  assert.equal(laneRuntime.reasoningContract.effective.state, 'enabled');
+  assert.equal(laneRuntime.reasoningContract.observed.state, 'reasoning-observed');
 });

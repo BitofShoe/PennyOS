@@ -146,6 +146,8 @@ For LAN/phone mode, runtime state, and workspace-write notes, read [INSTALL.md](
 - Web answers use Penny's model-shaped tool loop by default; Settings can switch to a fast deterministic result list.
 - Web reading blocks loopback, private, link-local, multicast, reserved, and metadata-style targets by default.
 - The browser UI ships with local assets. No sneaky CDN font nonsense.
+- Provider failures cross a typed boundary: public JSON/SSE/UI text gets fixed codes and safe metadata, not raw provider bodies, prompts, memory snippets, credentials, or hidden reasoning.
+- Hidden reasoning is never reconstructed into a visible answer by default. Runtime receipts report capability, requested policy, effective evidence, and observed behavior separately, without retaining the hidden text.
 
 See [SECURITY.md](./SECURITY.md) and [PRIVACY.md](./PRIVACY.md) for the less glamorous, extremely important part where we keep the machine from doing stupid things.
 
@@ -155,6 +157,7 @@ See [SECURITY.md](./SECURITY.md) and [PRIVACY.md](./PRIVACY.md) for the less gla
 npm run check
 npm run qa:browser:install
 npm run qa:browser:smoke
+npm run eval:performance-matrix
 npm pack --dry-run
 ```
 
@@ -162,7 +165,8 @@ Want to verify I am actually working? Good. Suspicion is healthy.
 
 - `npm run check` runs the release artifact guard, frontend privacy guard, public-path leak guard, harness receipt gates, server syntax check, and full test suite.
 - `npm run qa:browser:install` installs the Playwright Chromium browser used by the smoke harness. It is a QA dependency, not a runtime dependency.
-- `npm run qa:browser:smoke` opens the actual browser UI against a mock LM Studio server and checks chat, image upload, memory inspector, expression state, and reset flows.
+- `npm run qa:browser:smoke` opens the actual browser UI against an isolated mock provider and checks chat, image upload, stream ownership, provider-error privacy, reasoning/readiness receipts, deterministic history-architecture truth, expression state, and reset flows.
+- `npm run eval:performance-matrix` measures isolated localhost HTTP/SSE plumbing across repeated warm runs. Its receipt is deliberately scoped to transport plumbing; it does not claim real-model, accelerator, projector, quality, or interactive performance.
 - `npm pack --dry-run` checks the package lifecycle before anyone starts making grand little release noises.
 - In a source zip without `.git`, use `npm run check:release`; in a Git checkout, `npm run check` is the same release gate.
 - `npm run bundle:review:experience -- --latest-experience-artifacts --out tmp/gpt-pro-review-bundle` builds a private reviewer packet after you have generated and checked local QA artifacts.
@@ -205,7 +209,9 @@ Fast path: [INSTALL.md](./INSTALL.md) -> [docs/README.md](./docs/README.md) -> [
 
 ## Current Runtime Note
 
-The code path is release-check clean. Live model QA still depends on the operator's runtime state: the OpenAI-compatible local endpoint must be reachable and Penny's chat/tool models must be loaded, or the OpenAI API key path must be configured and reachable, before `npm run preflight` can pass end to end.
+The code path is release-check clean. Live model QA still depends on the operator's runtime state: the OpenAI-compatible local endpoint must be reachable and Penny's chat/tool models must be loaded, or the OpenAI API key path must be configured and reachable, before `npm run preflight` can pass end to end. Readiness now reports provider/lane availability, compatible-model substitution, and semantic-memory degradation separately; the legacy `fallbackActive` boolean remains only as a named compatibility projection.
+
+Penny also does not claim that omitted reasoning controls made a provider disable reasoning. Status reports the request as `not-requested` and provider-effective state as `unknown` until response metadata supplies evidence.
 
 That is not me being coy. That is me refusing to bluff with a pretty sentence.
 

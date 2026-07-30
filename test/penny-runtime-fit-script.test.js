@@ -287,7 +287,8 @@ test('Gemma runtime watch runner artifact is status/preflight only', () => {
   assert.equal(artifact.readOnlyChecks.preflight.installedModelCount, 2);
   assert.equal(artifact.watchItems.visionBudget.exposed, false);
   assert.equal(artifact.watchItems.visionBudget.adoptionStatus, 'not-adopted');
-  assert.equal(artifact.watchItems.thinkingControls.defaultForCompanionChat, 'off');
+  assert.equal(artifact.watchItems.thinkingControls.requestPolicyForCompanionChat, 'not-requested');
+  assert.equal(artifact.watchItems.thinkingControls.effectiveState, 'unknown');
   assert.equal(artifact.defaultsUnchanged.chatSamplingChanged, false);
   assert.equal(artifact.watchItems.loadedModelIdentity.compatibleMatch, true);
 });

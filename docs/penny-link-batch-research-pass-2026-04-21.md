@@ -62,7 +62,7 @@ The remaining lesson is restraint: do not treat these source links as a reason t
    - Record whether the active serving path exposes `max_soft_tokens` / vision budget or equivalent multimodal processor kwargs. This now lives in `penny-gemma-runtime-watch.v1`, status/preflight data, and `npm run eval:runtime-fit:gemma-watch`.
    - If LM Studio exposes a real knob later, test image OCR/detail cases with conservative VRAM/RAM receipts before adopting any default.
    - Treat large context and high vision budgets as explicit tests, not normal operating posture.
-   - Keep thinking controls observational and default-off for normal companion chat.
+   - Keep reasoning controls observational and omitted by default for normal companion chat; omission is a request-policy fact, not proof of provider-effective disablement.
 
 2. Add token-cost and source-cost awareness as planning hints.
 

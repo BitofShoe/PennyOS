@@ -16,6 +16,13 @@ The release-supported runtime is Node 24.x with npm 11.x. Older Node versions ma
 
 The browser posts to `POST /api/penny/chat`. The server merges browser memory settings with disk-backed memory, picks the local chat or tool lane, builds bounded prompt context, calls LM Studio when needed, strips hidden/runtime-only markers, stores route receipts, and returns the visible reply plus mood metadata.
 
+Provider errors are normalized before they cross the route boundary; raw upstream bodies are not public error text or artifact/log payloads. Stream state has shared server/browser reducers for deduplication, retry epochs, cancellation, and bounded hidden-reasoning accounting.
+
+Two runtime truth contracts matter when debugging:
+
+- `penny-reasoning-contract.v1` separates capability, requested policy, effective evidence, and observed behavior. An omitted request control is `not-requested`, not proof of effective disablement.
+- `penny-runtime-readiness.v2` separates provider/lane availability, compatible-model substitution, semantic-memory degradation, and aggregate degradation. `fallbackActive` is a deprecated compatibility projection.
+
 ## Where Memory Lives
 
 Tracked seed files live under `data/*.seed.json`. Live memory files such as `data/penny-memory.json`, archive memory, embeddings, and open-loop state are ignored local runtime files.
@@ -25,6 +32,8 @@ Canonical explicit memory is the strongest user-memory authority. Archive memory
 ## Chat Lane Versus Tool Lane
 
 The chat lane handles companion turns, softness, banter, image chat, and normal recall. The tool lane handles direct inspect/search/read/edit/runtime/git/web requests and bounded tool loops. The lane is selected per request and stays fixed for that request.
+
+Questions about Penny's own recent-history window use a deterministic capability answer. The current budgets are message entries rather than fixed conversational turns and vary by latency class; personal recall questions still use the memory lane.
 
 ## How File Tools Work Safely
 
@@ -70,5 +79,6 @@ npm start
 npm run check
 npm run qa:browser:install
 npm run qa:browser:smoke
+npm run eval:performance-matrix
 npm pack --dry-run
 ```

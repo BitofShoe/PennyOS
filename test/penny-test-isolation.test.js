@@ -35,3 +35,11 @@ test('server route tests isolate host LM Studio CLI and desktop settings discove
   assert.match(semanticRenderText, /PENNY_LMSTUDIO_SETTINGS_FILE/);
   assert.match(semanticRenderText, /PENNY_LMSTUDIO_DISABLE_CLI_DISCOVERY/);
 });
+
+test('browser smoke isolates its mock provider from host model preparation and CLI discovery', () => {
+  const browserSmokeText = readText('scripts/qa-penny-browser-smoke.js');
+
+  assert.match(browserSmokeText, /PENNY_SKIP_LMSTUDIO_PREP:\s*'1'/);
+  assert.match(browserSmokeText, /PENNY_LMSTUDIO_DISABLE_CLI_DISCOVERY:\s*'1'/);
+  assert.match(browserSmokeText, /PENNY_LMSTUDIO_BASE:\s*mockLmStudio\.baseUrl/);
+});

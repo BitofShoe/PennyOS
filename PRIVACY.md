@@ -11,6 +11,12 @@ Penny is local-first. The app is built to run on your machine and talk to your l
 
 Browser snapshots strip raw uploaded image data before persistence.
 
+## Provider Errors And Hidden Reasoning
+
+Provider responses are private boundary input. When a local or cloud model request fails, Penny discards the raw response body and exposes only a fixed public error code/message plus bounded metadata such as provider, operation, upstream status, retryability, and a safe reason code. Raw provider bodies, prompts, memory snippets, credentials, directives, and hidden reasoning must not enter JSON/SSE responses, browser transcript/localStorage, runtime artifacts, or default logs.
+
+Hidden reasoning is not reconstructed into a visible reply by default. Diagnostic reasoning receipts retain only bounded metadata such as capability, requested policy, evidence-backed effective state, observed signal, character/token counts, and truncation state. They do not retain the reasoning text.
+
 ## Not Sent by Default
 
 - no hosted model API calls

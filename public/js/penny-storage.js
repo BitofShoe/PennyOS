@@ -13,9 +13,30 @@ export const DEFAULT_MEMORY = {
   sessionId: createSessionId(),
 };
 
+const PERSISTED_PROVIDER_FAILURE_PATTERNS = [
+  /\blocal llm did not return a reply\b/i,
+  /\bexperimental review route did not return a reply\b/i,
+  /\blocal .* brain failed\b/i,
+  /\bprovider (?:request|stream|response|error|failed|timed out|unavailable)\b/i,
+  /\bstreaming request failed\b/i,
+];
+
+export function sanitizePersistedMessage(message = {}) {
+  const value = message && typeof message === 'object' ? { ...message } : {};
+  if (
+    value.role === 'assistant'
+    && PERSISTED_PROVIDER_FAILURE_PATTERNS.some(pattern => pattern.test(String(value.content || '')))
+  ) {
+    value.content = 'Penny could not complete that model request. Please try again.';
+    delete value.toolStatus;
+    delete value.streaming;
+  }
+  return value;
+}
+
 export function saveStateSnapshot(state) {
   const msgs = state.messages.slice(-16).map((message) => {
-    const base = { ...message };
+    const base = sanitizePersistedMessage(message);
     if (message.image) {
       delete base.image;
       base.hadImage = true;
@@ -50,7 +71,7 @@ export function loadStateSnapshot() {
     if (memory.brainMode !== 'local' && memory.brainMode !== 'shadow') memory.brainMode = 'local';
     return {
       memory,
-      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+      messages: Array.isArray(parsed.messages) ? parsed.messages.map(sanitizePersistedMessage) : [],
       mood: parsed.mood,
       lastAutoMood: parsed.lastAutoMood,
       expressionOverrideMood: parsed.expressionOverrideMood,

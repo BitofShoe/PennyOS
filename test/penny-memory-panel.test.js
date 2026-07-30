@@ -1900,8 +1900,12 @@ test('buildBrainModeNote keeps local, shadow, and fallback explanations stable',
   }), /llama\.cpp handled the last reply/i);
   assert.match(buildBrainModeNote({
     mode: 'shadow',
-    meta: { requestedMode: 'shadow', usedFallback: true, shadowError: 'boom' },
+    meta: { requestedMode: 'shadow', usedFallback: true, shadowError: 'PENNY_PRIVATE_SHADOW_CANARY_9c11' },
   }), /review route failed/i);
+  assert.doesNotMatch(buildBrainModeNote({
+    mode: 'shadow',
+    meta: { requestedMode: 'shadow', usedFallback: true, shadowError: 'PENNY_PRIVATE_SHADOW_CANARY_9c11' },
+  }), /PENNY_PRIVATE_SHADOW_CANARY_9c11/);
 });
 
 test('renderMemoryInspector prefers canonical rendered booleans over conflicting ledger alias flags', async () => {
@@ -2230,6 +2234,15 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
         reasonCodes: ['direct-inspect'],
         epistemics: { enabled: false, triggered: false, scope: 'tool', stance: 'answer', signals: [], note: '' },
         synthesis: { enabled: false, generated: false, kind: '', scope: '', summary: '', evidenceSources: [] },
+        reasoningContract: {
+          schema: 'penny-reasoning-contract.v1',
+          measurementMode: 'runtime-turn',
+          modelCall: false,
+          capability: { state: 'unknown', source: 'unverified' },
+          requested: { state: 'not-applicable', source: 'deterministic-turn', control: 'none' },
+          effective: { state: 'not-applicable', source: 'deterministic-turn' },
+          observed: { state: 'not-applicable', source: 'deterministic-turn', signal: 'none' },
+        },
         modelAdvisory: {
           mood: '',
           cleanup: {
@@ -2295,6 +2308,8 @@ test('renderMemoryInspector surfaces execution path and ledger prompt/update tru
   assert.match(els.memoryInspectorPanel.innerHTML, /Execution <strong>deterministic-tool/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Model not used/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Reasoning policy: <strong>verifier-first/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /Reasoning contract: <strong>penny-reasoning-contract\.v1/i);
+  assert.match(els.memoryInspectorPanel.innerHTML, /capability unknown \| requested not-applicable \| effective not-applicable \| observed not-applicable/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /short circuit semantic-render-held-back/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Trace reasoning: <strong>verifier-first/i);
   assert.match(els.memoryInspectorPanel.innerHTML, /Research ledger prompt: <strong>unknown/i);

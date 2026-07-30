@@ -206,6 +206,16 @@ test('resolveDirectToolIntent keeps ambiguous freeform technical chatter on the 
   assert.equal(intent, null);
 });
 
+test('resolveDirectToolIntent routes recent-history architecture questions to the deterministic truth answer', () => {
+  const intent = resolveDirectToolIntent('Do you always remember the last five turns?');
+  assert.ok(intent);
+  assert.equal(intent.kind, 'deterministic_reply');
+  assert.equal(intent.name, 'answer_history_capability');
+  assert.equal(intent.reasonCode, DIRECT_INTENT_REASON_CODES.HISTORY_CAPABILITY);
+  assert.match(intent.text, /message entries, not conversational turns/i);
+  assert.doesNotMatch(intent.text, /\blast five turns\b/i);
+});
+
 test('resolveDirectToolIntent ignores casual quoted banter about files', () => {
   const intent = resolveDirectToolIntent('bahahaha okay dolly, people have called these "sleepy eyes" before. you have your own damn "readme" section already, but lemme find some other interesting files you can look at too.');
   assert.equal(intent, null);

@@ -24,6 +24,12 @@ import {
   isAbortError,
 } from './penny-chat-request-guard.mjs';
 import {
+  readPublicProviderFailure,
+} from './penny-public-errors.mjs';
+import {
+  createClientStreamReducer,
+} from './penny-stream-state.mjs';
+import {
   MOOD_THEMES as MOODS,
   CHAT_DECOR_CHIBI as CHAT_DECOR_CHIBI_RUNTIME,
   CHAT_DECOR_TECH as CHAT_DECOR_TECH_RUNTIME,
@@ -1255,21 +1261,41 @@ async function sendMessage() {
     if (!res.ok) {
       const data = contentType.includes('application/json') ? await res.json().catch(() => ({})) : {};
       if (!chatRequestGuard.isActive(requestId)) return;
-      updateBrainModeUi(data.meta || { requestedMode: state.memory.brainMode, usedFallback: false, shadowError: data.detail || data.error || `Request failed: ${res.status}` });
-      throw new Error(data.detail || data.error || `Request failed: ${res.status}`);
+      const publicFailure = readPublicProviderFailure(data);
+      updateBrainModeUi(data.meta || {
+        requestedMode: state.memory.brainMode,
+        usedFallback: false,
+        shadowError: publicFailure.message,
+      });
+      throw new Error(publicFailure.message);
     }
     let streamedText = '';
     let finalData = null;
+    const streamReducer = createClientStreamReducer();
     await readPennyEventStream(res, {
       onEvent(event, data) {
         if (!chatRequestGuard.isActive(requestId)) return;
+        const transition = streamReducer.apply(event, data);
+        if (!transition.changed) return;
+        if (event === 'stream.reset') {
+          streamedText = '';
+          const last = state.messages[state.messages.length - 1];
+          if (last?.role === 'assistant' && last?.streaming) {
+            last.content = '';
+            delete last.toolStatus;
+          }
+          state.presence = 'thinking';
+          updateStreamingAssistantBubble('');
+          updateTheme();
+          return;
+        }
         if (event === 'status') {
           state.presence = data?.label || state.presence;
           updateTheme();
           return;
         }
         if (event === 'message.delta') {
-          streamedText = typeof data?.text === 'string' && data.text ? data.text : `${streamedText}${data?.content || ''}`;
+          streamedText = transition.text;
           const last = state.messages[state.messages.length - 1];
           if (last?.role === 'assistant' && last?.streaming) last.content = stripDraftMood(streamedText);
           updateStreamingAssistantBubble(streamedText);
@@ -1290,7 +1316,9 @@ async function sendMessage() {
           return;
         }
         if (event === 'error') {
-          throw new Error(data?.detail || data?.error || 'Streaming request failed.');
+          throw new Error(readPublicProviderFailure(data, {
+            fallbackMessage: 'Penny could not complete that streaming request.',
+          }).message);
         }
       },
     });

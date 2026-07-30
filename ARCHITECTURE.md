@@ -236,6 +236,10 @@ Current transport stack is owned by `lib/penny-lmstudio-transports.js`:
 - chat completions (`/v1/chat/completions`) fallback
 - responses (`/v1/responses`) fallback
 
+Provider failures cross `lib/penny-provider-errors.js` before they can reach routes, artifacts, logs, or the browser. The boundary discards raw bodies and preserves only fixed public codes/messages plus safe enum metadata. Browser normalization lives in `public/js/penny-public-errors.mjs`.
+
+Streaming transition ownership is shared deliberately between `lib/penny-stream-state.js` and `public/js/penny-stream-state.mjs`. Both reducers deduplicate cumulative text and state transitions. Hidden reasoning retention is capped at 8,192 characters for metadata accounting, retry begins a new epoch through `stream.reset`, and an external abort remains cancellation rather than becoming a retryable provider timeout.
+
 Important architecture detail:
 
 - the server resolves the actually loaded runtime model instead of blindly trusting the configured pretty model id
@@ -257,6 +261,9 @@ That layer can route things like:
 - git status / diff
 - web search / fetch
 - direct file write / replace / append
+- questions about Penny's own recent-history window and memory architecture
+
+The history-capability answer is model-free and derives its 6/10/4/4 recent-message-entry budgets from `lib/penny-latency-budget.js`. It says message entries rather than turns, notes that the current user message can be staged separately, and keeps canonical explicit memory, advisory archive retrieval, and tool evidence distinct. Personal recall questions still use the memory lane.
 
 This exists to keep simple asks fast and honest.
 
@@ -317,6 +324,8 @@ The runtime artifact layer in `lib/penny-runtime-artifacts.js` now carries:
 - sibling `initiativePromptBridge` metadata for the opt-in bounded initiative scaffold, including enabled/held-back state, selected max-one suggestion identity, cooldown, and explicit no-PromptTruth/no-tool-evidence/no-side-effect receipts
 - sibling `turnStatePromptBridge` metadata for the opt-in ephemeral turn-state scaffold, including enabled/held-back state, redacted summary fields, retention policy, prompt cap, and explicit no-PromptTruth/no-tool-evidence/no-memory-write receipts
 - a bounded `reasoningPolicy` receipt derived from latency budget plus execution path, with `minimal`, `deliberate`, `verifier-first`, and `attachment-bounded` modes instead of any raw reasoning text surface
+- `penny-reasoning-contract.v1`, which separates model capability, requested policy, evidence-backed effective state, and observed behavior; omitted controls are `not-requested`, never proof of effective disablement, and observed receipts retain counts/signals rather than hidden text
+- `penny-runtime-readiness.v2`, which separates provider/lane availability, compatible-model substitution, semantic-memory degradation, and aggregate degradation; deprecated `fallbackActive` is retained only through an explicit legacy projection
 - explicit approximate-path policy metadata from the latency budget and runtime fallback state
 - advisory-merge summaries that distinguish lossy merge pressure from canonical memory authority
 - a bounded session `recentAuditTrail` that freezes compact prompt-time/runtime-turn truth before post-turn ledger mutation and keeps `lastRetrieval` summary fields aligned with the newest slice
@@ -371,7 +380,7 @@ The QA/eval harnesses now share small helper layers and script-owned fixture mod
 - `lib/penny-static-memory-index.js`
   - explicit-mode static sidecar indexing/query status for live-shadow and live-advisory retrieval traces
 - `lib/penny-gemma-runtime-watch.js`
-  - fixture/status schema for Gemma runtime watch items such as vision-budget exposure, thinking-control default-off state, current-turn image policy, prompt-cache/RAM risk, compatible loaded-model fallback, and chat sampling
+  - fixture/status schema for Gemma runtime watch items such as vision-budget exposure, omitted reasoning controls, provider-effective state remaining unknown without response evidence, current-turn image policy, prompt-cache/RAM risk, compatible loaded-model fallback, and chat sampling
 - `lib/penny-initiative-policy.js` and `scripts/eval-penny-initiative-fixture.js`
   - bounded initiative policy, prompt scaffold, user-control, memory-suggestion review gate, pressure/annoyance fixture coverage, and live-bridge guardrail receipts without default enablement
 - `lib/penny-turn-state.js` and `scripts/eval-penny-turn-state-fixture.js`
@@ -384,12 +393,14 @@ The QA/eval harnesses now share small helper layers and script-owned fixture mod
   - combined segmented memory QA plus a judged `write / retrieve / forget` mode, with semantic replacement grading for premise-correction cases, fixture-only source-sensitive mode, fixture-only candidate-survival mode, and archive-unit candidate-survival runner so wording noise does not create fake regressions
 - `scripts/eval-penny-runtime-fit.js`
   - runtime-fit harness for context-length and semantic-fallback tradeoffs, plus fixture-only context-pressure and Gemma runtime watch modes that record field/status shape before any live drift or behavior claim
+- `scripts/eval-penny-performance-matrix.js`
+  - versioned profile/run matrix requiring explicit hardware acceleration, reasoning, prompt size, projector, cache state, prompt evaluation, first provider event, first visible token, visible generation, Penny overhead, cadence-repair calls, and repeated warm runs; the default isolated mock mode supports transport-plumbing claims only
 - `scripts/eval-penny-ledger-compare.js`
   - comparative ledger-prompt harness for bounded research/memory prompt strategies
 
 This does not make Penny “judge herself” in production. It makes the existing harnesses more honest about whether a run is trustworthy, polluted by environment drift, or behaviorally red.
 
-The April 21 pressure/Gemma/tool-cost follow-through is artifact and QA coverage only unless a later explicit slice says otherwise: no runtime voice change, no `promptTruth` expansion, no `toolEvidenceReceipt` expansion beyond optional sibling cost metadata, no default thinking, no default context increase, no default embedding-provider change, and no external dependency import. The bounded initiative and ephemeral turn-state bridges follow the same posture: fixture and opt-in scaffolding first, default enablement only after bounded aliveness compare evidence shows a real benefit without annoyance, overclaim, pressure, privacy leakage, latency, or prompt-bloat regressions.
+The April 21 pressure/Gemma/tool-cost follow-through is artifact and QA coverage only unless a later explicit slice says otherwise: no runtime voice change, no `promptTruth` expansion, no `toolEvidenceReceipt` expansion beyond optional sibling cost metadata, no reasoning-request-policy change, no provider-effective reasoning claim from omitted controls, no default context increase, no default embedding-provider change, and no external dependency import. The bounded initiative and ephemeral turn-state bridges follow the same posture: fixture and opt-in scaffolding first, default enablement only after bounded aliveness compare evidence shows a real benefit without annoyance, overclaim, pressure, privacy leakage, latency, or prompt-bloat regressions.
 
 The bounded aliveness compare harness interprets "more alive" as a measured outcome, not a vibe. Positive outcomes are human-observable wins and continuity wins. Blocking outcomes include overclaim, stale-correction failure, source-boundary failure, candidate-only truth laundering, unsupported action/source claims, recurring annoyance, prompt bloat, latency regression, invalid environment, or failed disposable cleanup. A fixture artifact can support live-shadow review; a live-isolated mock-route artifact can support live-advisory review; default enablement remains a separate adoption stage that needs repeated real compare passes, completed manual review, user controls, and current docs.
 

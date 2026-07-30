@@ -89,7 +89,7 @@ PENNY_TAURI_LOG=logs/penny-tauri-server.log
 
 `PENNY_TAURI_NODE` and `PENNY_TAURI_SERVER_ROOT` are development fallback knobs for a checkout launch when the bundled runtime resource is not available; the packaged path should use the bundled `penny-node` sidecar and resource tree.
 
-`npm run doctor` is the same local environment check as `npm run preflight`. It reports Node/npm posture, local endpoint reachability, selected models, semantic-memory fallback, web-reading state, and LAN/token posture.
+`npm run doctor` is the same local environment check as `npm run preflight`. It reports Node/npm posture, local endpoint reachability, selected models, lane availability, compatible-model substitution, semantic-memory degradation, web-reading state, and LAN/token posture. Those states are separate; the deprecated `fallbackActive` field is only a compatibility projection.
 
 For llama.cpp or another already-running OpenAI-compatible endpoint, set the endpoint and backend in `.env`:
 
@@ -131,7 +131,7 @@ After Penny opens, go to Settings -> First-run local brain setup. Penny will det
 - the tool model
 - whether Penny may fall back to another compatible loaded model when the preferred model is missing
 
-Those picks are saved in the local ignored preferences file, so you do not have to crack open `.env` just because LM Studio, llama.cpp, or another endpoint calls your model something slightly different. Embeddings are shown there too, but they are optional: when the embedding model is missing or unloaded, Penny should say so and use keyword fallback instead of faceplanting.
+Those picks are saved in the local ignored preferences file, so you do not have to crack open `.env` just because LM Studio, llama.cpp, or another endpoint calls your model something slightly different. Embeddings are shown there too, but they are optional: when the embedding model is missing or unloaded, Penny should say so and report semantic degradation while using keyword retrieval. That does not mean the chat/tool lanes are unavailable, and a compatible chat/tool substitution is reported separately.
 
 For a normal-user walkthrough with LM Studio, llama.cpp, model-picking notes, feature notes, and FAQ answers, read [docs/penny-public/pennyos-user-guide.md](./docs/penny-public/pennyos-user-guide.md). The installed desktop app also bundles an in-app copy at Settings -> Open setup guide.
 

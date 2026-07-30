@@ -348,3 +348,13 @@ test('textFromChatMessage keeps reasoning content out of the stored visible tran
 
   assert.equal(result, 'Visible reply only.\n[MOOD:smug]');
 });
+
+test('textFromChatMessage does not reconstruct an empty visible reply from reasoning by default', () => {
+  const canary = 'PENNY_PRIVATE_REASONING_CANARY_c019';
+  const result = textFromChatMessage({
+    content: '',
+    reasoning_content: `Draft final: ${canary}\n[MOOD:smug]`,
+  });
+
+  assert.equal(result, '');
+});

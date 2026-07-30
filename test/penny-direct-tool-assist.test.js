@@ -94,6 +94,35 @@ function buildDirectToolAssistApi(overrides = {}) {
   };
 }
 
+test('runDirectToolAssist returns deterministic capability replies without tools or a model', async () => {
+  let toolCalls = 0;
+  const { runDirectToolAssist, getLmAssistCalls } = buildDirectToolAssistApi({
+    executePennyTool: async () => {
+      toolCalls += 1;
+      throw new Error('deterministic capability reply must not execute a tool');
+    },
+  });
+
+  const result = await runDirectToolAssist({
+    userText: 'Do you remember our entire chat?',
+    messages: [],
+    memories: {},
+    intent: {
+      kind: 'deterministic_reply',
+      name: 'answer_history_capability',
+      text: 'No fixed last-N rule.\n[MOOD:thinking]',
+    },
+  });
+
+  assert.equal(result.text, 'No fixed last-N rule.\n[MOOD:thinking]');
+  assert.equal(result.modelUsed, false);
+  assert.equal(result.skipSemanticRender, true);
+  assert.deepEqual(result.toolsUsed, []);
+  assert.deepEqual(result.toolRecords, []);
+  assert.equal(toolCalls, 0);
+  assert.equal(getLmAssistCalls(), 0);
+});
+
 test('executeDirectToolSequence stops after the first failed verification step', async () => {
   const calls = [];
   const { executeDirectToolSequence } = buildDirectToolAssistApi({

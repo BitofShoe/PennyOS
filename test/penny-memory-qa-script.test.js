@@ -1,8 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
+const { execFile } = require('node:child_process');
 
 const {
   buildStaticEmbeddingServerEnv,
@@ -12,12 +14,14 @@ const {
   buildSourceSensitiveMemoryQaFixture,
   buildSmokeScenarioSpecs,
   buildMemoryQaTrace,
+  buildStrictNoModelOpsMemoryPreparation,
   canonicalAuthorityPressureSatisfied,
   classifySourceSensitiveMemoryOutcome,
   countNeedleHits,
   normalizeQaStaticEmbedMode,
   parseMemoryQaArgs,
   resolveMemoryQaModelManagementMode,
+  prepareMemoryQaRuntime,
   resolveMemoryQaStaticEmbeddingConfig,
   resolveChatRequestTimeoutMs,
   runCandidateSurvivalArchiveUnitQa,
@@ -245,6 +249,131 @@ test('memory QA model management supports strict no-model-ops mode', () => {
   assert.equal(resolveMemoryQaModelManagementMode({
     PENNY_QA_MANAGE_MODELS: '0',
   }, []).loadStrategy, 'preloaded-no-model-management');
+});
+
+test('strict memory QA preparation is provider-neutral and never constructs LM Studio automation', async () => {
+  let automationFactoryCalls = 0;
+  let providerProbeCalls = 0;
+  const modelManagement = resolveMemoryQaModelManagementMode({
+    PENNY_QA_STRICT_NO_MODEL_OPS: '1',
+  }, []);
+  const result = await prepareMemoryQaRuntime({
+    modelManagement,
+    automationFactory() {
+      automationFactoryCalls += 1;
+      throw new Error('automation factory must not run in strict no-model-ops mode');
+    },
+    probeModels: async ({ baseUrl }) => {
+      providerProbeCalls += 1;
+      assert.equal(baseUrl, 'http://provider.example/v1');
+      return {
+        schema: 'penny-provider-model-probe.v1',
+        ok: true,
+        models: [
+          'unsloth/gemma-4-31b-it@q6_k',
+          'google/gemma-4-e4b',
+          'text-embedding-nomic-embed-text-v1.5',
+        ],
+        error: '',
+      };
+    },
+    env: {
+      PENNY_LMSTUDIO_BASE: 'http://provider.example/v1',
+      PENNY_LMSTUDIO_API_KEY: 'provider-key',
+    },
+  });
+
+  assert.equal(automationFactoryCalls, 0);
+  assert.equal(providerProbeCalls, 1);
+  assert.equal(result.automationApi, null);
+  assert.equal(result.preparation.ok, true);
+  assert.equal(result.preparation.strictNoModelOps, true);
+  assert.equal(result.preparation.providerNeutral, true);
+  assert.match(result.preparation.warnings.join(' '), /no LM Studio CLI/i);
+});
+
+test('strict memory QA preparation reports missing exposed models without attempting repair', async () => {
+  const preparation = await buildStrictNoModelOpsMemoryPreparation({
+    probeModels: async () => ({
+      ok: true,
+      models: ['some-other-model'],
+      error: '',
+    }),
+  });
+
+  assert.equal(preparation.ok, false);
+  assert.match(preparation.blockers.join(' '), /chat model.*already be exposed/i);
+  assert.match(preparation.blockers.join(' '), /tool model.*already be exposed/i);
+});
+
+test('strict memory QA child process leaves an lms spawn canary untouched', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-no-model-ops-'));
+  const markerPath = path.join(tempDir, 'lms-invoked.txt');
+  const childPath = path.join(tempDir, 'strict-preparation-child.cjs');
+  const cmdCanary = path.join(tempDir, 'lms.cmd');
+  const shCanary = path.join(tempDir, 'lms');
+  const server = http.createServer((req, res) => {
+    if (req.url === '/v1/models') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        data: [
+          { id: 'unsloth/gemma-4-31b-it@q6_k' },
+          { id: 'google/gemma-4-e4b' },
+        ],
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', error => (error ? reject(error) : resolve()));
+  });
+  const port = server.address().port;
+  const qaScriptPath = path.resolve(__dirname, '../scripts/qa-penny-memory.js');
+  fs.writeFileSync(cmdCanary, `@echo off\r\n> "${markerPath}" echo invoked\r\nexit /b 99\r\n`);
+  fs.writeFileSync(shCanary, `#!/bin/sh\nprintf invoked > "${markerPath}"\nexit 99\n`, { mode: 0o755 });
+  fs.writeFileSync(childPath, `
+    const qa = require(${JSON.stringify(qaScriptPath)});
+    const mode = qa.resolveMemoryQaModelManagementMode({ PENNY_QA_STRICT_NO_MODEL_OPS: '1' }, []);
+    qa.prepareMemoryQaRuntime({ modelManagement: mode })
+      .then(result => {
+        process.stdout.write(JSON.stringify({
+          ok: result.preparation.ok,
+          providerNeutral: result.preparation.providerNeutral,
+        }));
+      })
+      .catch(error => {
+        console.error(error && (error.stack || error.message) || String(error));
+        process.exitCode = 1;
+      });
+  `);
+
+  try {
+    const result = await new Promise((resolve, reject) => {
+      execFile(process.execPath, [childPath], {
+        env: {
+          ...process.env,
+          PATH: `${tempDir}${path.delimiter}${process.env.PATH || ''}`,
+          PENNY_QA_STRICT_NO_MODEL_OPS: '1',
+          PENNY_LMSTUDIO_BASE: `http://127.0.0.1:${port}/v1`,
+          PENNY_QA_CHAT_MODEL: 'unsloth/gemma-4-31b-it@q6_k',
+          PENNY_QA_TOOL_MODEL: 'google/gemma-4-e4b',
+        },
+      }, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`${error.message}\n${stderr}`));
+          return;
+        }
+        resolve(JSON.parse(stdout));
+      });
+    });
+    assert.deepEqual(result, { ok: true, providerNeutral: true });
+    assert.equal(fs.existsSync(markerPath), false);
+  } finally {
+    await new Promise(resolve => server.close(() => resolve()));
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('candidate-survival archive-unit mode writes an artifact and cleans disposable stores', async () => {

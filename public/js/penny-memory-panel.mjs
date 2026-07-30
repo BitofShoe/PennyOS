@@ -555,11 +555,26 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   const reasoningPolicy = modelAdvisory.reasoningPolicy && typeof modelAdvisory.reasoningPolicy === 'object'
     ? modelAdvisory.reasoningPolicy
     : (artifact?.trace?.reasoningPolicy && typeof artifact.trace.reasoningPolicy === 'object' ? artifact.trace.reasoningPolicy : {});
+  const reasoningContract = artifact.reasoningContract && typeof artifact.reasoningContract === 'object'
+    ? artifact.reasoningContract
+    : {};
   const advisoryMerge = modelAdvisory.advisoryMerge && typeof modelAdvisory.advisoryMerge === 'object'
     ? modelAdvisory.advisoryMerge
     : {};
   const performance = artifact.performance && typeof artifact.performance === 'object' ? artifact.performance : {};
   const readiness = artifact.readiness && typeof artifact.readiness === 'object' ? artifact.readiness : {};
+  const readinessAvailability = readiness.availability && typeof readiness.availability === 'object'
+    ? readiness.availability
+    : {};
+  const compatibilityFallback = readiness.compatibilityFallback && typeof readiness.compatibilityFallback === 'object'
+    ? readiness.compatibilityFallback
+    : {};
+  const semanticDegradation = readiness.semanticDegradation && typeof readiness.semanticDegradation === 'object'
+    ? readiness.semanticDegradation
+    : {};
+  const readinessDegradation = readiness.degradation && typeof readiness.degradation === 'object'
+    ? readiness.degradation
+    : {};
   const toolOutcome = artifact.toolOutcome && typeof artifact.toolOutcome === 'object' ? artifact.toolOutcome : {};
   const toolEvidenceReceipt = normalizeToolEvidenceReceipt(artifact.toolEvidenceReceipt);
   const toolDebug = toolOutcome.debug && typeof toolOutcome.debug === 'object' ? toolOutcome.debug : {};
@@ -659,6 +674,19 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
   if (Array.isArray(reasoningPolicy.reasonCodes) && reasoningPolicy.reasonCodes.length) {
     reasoningBits.push(reasoningPolicy.reasonCodes.slice(0, 4).join(', '));
   }
+  const reasoningContractBits = [
+    `capability ${reasoningContract.capability?.state || 'unknown'}`,
+    `requested ${reasoningContract.requested?.state || 'unknown'}`,
+    `effective ${reasoningContract.effective?.state || 'unknown'}`,
+    `observed ${reasoningContract.observed?.state || 'unknown'}`,
+  ];
+  if (Number(reasoningContract.observed?.reasoningTokens) > 0) {
+    reasoningContractBits.push(`${Number(reasoningContract.observed.reasoningTokens)} reasoning token(s)`);
+  }
+  if (Number(reasoningContract.observed?.reasoningChars) > 0) {
+    reasoningContractBits.push(`${Number(reasoningContract.observed.reasoningChars)} reasoning character(s)`);
+  }
+  if (reasoningContract.observed?.truncated === true) reasoningContractBits.push('bounded receipt truncated');
   const toolDebugBits = [];
   if (manualFallbackDebug.used === true) {
     toolDebugBits.push(`manual fallback ${manualFallbackDebug.lastPlannerStatus || 'used'}`);
@@ -754,6 +782,12 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     </div>
     <div class="list-item">
       <div class="memory-copy">
+        Reasoning contract: <strong>${escapeHtmlFn(reasoningContract.schema || 'unrecorded')}</strong>
+        <small>${escapeHtmlFn(reasoningContractBits.join(' | '))}</small>
+      </div>
+    </div>
+    <div class="list-item">
+      <div class="memory-copy">
         Approximate path: <strong>${escapeHtmlFn(approximatePath.status || 'exact')}</strong> &middot; latency ${escapeHtmlFn(approximatePath.latencyClass || 'casual-companion')}
         <small>${escapeHtmlFn(approximateBits.join(' | ') || (approximatePath.policyNote || 'No approximate-path metadata recorded.'))}</small>
       </div>
@@ -772,8 +806,14 @@ function renderArtifactSummary(artifact = null, escapeHtmlFn = escapeHtml) {
     </div>
     <div class="list-item">
       <div class="memory-copy">
-        Readiness: <strong>${escapeHtmlFn(readiness.warmState || 'cold')}</strong> &middot; model ${escapeHtmlFn(modelUsage)} &middot; chat ${escapeHtmlFn(readiness.chatModelReady ? 'ready' : 'pending')} &middot; tool ${escapeHtmlFn(readiness.toolModelReady ? 'ready' : 'pending')} &middot; embeddings ${escapeHtmlFn(readiness.embeddingReady ? 'ready' : 'fallback')}
-        <small>${escapeHtmlFn(Number.isFinite(Number(readiness.cacheAgeMs)) ? formatCacheAge(readiness.cacheAgeMs) : 'No cache age recorded.')}</small>
+        Readiness: <strong>${escapeHtmlFn(readiness.readinessState || readiness.warmState || 'unknown')}</strong> &middot; model ${escapeHtmlFn(modelUsage)} &middot; availability ${escapeHtmlFn(readinessAvailability.requiredReady ? 'ready' : 'not ready')} &middot; compatibility fallback ${escapeHtmlFn(compatibilityFallback.active ? 'active' : 'none')} &middot; semantic degradation ${escapeHtmlFn(semanticDegradation.active ? (semanticDegradation.mode || 'active') : 'none')}
+        <small>${escapeHtmlFn([
+          `chat ${readiness.chatModelReady ? 'ready' : 'pending'}`,
+          `tool ${readiness.toolModelReady ? 'ready' : 'pending'}`,
+          `embeddings ${readiness.embeddingReady ? 'ready' : 'fallback'}`,
+          readinessDegradation.active ? `degradation ${(readinessDegradation.reasons || []).join(', ') || 'active'}` : 'no degradation',
+          Number.isFinite(Number(readiness.cacheAgeMs)) ? formatCacheAge(readiness.cacheAgeMs) : 'No cache age recorded.',
+        ].join(' | '))}</small>
       </div>
     </div>
     <div class="list-item">
@@ -2199,8 +2239,7 @@ export function buildBrainModeNote({ mode = 'local', meta = null, status = null 
       : `${localRuntimeLabel} is Penny's selected local model path right now. Conversation and tools routing happen automatically.`;
   }
   if (meta.requestedMode === 'shadow' && meta.usedFallback) {
-    const reason = meta.shadowError ? ` ${meta.shadowError}` : '';
-    return `The review route failed, so this reply used the local fallback.${reason}`;
+    return 'The review route failed, so this reply used the local fallback.';
   }
   if (meta.backend === 'openclaw-shadow') {
     return 'The experimental review route handled the last reply.';

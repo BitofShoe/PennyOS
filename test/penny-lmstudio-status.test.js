@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createLmStudioStatusApi } = require('../lib/penny-lmstudio-status');
+const { createProviderError } = require('../lib/penny-provider-errors');
 
 function makeStatusApi({
   models = [],
@@ -10,12 +11,13 @@ function makeStatusApi({
   toolModel = 'google/gemma-4-e4b',
   runtimePreferredModel = '',
   disableModelFallback = false,
+  fetchImpl = null,
 } = {}) {
-  const fetch = async () => ({
+  const fetch = fetchImpl || (async () => ({
     ok: true,
     status: 200,
     text: async () => JSON.stringify({ data: models.map(id => ({ id })) }),
-  });
+  }));
   const fs = {
     existsSync: () => false,
     readFileSync: () => '',
@@ -48,6 +50,48 @@ function makeStatusApi({
     PENNY_LMSTUDIO_DISABLE_MODEL_FALLBACK: disableModelFallback,
   });
 }
+
+test('LM Studio status never exposes a rejected models response body', async () => {
+  const canary = 'PENNY_PRIVATE_MODELS_STATUS_CANARY_55da';
+  const api = makeStatusApi({
+    fetchImpl: async () => ({
+      ok: false,
+      status: 500,
+      text: async () => JSON.stringify({ error: canary, reasoning: canary }),
+    }),
+  });
+
+  const status = await api.getLmStudioConnectionStatus({ force: true });
+
+  assert.equal(status.reachable, false);
+  assert.equal(status.error, 'The local model provider could not complete this request.');
+  assert.doesNotMatch(JSON.stringify(status), new RegExp(canary));
+});
+
+test('LM Studio model fallback recognizes safe missing-model reason codes', async () => {
+  const api = makeStatusApi({
+    models: ['missing/model', 'available/model'],
+    chatModel: 'missing/model',
+  });
+  const attempted = [];
+
+  const result = await api.withLmStudioLaneModel('chat', async model => {
+    attempted.push(model);
+    if (model === 'missing/model') {
+      throw createProviderError({
+        code: 'provider_upstream_error',
+        provider: 'lm_studio',
+        operation: 'chat',
+        upstreamStatus: 404,
+        reasonCode: 'missing_model',
+      });
+    }
+    return model;
+  });
+
+  assert.equal(result, 'available/model');
+  assert.deepEqual(attempted, ['missing/model', 'available/model']);
+});
 
 test('LM Studio status keeps chat override separate from tool preference', async () => {
   const api = makeStatusApi({

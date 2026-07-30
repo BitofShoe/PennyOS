@@ -28,6 +28,9 @@ const {
   getUnloadIdentifiersForNonEmbeddingModels,
   summarizeLoadedModelEntries,
 } = require('../lib/penny-lmstudio-model-state');
+const {
+  probeProviderModels,
+} = require('../lib/penny-provider-model-probe');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
@@ -2517,20 +2520,24 @@ async function listLoadedModelEntriesNoModelOps() {
   return Array.isArray(parsed) ? parsed : [];
 }
 
-async function buildStrictNoModelOpsPreparation() {
-  let loadedModelEntries = [];
+async function buildStrictNoModelOpsPreparation({
+  env = process.env,
+  probeModels = probeProviderModels,
+} = {}) {
+  let loadedModels = [];
   const warnings = [
-    'Strict no-model-ops mode is active; this run will not call LM Studio prepare, load, or unload commands.',
+    'Strict no-model-ops mode used only the configured provider /models endpoint; no LM Studio CLI or model mutation path was invoked.',
   ];
   const blockers = [];
-  try {
-    loadedModelEntries = await listLoadedModelEntriesNoModelOps();
-  } catch (error) {
-    blockers.push(`Could not inspect loaded LM Studio models with lms ps --json: ${String(error?.message || error).trim()}`);
-  }
-  const loadedModels = uniqueStrings(loadedModelEntries.map(normalizeLoadedModelEntry));
+  const providerProbe = await probeModels({
+    baseUrl: String(env.PENNY_LMSTUDIO_BASE || 'http://127.0.0.1:1234/v1').trim(),
+    apiKey: String(env.PENNY_LMSTUDIO_API_KEY || 'lm-studio').trim(),
+  });
+  loadedModels = uniqueStrings(Array.isArray(providerProbe.models) ? providerProbe.models : []);
+  const loadedModelEntries = loadedModels.map(model => ({ model, source: 'provider-models-endpoint' }));
+  if (!providerProbe.ok) blockers.push(providerProbe.error || 'The configured provider models endpoint was unavailable.');
   if (!loadedModels.length && !blockers.length) {
-    blockers.push('Strict no-model-ops mode found no currently loaded LM Studio models.');
+    blockers.push('Strict no-model-ops mode found no models exposed by the configured provider.');
   }
   const hasExpectedChat = loadedModels.some((model) => modelsLookCompatible(model, CHAT_MODEL));
   const hasExpectedTool = CHAT_ONLY_PROMPT_SET || loadedModels.some((model) => modelsLookCompatible(model, EFFECTIVE_TOOL_MODEL));
@@ -2570,6 +2577,8 @@ async function buildStrictNoModelOpsPreparation() {
     requestedEmbedModel: EMBED_MODEL,
     reportOnly: true,
     strictNoModelOps: true,
+    providerNeutral: true,
+    providerProbe,
     loadedModels,
     loadedModelEntries,
     readinessSummary,
@@ -2932,5 +2941,6 @@ module.exports = {
   summarizePresetWiring,
   summarizeStaticEmbeddingRuntime,
   startsWithHonestlyOpener,
+  buildStrictNoModelOpsPreparation,
   unloadNonEmbeddingLmStudioModels,
 };

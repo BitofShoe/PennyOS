@@ -4,6 +4,7 @@ const { EventEmitter } = require('node:events');
 
 const { bindClientDisconnectAbort, createPennyRouteHandlers } = require('../lib/penny-route-handlers');
 const { buildLastRouteInfo } = require('../lib/penny-runtime-artifacts');
+const { createProviderError } = require('../lib/penny-provider-errors');
 
 test('workspace write routes list, approve, and deny staged edits', async () => {
   const responses = [];
@@ -301,12 +302,14 @@ function createToolReceiptRouteHarness({
   sessionId = 'tool-receipt-session',
   userText = 'Inspect README.md',
   runResult = {},
+  runError = null,
   staticEmbeddingStatus = null,
   queryStaticMemoryIndex = null,
   webSearchEnabled = true,
   constants = {},
 } = {}) {
   const memoryStore = new Map();
+  const events = [];
   let response = null;
   const handlers = createPennyRouteHandlers({
     sendJson(_res, statusCode, json) {
@@ -378,9 +381,11 @@ function createToolReceiptRouteHarness({
       };
     },
     async runLmStudioLocalSmart() {
+      if (runError) throw runError;
       return runResult;
     },
     async streamLmStudioLocalSmart() {
+      if (runError) throw runError;
       throw new Error('stream path should not be used in this test');
     },
     scheduleResearchLedgerUpdate() {
@@ -436,7 +441,9 @@ function createToolReceiptRouteHarness({
       return String(text || '').replace(/\s*\[MOOD:[^\]]+\]\s*/gi, '').trim();
     },
     beginEventStream() {},
-    sendEventStream() {},
+    sendEventStream(_res, event, data) {
+      events.push({ event, data });
+    },
     startEventStreamKeepAlive() {
       return null;
     },
@@ -482,10 +489,54 @@ function createToolReceiptRouteHarness({
 
   return {
     handlers,
+    events,
     memoryStore,
     getResponse: () => response,
   };
 }
+
+test('chat JSON and SSE failures recursively exclude provider body canaries', async () => {
+  const canary = 'PENNY_PRIVATE_ROUTE_BODY_CANARY_d31a';
+  const runError = createProviderError({
+    code: 'provider_upstream_error',
+    provider: 'lm_studio',
+    operation: 'chat-completions',
+    upstreamStatus: 500,
+    privateDetail: canary,
+  });
+
+  const jsonHarness = createToolReceiptRouteHarness({ runError });
+  const jsonHandled = await jsonHarness.handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res: {},
+    url: new URL('http://127.0.0.1/api/penny/chat'),
+  });
+  const jsonResponse = jsonHarness.getResponse();
+
+  assert.equal(jsonHandled, true);
+  assert.equal(jsonResponse.statusCode, 502);
+  assert.equal(jsonResponse.json.code, 'provider_upstream_error');
+  assert.doesNotMatch(JSON.stringify(jsonResponse), new RegExp(canary));
+
+  const sseHarness = createToolReceiptRouteHarness({ runError });
+  const res = {
+    writableEnded: false,
+    destroyed: false,
+    end() {
+      this.writableEnded = true;
+    },
+  };
+  const sseHandled = await sseHarness.handlers.handleApiRoute({
+    req: { method: 'POST' },
+    res,
+    url: new URL('http://127.0.0.1/api/penny/chat?stream=1'),
+  });
+
+  assert.equal(sseHandled, true);
+  assert.equal(sseHarness.events.at(-1)?.event, 'error');
+  assert.equal(sseHarness.events.at(-1)?.data?.code, 'provider_upstream_error');
+  assert.doesNotMatch(JSON.stringify(sseHarness.events), new RegExp(canary));
+});
 
 test('bindClientDisconnectAbort aborts on aborted, request close, and response close', () => {
   for (const eventName of ['aborted', 'request-close', 'response-close']) {
@@ -555,6 +606,18 @@ test('status route exposes static embedding runtime status when provided', async
     ready: true,
   });
   assert.equal(response.json.webSearchEnabled, true);
+  assert.equal(response.json.readiness.schema, 'penny-runtime-readiness.v2');
+  assert.equal(response.json.readiness.availability.requiredReady, false);
+  assert.equal(response.json.readiness.compatibilityFallback.active, false);
+  assert.equal(response.json.readiness.semanticDegradation.active, false);
+  assert.equal(response.json.readiness.degradation.active, true);
+  assert.deepEqual(
+    response.json.readiness.degradation.reasons,
+    ['chat-unavailable', 'tool-unavailable'],
+  );
+  assert.deepEqual(response.json.readiness.legacyFallbackProjection.sources, []);
+  assert.equal(response.json.readiness.fallbackActive, true);
+  assert.equal(response.json.readiness.modelUsage, 'not-used');
 });
 
 test('status route exposes configured local runtime identity without renaming legacy LM Studio fields', async () => {
@@ -1392,6 +1455,19 @@ test('chat route keeps image uploads on the chat lane and records attachment-bou
         modelUsed: true,
         canonicalFactsPresent: false,
         canonicalOverrideActive: false,
+        reasoningContract: {
+          measurementMode: 'runtime-turn',
+          modelCall: true,
+          capability: { state: 'supported', source: 'response-signal' },
+          requested: { state: 'not-requested', source: 'request-payload', control: 'omitted' },
+          effective: { state: 'enabled', source: 'response-signal' },
+          observed: {
+            state: 'reasoning-observed',
+            source: 'provider-response',
+            signal: 'reasoning-tokens',
+            reasoningTokens: 42,
+          },
+        },
       };
     },
     async streamLmStudioLocalSmart() {
@@ -1507,6 +1583,13 @@ test('chat route keeps image uploads on the chat lane and records attachment-bou
   assert.equal(response.json.meta.artifact.scope.selectedLane, 'chat');
   assert.equal(response.json.meta.artifact.modelAdvisory.reasoningPolicy.mode, 'attachment-bounded');
   assert.equal(response.json.meta.artifact.trace.reasoningPolicy.mode, 'attachment-bounded');
+  assert.equal(response.json.meta.reasoningContract.requested.state, 'not-requested');
+  assert.equal(response.json.meta.reasoningContract.effective.state, 'enabled');
+  assert.equal(response.json.meta.artifact.reasoningContract.observed.reasoningTokens, 42);
+  assert.equal(
+    response.json.memory.lastRoute.artifact.reasoningContract.observed.state,
+    'reasoning-observed',
+  );
 });
 
 test('streamed chat route sends image replies through message.delta and done events', async () => {

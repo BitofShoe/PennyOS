@@ -88,6 +88,10 @@ Frontend bootstrap only.
 Main browser orchestration, transcript flow, mood/sprite updates, memory/settings actions, and inspector wiring.
 - `public/js/penny-transcript-ui.mjs`
 Transcript rendering helpers and chat-stream presentation.
+- `public/js/penny-stream-state.mjs`
+Browser stream reducer for transition/text deduplication, retry epochs, and bounded hidden-reasoning metadata.
+- `public/js/penny-public-errors.mjs`
+Browser-side fixed provider-error normalization plus legacy transcript/localStorage scrubbing.
 - `public/js/penny-expression-runtime.mjs`
 Mood/expression runtime helpers for Penny's visible vessel.
 - `public/js/penny-ambient-chrome.mjs`
@@ -214,6 +218,8 @@ Fixture-only frame-budget compare harness for baseline, static-live-shadow, stat
 Fixture-only bounded initiative artifact for allowed vs held-back suggestions, pressure/annoyance cases, source-aware prompt scaffolds, and max-one rendering.
 - [scripts/eval-penny-runtime-fit.js](./scripts/eval-penny-runtime-fit.js)
 Latency/runtime-fit harness for context-length and semantic-readiness tradeoffs; `eval:runtime-fit:context-pressure` adds a fixture-only short/medium/long rendered-context artifact with nullable latency fields and `not-run` answer drift.
+- `scripts/eval-penny-performance-matrix.js`
+Repeated profile/run harness for the full performance decomposition contract. Its default localhost mock profiles are claimable only for transport plumbing; exact live-model conclusions require an explicitly authorized and recorded live-provider profile.
 - [scripts/qa-penny-memory.js](./scripts/qa-penny-memory.js)
 Segmented plus judged memory QA harness with trace-first runtime artifact validation; `qa:memory:source-sensitive` adds fixture-only subject/relation/object/source/surface cases, support outcome classes, and structured candidate-contract checks, `qa:memory:candidate-survival-fixture` writes the fixture-only candidate-survival schema plus structured semantic candidate-contract QA, and `qa:memory:candidate-survival` writes the model-answer-free archive-unit artifact against disposable stores.
 - [scripts/qa-penny-semantic-source-audit.js](./scripts/qa-penny-semantic-source-audit.js)
@@ -312,6 +318,12 @@ Current modules worth knowing:
 - [lib/penny-local-lanes.js](./lib/penny-local-lanes.js)
 - [lib/penny-lmstudio-status.js](./lib/penny-lmstudio-status.js)
 - [lib/penny-visible-reply.js](./lib/penny-visible-reply.js)
+- `lib/penny-provider-errors.js`
+- `lib/penny-provider-model-probe.js`
+- `lib/penny-stream-state.js`
+- `lib/penny-reasoning-contract.js`
+- `lib/penny-history-capability.js`
+- `lib/penny-performance-matrix.js`
 - [lib/penny-runtime-artifacts.js](./lib/penny-runtime-artifacts.js)
 - [lib/penny-qa-trace.js](./lib/penny-qa-trace.js)
 - [lib/penny-qa-validity.js](./lib/penny-qa-validity.js)
@@ -389,13 +401,17 @@ Likely modules you will touch:
 - lane selection in `lib/penny-local-lanes.js`
 - direct tool intent routing in `lib/penny-direct-intents.js`
 - direct deterministic tool execution in `lib/penny-direct-tool-assist.js`
+- deterministic recent-history/architecture truth in `lib/penny-history-capability.js`; the answer derives current message-entry budgets from latency policy and does not call a model
 - concrete tool implementations in `lib/penny-*-tools.js`
 - internal tool capability descriptors in `lib/penny-tool-registry.js`, including advisory output/source-cost metadata that can be echoed into runtime artifact `toolCostSummary` without changing planner behavior or becoming runtime authority by itself
 - productized local sidecar workflow receipts in `lib/penny-sidecar-workflows.js`; SearXNG search, fixture/Qdrant docs-RAG, and Speaches TTS/audio stay review-only, fixture-first, and separate from memory, PromptTruth, tool evidence, runtime voice, default context, and model state
 - LM Studio status/model resolution in `lib/penny-lmstudio-status.js`
 - LM Studio transport selection in `lib/penny-lmstudio-transports.js`
+- typed provider-error ownership in `lib/penny-provider-errors.js`, with raw bodies discarded before route/artifact/log serialization
+- provider-neutral `/models` discovery for strict no-model-ops QA in `lib/penny-provider-model-probe.js`
+- server/browser stream reducers in `lib/penny-stream-state.js` and `public/js/penny-stream-state.mjs`; do not move transition or retry-epoch state back into transport/UI orchestration
 - Gemma chat sampling defaults and transport payload fields in `lib/penny-lmstudio-transports.js`, with env wiring in `server.js`
-- Gemma runtime watch artifacts in `lib/penny-gemma-runtime-watch.js`, `lib/penny-lmstudio-status.js`, `scripts/penny-preflight.js`, and `scripts/eval-penny-runtime-fit.js`; this is fixture/status evidence only, not a default-thinking, context-increase, or embedding-provider change
+- Gemma runtime watch artifacts in `lib/penny-gemma-runtime-watch.js`, `lib/penny-lmstudio-status.js`, `scripts/penny-preflight.js`, and `scripts/eval-penny-runtime-fit.js`; request controls are omitted by default and provider-effective reasoning remains unknown without response evidence, so this is not proof of default-effective reasoning off
 - route/runtime artifact assembly in `lib/penny-route-handlers.js` and `lib/penny-runtime-artifacts.js`
 
 ### Change trace/provenance or inspector surfaces
@@ -416,6 +432,8 @@ Likely modules you will touch:
 - prompt-truth receipt generation in `lib/penny-memory.js` and `lib/penny-prompt-stack.js`
 - tool-evidence receipt build/normalize in `lib/penny-runtime-artifacts.js`, with source facts emitted by `lib/penny-direct-tool-assist.js`, `lib/penny-tool-loop.js`, and the semantic-render seam in `server.js`
 - bounded reasoning-policy receipt generation in `lib/penny-runtime-artifacts.js`
+- four-part reasoning truth in `lib/penny-reasoning-contract.js` and `lib/penny-runtime-artifacts.js`; capability, requested policy, effective evidence, and observation are distinct and hidden text is not retained
+- readiness-v2 normalization/migration in `lib/penny-runtime-artifacts.js`; availability, compatibility fallback, semantic degradation, aggregate degradation, and the deprecated legacy projection must remain separate
 - turn-state prompt bridge receipt normalization in `lib/penny-runtime-artifacts.js`; it stores only a redacted summary and retention policy, not the full turn-state card or raw private inference
 - research-ledger identity/settled-state rules in `lib/penny-research-ledger.js`
 - local semantic identifier contracts in `lib/penny-semantic-ids.js`; these mint opaque `penny:*` IDs for later claims, links, traces, vector sources, and rendered-context receipts without making the IDs fetchable, authoritative, canonical, or prompt-visible by themselves
@@ -494,7 +512,7 @@ Dynamic memory linking has helper/fixture/QA/compare code in `lib/penny-memory-l
 
 Semantic identity and provenance contracts are helper-owned: `lib/penny-semantic-ids.js` plus `test/penny-semantic-ids.test.js` mint stable local IDs for source, claim, entity, predicate, link, domain, rendered-context, and vector-source objects; `lib/penny-semantic-predicates.js` plus `test/penny-semantic-predicates.test.js` define the small typed predicate registry; `lib/penny-semantic-claims.js` plus `test/penny-semantic-claims.test.js` define the structured claim schema for subject, predicate, object, source, authority, temporal, and stale-status fields; candidate/source-sensitive QA includes fixture-only structured candidate-contract checks for wrong predicate, stale object, temporal, source id, claim id, domain, and authority-overclaim failures; `lib/penny-semantic-source-audit.js` plus `test/penny-semantic-source-audit.test.js` define fixture/local source-ID continuity audits across semantic, static, link, rendered, and tool-evidence surfaces; candidate-survival archive-unit artifacts carry sibling semantic claim traces so reviewers can separate expected structured claims from unstructured advisory text, wrong-predicate matches, and candidate-only static/semantic claims; rendered archive PromptTruth channels can preserve compact rendered-claim authority labels; and `lib/penny-semantic-export.js` plus `scripts/export-penny-semantic-claims.js` can write local-only `penny-json` export artifacts for inspection. These slices do not adopt raw claim graphs, predicate registries, candidate traces, dynamic links, static similarity traces, export files, or tool evidence into PromptTruth, `toolEvidenceReceipt`, memory promotion, live ranking defaults, graph infrastructure, URI dereferencing, public Linked Data, or route surfaces; future slices should dual-write or explicitly migrate consumers instead of replacing serialized IDs in place.
 
-Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, `lib/penny-qa-trace.js`, and their tests cover social pressure, companion-feedback bias, remote/source pressure, and agent-integrity receipt canaries. Gemma runtime watch lives in `lib/penny-gemma-runtime-watch.js` plus status/preflight/runtime-fit artifacts. Tool output-cost descriptors live in `lib/penny-tool-registry.js` and optional sibling runtime artifact cost summaries. None of those status surfaces change runtime voice, expand `promptTruth`, switch default embeddings, enable default thinking, raise default context, or import external dependencies.
+Pressure-watch trust work lives in the QA/eval layer: `scripts/qa-penny-voice-redo.js`, `lib/penny-qa-trust.js`, `lib/penny-qa-trace.js`, and their tests cover social pressure, companion-feedback bias, remote/source pressure, and agent-integrity receipt canaries. Gemma runtime watch lives in `lib/penny-gemma-runtime-watch.js` plus status/preflight/runtime-fit artifacts. Tool output-cost descriptors live in `lib/penny-tool-registry.js` and optional sibling runtime artifact cost summaries. None of those status surfaces change runtime voice, expand `promptTruth`, switch default embeddings, change Penny's omitted-by-default reasoning request policy, claim provider-effective reasoning from status alone, raise default context, or import external dependencies.
 
 ### Change shadow/OpenClaw behavior
 

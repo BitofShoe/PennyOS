@@ -90,9 +90,15 @@ test('Gemma runtime watch records thinking control availability without default-
   });
 
   assert.equal(artifact.watchItems.thinkingControls.exposed, true);
-  assert.equal(artifact.watchItems.thinkingControls.defaultForCompanionChat, 'off');
+  assert.equal(artifact.watchItems.thinkingControls.requestPolicyForCompanionChat, 'not-requested');
+  assert.equal(artifact.watchItems.thinkingControls.requestControl, 'omitted');
+  assert.equal(artifact.watchItems.thinkingControls.effectiveState, 'unknown');
+  assert.equal(artifact.reasoningContract.capability.state, 'supported');
+  assert.equal(artifact.reasoningContract.requested.state, 'not-requested');
+  assert.equal(artifact.reasoningContract.effective.state, 'unknown');
+  assert.equal(artifact.reasoningContract.observed.state, 'unknown');
   assert.match(artifact.watchItems.thinkingControls.notes, /thinking toggle/i);
-  assert.ok(artifact.limits.includes('Thinking remains off for normal companion chat.'));
+  assert.ok(artifact.limits.some(item => /provider-effective state remains unknown/i.test(item)));
 });
 
 test('Gemma runtime watch records known image payload policy', () => {
@@ -141,6 +147,9 @@ test('LM Studio status attaches a status-only Gemma runtime watch without changi
   assert.equal(status.gemmaRuntimeWatch.watchItems.loadedModelIdentity.exactMatch, false);
   assert.equal(status.gemmaRuntimeWatch.watchItems.loadedModelIdentity.compatibleMatch, true);
   assert.equal(status.gemmaRuntimeWatch.watchItems.currentTurnImageOnly.observed, true);
+  assert.equal(status.gemmaRuntimeWatch.reasoningContract.requested.state, 'not-requested');
+  assert.equal(status.gemmaRuntimeWatch.reasoningContract.effective.state, 'unknown');
+  assert.equal(status.gemmaRuntimeWatch.reasoningContract.observed.state, 'unknown');
 });
 
 test('runtime-fit Gemma watch records transport and sampling without changing defaults', () => {
