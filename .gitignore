@@ -6,6 +6,7 @@ src-tauri/target/
 qa-composer-visual/
 .qa-pw/
 output/
+outputs/
 tmp/
 artifacts/
 test-results/
