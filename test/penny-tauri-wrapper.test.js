@@ -51,6 +51,9 @@ test('package exposes Tauri desktop scripts and ships the wrapper scaffold in so
   assert.match(packageJson.scripts['tauri:sidecar:build'], /penny-tauri-build-sidecar/);
   assert.match(packageJson.scripts['tauri:sidecar:manifest'], /--dry-run --json/);
   assert.match(packageJson.scripts['tauri:build'], /tauri:sidecar:build/);
+  assert.ok(!packageJson.files.includes('public/'));
+  assert.ok(packageJson.files.includes('public/sprites/packs/penny-2d25d-v1.4/'));
+  assert.ok(!packageJson.files.includes('public/sprites/packs/penny-2d25d-v1.2/'));
 
   const npmIgnore = readText('.npmignore');
   const gitIgnore = readText('.gitignore');
@@ -175,6 +178,8 @@ test('Tauri sidecar staging manifest bundles runtime resources without private s
   assert.ok(targets.includes('server.js'));
   assert.ok(targets.includes('public/index.html'));
   assert.ok(targets.includes('public/js/penny-runtime-voice.mjs'));
+  assert.ok(targets.includes('public/sprites/packs/penny-2d25d-v1.4/manifest.json'));
+  assert.ok(!targets.some((target) => target.startsWith('public/sprites/packs/penny-2d25d-v1.2/')));
   assert.ok(targets.includes('lib/penny-runtime-voice.js'));
   assert.ok(targets.includes('data/penny-memory.seed.json'));
   assert.ok(targets.includes('data/penny-memory-books.seed.json'));

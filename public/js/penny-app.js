@@ -41,12 +41,14 @@ import {
   buildExpressionDecisionRecord,
   stripDraftMood as stripDraftMoodRuntime,
   escapeHtml as escapeHtmlRuntime,
-  getMoodAvatarSrc as getMoodAvatarSrcRuntime,
+  getMoodAvatarDescriptor as getMoodAvatarDescriptorRuntime,
   getMoodSpriteVariant as getMoodSpriteVariantRuntime,
   getMoodSpriteVariants as getMoodSpriteVariantsRuntime,
   getMoodPresentationProfile as getMoodPresentationProfileRuntime,
   chatDecorSrcs as chatDecorSrcsRuntime,
   buildCompanionFaceHtml as buildCompanionFaceHtmlRuntime,
+  bindExpressionImageFallback,
+  waitForExpressionImages,
   applyMoodCssVariables,
   syncIdleDecorBounds as syncIdleDecorBoundsRuntime,
 } from './penny-expression-runtime.mjs';
@@ -365,6 +367,7 @@ const expressionPackRuntime = createExpressionPackRuntime({
   fetchImpl: (...args) => fetch(...args),
   manifestUrl: DEFAULT_EXPRESSION_PACK_URL_RUNTIME,
   defaultPack: activeExpressionPack,
+  preloadTimeoutMs: 1700,
 });
 
 async function loadExpressionPackManifest() {
@@ -411,14 +414,8 @@ function companionFaceHtml(mood, profile = null) {
 
 function applyCompanionArtFallback(container) {
   if (!container) return;
-  for (const img of Array.from(container.querySelectorAll('.penny-art[data-fallback-src]'))) {
-    const fallbackSrc = img.dataset.fallbackSrc || '';
-    if (!fallbackSrc) continue;
-    const useFallback = () => {
-      if (img.getAttribute('src') !== fallbackSrc) img.setAttribute('src', fallbackSrc);
-    };
-    img.addEventListener('error', useFallback, { once: true });
-    if (img.complete && !img.naturalWidth) useFallback();
+  for (const img of Array.from(container.querySelectorAll('[data-fallback-src]'))) {
+    bindExpressionImageFallback(img);
   }
 }
 
@@ -453,6 +450,7 @@ let _lastSpriteKey = '';
 let _spriteTimer = null;
 let _lastRenderedMood = '';
 let _lastPresentationProfile = null;
+let _spriteTransitionGeneration = 0;
 
 const INTENSITY_SCALES = [1, 1.3, 1.6];
 
@@ -468,7 +466,12 @@ function applyIntensityClass() {
   core.classList.add(`intensity-${level}`);
 }
 
+function prefersReducedMotion() {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+}
+
 function triggerGlitch(profile = null) {
+  if (prefersReducedMotion()) return;
   const core = document.querySelector('.core');
   if (!core) return;
   core.classList.add('mood-glitch');
@@ -485,9 +488,15 @@ function renderSprite(mood, palette) {
   const spriteKey = `${mood}:${intensity}:${profile.variantIndex}:${profile.closeUp ? 'close' : 'wide'}:${variant?.src || 'default'}`;
   const hasMissingSprite = containers.some((container) => !container.querySelector('.penny-display'));
   if (spriteKey === _lastSpriteKey && !hasMissingSprite) return;
+  const transitionGeneration = ++_spriteTransitionGeneration;
 
   const html = companionFaceHtml(mood, profile);
   const isFirstRender = hasMissingSprite;
+  const reducedMotion = prefersReducedMotion();
+  const fadeOutMs = reducedMotion ? 0 : Number(profile.fadeOutMs || 100);
+  const swapDelayMs = reducedMotion ? 0 : Number(profile.swapDelayMs || 110);
+  const fadeInMs = reducedMotion ? 0 : Number(profile.fadeInMs || 180);
+  const settleMs = reducedMotion ? 0 : Number(profile.settleMs || 200);
 
   if (isFirstRender) {
     for (const container of containers) {
@@ -508,30 +517,32 @@ function renderSprite(mood, palette) {
   if (_spriteTimer) { clearTimeout(_spriteTimer); _spriteTimer = null; }
 
   for (const container of containers) {
-    container.style.transition = `opacity ${Number(profile.fadeOutMs || 100)}ms ease-out`;
+    container.style.transition = `opacity ${fadeOutMs}ms ease-out`;
     container.style.opacity = '0.04';
   }
 
   _spriteTimer = setTimeout(() => {
+    if (transitionGeneration !== _spriteTransitionGeneration) return;
     for (const container of containers) {
       container.innerHTML = html;
     }
     applyCompanionArtFallbacks(containers);
     applyIntensityClass();
     for (const container of containers) {
-      container.style.transition = `opacity ${Number(profile.fadeInMs || 180)}ms ease-in`;
+      container.style.transition = `opacity ${fadeInMs}ms ease-in`;
       container.style.opacity = '1';
     }
     _lastPresentationProfile = profile;
     _spriteTimer = setTimeout(() => {
+      if (transitionGeneration !== _spriteTransitionGeneration) return;
       for (const container of containers) {
         container.style.transition = '';
       }
       _spriteTimer = null;
-    }, Number(profile.settleMs || 200));
+    }, settleMs);
     _lastSpriteKey = spriteKey;
     _lastRenderedMood = mood;
-  }, Number(profile.swapDelayMs || 110));
+  }, swapDelayMs);
 }
 
 function updateTheme() {
@@ -562,8 +573,12 @@ function updateModelSetupUi(status = null) {
   return updateModelSetupUiHelper({ els, status });
 }
 
+function pennyAvatarDescriptor(mood = state.mood) {
+  return getMoodAvatarDescriptorRuntime(activeExpressionPack, mood);
+}
+
 function pennyAvatarSrc(mood = state.mood) {
-  return getMoodAvatarSrcRuntime(activeExpressionPack, mood);
+  return pennyAvatarDescriptor(mood).src;
 }
 
 function syncStaticCyberDecorBounds() {
@@ -588,11 +603,13 @@ function renderMessages({ forceStickToLatest = false } = {}) {
     loading: state.loading,
     stateMood: state.mood,
     avatarSrcForMood: pennyAvatarSrc,
+    avatarDescriptorForMood: pennyAvatarDescriptor,
     appendMessageDecor,
     formatBytesFn: formatBytes,
     escapeHtmlFn: escapeHtml,
     forceStickToLatest,
   });
+  applyCompanionArtFallback(els.chat);
   queueStaticCyberDecorBoundsSync();
 }
 
@@ -657,8 +674,12 @@ function applyDebugSpriteOverrides() {
     const params = new URLSearchParams(window.location.search);
     const debugMood = params.get('debugMood');
     const debugTurns = params.get('debugTurns');
+    const vesselFit = String(params.get('vesselFit') || '').toUpperCase();
     if (debugMood && MOODS[debugMood]) state.mood = debugMood;
     if (debugTurns !== null && debugTurns !== '') state.turns = Number(debugTurns) || 0;
+    if (['A', 'B', 'C', 'D'].includes(vesselFit)) {
+      document.documentElement.dataset.vesselFit = vesselFit;
+    }
     if (params.get('debugIdle') === '1') {
       state.messages = [];
       state.presence = 'idle';
@@ -1583,19 +1604,59 @@ loadDurableMemory();
 loadWorkspaceWrites({ quiet: true });
 loadBackendStatus();
 refreshRuntimeVoiceStatus();
-  loadExpressionPackManifest().then(() => {
+async function initializeExpressionPack() {
+  try {
+    await loadExpressionPackManifest();
     _lastSpriteKey = '';
     _lastRenderedMood = '';
     _lastPresentationProfile = null;
+    for (const container of [els.coreFace, els.mobileCoreFace].filter(Boolean)) {
+      container.replaceChildren();
+    }
     if (!state.loading) renderMessages();
     updateTheme();
-  }).catch(() => {});
+    const faceReady = await waitForExpressionImages(
+      [els.coreFace, els.mobileCoreFace].filter(Boolean),
+      { timeoutMs: 250 },
+    );
+    const expressionStatus = expressionPackRuntime.status;
+    const registeredReady = expressionStatus.manifestLoaded
+      && activeExpressionPack.id === 'penny-2d25d-eight-mood-v1.4'
+      && expressionStatus.calmReady
+      && faceReady;
+    document.documentElement.dataset.expressionReady = registeredReady
+      ? 'registered'
+      : (faceReady ? 'legacy-fallback' : 'degraded');
+  } catch {
+    document.documentElement.dataset.expressionReady = 'degraded';
+  } finally {
+    document.documentElement.classList.remove('expression-loading');
+  }
+}
 
-window.__pennyDebug = (mood, turns) => {
-    if (mood && MOODS[mood]) state.mood = mood;
-    if (turns !== undefined) state.turns = Number(turns) || 0;
-    _lastSpriteKey = '';
-    _lastRenderedMood = '';
-    _lastPresentationProfile = null;
-    updateTheme();
-  };
+initializeExpressionPack();
+
+const pennyDebug = (mood, turns) => {
+  if (mood && MOODS[mood]) state.mood = mood;
+  if (turns !== undefined) state.turns = Number(turns) || 0;
+  _lastSpriteKey = '';
+  _lastRenderedMood = '';
+  _lastPresentationProfile = null;
+  if (!state.loading) renderMessages();
+  updateTheme();
+};
+Object.defineProperties(pennyDebug, {
+  expressionStatus: {
+    enumerable: true,
+    get: () => expressionPackRuntime.status,
+  },
+  expressionPack: {
+    enumerable: true,
+    get: () => activeExpressionPack.id || 'default',
+  },
+  expressionTransitionGeneration: {
+    enumerable: true,
+    get: () => _spriteTransitionGeneration,
+  },
+});
+window.__pennyDebug = pennyDebug;

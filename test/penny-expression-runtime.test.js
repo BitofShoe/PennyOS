@@ -54,6 +54,83 @@ test('manifest normalization preserves the contract and merges mood overrides sa
   assert.equal(pack.moods.flirty.secondaryVariants[0].src, '/sprites/custom-flirty.png');
 });
 
+test('registered composite manifest normalizes exact modes, local fallbacks, and one variant per mood', async () => {
+  const {
+    createDefaultExpressionPack,
+    normalizeExpressionPackManifest,
+    getMoodAvatarDescriptor,
+    getMoodSpriteVariants,
+    MOOD_TAGS,
+  } = await helpersPromise;
+  const manifestPath = path.join(__dirname, '..', 'public', 'sprites', 'packs', 'penny-2d25d-v1.4', 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const pack = normalizeExpressionPackManifest(manifest, createDefaultExpressionPack());
+
+  assert.equal(pack.id, 'penny-2d25d-eight-mood-v1.4');
+  assert.equal(pack.renderMode, 'registered-composite');
+  assert.equal(pack.transitionMode, 'atomic-fade-swap');
+  assert.equal(pack.integrity, '/sprites/packs/penny-2d25d-v1.4/integrity.json');
+  assert.deepEqual(pack.contract, MOOD_TAGS);
+  for (const mood of MOOD_TAGS) {
+    const avatar = getMoodAvatarDescriptor(pack, mood);
+    const variants = getMoodSpriteVariants(pack, mood);
+    assert.equal(variants.length, 1, `${mood} must remain deterministic`);
+    assert.equal(avatar.src, `/sprites/packs/penny-2d25d-v1.4/composites/${mood}.png`);
+    assert.notEqual(avatar.fallbackSrc, avatar.src);
+    assert.equal(avatar.renderMode, 'registered-composite');
+    assert.equal(avatar.transitionMode, 'atomic-fade-swap');
+  }
+});
+
+test('expression mode precedence is descriptor then mood then pack with safe legacy fallback', async () => {
+  const {
+    createDefaultExpressionPack,
+    normalizeExpressionPackManifest,
+  } = await helpersPromise;
+  const pack = normalizeExpressionPackManifest({
+    renderMode: 'registered-composite',
+    transitionMode: 'atomic-fade-swap',
+    moods: {
+      calm: {
+        renderMode: 'legacy-chibi',
+        avatar: {
+          src: '/sprites/custom/avatar.png',
+          renderMode: 'registered-composite',
+        },
+        variants: [{
+          src: '/sprites/custom/variant.png',
+          renderMode: 'bogus-mode',
+          transitionMode: 'bogus-transition',
+        }],
+      },
+    },
+  }, createDefaultExpressionPack());
+
+  assert.equal(pack.moods.calm.renderMode, 'legacy-chibi');
+  assert.equal(pack.moods.calm.avatar.renderMode, 'registered-composite');
+  assert.equal(pack.moods.calm.variants[0].renderMode, 'legacy-chibi');
+  assert.equal(pack.moods.calm.variants[0].transitionMode, 'atomic-fade-swap');
+});
+
+test('expression URL normalization rejects remote, drive, data, and traversal paths', async () => {
+  const {
+    isSafePublicAssetPath,
+    normalizeExpressionAssetPath,
+  } = await helpersPromise;
+
+  assert.equal(isSafePublicAssetPath('/sprites/packs/example/calm.png'), true);
+  assert.equal(isSafePublicAssetPath('/sprites/../private.txt'), false);
+  assert.equal(isSafePublicAssetPath('/sprites/%2e%2e/private.txt'), false);
+  assert.equal(isSafePublicAssetPath('file:///tmp/calm.png'), false);
+  assert.equal(isSafePublicAssetPath('data:image/png;base64,abc'), false);
+  assert.equal(isSafePublicAssetPath('https://example.com/calm.png'), false);
+  assert.equal(isSafePublicAssetPath('C:\\temp\\calm.png'), false);
+  assert.equal(
+    normalizeExpressionAssetPath('https://example.com/calm.png', '/sprites/decor/chibi-avatar-calm.png'),
+    '/sprites/decor/chibi-avatar-calm.png',
+  );
+});
+
 test('default manifest appends Pen2 variants that can be selected for every mood', async () => {
   const {
     createDefaultExpressionPack,
@@ -270,6 +347,82 @@ test('expression pack runtime loads a manifest and falls back cleanly on failure
   assert.equal(fallbackPack.moods.calm.avatar.src, '/sprites/decor/chibi-avatar-calm.png');
 });
 
+test('expression pack runtime preloads calm and exposes bounded readiness status', async () => {
+  const { createExpressionPackRuntime } = await helpersPromise;
+  class FakeImage {
+    constructor() {
+      this.complete = false;
+      this.naturalWidth = 0;
+    }
+
+    set src(value) {
+      this._src = value;
+      this.complete = true;
+      this.naturalWidth = 1024;
+      queueMicrotask(() => this.onload?.());
+    }
+
+    get src() {
+      return this._src;
+    }
+
+    decode() {
+      return Promise.resolve();
+    }
+  }
+  const manifestPath = path.join(__dirname, '..', 'public', 'sprites', 'packs', 'penny-2d25d-v1.4', 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const idleCallbacks = [];
+  const runtime = createExpressionPackRuntime({
+    fetchImpl: async () => ({ ok: true, json: async () => manifest }),
+    ImageCtor: FakeImage,
+    requestIdleCallbackImpl: (callback) => idleCallbacks.push(callback),
+  });
+
+  const pack = await runtime.load();
+  assert.equal(pack.id, 'penny-2d25d-eight-mood-v1.4');
+  assert.equal(runtime.status.manifestLoaded, true);
+  assert.equal(runtime.status.calmReady, true);
+  assert.equal(runtime.status.fallbackActive, false);
+  assert.equal(runtime.status.preloadedCount, 2);
+  assert.equal(idleCallbacks.length, 1);
+  idleCallbacks[0]();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(runtime.status.preloadedCount, 9);
+});
+
+test('image fallback swaps once and reports a second failure without looping', async () => {
+  const { bindExpressionImageFallback } = await helpersPromise;
+  const listeners = new Map();
+  const logged = [];
+  const img = {
+    complete: false,
+    naturalWidth: 0,
+    dataset: {
+      fallbackSrc: '/sprites/decor/chibi-avatar-calm.png',
+    },
+    attributes: {
+      src: '/sprites/packs/penny-2d25d-v1.4/composites/calm.png',
+    },
+    addEventListener(name, listener) {
+      listeners.set(name, listener);
+    },
+    getAttribute(name) {
+      return this.attributes[name] || '';
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+  };
+
+  assert.equal(bindExpressionImageFallback(img, { consoleRef: { error: (message) => logged.push(message) } }), true);
+  listeners.get('error')();
+  assert.equal(img.attributes.src, '/sprites/decor/chibi-avatar-calm.png');
+  listeners.get('error')();
+  assert.equal(img.attributes.src, '/sprites/decor/chibi-avatar-calm.png');
+  assert.equal(logged.length, 1);
+});
+
 test('expression decision helpers normalize mood tags and capture override metadata', async () => {
   const { normalizeMoodTag, buildExpressionDecisionRecord, EXPRESSION_DECISION_VERSION } = await helpersPromise;
 
@@ -328,4 +481,37 @@ test('companion face html carries a fallback sprite for failed selected art load
 
   assert.match(html, /class="penny-art penny-art-chibi"/);
   assert.match(html, /data-fallback-src="\/sprites\/decor\/chibi-avatar-calm\.png"/);
+});
+
+test('registered companion face HTML uses internal classes and a distinct legacy fallback', async () => {
+  const {
+    createDefaultExpressionPack,
+    normalizeExpressionPackManifest,
+    buildCompanionFaceHtml,
+  } = await helpersPromise;
+  const manifestPath = path.join(__dirname, '..', 'public', 'sprites', 'packs', 'penny-2d25d-v1.4', 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const pack = normalizeExpressionPackManifest(manifest, createDefaultExpressionPack());
+  const html = buildCompanionFaceHtml({
+    pack,
+    mood: 'flirty',
+  });
+
+  assert.match(html, /class="penny-display penny-chibi penny-registered-composite penny-flirty"/);
+  assert.match(html, /class="penny-art penny-art-registered-composite"/);
+  assert.match(html, /data-expression-render-mode="registered-composite"/);
+  assert.match(html, /data-expression-transition="atomic-fade-swap"/);
+  assert.match(html, /src="\/sprites\/packs\/penny-2d25d-v1\.4\/composites\/flirty\.png"/);
+  assert.match(html, /data-fallback-src="\/sprites\/decor\/chibi-avatar-flirty\.png"/);
+  assert.match(html, /decoding="async"/);
+});
+
+test('main app transition source keeps a monotonic latest-wins generation guard', () => {
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'penny-app.js'), 'utf8');
+  assert.match(appJs, /let _spriteTransitionGeneration = 0;/);
+  assert.match(appJs, /const transitionGeneration = \+\+_spriteTransitionGeneration;/);
+  assert.ok(
+    (appJs.match(/transitionGeneration !== _spriteTransitionGeneration/g) || []).length >= 2,
+    'both swap and settle timers must reject stale generations',
+  );
 });

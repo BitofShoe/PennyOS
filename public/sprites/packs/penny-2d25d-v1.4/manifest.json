@@ -1,0 +1,239 @@
+{
+  "id": "penny-2d25d-eight-mood-v1.4",
+  "name": "Penny 2D/2.5D Eight-Mood v1.4",
+  "version": 1.4,
+  "fallbackMood": "calm",
+  "contract": [
+    "calm",
+    "happy",
+    "excited",
+    "thinking",
+    "surprised",
+    "flirty",
+    "smug",
+    "annoyed"
+  ],
+  "source": "Penny-2D25D-Eight-Mood-Assets-v1.4 sha256:f7ae7631b76bcc4a5a9afee4e1e1b9e9ca128842ef8ac27eda31f181828238c7",
+  "renderMode": "registered-composite",
+  "transitionMode": "atomic-fade-swap",
+  "vessel": {
+    "id": "D",
+    "aspectRatio": "6 / 5",
+    "objectFit": "contain",
+    "objectPosition": "50% 50%"
+  },
+  "integrity": "/sprites/packs/penny-2d25d-v1.4/integrity.json",
+  "moods": {
+    "calm": {
+      "label": "calm",
+      "sceneHint": "settled",
+      "backgroundHint": "/sprites/packs/penny-2d25d-v1.4/composites/calm.png",
+      "avatar": {
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/calm.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-calm.png",
+        "alt": "Penny calm expression",
+        "pos": "50% 35%"
+      },
+      "variants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/calm.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-calm.png",
+        "alt": "Penny calm expression",
+        "label": "STEADY",
+        "pill": "CALM",
+        "pos": "50% 35%"
+      }],
+      "secondaryVariants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/calm.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-calm.png",
+        "label": "STEADY",
+        "pill": "CALM",
+        "pos": "50% 35%"
+      }]
+    },
+    "happy": {
+      "label": "happy",
+      "sceneHint": "warm",
+      "backgroundHint": "/sprites/packs/penny-2d25d-v1.4/composites/happy.png",
+      "avatar": {
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/happy.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-happy.png",
+        "alt": "Penny happy expression",
+        "pos": "50% 35%"
+      },
+      "variants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/happy.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-happy.png",
+        "alt": "Penny happy expression",
+        "label": "WARM",
+        "pill": "HAPPY",
+        "pos": "50% 35%"
+      }],
+      "secondaryVariants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/happy.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-happy.png",
+        "label": "WARM",
+        "pill": "HAPPY",
+        "pos": "50% 35%"
+      }]
+    },
+    "excited": {
+      "label": "excited",
+      "sceneHint": "sparked",
+      "backgroundHint": "/sprites/packs/penny-2d25d-v1.4/composites/excited.png",
+      "avatar": {
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/excited.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-excited.png",
+        "alt": "Penny excited expression",
+        "pos": "50% 35%"
+      },
+      "variants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/excited.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-excited.png",
+        "alt": "Penny excited expression",
+        "label": "SPARKED",
+        "pill": "EXCITED",
+        "pos": "50% 35%"
+      }],
+      "secondaryVariants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/excited.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-excited.png",
+        "label": "SPARKED",
+        "pill": "EXCITED",
+        "pos": "50% 35%"
+      }]
+    },
+    "thinking": {
+      "label": "thinking",
+      "sceneHint": "focused",
+      "backgroundHint": "/sprites/packs/penny-2d25d-v1.4/composites/thinking.png",
+      "avatar": {
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/thinking.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-thinking.png",
+        "alt": "Penny thinking expression",
+        "pos": "50% 35%"
+      },
+      "variants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/thinking.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-thinking.png",
+        "alt": "Penny thinking expression",
+        "label": "LOCKED IN",
+        "pill": "THINKING",
+        "pos": "50% 35%"
+      }],
+      "secondaryVariants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/thinking.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-thinking.png",
+        "label": "LOCKED IN",
+        "pill": "THINKING",
+        "pos": "50% 35%"
+      }]
+    },
+    "surprised": {
+      "label": "surprised",
+      "sceneHint": "startled",
+      "backgroundHint": "/sprites/packs/penny-2d25d-v1.4/composites/surprised.png",
+      "avatar": {
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/surprised.png",
+        "fallbackSrc": "/sprites/decor/chibi-penny-peace.png",
+        "alt": "Penny surprised expression",
+        "pos": "50% 35%"
+      },
+      "variants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/surprised.png",
+        "fallbackSrc": "/sprites/decor/chibi-penny-peace.png",
+        "alt": "Penny surprised expression",
+        "label": "WHOA",
+        "pill": "SURPRISED",
+        "pos": "50% 35%"
+      }],
+      "secondaryVariants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/surprised.png",
+        "fallbackSrc": "/sprites/decor/chibi-penny-peace.png",
+        "label": "WHOA",
+        "pill": "SURPRISED",
+        "pos": "50% 35%"
+      }]
+    },
+    "flirty": {
+      "label": "flirty",
+      "sceneHint": "teasing",
+      "transitionMode": "atomic-fade-swap",
+      "backgroundHint": "/sprites/packs/penny-2d25d-v1.4/composites/flirty.png",
+      "avatar": {
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/flirty.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-flirty.png",
+        "alt": "Penny flirty expression",
+        "pos": "50% 35%"
+      },
+      "variants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/flirty.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-flirty.png",
+        "alt": "Penny flirty expression",
+        "label": "COME HERE",
+        "pill": "FLIRTY",
+        "pos": "50% 35%",
+        "transitionMode": "atomic-fade-swap"
+      }],
+      "secondaryVariants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/flirty.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-flirty.png",
+        "label": "COME HERE",
+        "pill": "FLIRTY",
+        "pos": "50% 35%",
+        "transitionMode": "atomic-fade-swap"
+      }]
+    },
+    "smug": {
+      "label": "smug",
+      "sceneHint": "self-satisfied",
+      "backgroundHint": "/sprites/packs/penny-2d25d-v1.4/composites/smug.png",
+      "avatar": {
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/smug.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-smug.png",
+        "alt": "Penny smug expression",
+        "pos": "50% 35%"
+      },
+      "variants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/smug.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-smug.png",
+        "alt": "Penny smug expression",
+        "label": "CALLED IT",
+        "pill": "SMUG",
+        "pos": "50% 35%"
+      }],
+      "secondaryVariants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/smug.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-smug.png",
+        "label": "CALLED IT",
+        "pill": "SMUG",
+        "pos": "50% 35%"
+      }]
+    },
+    "annoyed": {
+      "label": "annoyed",
+      "sceneHint": "irritated",
+      "backgroundHint": "/sprites/packs/penny-2d25d-v1.4/composites/annoyed.png",
+      "avatar": {
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/annoyed.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-annoyed.png",
+        "alt": "Penny annoyed expression",
+        "pos": "50% 35%"
+      },
+      "variants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/annoyed.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-annoyed.png",
+        "alt": "Penny annoyed expression",
+        "label": "REALLY NOW",
+        "pill": "ANNOYED",
+        "pos": "50% 35%"
+      }],
+      "secondaryVariants": [{
+        "src": "/sprites/packs/penny-2d25d-v1.4/composites/annoyed.png",
+        "fallbackSrc": "/sprites/decor/chibi-avatar-annoyed.png",
+        "label": "REALLY NOW",
+        "pill": "ANNOYED",
+        "pos": "50% 35%"
+      }]
+    }
+  }
+}

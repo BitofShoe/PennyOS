@@ -16,6 +16,8 @@ const REQUIRED = [
   'stop-penny.ps1',
   'server.js',
   'public/index.html',
+  'public/sprites/packs/penny-2d25d-v1.4/manifest.json',
+  'public/sprites/packs/penny-2d25d-v1.4/integrity.json',
   'docs/penny-public/README.md',
   'docs/penny-public/penny-mental-model.md',
   'docs/penny-public/pennyos-user-guide.md',
@@ -29,6 +31,8 @@ const REQUIRED = [
   'test/penny-runtime-contract-receipts-check.test.js',
   'lib/penny-p0-eval-pack.js',
   'scripts/eval-penny-p0-fixture-pack.js',
+  'scripts/check-penny-expression-assets.js',
+  'test/penny-expression-assets.test.js',
   'test/penny-p0-eval-pack.test.js',
 ];
 

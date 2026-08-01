@@ -39,6 +39,7 @@ const FORBIDDEN_RUNTIME_PATTERNS = Object.freeze([
 
 const SKIPPED_RUNTIME_PATTERNS = Object.freeze([
   /^public\/js\/penny-sidecar-panel\.mjs$/i,
+  /^public\/sprites\/packs\/penny-2d25d-v1\.2(?:\/|$)/i,
   /^lib\/penny-sidecar-[^/]+\.js$/i,
   /^lib\/penny-local-llm-app-catalog\.js$/i,
 ]);
@@ -235,6 +236,7 @@ function buildManifest(options = {}) {
         '.env',
         'source/dev sidecar harness libs',
         'browser sidecar panel module',
+        'historical Penny v1.2 composite pack',
       ],
     },
     appDataDefaults: {

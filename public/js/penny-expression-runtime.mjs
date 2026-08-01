@@ -15,8 +15,11 @@ export const MOOD_THEMES = {
 };
 
 export const MOOD_TAGS = ['calm', 'happy', 'excited', 'thinking', 'surprised', 'flirty', 'smug', 'annoyed'];
-export const DEFAULT_EXPRESSION_PACK_URL = '/sprites/packs/default/manifest.json';
+export const LEGACY_EXPRESSION_PACK_URL = '/sprites/packs/default/manifest.json';
+export const DEFAULT_EXPRESSION_PACK_URL = '/sprites/packs/penny-2d25d-v1.4/manifest.json';
 export const EXPRESSION_DECISION_VERSION = 'penny-expression-decision.v1';
+export const EXPRESSION_RENDER_MODES = Object.freeze(['legacy-chibi', 'registered-composite']);
+export const EXPRESSION_TRANSITION_MODES = Object.freeze(['atomic-fade-swap']);
 
 export const CHIBI_AVATARS = {
   calm: '/sprites/decor/chibi-avatar-calm.png',
@@ -116,15 +119,52 @@ export function normalizeString(value, fallback = '') {
   return trimmed || fallback;
 }
 
+export function isSafePublicAssetPath(value = '') {
+  const text = normalizeString(value);
+  if (!text || !text.startsWith('/sprites/') || text.startsWith('//') || text.includes('\\')) return false;
+  if (/[?#]/.test(text) || /^[A-Za-z]:/.test(text)) return false;
+  let decoded = text;
+  try {
+    decoded = decodeURIComponent(text);
+  } catch {
+    return false;
+  }
+  if (decoded.includes('\\') || decoded.includes('\0')) return false;
+  return !decoded.split('/').some((part) => part === '..' || part === '.');
+}
+
+export function normalizeExpressionAssetPath(value, fallback = '') {
+  if (isSafePublicAssetPath(value)) return normalizeString(value);
+  return isSafePublicAssetPath(fallback) ? normalizeString(fallback) : '';
+}
+
+export function normalizeExpressionMode(value, allowedValues = [], fallback = '') {
+  const text = normalizeString(value);
+  return allowedValues.includes(text) ? text : fallback;
+}
+
+export function normalizeExpressionRenderMode(value, fallback = 'legacy-chibi') {
+  return normalizeExpressionMode(value, EXPRESSION_RENDER_MODES, fallback);
+}
+
+export function normalizeExpressionTransitionMode(value, fallback = 'atomic-fade-swap') {
+  return normalizeExpressionMode(value, EXPRESSION_TRANSITION_MODES, fallback);
+}
+
 export function normalizeSpriteDescriptor(value, fallback = {}) {
   if (typeof value === 'string') {
-    return { ...fallback, src: value };
+    return {
+      ...fallback,
+      src: normalizeExpressionAssetPath(value, fallback.src || ''),
+    };
   }
   if (!value || typeof value !== 'object') {
     return { ...fallback };
   }
   const out = { ...fallback, ...value };
-  out.src = normalizeString(out.src, fallback.src || '');
+  out.src = normalizeExpressionAssetPath(out.src, fallback.src || '');
+  out.fallbackSrc = normalizeExpressionAssetPath(out.fallbackSrc, fallback.fallbackSrc || '');
+  if (out.fallbackSrc === out.src) out.fallbackSrc = '';
   out.alt = normalizeString(out.alt, fallback.alt || '');
   out.label = normalizeString(out.label, fallback.label || '');
   out.pill = normalizeString(out.pill, fallback.pill || '');
@@ -148,6 +188,9 @@ export function createDefaultExpressionPack() {
     fallbackMood: 'calm',
     contract: [...MOOD_TAGS],
     source: '',
+    renderMode: 'legacy-chibi',
+    transitionMode: 'atomic-fade-swap',
+    integrity: '',
     moods: {
       calm: {
         label: 'calm',
@@ -241,7 +284,25 @@ export function createDefaultExpressionPack() {
   };
 }
 
-export function normalizeMoodEntry(mood, entry = {}, fallbackEntry = createDefaultExpressionPack().moods[mood] || createDefaultExpressionPack().moods.calm) {
+export function normalizeMoodEntry(
+  mood,
+  entry = {},
+  fallbackEntry = createDefaultExpressionPack().moods[mood] || createDefaultExpressionPack().moods.calm,
+  packDefaults = {},
+) {
+  const renderMode = normalizeExpressionRenderMode(
+    entry.renderMode,
+    normalizeExpressionRenderMode(packDefaults.renderMode, 'legacy-chibi'),
+  );
+  const transitionMode = normalizeExpressionTransitionMode(
+    entry.transitionMode,
+    normalizeExpressionTransitionMode(packDefaults.transitionMode, 'atomic-fade-swap'),
+  );
+  const applyDescriptorModes = (descriptor = {}) => ({
+    ...descriptor,
+    renderMode: normalizeExpressionRenderMode(descriptor.renderMode, renderMode),
+    transitionMode: normalizeExpressionTransitionMode(descriptor.transitionMode, transitionMode),
+  });
   const fallbackAvatar = normalizeSpriteDescriptor(fallbackEntry.avatar || fallbackEntry.variants?.[0] || {}, {
     src: '',
     alt: `Penny ${mood}`,
@@ -249,11 +310,11 @@ export function normalizeMoodEntry(mood, entry = {}, fallbackEntry = createDefau
     pill: '',
     pos: '50% 48%',
   });
-  const avatar = normalizeSpriteDescriptor(entry.avatar || entry.primary || entry.image, fallbackAvatar);
-  const variants = normalizeVariantList(entry.variants, fallbackEntry.variants || []);
-  const extraVariants = normalizeVariantList(entry.extraVariants || entry.variantAdditions, []);
-  const secondaryVariants = normalizeVariantList(entry.secondaryVariants, fallbackEntry.secondaryVariants || []);
-  const backgroundHint = normalizeString(
+  const avatar = applyDescriptorModes(normalizeSpriteDescriptor(entry.avatar || entry.primary || entry.image, fallbackAvatar));
+  const variants = normalizeVariantList(entry.variants, fallbackEntry.variants || []).map(applyDescriptorModes);
+  const extraVariants = normalizeVariantList(entry.extraVariants || entry.variantAdditions, []).map(applyDescriptorModes);
+  const secondaryVariants = normalizeVariantList(entry.secondaryVariants, fallbackEntry.secondaryVariants || []).map(applyDescriptorModes);
+  const backgroundHint = normalizeExpressionAssetPath(
     typeof entry.backgroundHint === 'string' ? entry.backgroundHint : entry.background?.src || entry.background || fallbackEntry.backgroundHint || '',
     fallbackEntry.backgroundHint || '',
   );
@@ -272,6 +333,8 @@ export function normalizeMoodEntry(mood, entry = {}, fallbackEntry = createDefau
     secondaryVariants,
     sceneHint: normalizeString(entry.sceneHint, fallbackEntry.sceneHint || ''),
     backgroundHint,
+    renderMode,
+    transitionMode,
   };
 }
 
@@ -287,10 +350,21 @@ export function normalizeExpressionPackManifest(manifest, basePack = createDefau
   pack.fallbackMood = MOOD_TAGS.includes(manifest.fallbackMood) ? manifest.fallbackMood : pack.fallbackMood;
   pack.contract = [...MOOD_TAGS];
   pack.source = normalizeString(manifest.source, '');
+  pack.renderMode = normalizeExpressionRenderMode(manifest.renderMode, pack.renderMode || 'legacy-chibi');
+  pack.transitionMode = normalizeExpressionTransitionMode(manifest.transitionMode, pack.transitionMode || 'atomic-fade-swap');
+  pack.integrity = normalizeExpressionAssetPath(manifest.integrity, '');
 
   const sourceMoods = manifest.moods && typeof manifest.moods === 'object' ? manifest.moods : {};
   for (const mood of MOOD_TAGS) {
-    pack.moods[mood] = normalizeMoodEntry(mood, sourceMoods[mood] || manifest[mood] || {}, pack.moods[mood]);
+    pack.moods[mood] = normalizeMoodEntry(
+      mood,
+      sourceMoods[mood] || manifest[mood] || {},
+      pack.moods[mood],
+      {
+        renderMode: pack.renderMode,
+        transitionMode: pack.transitionMode,
+      },
+    );
   }
 
   return pack;
@@ -366,6 +440,27 @@ export function getMoodSpriteVariants(pack, mood) {
 export function getMoodAvatarSrc(pack, mood = 'calm') {
   const entry = getActiveMoodEntry(pack, mood);
   return entry.avatar?.src || entry.variants?.[0]?.src || createDefaultExpressionPack().moods.calm.avatar.src || CHIBI_AVATARS.calm;
+}
+
+export function getMoodAvatarDescriptor(pack, mood = 'calm') {
+  const entry = getActiveMoodEntry(pack, mood);
+  const fallbackSrc = CHIBI_AVATARS[mood] || CHIBI_AVATARS.calm;
+  return {
+    ...(entry.avatar || entry.variants?.[0] || {}),
+    src: getMoodAvatarSrc(pack, mood),
+    fallbackSrc: normalizeExpressionAssetPath(
+      entry.avatar?.fallbackSrc || entry.variants?.[0]?.fallbackSrc,
+      fallbackSrc,
+    ),
+    renderMode: normalizeExpressionRenderMode(
+      entry.avatar?.renderMode || entry.renderMode || pack?.renderMode,
+      'legacy-chibi',
+    ),
+    transitionMode: normalizeExpressionTransitionMode(
+      entry.avatar?.transitionMode || entry.transitionMode || pack?.transitionMode,
+      'atomic-fade-swap',
+    ),
+  };
 }
 
 export function getMoodSpriteVariant(pack, mood, variantIndex = 0) {
@@ -537,18 +632,37 @@ export function buildCompanionFaceHtml({
 } = {}) {
   const variant = getMoodSpriteVariant(pack, mood, variantIndex);
   const entry = getActiveMoodEntry(pack, mood);
-  const fallbackSrc = getMoodAvatarSrc(pack, mood) || CHIBI_AVATARS.calm;
-  const src = variant?.src || fallbackSrc;
+  const avatar = getMoodAvatarDescriptor(pack, mood);
+  const src = variant?.src || avatar.src || CHIBI_AVATARS.calm;
+  const fallbackSrc = normalizeExpressionAssetPath(
+    variant?.fallbackSrc || avatar.fallbackSrc,
+    CHIBI_AVATARS[mood] || CHIBI_AVATARS.calm,
+  );
   const label = variant?.label || pickChibiHudLabel(pack, mood, rng);
   const pos = variant?.pos || '50% 46%';
   const packId = escapeHtmlFn(pack?.id || 'default');
   const safeMood = escapeHtmlFn(mood || 'calm');
+  const renderMode = normalizeExpressionRenderMode(
+    variant?.renderMode || entry.renderMode || pack?.renderMode,
+    'legacy-chibi',
+  );
+  const transitionMode = normalizeExpressionTransitionMode(
+    variant?.transitionMode || entry.transitionMode || pack?.transitionMode,
+    'atomic-fade-swap',
+  );
+  const wrapperClass = renderMode === 'registered-composite'
+    ? 'penny-display penny-chibi penny-registered-composite'
+    : 'penny-display penny-chibi';
+  const imageClass = renderMode === 'registered-composite'
+    ? 'penny-art penny-art-registered-composite'
+    : 'penny-art penny-art-chibi';
+  const alt = variant?.alt || avatar.alt || `Penny ${mood || 'calm'} expression`;
   const profile = presentationProfile && typeof presentationProfile === 'object'
     ? presentationProfile
     : getMoodPresentationProfile({ mood, intensity: 0 });
   return `
-    <div class="penny-display penny-chibi penny-${safeMood}" data-variant="${variant?.index ?? 0}" data-expression-pack="${packId}" data-expression-scene="${escapeHtmlFn(entry.sceneHint || '')}" data-expression-background="${escapeHtmlFn(entry.backgroundHint || '')}" data-expression-secondary-count="${variant?.secondaryVariantCount ?? 0}" data-expression-profile="${escapeHtmlFn(profile.profile || String(mood || 'calm'))}" data-expression-impact="${escapeHtmlFn(profile.impact || 'soft')}" data-expression-closeup="${profile.closeUp ? '1' : '0'}" data-expression-intensity="${Number(profile.intensity || 0)}">
-      <img src="${escapeHtmlFn(src)}" data-fallback-src="${escapeHtmlFn(fallbackSrc)}" class="penny-art penny-art-chibi" style="object-position:${escapeHtmlFn(pos)}" alt="Penny" draggable="false" />
+    <div class="${wrapperClass} penny-${safeMood}" data-variant="${variant?.index ?? 0}" data-expression-pack="${packId}" data-expression-render-mode="${renderMode}" data-expression-transition="${transitionMode}" data-expression-scene="${escapeHtmlFn(entry.sceneHint || '')}" data-expression-background="${escapeHtmlFn(entry.backgroundHint || '')}" data-expression-secondary-count="${variant?.secondaryVariantCount ?? 0}" data-expression-profile="${escapeHtmlFn(profile.profile || String(mood || 'calm'))}" data-expression-impact="${escapeHtmlFn(profile.impact || 'soft')}" data-expression-closeup="${profile.closeUp ? '1' : '0'}" data-expression-intensity="${Number(profile.intensity || 0)}">
+      <img src="${escapeHtmlFn(src)}" data-fallback-src="${escapeHtmlFn(fallbackSrc)}" data-expression-render-mode="${renderMode}" data-expression-transition="${transitionMode}" class="${imageClass}" style="object-position:${escapeHtmlFn(pos)}" alt="${escapeHtmlFn(alt)}" decoding="async" draggable="false" />
       <div class="penny-hud">
         <span class="penny-hud-left">PENNY.EXE</span>
         <span class="penny-hud-right">${escapeHtmlFn(label)}</span>
@@ -746,45 +860,234 @@ export function seedIdleDecorMotion(container, {
   };
 }
 
+export function bindExpressionImageFallback(img, {
+  consoleRef = globalThis.console,
+} = {}) {
+  if (!img?.addEventListener) return false;
+  if (img.dataset?.expressionFallbackBound === '1') return false;
+  const primarySrc = normalizeExpressionAssetPath(img.getAttribute?.('src') || img.src || '');
+  const fallbackSrc = normalizeExpressionAssetPath(img.dataset?.fallbackSrc || '');
+  if (!fallbackSrc || fallbackSrc === primarySrc) return false;
+  img.dataset.expressionFallbackBound = '1';
+
+  const onError = () => {
+    if (img.dataset.expressionFallbackAttempted === '1') {
+      if (img.dataset.expressionFallbackReported !== '1') {
+        img.dataset.expressionFallbackReported = '1';
+        consoleRef?.error?.('Penny expression image and its legacy fallback both failed to load.');
+      }
+      return;
+    }
+    img.dataset.expressionFallbackAttempted = '1';
+    img.setAttribute('src', fallbackSrc);
+  };
+
+  img.addEventListener('error', onError);
+  if (img.complete && !img.naturalWidth) onError();
+  return true;
+}
+
+export function waitForExpressionImages(containers = [], {
+  timeoutMs = 500,
+  setTimeoutImpl = globalThis.setTimeout,
+  clearTimeoutImpl = globalThis.clearTimeout,
+} = {}) {
+  const images = [...new Set(
+    containers
+      .filter(Boolean)
+      .flatMap((container) => Array.from(container.querySelectorAll?.('.penny-art') || [])),
+  )];
+  if (!images.length) return Promise.resolve(false);
+  if (images.every((img) => img.complete && Number(img.naturalWidth) > 0)) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      for (const img of images) img.removeEventListener?.('load', onSettled);
+      if (timerId) clearTimeoutImpl?.(timerId);
+    };
+    const finish = (ready) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(ready);
+    };
+    const onSettled = () => {
+      if (images.every((img) => img.complete && Number(img.naturalWidth) > 0)) finish(true);
+    };
+    for (const img of images) img.addEventListener?.('load', onSettled);
+    const timerId = setTimeoutImpl?.(() => finish(
+      images.every((img) => img.complete && Number(img.naturalWidth) > 0),
+    ), Math.max(0, Number(timeoutMs) || 0));
+    onSettled();
+  });
+}
+
+export function preloadExpressionImage(src, {
+  ImageCtor = globalThis.Image,
+  timeoutMs = 2000,
+  setTimeoutImpl = globalThis.setTimeout,
+  clearTimeoutImpl = globalThis.clearTimeout,
+} = {}) {
+  const safeSrc = normalizeExpressionAssetPath(src);
+  if (!safeSrc) return Promise.resolve({ ok: false, src: '', image: null, error: 'invalid-asset-path' });
+  if (typeof ImageCtor !== 'function') {
+    return Promise.resolve({ ok: false, src: safeSrc, image: null, error: 'image-constructor-unavailable' });
+  }
+
+  return new Promise((resolve) => {
+    const image = new ImageCtor();
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timerId) clearTimeoutImpl?.(timerId);
+      image.onload = null;
+      image.onerror = null;
+      resolve({ src: safeSrc, image, ...result });
+    };
+    image.onload = async () => {
+      if (typeof image.decode === 'function') {
+        try {
+          await image.decode();
+        } catch {
+          // A completed image remains usable when decode() is unsupported or races cache state.
+        }
+      }
+      finish({ ok: Number(image.naturalWidth) > 0, error: Number(image.naturalWidth) > 0 ? '' : 'zero-natural-width' });
+    };
+    image.onerror = () => finish({ ok: false, error: 'image-load-failed' });
+    const timerId = setTimeoutImpl?.(
+      () => finish({ ok: false, error: 'image-load-timeout' }),
+      Math.max(0, Number(timeoutMs) || 0),
+    );
+    image.decoding = 'async';
+    image.src = safeSrc;
+    if (image.complete && Number(image.naturalWidth) > 0) image.onload();
+  });
+}
+
 export function createExpressionPackRuntime({
   fetchImpl = globalThis.fetch,
   manifestUrl = DEFAULT_EXPRESSION_PACK_URL,
   defaultPack = createDefaultExpressionPack(),
+  ImageCtor = globalThis.Image,
+  preloadTimeoutMs = 2000,
+  requestIdleCallbackImpl = globalThis.requestIdleCallback,
+  setTimeoutImpl = globalThis.setTimeout,
+  clearTimeoutImpl = globalThis.clearTimeout,
 } = {}) {
   let activePack = cloneValue(defaultPack);
   let loadPromise = null;
+  const preloadPromises = new Map();
+  const preloadRefs = new Map();
+  const status = {
+    manifestLoaded: false,
+    calmReady: false,
+    fallbackActive: false,
+    preloadedCount: 0,
+    lastError: '',
+  };
+
+  const preload = (src) => {
+    const safeSrc = normalizeExpressionAssetPath(src);
+    if (!safeSrc) return Promise.resolve({ ok: false, src: '', image: null, error: 'invalid-asset-path' });
+    if (preloadPromises.has(safeSrc)) return preloadPromises.get(safeSrc);
+    const promise = preloadExpressionImage(safeSrc, {
+      ImageCtor,
+      timeoutMs: preloadTimeoutMs,
+      setTimeoutImpl,
+      clearTimeoutImpl,
+    }).then((result) => {
+      if (result.image) preloadRefs.set(safeSrc, result.image);
+      if (result.ok) status.preloadedCount = [...preloadRefs.values()].filter((image) => Number(image.naturalWidth) > 0).length;
+      return result;
+    });
+    preloadPromises.set(safeSrc, promise);
+    return promise;
+  };
+
+  const scheduleRemainingPreloads = () => {
+    const calmSrc = getMoodAvatarDescriptor(activePack, 'calm').src;
+    const remaining = [...new Set(
+      MOOD_TAGS
+        .map((mood) => getMoodAvatarDescriptor(activePack, mood).src)
+        .filter((src) => src && src !== calmSrc),
+    )];
+    const run = () => {
+      for (const src of remaining) preload(src);
+    };
+    if (typeof requestIdleCallbackImpl === 'function') {
+      requestIdleCallbackImpl(run, { timeout: 1000 });
+    } else {
+      setTimeoutImpl?.(run, 0);
+    }
+  };
+
+  const prepareCalm = async () => {
+    const calm = getMoodAvatarDescriptor(activePack, 'calm');
+    const fallbackPromise = calm.fallbackSrc && calm.fallbackSrc !== calm.src
+      ? preload(calm.fallbackSrc)
+      : null;
+    const primary = await preload(calm.src);
+    status.calmReady = primary.ok;
+    if (!primary.ok && fallbackPromise) {
+      const fallback = await fallbackPromise;
+      status.fallbackActive = fallback.ok;
+      status.lastError = primary.error || 'calm-primary-failed';
+    } else if (!primary.ok) {
+      status.lastError = primary.error || 'calm-primary-failed';
+    }
+    scheduleRemainingPreloads();
+  };
 
   return {
     get pack() {
       return activePack;
     },
+    get status() {
+      return { ...status };
+    },
     reset() {
       activePack = cloneValue(defaultPack);
+      status.manifestLoaded = false;
+      status.calmReady = false;
+      status.fallbackActive = false;
+      status.preloadedCount = 0;
+      status.lastError = '';
+      preloadPromises.clear();
+      preloadRefs.clear();
       return activePack;
     },
     normalize(manifest) {
       return normalizeExpressionPackManifest(manifest, defaultPack);
     },
+    preload,
     async load() {
       if (loadPromise) return loadPromise;
       loadPromise = (async () => {
+        status.manifestLoaded = false;
+        status.calmReady = false;
+        status.fallbackActive = false;
+        status.lastError = '';
         try {
           const res = await fetchImpl(manifestUrl, { cache: 'no-store' });
-          if (!res.ok) {
-            activePack = cloneValue(defaultPack);
-            return activePack;
-          }
+          if (!res.ok) throw new Error(`manifest-http-${res.status || 'error'}`);
           const manifest = await res.json();
           activePack = normalizeExpressionPackManifest(manifest, defaultPack);
-          return activePack;
-        } catch {
+          status.manifestLoaded = true;
+        } catch (error) {
           activePack = cloneValue(defaultPack);
-          return activePack;
+          status.lastError = normalizeString(error?.message, 'manifest-load-failed');
         }
+        await prepareCalm();
+        return activePack;
       })();
-      const pack = await loadPromise;
-      loadPromise = null;
-      return pack;
+      try {
+        return await loadPromise;
+      } finally {
+        loadPromise = null;
+      }
     },
   };
 }

@@ -1,0 +1,123 @@
+{
+  "schema": "penny-expression-pack-integrity.v1",
+  "packId": "penny-2d25d-eight-mood-v1.4",
+  "version": 1.4,
+  "sourceArchive": {
+    "name": "Penny-2D25D-Eight-Mood-Assets-v1.4.zip",
+    "sha256": "f7ae7631b76bcc4a5a9afee4e1e1b9e9ca128842ef8ac27eda31f181828238c7",
+    "entryCount": 120
+  },
+  "baselineArchive": {
+    "name": "Penny-2D25D-Eight-Mood-Assets-v1.2.zip",
+    "sha256": "4a700986d7d2703f9e3da40e5835da01faefbe93af480107684f4865ff7e3849"
+  },
+  "selectedCandidate": {
+    "name": "Candidate B - Relaxed diagonal wink",
+    "sha256": "88735dcd514ebba5df97526bc3a8461b2845bc30c79ff429dbc168149da5728f",
+    "localizedChangedPixels": 15152,
+    "localizedChangedPixelSha256": "7c0658afb684a9b632e441356b1f7cc5228a463b9f0d2dae4a8846c0867cc762",
+    "productionCompositeByteIdentical": true,
+    "outsideAllowedEyeBoxChangedPixels": 0,
+    "alphaChannelChangedPixels": 0
+  },
+  "frozenMasterSha256": "ea4abf0a98567898d4d658372fe99d2e2c5169106b0b264e2e9566aac9162d04",
+  "contract": [
+    "calm",
+    "happy",
+    "excited",
+    "thinking",
+    "surprised",
+    "flirty",
+    "smug",
+    "annoyed"
+  ],
+  "fallbackMood": "calm",
+  "transitionInvariant": "One complete composite image is mounted per face. Flirty is an atomic state replacement and is never cross-faded over open-eye art.",
+  "changedUpstreamProductionFiles": [
+    "production-assets/mood-controls/wink_flirty.png",
+    "production-assets/mood-overlays/flirty.png",
+    "production-assets/mood-composites/flirty.png"
+  ],
+  "assets": {
+    "calm": {
+      "source": "production-assets/mood-composites/calm.png",
+      "target": "composites/calm.png",
+      "bytes": 917752,
+      "sha256": "1060eeee04ed70f76d57818d7961019a2aaed2df23b872c7ce7655313d0bb95f",
+      "width": 1024,
+      "height": 1024,
+      "bitDepth": 8,
+      "colorType": 6
+    },
+    "happy": {
+      "source": "production-assets/mood-composites/happy.png",
+      "target": "composites/happy.png",
+      "bytes": 919376,
+      "sha256": "b1244a847f66a321957225b9ef68c1e482058561dbbc96c700ee817ce85561cc",
+      "width": 1024,
+      "height": 1024,
+      "bitDepth": 8,
+      "colorType": 6
+    },
+    "excited": {
+      "source": "production-assets/mood-composites/excited.png",
+      "target": "composites/excited.png",
+      "bytes": 919122,
+      "sha256": "e23ea07b6074409dae477be40b2d2b8002523bfca58eb11768a71f33fce7eac6",
+      "width": 1024,
+      "height": 1024,
+      "bitDepth": 8,
+      "colorType": 6
+    },
+    "thinking": {
+      "source": "production-assets/mood-composites/thinking.png",
+      "target": "composites/thinking.png",
+      "bytes": 913333,
+      "sha256": "c1c030c26d250ee3a0d883d8ecaaf44ec89c67ce9f07bf0f7b94939b63d04251",
+      "width": 1024,
+      "height": 1024,
+      "bitDepth": 8,
+      "colorType": 6
+    },
+    "surprised": {
+      "source": "production-assets/mood-composites/surprised.png",
+      "target": "composites/surprised.png",
+      "bytes": 918554,
+      "sha256": "3d5edda5eb6259567fd8fdf02e997142dcb0a5123c85419e15f96efad4399a7e",
+      "width": 1024,
+      "height": 1024,
+      "bitDepth": 8,
+      "colorType": 6
+    },
+    "flirty": {
+      "source": "production-assets/mood-composites/flirty.png",
+      "target": "composites/flirty.png",
+      "bytes": 933731,
+      "sha256": "88735dcd514ebba5df97526bc3a8461b2845bc30c79ff429dbc168149da5728f",
+      "width": 1024,
+      "height": 1024,
+      "bitDepth": 8,
+      "colorType": 6
+    },
+    "smug": {
+      "source": "production-assets/mood-composites/smug.png",
+      "target": "composites/smug.png",
+      "bytes": 913383,
+      "sha256": "625e642bd0171ced77904af0dbcd34c11605ff2999a85e0a13bf99788de36566",
+      "width": 1024,
+      "height": 1024,
+      "bitDepth": 8,
+      "colorType": 6
+    },
+    "annoyed": {
+      "source": "production-assets/mood-composites/annoyed.png",
+      "target": "composites/annoyed.png",
+      "bytes": 914729,
+      "sha256": "1f6e7c6d3c1aba7c5bc90a66e5b327b433e192d0061093eb5c9cdf56a98614b5",
+      "width": 1024,
+      "height": 1024,
+      "bitDepth": 8,
+      "colorType": 6
+    }
+  }
+}

@@ -270,6 +270,7 @@ export function renderTranscriptMessages({
   loading = false,
   stateMood = 'calm',
   avatarSrcForMood,
+  avatarDescriptorForMood = null,
   appendMessageDecor,
   formatBytesFn = defaultFormatBytes,
   escapeHtmlFn = escapeHtml,
@@ -294,7 +295,16 @@ export function renderTranscriptMessages({
     if (row.role === 'assistant') {
       const header = chatEl.ownerDocument.createElement('div');
       header.className = 'msg-header';
-      header.innerHTML = `<img class="msg-avatar" src="${avatarSrcForMood(row.mood)}" alt="" /><span class="msg-label">PENNY</span>`;
+      const avatar = typeof avatarDescriptorForMood === 'function'
+        ? avatarDescriptorForMood(row.mood)
+        : { src: avatarSrcForMood(row.mood) };
+      const registered = avatar?.renderMode === 'registered-composite';
+      const avatarClass = registered ? 'msg-avatar msg-avatar-registered-composite' : 'msg-avatar';
+      const fallbackAttribute = avatar?.fallbackSrc
+        ? ` data-fallback-src="${escapeHtmlFn(avatar.fallbackSrc)}"`
+        : '';
+      const avatarHtml = `<img class="${avatarClass}" src="${escapeHtmlFn(avatar?.src || '')}"${fallbackAttribute} data-expression-render-mode="${registered ? 'registered-composite' : 'legacy-chibi'}" alt="" decoding="async" />`;
+      header.innerHTML = `${registered ? `<span class="msg-avatar-frame">${avatarHtml}</span>` : avatarHtml}<span class="msg-label">PENNY</span>`;
       item.appendChild(header);
     }
 
