@@ -131,11 +131,14 @@ test('expression URL normalization rejects remote, drive, data, and traversal pa
   );
 });
 
-test('default manifest appends Pen2 variants that can be selected for every mood', async () => {
+test('public default manifest uses Pen2 sprites as the primary and rotating art for every mood', async () => {
   const {
+    DEFAULT_EXPRESSION_PACK_URL,
+    LEGACY_EXPRESSION_PACK_URL,
     createDefaultExpressionPack,
     normalizeExpressionPackManifest,
     MOOD_TAGS,
+    getMoodAvatarSrc,
     getMoodSpriteVariants,
     getMoodSpriteVariant,
     getMoodPresentationProfile,
@@ -144,6 +147,7 @@ test('default manifest appends Pen2 variants that can be selected for every mood
   const manifestPath = path.join(__dirname, '..', 'public', 'sprites', 'packs', 'default', 'manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const pack = normalizeExpressionPackManifest(manifest, createDefaultExpressionPack());
+  assert.equal(DEFAULT_EXPRESSION_PACK_URL, LEGACY_EXPRESSION_PACK_URL);
 
   for (const mood of MOOD_TAGS) {
     const variants = getMoodSpriteVariants(pack, mood);
@@ -157,12 +161,10 @@ test('default manifest appends Pen2 variants that can be selected for every mood
       false,
       `${mood} main sprite rotation should not include baked-checkerboard chibi sprites`,
     );
-    assert.ok(
-      variants.some((variant) => variant.src.includes('/sprites/decor/chibi-')),
-      `${mood} should keep at least one old chibi sprite in rotation`,
-    );
     const pen2Variants = variants.filter((variant) => variant.src.includes('/sprites/packs/pen2/'));
-    assert.ok(pen2Variants.length > 0, `${mood} should include at least one Pen2 sprite`);
+    assert.equal(getMoodAvatarSrc(pack, mood), variants[0].src, `${mood} primary avatar should be its first rotation sprite`);
+    assert.ok(getMoodAvatarSrc(pack, mood).includes('/sprites/packs/pen2/'), `${mood} primary avatar should be Pen2 art`);
+    assert.equal(pen2Variants.length, variants.length, `${mood} rotation should contain only Pen2 sprites`);
 
     const selectedSrcs = new Set();
     for (let seed = 0; seed < variants.length; seed += 1) {

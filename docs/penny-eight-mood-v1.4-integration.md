@@ -1,10 +1,14 @@
 # Penny eight-mood v1.4 integration receipt
 
+## Public-default status (2026-08-07)
+
+The v1.4 registered-composite pack remains shipped, integrity-checked, and available as the preserved static-art baseline for future animation research. It is **not** PennyOS's normal public face: `DEFAULT_EXPRESSION_PACK_URL` now selects `public/sprites/packs/default/manifest.json`, whose primary and rotating art are the authored `pen2` pose sprites. This document's v1.4 browser, composition, and package receipts remain pack-level evidence; they do not claim that v1.4 is the public default after this release pivot.
+
 ## Result
 
 Candidate B — Relaxed diagonal wink — is the v1.4 production flirty expression. Its selected source and the live production composite are byte-identical at SHA-256 `88735dcd514ebba5df97526bc3a8461b2845bc30c79ff429dbc168149da5728f`. No redraw, shape edit, simplification, or eyelid reconstruction occurred during promotion.
 
-PennyOS now loads `public/sprites/packs/penny-2d25d-v1.4/manifest.json`. Vessel D is frozen as `6:5`, `contain`, centered. The CSS freeze SHA-256 is `2f16546be61abe0964c908f9c6e11b2ac41a190a5d756d8dd1ee6416289cd2a3`.
+At the time of this v1.4 freeze, PennyOS loaded `public/sprites/packs/penny-2d25d-v1.4/manifest.json`. Vessel D was frozen as `6:5`, `contain`, centered. The CSS freeze SHA-256 is `2f16546be61abe0964c908f9c6e11b2ac41a190a5d756d8dd1ee6416289cd2a3`.
 
 ## Upstream asset proof
 

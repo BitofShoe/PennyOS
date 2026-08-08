@@ -16,7 +16,10 @@ export const MOOD_THEMES = {
 
 export const MOOD_TAGS = ['calm', 'happy', 'excited', 'thinking', 'surprised', 'flirty', 'smug', 'annoyed'];
 export const LEGACY_EXPRESSION_PACK_URL = '/sprites/packs/default/manifest.json';
-export const DEFAULT_EXPRESSION_PACK_URL = '/sprites/packs/penny-2d25d-v1.4/manifest.json';
+// Public Penny defaults to the authored pose-sprite pack. The v1.4 registered
+// composites remain shipped and independently verified, but are not the normal
+// companion face while their animation direction is experimental.
+export const DEFAULT_EXPRESSION_PACK_URL = LEGACY_EXPRESSION_PACK_URL;
 export const EXPRESSION_DECISION_VERSION = 'penny-expression-decision.v1';
 export const EXPRESSION_RENDER_MODES = Object.freeze(['legacy-chibi', 'registered-composite']);
 export const EXPRESSION_TRANSITION_MODES = Object.freeze(['atomic-fade-swap']);

@@ -17,15 +17,15 @@
     "calm": {
       "label": "calm",
       "avatar": {
-        "src": "/sprites/decor/chibi-avatar-calm.png",
+        "src": "/sprites/packs/pen2/pen2-calm-composed.png",
         "alt": "Penny calm expression"
       },
       "variants": [
         {
-          "src": "/sprites/decor/chibi-avatar-calm.png",
-          "label": "RIGHT HERE",
-          "pill": "KNOWING",
-          "pos": "50% 48%"
+          "src": "/sprites/packs/pen2/pen2-calm-composed.png",
+          "label": "COMPOSED",
+          "pill": "STEADY",
+          "pos": "50% 50%"
         }
       ],
       "extraVariants": [
@@ -68,15 +68,15 @@
     "happy": {
       "label": "happy",
       "avatar": {
-        "src": "/sprites/decor/chibi-avatar-happy.png",
+        "src": "/sprites/packs/pen2/pen2-happy-bright.png",
         "alt": "Penny happy expression"
       },
       "variants": [
         {
-          "src": "/sprites/decor/chibi-avatar-happy.png",
-          "label": "CHARM MODE",
-          "pill": "CHARMED",
-          "pos": "50% 48%"
+          "src": "/sprites/packs/pen2/pen2-happy-bright.png",
+          "label": "BIG SMILE",
+          "pill": "GLOW",
+          "pos": "50% 50%"
         }
       ],
       "extraVariants": [
@@ -119,21 +119,21 @@
     "excited": {
       "label": "excited",
       "avatar": {
-        "src": "/sprites/decor/chibi-avatar-excited.png",
+        "src": "/sprites/packs/pen2/pen2-excited-cheer.png",
         "alt": "Penny excited expression"
       },
       "variants": [
         {
-          "src": "/sprites/decor/chibi-avatar-excited.png",
-          "label": "SPARKED UP",
-          "pill": "SPARKED",
-          "pos": "50% 48%"
+          "src": "/sprites/packs/pen2/pen2-excited-cheer.png",
+          "label": "FULL SEND",
+          "pill": "HYPED",
+          "pos": "50% 50%"
         },
         {
-          "src": "/sprites/decor/chibi-penny-peace.png",
-          "label": "OH, HELL YES",
-          "pill": "FIRED UP",
-          "pos": "50% 48%"
+          "src": "/sprites/packs/pen2/pen2-excited-reach.png",
+          "label": "YES, THAT",
+          "pill": "YES",
+          "pos": "50% 50%"
         }
       ],
       "extraVariants": [
@@ -176,15 +176,15 @@
     "thinking": {
       "label": "thinking",
       "avatar": {
-        "src": "/sprites/decor/chibi-avatar-thinking.png",
+        "src": "/sprites/packs/pen2/pen2-thinking-laptop-base.png",
         "alt": "Penny thinking expression"
       },
       "variants": [
         {
-          "src": "/sprites/decor/chibi-avatar-thinking.png",
-          "label": "LOCKED IN",
-          "pill": "LOCKED IN",
-          "pos": "50% 48%"
+          "src": "/sprites/packs/pen2/pen2-thinking-laptop-base.png",
+          "label": "DEBUG MODE",
+          "pill": "DEBUG",
+          "pos": "50% 50%"
         }
       ],
       "extraVariants": [
@@ -245,15 +245,15 @@
     "surprised": {
       "label": "surprised",
       "avatar": {
-        "src": "/sprites/decor/chibi-penny-peace.png",
+        "src": "/sprites/packs/pen2/pen2-surprised-alert.png",
         "alt": "Penny surprised expression"
       },
       "variants": [
         {
-          "src": "/sprites/decor/chibi-penny-peace.png",
-          "label": "DID NOT SEE THAT COMING",
-          "pill": "WHOA",
-          "pos": "50% 48%"
+          "src": "/sprites/packs/pen2/pen2-surprised-alert.png",
+          "label": "OH?",
+          "pill": "STARTLED",
+          "pos": "50% 50%"
         }
       ],
       "extraVariants": [
@@ -296,15 +296,15 @@
     "flirty": {
       "label": "flirty",
       "avatar": {
-        "src": "/sprites/decor/chibi-avatar-flirty.png",
+        "src": "/sprites/packs/pen2/pen2-flirty-soft-tease.png",
         "alt": "Penny flirty expression"
       },
       "variants": [
         {
-          "src": "/sprites/decor/chibi-avatar-flirty.png",
-          "label": "COME HERE",
+          "src": "/sprites/packs/pen2/pen2-flirty-soft-tease.png",
+          "label": "SOFT TEASE",
           "pill": "TEASING",
-          "pos": "50% 48%"
+          "pos": "50% 50%"
         }
       ],
       "extraVariants": [
@@ -359,15 +359,15 @@
     "smug": {
       "label": "smug",
       "avatar": {
-        "src": "/sprites/decor/chibi-avatar-smug.png",
+        "src": "/sprites/packs/pen2/pen2-smug-presenting.png",
         "alt": "Penny smug expression"
       },
       "variants": [
         {
-          "src": "/sprites/decor/chibi-avatar-smug.png",
-          "label": "TOLD YOU",
-          "pill": "SMUG",
-          "pos": "50% 48%"
+          "src": "/sprites/packs/pen2/pen2-smug-presenting.png",
+          "label": "OBVIOUSLY",
+          "pill": "CALLED IT",
+          "pos": "50% 50%"
         }
       ],
       "extraVariants": [
@@ -428,15 +428,15 @@
     "annoyed": {
       "label": "annoyed",
       "avatar": {
-        "src": "/sprites/decor/chibi-avatar-annoyed.png",
+        "src": "/sprites/packs/pen2/pen2-annoyed-side-eye.png",
         "alt": "Penny annoyed expression"
       },
       "variants": [
         {
-          "src": "/sprites/decor/chibi-avatar-annoyed.png",
-          "label": "REALLY NOW?",
+          "src": "/sprites/packs/pen2/pen2-annoyed-side-eye.png",
+          "label": "REALLY",
           "pill": "ANNOYED",
-          "pos": "50% 48%"
+          "pos": "50% 50%"
         }
       ],
       "extraVariants": [
