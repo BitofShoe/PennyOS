@@ -196,6 +196,44 @@ test('runtime voice controller fetches audio for enabled assistant replies and c
   assert.equal(els.voiceReplay.disabled, false);
 });
 
+test('runtime voice controller revokes a completed replay URL before replacing it', async () => {
+  const { createRuntimeVoiceController } = await helpersPromise;
+  const els = buildEls();
+  const audio = createAudioHarness();
+  const revokedUrls = [];
+  let objectCounter = 0;
+  const controller = createRuntimeVoiceController({
+    els,
+    AudioCtor: audio.FakeAudio,
+    URLApi: {
+      createObjectURL() {
+        objectCounter += 1;
+        return `blob:completed-${objectCounter}`;
+      },
+      revokeObjectURL(url) {
+        revokedUrls.push(url);
+      },
+    },
+    apiFetch: async () => ({
+      ok: true,
+      status: 200,
+      async blob() {
+        return { type: 'audio/wav' };
+      },
+    }),
+  });
+
+  controller.setStatus({ ready: true, reachable: true, config: { voice: 'af_heart' } });
+  controller.setEnabled(true);
+  await controller.speak('First completed reply.');
+  audio.instances[0].events.ended();
+  await controller.speak('Second reply.');
+
+  assert.deepEqual(revokedUrls, ['blob:completed-1']);
+  assert.equal(audio.instances.length, 2);
+  assert.equal(els.voiceReplay.disabled, false);
+});
+
 test('runtime voice controller test button path speaks even before reply voice is enabled', async () => {
   const { createRuntimeVoiceController } = await helpersPromise;
   const els = buildEls();

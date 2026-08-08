@@ -9,7 +9,7 @@ Sources reviewed:
 
 ## What Landed Now
 
-- Penny memory persistence now uses atomic temp-and-rename writes for the live explicit memory store, archive store, embeddings store, memory books store, and research ledger store.
+- Penny memory persistence now uses atomic temp-and-rename writes for the live explicit memory store, archive store, embeddings store, memory books store, and research ledger store. Canonical memory, archive, embeddings, and research-ledger stores retain a `.bak` copy before each successful write and fail closed on malformed JSON instead of replacing damaged bytes with an empty store.
 - Reason for landing now:
   - directly reduces corruption / half-write risk
   - helps concurrent or interrupted local runs

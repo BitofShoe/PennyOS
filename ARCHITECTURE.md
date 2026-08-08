@@ -167,6 +167,8 @@ Important behavior:
 - server merges browser settings with disk-backed state
 - memory selection for prompts is relevance-scored, not full-dump
 - obvious test sessions are purged on server startup
+- canonical memory, archive, embeddings, and research-ledger writes retain a `.bak` copy of the prior normalized store
+- malformed durable JSON is readable only as an empty fallback; mutations fail closed and leave the damaged bytes untouched until repaired
 
 Hybrid archive overlay:
 

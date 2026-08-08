@@ -49,10 +49,30 @@ test('web URL normalization unwraps DuckDuckGo redirect links', () => {
 });
 
 test('private and local network targets classify as private', () => {
-  for (const host of ['127.0.0.1', '10.2.3.4', '192.168.1.4', '169.254.169.254', '::1', 'fd00::1', 'localhost']) {
+  for (const host of [
+    '127.0.0.1',
+    '10.2.3.4',
+    '192.168.1.4',
+    '169.254.169.254',
+    '198.18.0.1',
+    '192.0.0.1',
+    '203.0.113.1',
+    '::1',
+    '::ffff:93.184.216.34',
+    '64:ff9b:1::1',
+    '100::1',
+    '2001:2::1',
+    '2001:db8::1',
+    '3fff::1',
+    '5f00::1',
+    'fd00::1',
+    'localhost',
+  ]) {
     assert.equal(classifyHostTarget(host).private, true, host);
   }
-  assert.equal(classifyHostTarget('93.184.216.34').private, false);
+  for (const host of ['93.184.216.34', '192.0.0.9', '192.0.0.10', '2001:3::1', '2001:20::1']) {
+    assert.equal(classifyHostTarget(host).private, false, host);
+  }
 });
 
 test('DNS resolution blocks hostnames that resolve to private addresses', async () => {

@@ -113,8 +113,14 @@ function Wait-PennyReady {
 }
 
 function Find-PennyServerProcess {
+  param([int]$ProcessId = 0)
   $serverPattern = [regex]::Escape($server)
-  Get-CimInstance Win32_Process |
+  $candidates = if ($ProcessId -gt 0) {
+    Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId"
+  } else {
+    Get-CimInstance Win32_Process
+  }
+  $candidates |
     Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match $serverPattern } |
     Sort-Object CreationDate -Descending |
     Select-Object -First 1
@@ -123,13 +129,18 @@ function Find-PennyServerProcess {
 if (Test-Path $pidFile) {
   $existingPid = Get-Content $pidFile -ErrorAction SilentlyContinue
   if ($existingPid) {
-    $proc = Get-Process -Id $existingPid -ErrorAction SilentlyContinue
-    if ($proc) {
-      Write-Host "Penny is already running on PID $existingPid"
-      exit 0
+    $existingPidNumber = 0
+    if ([int]::TryParse([string]$existingPid, [ref]$existingPidNumber)) {
+      $existingServerProc = Find-PennyServerProcess -ProcessId $existingPidNumber
+      if ($existingServerProc) {
+        Write-Host "Penny is already running on PID $existingPid"
+        exit 0
+      }
     }
+    Write-Host "Ignoring stale Penny PID $existingPid because it is not this Penny server."
   }
   Remove-Item $pidFile -ErrorAction SilentlyContinue
+  Remove-Item $metaFile -ErrorAction SilentlyContinue
 }
 
 if ($env:PENNY_SKIP_LMSTUDIO_PREP -ne '1') {

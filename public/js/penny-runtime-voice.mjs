@@ -160,9 +160,10 @@ export function createRuntimeVoiceController({
     activeUrl = '';
     speaking = false;
     if (!revoke) statusMessage = stoppedUrl ? 'Voice stopped' : statusMessage;
-    if (revoke && stoppedUrl) {
-      revokeUrl(stoppedUrl);
-      if (lastAudioUrl === stoppedUrl) lastAudioUrl = '';
+    if (revoke) {
+      const urls = new Set([stoppedUrl, lastAudioUrl].filter(Boolean));
+      lastAudioUrl = '';
+      for (const url of urls) revokeUrl(url);
     }
     updateControls();
   }

@@ -134,6 +134,27 @@ function buildArchiveApi({
   return { api, getFetchCalls: () => fetchCalls };
 }
 
+test('memory archive and embedding stores fail closed without replacing malformed JSON', () => {
+  const files = makeTempFiles('penny-archive-corrupt-');
+  const { api } = buildArchiveApi(files);
+  const corruptArchive = '{"sessions":';
+  const corruptEmbeddings = '{"items":';
+
+  try {
+    fs.writeFileSync(files.archiveFile, corruptArchive, 'utf8');
+    fs.writeFileSync(files.embeddingsFile, corruptEmbeddings, 'utf8');
+
+    assert.deepEqual(api.readArchiveStore().sessions, {});
+    assert.deepEqual(api.readEmbeddingsStore().items, {});
+    assert.throws(() => api.writeArchiveStore({}), /remains untouched until it is repaired/i);
+    assert.throws(() => api.writeEmbeddingsStore({}), /remains untouched until it is repaired/i);
+    assert.equal(fs.readFileSync(files.archiveFile, 'utf8'), corruptArchive);
+    assert.equal(fs.readFileSync(files.embeddingsFile, 'utf8'), corruptEmbeddings);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('semantic memory probes a dedicated embedding base when chat models omit embeddings', async () => {
   const files = makeTempFiles();
   const fetchUrls = [];

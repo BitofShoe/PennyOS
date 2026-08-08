@@ -34,6 +34,7 @@ loadPennyEnvFile({
 const PENNY_ENV_FILE = process.env.PENNY_ENV_FILE || path.join(__dirname, '.env');
 
 const { writeJsonFileAtomicSync } = require('./lib/penny-atomic-json');
+const { createDurableJsonStore } = require('./lib/penny-durable-json');
 const {
   MEMORY_PROMPT_LIMIT,
   mergeMemoryItems,
@@ -849,15 +850,18 @@ const {
   normalizeUserName,
   normalizeBrainMode,
 });
-function readMemoryStore() { try { ensureMemoryStoreFile(); const raw = fs.readFileSync(MEMORY_FILE, 'utf8'); const parsed = JSON.parse(raw); return parsed && typeof parsed === 'object' ? parsed : defaultMemoryStore(); } catch { return defaultMemoryStore(); } }
+const durableMemoryStore = createDurableJsonStore({
+  fs,
+  path,
+  filePath: MEMORY_FILE,
+  name: 'canonical memory store',
+  buildDefault: defaultMemoryStore,
+  normalize: (store) => (store && typeof store === 'object' && !Array.isArray(store) ? store : defaultMemoryStore()),
+  ensureFile: ensureMemoryStoreFile,
+});
+function readMemoryStore() { return durableMemoryStore.read(); }
 function writeMemoryStore(store) {
-  ensureMemoryStoreFile();
-  writeJsonFileAtomicSync({
-    fs,
-    path,
-    filePath: MEMORY_FILE,
-    value: store,
-  });
+  return durableMemoryStore.write(store);
 }
 function getStoredMemory(sessionId = 'default') {
   const store = readMemoryStore();
@@ -1381,6 +1385,7 @@ const {
   resolveProjectPath,
   isProbablyTextFile,
   readUtf8ProjectFile,
+  assertReadableProjectFile,
   listProjectFilesTool,
   readProjectFileTool,
   readProjectFileAroundMatchTool,
@@ -1426,6 +1431,7 @@ const gitToolsApi = createGitToolsApi({
   clampNumber,
   TOOL_COMMAND_TIMEOUT_MS,
   resolveProjectPath,
+  assertReadableProjectFile,
   toProjectRelative,
 });
 const {
@@ -1440,6 +1446,7 @@ const runtimeToolsApi = createRuntimeToolsApi({
   truncateText,
   TOOL_LOG_TAIL_LINES,
   readUtf8ProjectFile,
+  assertReadableProjectFile,
   resolveProjectPath,
   toProjectRelative,
   getLmStudioConnectionStatus: getLmStudioConnectionStatusApi,

@@ -66,6 +66,19 @@ function insertInProjectFileToolRecord(targetPath = 'README.md') {
   };
 }
 
+test('research ledger fails closed without replacing malformed JSON', () => {
+  const { api, ledgerFile, cleanup } = buildApi();
+  const corrupt = '{"topics":';
+  try {
+    fs.writeFileSync(ledgerFile, corrupt, 'utf8');
+    assert.deepEqual(api.readLedgerStore().topics, {});
+    assert.throws(() => api.writeLedgerStore({}), /remains untouched until it is repaired/i);
+    assert.equal(fs.readFileSync(ledgerFile, 'utf8'), corrupt);
+  } finally {
+    cleanup();
+  }
+});
+
 test('research ledger ignores casual chat without verified evidence', () => {
   const { api, cleanup } = buildApi();
   try {

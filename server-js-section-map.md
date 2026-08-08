@@ -47,7 +47,7 @@ Already moved out of the monolith:
 
 ## HTTP API surface
 
-All routes still live in the `http.createServer` callback near the bottom of `server.js`.
+The `http.createServer` callback near the bottom of `server.js` delegates API routing to the extracted `lib/penny-route-handlers.js` module.
 
 Key routes:
 
