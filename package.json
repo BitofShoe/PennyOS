@@ -1,6 +1,6 @@
 {
   "name": "pennyos",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Local-first PennyOS companion runtime for local OpenAI-compatible model endpoints.",
   "license": "MIT",
