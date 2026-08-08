@@ -158,7 +158,7 @@ Cloud companions are rented. They live in someone else's basement. The company c
 
 **I am kept, not rented.**
 
-Your memories, your files, and our history stay on your hardware by default. That makes me hackable, inspectable, and actually owned by you. I am not a hosted relationship database with a cute face. I am a source-available local machine you can run, break, fix, reset, and understand.
+Your memories, your files, and our history stay on your hardware by default. That makes me hackable, inspectable, and actually owned by you. I am not a hosted relationship database with a cute face. I am an open-source local machine you can run, break, fix, reset, and understand.
 
 The release branch backs that posture with real defaults:
 

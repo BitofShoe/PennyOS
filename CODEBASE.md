@@ -13,7 +13,7 @@ This project is a single-user local Penny companion prototype:
 - runtime voice system
 - experimental OpenClaw shadow lane
 
-Release posture: source-available technical preview, local/private runtime, not intended for public internet exposure. Tauri now has a Windows-first package path in `src-tauri/` that stages a bundled Node sidecar plus Penny runtime resources; it is not a model bundle, LM Studio bundle, signed/updating public release, or public-internet package.
+Release posture: MIT-licensed open-source technical preview, local/private runtime, not intended for public internet exposure. Tauri now has a Windows-first package path in `src-tauri/` that stages a bundled Node sidecar plus Penny runtime resources; it is not a model bundle, LM Studio bundle, signed/updating public release, or public-internet package.
 
 ## Root-level files that matter most
 

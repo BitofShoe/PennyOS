@@ -66,7 +66,7 @@ test('buildSocialKit writes a polished share folder without private clutter', ()
       schema: 'pennyos-social-kit.v1',
       title: 'PennyOS Social Kit',
       tagline: 'A local companion with teeth.',
-      oneLiner: 'PennyOS is a source-available technical preview for a local-first AI companion runtime.',
+      oneLiner: 'PennyOS is an MIT-licensed open-source technical preview for a local-first AI companion runtime.',
       disclosures: [
         'PennyOS is intended for adult users.',
         'PennyOS does not bundle model runtimes, model weights, embeddings, voice models, or OpenAI credentials.',

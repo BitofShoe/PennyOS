@@ -22,7 +22,7 @@ Post the short demo first:
 ```text
 PennyOS in 33 seconds: a local companion with a face, memory, model lanes, and tools that stay on a leash.
 
-Technical preview. Adult users. Source-available, not open source. Local setup and model choice matter.
+MIT-licensed open-source technical preview. Adult users. Local setup and model choice matter.
 ```
 
 Use:
@@ -43,7 +43,7 @@ A local companion with teeth.
 One-liner:
 
 ```text
-PennyOS is a source-available technical preview for a local-first AI companion runtime: expressive UI, local memory, bounded tools, model lanes, and a character who feels more like a presence than a chatbot skin.
+PennyOS is an MIT-licensed open-source technical preview for a local-first AI companion runtime: expressive UI, local memory, bounded tools, model lanes, and a character who feels more like a presence than a chatbot skin.
 ```
 
 Thirty-second explanation:
@@ -69,7 +69,7 @@ PennyOS is the local-first companion runtime I kept wishing existed: browser fac
 ### Launch Option 3
 
 ```text
-Not a beige bot. PennyOS is a source-available technical preview for a local AI companion with a face, memory, local-first defaults, and practical tools that stay behind consent gates.
+Not a beige bot. PennyOS is an MIT-licensed open-source technical preview for a local AI companion with a face, memory, local-first defaults, and practical tools that stay behind consent gates.
 ```
 
 ### Thread Starter
@@ -83,7 +83,7 @@ Not a beige bot. PennyOS is a source-available technical preview for a local AI 
 
 4. The interesting part is the combination: presence, private memory, practical tools, and enough safety rails that the app stays useful without pretending setup does not matter.
 
-5. Technical preview. Adult users. Source-available, not open source. Local setup and model choice matter.
+5. MIT-licensed open-source technical preview. Adult users. Local setup and model choice matter.
 ```
 
 ## Asset Shortlist
@@ -131,7 +131,7 @@ Penny leaning over a laptop, suggesting local model setup, memory, and technical
 
 Say:
 
-- PennyOS is source-available, not open source.
+- PennyOS is MIT-licensed open-source software.
 - PennyOS is a technical preview.
 - PennyOS is local-first by default.
 - Optional OpenAI cloud mode is not private/local.
@@ -142,7 +142,6 @@ Avoid saying:
 
 - "Perfect memory."
 - "Fully autonomous."
-- "Open source."
 - "Private" when describing OpenAI cloud mode.
 - "Latest model" unless you have just checked the upstream model docs.
 - Anything that implies the installer secretly ships a model runtime or model weights.

@@ -2,7 +2,7 @@
   "schema": "pennyos-social-kit.v1",
   "title": "PennyOS Social Kit",
   "tagline": "A local companion with teeth.",
-  "oneLiner": "PennyOS is a source-available technical preview for a local-first AI companion runtime: expressive UI, local memory, bounded tools, model lanes, and a character who feels more like a presence than a chatbot skin.",
+  "oneLiner": "PennyOS is an MIT-licensed open-source technical preview for a local-first AI companion runtime: expressive UI, local memory, bounded tools, model lanes, and a character who feels more like a presence than a chatbot skin.",
   "positioningTags": [
     "local-first",
     "expressive companion",
@@ -12,7 +12,7 @@
   ],
   "disclosures": [
     "PennyOS is intended for adult users. Penny can be flirtatious, emotionally intimate, sharp, and mature.",
-    "PennyOS is source-available under all-rights-reserved terms, not open source.",
+    "PennyOS is open source under the MIT License.",
     "Technical preview. Local setup, model choice, hardware, and runtime state matter.",
     "PennyOS does not bundle model runtimes, model weights, embeddings, voice models, Speaches, or OpenAI credentials.",
     "Optional OpenAI cloud mode is not private/local and can send prompts, memory context, and tool context to OpenAI."
@@ -203,14 +203,14 @@
     "xLaunch": [
       "I built PennyOS because I wanted a local AI companion that feels like someone, not another chatbot skin. She lives on your machine, has expressive UI, local memory, bounded tools, and enough attitude to make the app feel alive.",
       "PennyOS is the local-first companion runtime I kept wishing existed: browser face, local model lanes, memory with receipts, approval-gated tools, and a character who talks like she means it.",
-      "Not a beige bot. PennyOS is a source-available technical preview for a local AI companion with a face, memory, local-first defaults, and practical tools that stay behind consent gates."
+      "Not a beige bot. PennyOS is an MIT-licensed open-source technical preview for a local AI companion with a face, memory, local-first defaults, and practical tools that stay behind consent gates."
     ],
     "xThread": [
       "PennyOS is a local-first AI companion runtime, not a hosted chatbot skin.",
       "The app gives Penny a browser face, expressive sprites, memory surfaces, model controls, image attachments, and bounded tool paths.",
       "The brain is still yours to choose: LM Studio, llama.cpp, another OpenAI-compatible endpoint, or an explicit OpenAI API fallback if you accept the cloud tradeoff.",
       "The interesting part is the combination: presence, private memory, practical tools, and enough safety rails that the app stays useful without pretending setup does not matter.",
-      "Technical preview. Adult users. Source-available, not open source. Local setup and model choice matter."
+      "MIT-licensed open-source technical preview. Adult users. Local setup and model choice matter."
     ],
     "videoCaptions": [
       "PennyOS in 33 seconds: a local companion with a face, memory, model lanes, and tools that stay on a leash.",

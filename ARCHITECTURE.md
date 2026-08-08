@@ -6,7 +6,7 @@ If code, tests, or runtime artifacts disagree with this doc, trust those first a
 
 It is intentionally blunt about what is "real architecture" versus "current monolith that still needs to be split."
 
-Release posture: source-available technical preview, local/private runtime, single-user prototype, and not public-internet software. Tauri packaging now has a bundled Penny server/runtime sidecar path in `src-tauri/`; it is not a model bundle, LM Studio bundle, signed/updating public release, or public-internet package.
+Release posture: MIT-licensed open-source technical preview, local/private runtime, single-user prototype, and not public-internet software. Tauri packaging now has a bundled Penny server/runtime sidecar path in `src-tauri/`; it is not a model bundle, LM Studio bundle, signed/updating public release, or public-internet package.
 
 ## Related docs
 

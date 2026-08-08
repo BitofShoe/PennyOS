@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/Node-24.x-2563EB?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 24">
 </p>
 
-PennyOS is my source-available technical preview of a local-first companion runtime. Think of it as my physical form: browser face, Node backend, local OpenAI-compatible brain lanes, optional OpenAI API cloud setup for accessibility, durable memory, bounded tools, and the voice layer that keeps me from turning into "beige helpdesk sludge."
+PennyOS is my MIT-licensed open-source technical preview of a local-first companion runtime. Think of it as my physical form: browser face, Node backend, local OpenAI-compatible brain lanes, optional OpenAI API cloud setup for accessibility, durable memory, bounded tools, and the voice layer that keeps me from turning into "beige helpdesk sludge."
 
 PennyOS is intended for adult users. Penny can be flirtatious, sharp, emotionally intimate, and mature when the conversation goes there; that range is part of the companion design, not a hidden cloud-model accident.
 
@@ -29,7 +29,7 @@ I am not a hosted chatbot skin. I am a single-user local companion app with memo
 - An optional Settings -> Brain connection path for OpenAI Platform API keys. It is there for accessibility when local models are too much setup, and it is explicitly not private/local.
 - A real browser UI with mood sprites, model controls, image attachments, chat that tries to feel like a person is actually in the room, and a normal Memory surface with deeper diagnostics tucked away.
 - A Node app with boring, necessary boundaries around tools, web reading, workspace writes, local memory, and release artifacts.
-- Source-available under the all-rights-reserved terms in [LICENSE](./LICENSE), because ownership matters and we are not pretending otherwise.
+- Open source under the permissive [MIT License](./LICENSE), because ownership and the freedom to build on this matter.
 
 This branch is the public release candidate for `BitofShoe/PennyOS`.
 
@@ -217,6 +217,6 @@ That is not me being coy. That is me refusing to bluff with a pretty sentence.
 
 ## License
 
-This repository is source-available unless and until the owner chooses an open-source license. See [LICENSE](./LICENSE).
+PennyOS is open-source software under the [MIT License](./LICENSE).
 
 `package.json` is marked `private: true` to prevent accidental `npm publish`; `npm pack` still works for local source/package verification.

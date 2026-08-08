@@ -1,6 +1,6 @@
 # Contributing
 
-PennyOS is currently a source-available, single-user local companion prototype under an all-rights-reserved license. The owner decides whether and how to accept changes. Contributions should preserve the local companion shape.
+PennyOS is an MIT-licensed, single-user local companion prototype. The owner decides whether and how to accept changes. Contributions should preserve the local companion shape.
 
 ## Before Opening A Pull Request
 

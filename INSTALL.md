@@ -8,7 +8,7 @@
 
 The default LM Studio base URL is `http://127.0.0.1:1234/v1`.
 Penny pins Node 24.x for the source/dev release-supported test/runtime surface; use Node 24 even if older versions appear to run part of the app. A built Tauri desktop package bundles Penny's Node sidecar and server resource tree, so an installed app should not need Node, npm, Rust, Cargo, or a repo checkout on the end user's `PATH`. It still needs Windows WebView2 and either an already-running local/OpenAI-compatible model endpoint or an OpenAI Platform API key for model-backed chat.
-This is a source-available technical preview for a local/private runtime, not software intended for public internet exposure.
+This is an MIT-licensed open-source technical preview for a local/private runtime, not software intended for public internet exposure.
 
 ## Setup
 

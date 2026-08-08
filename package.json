@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Local-first PennyOS companion runtime for local OpenAI-compatible model endpoints.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "packageManager": "npm@11.12.1",
   "repository": {
     "type": "git",
