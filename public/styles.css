@@ -638,6 +638,21 @@ html.expression-loading .msg-avatar {
   animation: pennyIdleChibi 13s ease-in-out infinite;
 }
 
+/* Camera anchors keep each source image feeling intentional: a wide pose can
+   breathe in-frame, while a bust or face crop reads as a portrait instead of
+   a missing lower half. */
+.penny-display.penny-chibi[data-expression-shot="wide"] .penny-art.penny-art-chibi {
+  transform-origin: 50% 52%;
+}
+
+.penny-display.penny-chibi[data-expression-shot="medium"] .penny-art.penny-art-chibi {
+  transform-origin: 50% 44%;
+}
+
+.penny-display.penny-chibi[data-expression-shot="close"] .penny-art.penny-art-chibi {
+  transform-origin: 50% 40%;
+}
+
 .penny-art.penny-art-registered-composite {
   position: relative;
   z-index: 1;
@@ -714,26 +729,26 @@ html[data-vessel-fit="C"] .core .penny-art.penny-art-registered-composite {
 @keyframes pennyIdleChibi {
   0%,
   100% {
-    transform: scale(1.3) translateY(0) translateX(0) rotate(0deg);
+    transform: scale(var(--penny-chibi-scale, 1.3)) translateY(0) translateX(0) rotate(0deg);
   }
   35% {
-    transform: scale(1.304) translateY(-0.35px) translateX(0.45px) rotate(0.16deg);
+    transform: scale(calc(var(--penny-chibi-scale, 1.3) + 0.004)) translateY(-0.35px) translateX(0.45px) rotate(0.16deg);
   }
   70% {
-    transform: scale(1.302) translateY(0.35px) translateX(-0.45px) rotate(-0.12deg);
+    transform: scale(calc(var(--penny-chibi-scale, 1.3) + 0.002)) translateY(0.35px) translateX(-0.45px) rotate(-0.12deg);
   }
 }
 
 @keyframes pennyIdleChibiClose {
   0%,
   100% {
-    transform: scale(1.36) translateY(0) translateX(0) rotate(0deg);
+    transform: scale(calc(var(--penny-chibi-scale, 1.3) + 0.06)) translateY(0) translateX(0) rotate(0deg);
   }
   38% {
-    transform: scale(1.365) translateY(-0.45px) translateX(0.55px) rotate(0.16deg);
+    transform: scale(calc(var(--penny-chibi-scale, 1.3) + 0.065)) translateY(-0.45px) translateX(0.55px) rotate(0.16deg);
   }
   72% {
-    transform: scale(1.363) translateY(0.4px) translateX(-0.5px) rotate(-0.14deg);
+    transform: scale(calc(var(--penny-chibi-scale, 1.3) + 0.063)) translateY(0.4px) translateX(-0.5px) rotate(-0.14deg);
   }
 }
 
@@ -1957,13 +1972,6 @@ select.input-lite option {
 
 .composer-notice[data-tone="error"] {
   color: color-mix(in srgb, #fb7185 82%, white);
-}
-
-.attachment-hint {
-  margin: 0 24px 8px;
-  color: color-mix(in srgb, var(--muted-soft) 88%, white);
-  font-size: 0.72rem;
-  line-height: 1.45;
 }
 
 .composer-wrap.is-dragging-files .composer-frame {

@@ -35,6 +35,34 @@ export const CHIBI_AVATARS = {
   annoyed: '/sprites/packs/default/chibi/annoyed.png',
 };
 
+// The recovered chibis share a 1376 x 768 canvas but not a common camera
+// shot. Treat their crop as authored presentation: wide shots show the full
+// character, medium shots show the acting pose, and close shots intentionally
+// hold on Penny's face instead of exposing a half-body cut at the vessel edge.
+export const CHIBI_PRIMARY_FRAMING = Object.freeze({
+  calm: Object.freeze({ shot: 'medium', scale: 1.64, pos: '50% 46%' }),
+  happy: Object.freeze({ shot: 'close', scale: 1.48, pos: '50% 47%' }),
+  excited: Object.freeze({ shot: 'medium', scale: 1.38, pos: '50% 46%' }),
+  thinking: Object.freeze({ shot: 'medium', scale: 1.42, pos: '50% 47%' }),
+  surprised: Object.freeze({ shot: 'close', scale: 1.43, pos: '50% 46%' }),
+  flirty: Object.freeze({ shot: 'close', scale: 1.42, pos: '50% 47%' }),
+  smug: Object.freeze({ shot: 'medium', scale: 1.45, pos: '50% 47%' }),
+  annoyed: Object.freeze({ shot: 'medium', scale: 1.43, pos: '50% 47%' }),
+});
+export const CHIBI_ASSET_FRAMING = Object.freeze({
+  [CHIBI_AVATARS.calm]: CHIBI_PRIMARY_FRAMING.calm,
+  [CHIBI_AVATARS.happy]: CHIBI_PRIMARY_FRAMING.happy,
+  [CHIBI_AVATARS.excited]: CHIBI_PRIMARY_FRAMING.excited,
+  [CHIBI_AVATARS.thinking]: CHIBI_PRIMARY_FRAMING.thinking,
+  [CHIBI_AVATARS.surprised]: CHIBI_PRIMARY_FRAMING.surprised,
+  [CHIBI_AVATARS.flirty]: CHIBI_PRIMARY_FRAMING.flirty,
+  [CHIBI_AVATARS.smug]: CHIBI_PRIMARY_FRAMING.smug,
+  [CHIBI_AVATARS.annoyed]: CHIBI_PRIMARY_FRAMING.annoyed,
+  '/sprites/decor/chibi-penny-wink.png': Object.freeze({ shot: 'wide', scale: 1.08, pos: '50% 48%' }),
+});
+export const DEFAULT_CHIBI_SCALE = 1.3;
+export const CHIBI_CAMERA_SHOTS = Object.freeze(['wide', 'medium', 'close']);
+
 export const BAKED_CHECKERBOARD_CHIBIS = new Set([
   '/sprites/decor/chibi-avatar-surprised.png',
   '/sprites/decor/chibi-penny-heart.png',
@@ -44,37 +72,36 @@ export const BAKED_CHECKERBOARD_CHIBIS = new Set([
 
 export const MOOD_SPRITES = {
   calm: [
-    { src: CHIBI_AVATARS.calm, fallbackSrc: '/sprites/packs/pen2/pen2-calm-composed.png', label: 'RIGHT HERE', pill: 'KNOWING', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.calm, fallbackSrc: '/sprites/packs/pen2/pen2-calm-composed.png', label: 'RIGHT HERE', pill: 'KNOWING', ...CHIBI_PRIMARY_FRAMING.calm },
   ],
   happy: [
-    { src: CHIBI_AVATARS.happy, fallbackSrc: '/sprites/packs/pen2/pen2-happy-bright.png', label: 'CHARM MODE', pill: 'CHARMED', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.happy, fallbackSrc: '/sprites/packs/pen2/pen2-happy-bright.png', label: 'CHARM MODE', pill: 'CHARMED', ...CHIBI_PRIMARY_FRAMING.happy },
   ],
   excited: [
-    { src: CHIBI_AVATARS.excited, fallbackSrc: '/sprites/packs/pen2/pen2-excited-cheer.png', label: 'SPARKED UP', pill: 'SPARKED', pos: '50% 48%' },
-    { src: '/sprites/decor/chibi-penny-peace.png', label: 'OH, HELL YES', pill: 'FIRED UP', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.excited, fallbackSrc: '/sprites/packs/pen2/pen2-excited-cheer.png', label: 'SPARKED UP', pill: 'SPARKED', ...CHIBI_PRIMARY_FRAMING.excited },
   ],
   thinking: [
-    { src: CHIBI_AVATARS.thinking, fallbackSrc: '/sprites/packs/pen2/pen2-thinking-laptop-base.png', label: 'LOCKED IN', pill: 'LOCKED IN', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.thinking, fallbackSrc: '/sprites/packs/pen2/pen2-thinking-laptop-base.png', label: 'LOCKED IN', pill: 'LOCKED IN', ...CHIBI_PRIMARY_FRAMING.thinking },
   ],
   surprised: [
-    { src: CHIBI_AVATARS.surprised, fallbackSrc: '/sprites/packs/pen2/pen2-surprised-alert.png', label: 'DID NOT SEE THAT COMING', pill: 'WHOA', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.surprised, fallbackSrc: '/sprites/packs/pen2/pen2-surprised-alert.png', label: 'DID NOT SEE THAT COMING', pill: 'WHOA', ...CHIBI_PRIMARY_FRAMING.surprised },
   ],
   flirty: [
-    { src: CHIBI_AVATARS.flirty, fallbackSrc: '/sprites/packs/pen2/pen2-flirty-soft-tease.png', label: 'COME HERE', pill: 'TEASING', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.flirty, fallbackSrc: '/sprites/packs/pen2/pen2-flirty-soft-tease.png', label: 'COME HERE', pill: 'TEASING', ...CHIBI_PRIMARY_FRAMING.flirty },
   ],
   smug: [
-    { src: CHIBI_AVATARS.smug, fallbackSrc: '/sprites/packs/pen2/pen2-smug-presenting.png', label: 'TOLD YOU', pill: 'SMUG', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.smug, fallbackSrc: '/sprites/packs/pen2/pen2-smug-presenting.png', label: 'TOLD YOU', pill: 'SMUG', ...CHIBI_PRIMARY_FRAMING.smug },
   ],
   annoyed: [
-    { src: CHIBI_AVATARS.annoyed, fallbackSrc: '/sprites/packs/pen2/pen2-annoyed-side-eye.png', label: 'REALLY NOW?', pill: 'ANNOYED', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.annoyed, fallbackSrc: '/sprites/packs/pen2/pen2-annoyed-side-eye.png', label: 'REALLY NOW?', pill: 'ANNOYED', ...CHIBI_PRIMARY_FRAMING.annoyed },
   ],
 };
 
 export const CHAT_DECOR_CHIBI = [
-  '/sprites/decor/chibi-avatar-calm.png',
-  '/sprites/decor/chibi-penny-peace.png',
-  '/sprites/decor/chibi-avatar-happy.png',
-  '/sprites/decor/chibi-avatar-flirty.png',
+  CHIBI_AVATARS.calm,
+  CHIBI_AVATARS.happy,
+  CHIBI_AVATARS.thinking,
+  CHIBI_AVATARS.flirty,
 ];
 
 export const CHAT_DECOR_TECH = [
@@ -154,6 +181,22 @@ export function normalizeExpressionTransitionMode(value, fallback = 'atomic-fade
   return normalizeExpressionMode(value, EXPRESSION_TRANSITION_MODES, fallback);
 }
 
+export function normalizeSpriteScale(value, fallback = DEFAULT_CHIBI_SCALE) {
+  const candidate = Number(value);
+  const fallbackNumber = Number(fallback);
+  const scale = Number.isFinite(candidate)
+    ? candidate
+    : (Number.isFinite(fallbackNumber) ? fallbackNumber : DEFAULT_CHIBI_SCALE);
+  return Math.max(0.9, Math.min(2.1, Math.round(scale * 1000) / 1000));
+}
+
+export function normalizeSpriteShot(value, fallback = 'wide') {
+  const candidate = normalizeString(value).toLowerCase();
+  if (CHIBI_CAMERA_SHOTS.includes(candidate)) return candidate;
+  const fallbackShot = normalizeString(fallback).toLowerCase();
+  return CHIBI_CAMERA_SHOTS.includes(fallbackShot) ? fallbackShot : 'wide';
+}
+
 export function normalizeSpriteDescriptor(value, fallback = {}) {
   if (typeof value === 'string') {
     return {
@@ -172,6 +215,8 @@ export function normalizeSpriteDescriptor(value, fallback = {}) {
   out.label = normalizeString(out.label, fallback.label || '');
   out.pill = normalizeString(out.pill, fallback.pill || '');
   out.pos = normalizeString(out.pos, fallback.pos || '50% 48%');
+  out.scale = normalizeSpriteScale(out.scale, fallback.scale);
+  out.shot = normalizeSpriteShot(out.shot, fallback.shot);
   return out;
 }
 
@@ -197,7 +242,7 @@ export function createDefaultExpressionPack() {
     moods: {
       calm: {
         label: 'calm',
-        avatar: { src: CHIBI_AVATARS.calm, alt: 'Penny calm expression' },
+        avatar: { src: CHIBI_AVATARS.calm, alt: 'Penny calm expression', ...CHIBI_PRIMARY_FRAMING.calm },
         variants: MOOD_SPRITES.calm,
         secondaryVariants: [
           { src: '/sprites/penny-mood-calm.png', label: 'QUIET', pill: 'QUIET', pos: '50% 50%' },
@@ -208,7 +253,7 @@ export function createDefaultExpressionPack() {
       },
       happy: {
         label: 'happy',
-        avatar: { src: CHIBI_AVATARS.happy, alt: 'Penny happy expression' },
+        avatar: { src: CHIBI_AVATARS.happy, alt: 'Penny happy expression', ...CHIBI_PRIMARY_FRAMING.happy },
         variants: MOOD_SPRITES.happy,
         secondaryVariants: [
           { src: '/sprites/penny-mood-happy.png', label: 'BRIGHT', pill: 'BRIGHT', pos: '50% 50%' },
@@ -219,7 +264,7 @@ export function createDefaultExpressionPack() {
       },
       excited: {
         label: 'excited',
-        avatar: { src: CHIBI_AVATARS.excited, alt: 'Penny excited expression' },
+        avatar: { src: CHIBI_AVATARS.excited, alt: 'Penny excited expression', ...CHIBI_PRIMARY_FRAMING.excited },
         variants: MOOD_SPRITES.excited,
         secondaryVariants: [
           { src: '/sprites/penny-mood-excited.png', label: 'LIT UP', pill: 'LIT', pos: '50% 50%' },
@@ -230,7 +275,7 @@ export function createDefaultExpressionPack() {
       },
       thinking: {
         label: 'thinking',
-        avatar: { src: CHIBI_AVATARS.thinking, alt: 'Penny thinking expression' },
+        avatar: { src: CHIBI_AVATARS.thinking, alt: 'Penny thinking expression', ...CHIBI_PRIMARY_FRAMING.thinking },
         variants: MOOD_SPRITES.thinking,
         secondaryVariants: [
           { src: '/sprites/penny-mood-thinking.png', label: 'WORKING IT OUT', pill: 'WORKING', pos: '50% 50%' },
@@ -241,7 +286,7 @@ export function createDefaultExpressionPack() {
       },
       surprised: {
         label: 'surprised',
-        avatar: { src: CHIBI_AVATARS.surprised, alt: 'Penny surprised expression' },
+        avatar: { src: CHIBI_AVATARS.surprised, alt: 'Penny surprised expression', ...CHIBI_PRIMARY_FRAMING.surprised },
         variants: MOOD_SPRITES.surprised,
         secondaryVariants: [
           { src: '/sprites/penny-mood-surprised.png', label: 'WHOOPS', pill: 'WHOOPS', pos: '50% 50%' },
@@ -252,7 +297,7 @@ export function createDefaultExpressionPack() {
       },
       flirty: {
         label: 'flirty',
-        avatar: { src: CHIBI_AVATARS.flirty, alt: 'Penny flirty expression' },
+        avatar: { src: CHIBI_AVATARS.flirty, alt: 'Penny flirty expression', ...CHIBI_PRIMARY_FRAMING.flirty },
         variants: MOOD_SPRITES.flirty,
         secondaryVariants: [
           { src: '/sprites/penny-mood-flirty.png', label: 'CLOSE', pill: 'CLOSE', pos: '50% 50%' },
@@ -263,7 +308,7 @@ export function createDefaultExpressionPack() {
       },
       smug: {
         label: 'smug',
-        avatar: { src: CHIBI_AVATARS.smug, alt: 'Penny smug expression' },
+        avatar: { src: CHIBI_AVATARS.smug, alt: 'Penny smug expression', ...CHIBI_PRIMARY_FRAMING.smug },
         variants: MOOD_SPRITES.smug,
         secondaryVariants: [
           { src: '/sprites/penny-mood-smug.png', label: 'NICE TRY', pill: 'NICE TRY', pos: '50% 50%' },
@@ -274,7 +319,7 @@ export function createDefaultExpressionPack() {
       },
       annoyed: {
         label: 'annoyed',
-        avatar: { src: CHIBI_AVATARS.annoyed, alt: 'Penny annoyed expression' },
+        avatar: { src: CHIBI_AVATARS.annoyed, alt: 'Penny annoyed expression', ...CHIBI_PRIMARY_FRAMING.annoyed },
         variants: MOOD_SPRITES.annoyed,
         secondaryVariants: [
           { src: '/sprites/penny-mood-annoyed.png', label: 'NOT IMPRESSED', pill: 'NOT IMPRESSED', pos: '50% 50%' },
@@ -642,7 +687,10 @@ export function buildCompanionFaceHtml({
     CHIBI_AVATARS[mood] || CHIBI_AVATARS.calm,
   );
   const label = variant?.label || pickChibiHudLabel(pack, mood, rng);
-  const pos = variant?.pos || '50% 46%';
+  const assetFraming = CHIBI_ASSET_FRAMING[src] || {};
+  const pos = assetFraming.pos || variant?.pos || avatar?.pos || '50% 46%';
+  const scale = normalizeSpriteScale(assetFraming.scale ?? variant?.scale ?? avatar?.scale, DEFAULT_CHIBI_SCALE);
+  const shot = normalizeSpriteShot(assetFraming.shot ?? variant?.shot ?? avatar?.shot, 'wide');
   const packId = escapeHtmlFn(pack?.id || 'default');
   const safeMood = escapeHtmlFn(mood || 'calm');
   const renderMode = normalizeExpressionRenderMode(
@@ -664,8 +712,8 @@ export function buildCompanionFaceHtml({
     ? presentationProfile
     : getMoodPresentationProfile({ mood, intensity: 0 });
   return `
-    <div class="${wrapperClass} penny-${safeMood}" data-variant="${variant?.index ?? 0}" data-expression-pack="${packId}" data-expression-render-mode="${renderMode}" data-expression-transition="${transitionMode}" data-expression-scene="${escapeHtmlFn(entry.sceneHint || '')}" data-expression-background="${escapeHtmlFn(entry.backgroundHint || '')}" data-expression-secondary-count="${variant?.secondaryVariantCount ?? 0}" data-expression-profile="${escapeHtmlFn(profile.profile || String(mood || 'calm'))}" data-expression-impact="${escapeHtmlFn(profile.impact || 'soft')}" data-expression-closeup="${profile.closeUp ? '1' : '0'}" data-expression-intensity="${Number(profile.intensity || 0)}">
-      <img src="${escapeHtmlFn(src)}" data-fallback-src="${escapeHtmlFn(fallbackSrc)}" data-expression-render-mode="${renderMode}" data-expression-transition="${transitionMode}" class="${imageClass}" style="object-position:${escapeHtmlFn(pos)}" alt="${escapeHtmlFn(alt)}" decoding="async" draggable="false" />
+    <div class="${wrapperClass} penny-${safeMood}" data-variant="${variant?.index ?? 0}" data-expression-pack="${packId}" data-expression-render-mode="${renderMode}" data-expression-transition="${transitionMode}" data-expression-scene="${escapeHtmlFn(entry.sceneHint || '')}" data-expression-background="${escapeHtmlFn(entry.backgroundHint || '')}" data-expression-secondary-count="${variant?.secondaryVariantCount ?? 0}" data-expression-profile="${escapeHtmlFn(profile.profile || String(mood || 'calm'))}" data-expression-impact="${escapeHtmlFn(profile.impact || 'soft')}" data-expression-closeup="${profile.closeUp ? '1' : '0'}" data-expression-intensity="${Number(profile.intensity || 0)}" data-expression-shot="${shot}" data-expression-sprite-scale="${scale}">
+      <img src="${escapeHtmlFn(src)}" data-fallback-src="${escapeHtmlFn(fallbackSrc)}" data-expression-render-mode="${renderMode}" data-expression-transition="${transitionMode}" class="${imageClass}" style="object-position:${escapeHtmlFn(pos)};--penny-chibi-scale:${scale}" alt="${escapeHtmlFn(alt)}" decoding="async" draggable="false" />
       <div class="penny-hud">
         <span class="penny-hud-left">PENNY.EXE</span>
         <span class="penny-hud-right">${escapeHtmlFn(label)}</span>

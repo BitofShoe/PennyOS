@@ -516,6 +516,12 @@ Be agentic.
 
 The second one sounds fun, but it is fog wearing a tiny hat.
 
+### Attachments
+
+Use the camera button to add up to four images to the current message. The paperclip adds one supported text or code file, and the folder button can bundle up to twelve small supported text/code files that you explicitly select.
+
+Attachments are sent with that message only; PennyOS does not browse files simply because a local path was pasted into chat. If you want Penny to see a file, select it with the attachment controls.
+
 ### Memory
 
 Explicit memory is local and canonical. Archive memory is additive and review-gated before promotion. Semantic memory depends on an embedding lane, but Penny should fall back to keyword retrieval when embeddings are missing.

@@ -143,6 +143,7 @@ test('public default manifest leads with clean mood-specific chibis and retains 
     getMoodSpriteVariant,
     getMoodPresentationProfile,
     buildCompanionFaceHtml,
+    CHIBI_PRIMARY_FRAMING,
   } = await helpersPromise;
   const manifestPath = path.join(__dirname, '..', 'public', 'sprites', 'packs', 'default', 'manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -164,6 +165,10 @@ test('public default manifest leads with clean mood-specific chibis and retains 
     assert.equal(getMoodAvatarSrc(pack, mood), variants[0].src, `${mood} primary avatar should be its first rotation sprite`);
     assert.equal(getMoodAvatarSrc(pack, mood), `/sprites/packs/default/chibi/${mood}.png`, `${mood} primary avatar should be its cleaned chibi`);
     assert.equal(fs.existsSync(path.join(__dirname, '..', 'public', getMoodAvatarSrc(pack, mood))), true, `${mood} primary chibi file should ship`);
+    assert.equal(pack.moods[mood].avatar.scale, CHIBI_PRIMARY_FRAMING[mood].scale, `${mood} avatar should carry its authored presentation scale`);
+    assert.equal(pack.moods[mood].avatar.shot, CHIBI_PRIMARY_FRAMING[mood].shot, `${mood} avatar should carry its authored camera shot`);
+    assert.equal(variants[0].scale, CHIBI_PRIMARY_FRAMING[mood].scale, `${mood} primary pose should carry its authored presentation scale`);
+    assert.equal(variants[0].shot, CHIBI_PRIMARY_FRAMING[mood].shot, `${mood} primary pose should carry its authored camera shot`);
     assert.ok(variants.some((variant) => variant.src.includes('/sprites/packs/pen2/')), `${mood} rotation should retain Pen2 art`);
 
     const selectedSrcs = new Set();
@@ -192,6 +197,30 @@ test('public default manifest leads with clean mood-specific chibis and retains 
   assert.match(html, /\/sprites\/packs\/pen2\/pen2-smug-/);
 });
 
+test('companion face output bounds untrusted sprite framing and carries authored pose framing', async () => {
+  const {
+    buildCompanionFaceHtml,
+    createDefaultExpressionPack,
+    normalizeSpriteScale,
+    normalizeSpriteShot,
+  } = await helpersPromise;
+
+  assert.equal(normalizeSpriteScale('not-a-number'), 1.3);
+  assert.equal(normalizeSpriteScale(0.1), 0.9);
+  assert.equal(normalizeSpriteScale(9), 2.1);
+  assert.equal(normalizeSpriteShot('close'), 'close');
+  assert.equal(normalizeSpriteShot('bogus'), 'wide');
+
+  const html = buildCompanionFaceHtml({
+    pack: createDefaultExpressionPack(),
+    mood: 'excited',
+    variantIndex: 0,
+  });
+  assert.match(html, /data-expression-shot="medium"/);
+  assert.match(html, /data-expression-sprite-scale="1\.38"/);
+  assert.match(html, /--penny-chibi-scale:1\.38/);
+});
+
 test('decor chibi pools exclude baked-checkerboard assets', async () => {
   const {
     CHAT_DECOR_CHIBI,
@@ -211,6 +240,7 @@ test('decor chibi pools exclude baked-checkerboard assets', async () => {
     assert.equal(indexHtml.includes(src), false, `${src} should not be hardcoded into index decor`);
   }
   assert.equal(BAKED_CHECKERBOARD_CHIBIS.includes(getMoodAvatarSrc(pack, 'surprised')), false);
+  assert.equal(indexHtml.includes('/sprites/decor/chibi-'), false, 'static decor should use the cleaned catalog, not raw rectangular source art');
 });
 
 test('mood helpers pick the latest tag, theme, avatar, and decor sources', async () => {
@@ -242,7 +272,7 @@ test('mood helpers pick the latest tag, theme, avatar, and decor sources', async
   assert.equal(variant.secondaryVariantCount, 2);
   assert.equal(label, 'LOCKED IN');
   assert.deepEqual(chatDecorSrcs(0, 'user'), ['/sprites/decor/pixel-monitor.png']);
-  assert.deepEqual(chatDecorSrcs(0, 'assistant'), ['/sprites/decor/chibi-penny-peace.png', '/sprites/decor/pixel-crystal.png']);
+  assert.deepEqual(chatDecorSrcs(0, 'assistant'), ['/sprites/packs/default/chibi/happy.png', '/sprites/decor/pixel-crystal.png']);
   assert.equal(classifyIdleDecorClass('/sprites/decor/pixel-crystal.png'), 'decor-cyber');
 });
 

@@ -718,6 +718,16 @@ async function main() {
     persistReport(report);
     console.log('Checking the default sprite catalog across all eight moods...');
     const spriteMoods = ['calm', 'happy', 'excited', 'thinking', 'surprised', 'flirty', 'smug', 'annoyed'];
+    const expectedPrimaryFraming = {
+      calm: { shot: 'medium', scale: 1.64 },
+      happy: { shot: 'close', scale: 1.48 },
+      excited: { shot: 'medium', scale: 1.38 },
+      thinking: { shot: 'medium', scale: 1.42 },
+      surprised: { shot: 'close', scale: 1.43 },
+      flirty: { shot: 'close', scale: 1.42 },
+      smug: { shot: 'medium', scale: 1.45 },
+      annoyed: { shot: 'medium', scale: 1.43 },
+    };
     const renderedSprites = [];
     for (const mood of spriteMoods) {
       await page.evaluate((nextMood) => window.__pennyDebug?.(nextMood, 0), mood);
@@ -729,6 +739,8 @@ async function main() {
           fallbackSrc: String(image?.getAttribute('data-fallback-src') || ''),
           complete: image?.complete === true,
           naturalWidth: Number(image?.naturalWidth || 0),
+          presentationScale: Number(image?.style?.getPropertyValue('--penny-chibi-scale') || 0),
+          presentationShot: String(image?.closest('.penny-display')?.getAttribute('data-expression-shot') || ''),
         };
       }));
     }
@@ -737,8 +749,23 @@ async function main() {
       ok: renderedSprites.every((sprite, index) => sprite.src === `/sprites/packs/default/chibi/${spriteMoods[index]}.png`
         && /^\/sprites\/packs\/pen2\//.test(sprite.fallbackSrc)
         && sprite.complete === true
-        && sprite.naturalWidth > 0),
+        && sprite.naturalWidth > 0
+        && sprite.presentationScale === expectedPrimaryFraming[spriteMoods[index]].scale
+        && sprite.presentationShot === expectedPrimaryFraming[spriteMoods[index]].shot),
       sprites: renderedSprites,
+    });
+    persistReport(report);
+
+    report.currentStep = 'composer_omits_internal_attachment_caveats';
+    persistReport(report);
+    const composerCopy = await page.evaluate(() => ({
+      hintCount: document.querySelectorAll('.attachment-hint').length,
+      visibleText: String(document.querySelector('#composerDropZone')?.parentElement?.textContent || ''),
+    }));
+    report.checks.push({
+      name: 'composer_omits_internal_attachment_caveats',
+      ok: composerCopy.hintCount === 0
+        && !/pasted paths are not uploads|selected attachments are sent only with this turn/i.test(composerCopy.visibleText),
     });
     persistReport(report);
 
