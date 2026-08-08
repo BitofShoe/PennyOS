@@ -1393,13 +1393,26 @@ html[data-vessel-fit="C"] .core .penny-art.penny-art-registered-composite {
   letter-spacing: 0.12em;
 }
 
-.msg-image {
+.msg-images {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
   margin-bottom: 4px;
+  width: min(320px, 100%);
+}
+
+.msg-images.multiple {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.msg-image {
+  min-width: 0;
 }
 
 .msg-image img {
+  display: block;
+  width: 100%;
   max-height: 180px;
-  max-width: 320px;
   border-radius: 14px;
   border: 1.5px solid rgba(255, 255, 255, 0.08);
   object-fit: cover;
@@ -1777,6 +1790,7 @@ select.input-lite option {
 
 .image-btn,
 .file-btn,
+.folder-btn,
 .emoji-btn {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1793,13 +1807,15 @@ select.input-lite option {
 
 .image-btn:hover,
 .file-btn:hover,
+.folder-btn:hover,
 .emoji-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
 .image-btn.has-image,
-.file-btn.has-file {
+.file-btn.has-file,
+.folder-btn.has-file {
   border-color: var(--primary);
   background: color-mix(in srgb, var(--primary) 16%, transparent);
 }
@@ -1810,19 +1826,31 @@ select.input-lite option {
   border-radius: 12px;
   overflow: hidden;
   border: 1.5px solid rgba(255, 255, 255, 0.12);
-  width: fit-content;
+  width: min(420px, 100%);
   flex-shrink: 0;
+  padding: 8px 34px 8px 8px;
 }
 
 .image-preview[hidden] {
   display: none;
 }
 
-.image-preview img {
+.image-preview-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.image-preview-item {
+  position: relative;
+  flex: 0 0 92px;
+}
+
+.image-preview-item img {
   display: block;
-  max-height: 120px;
-  max-width: 240px;
-  border-radius: 12px;
+  width: 92px;
+  height: 78px;
+  border-radius: 9px;
   object-fit: cover;
 }
 
@@ -1841,6 +1869,21 @@ select.input-lite option {
   display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
+}
+
+.image-preview-item-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(10, 10, 14, 0.82);
+  color: #fff;
+  cursor: pointer;
+  font-size: 15px;
   line-height: 1;
 }
 
@@ -1914,6 +1957,20 @@ select.input-lite option {
 
 .composer-notice[data-tone="error"] {
   color: color-mix(in srgb, #fb7185 82%, white);
+}
+
+.attachment-hint {
+  margin: 0 24px 8px;
+  color: color-mix(in srgb, var(--muted-soft) 88%, white);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.composer-wrap.is-dragging-files .composer-frame {
+  border-radius: 16px;
+  outline: 2px dashed color-mix(in srgb, var(--primary) 72%, white);
+  outline-offset: 4px;
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
 }
 
 .emoji-picker {

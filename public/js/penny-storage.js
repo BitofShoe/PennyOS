@@ -41,6 +41,11 @@ export function saveStateSnapshot(state) {
       delete base.image;
       base.hadImage = true;
     }
+    if (Array.isArray(message.images) && message.images.length) {
+      delete base.images;
+      base.hadImage = true;
+      base.imageCount = message.images.length;
+    }
     if (message.file) {
       base.fileMeta = {
         name: message.file.name,

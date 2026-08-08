@@ -332,6 +332,37 @@ test('LM Studio prompt builders include voice examples for ordinary chat while k
   assert.doesNotMatch(JSON.stringify(imageMessages), /Quick voice examples:/);
 });
 
+test('LM Studio prompt builders preserve every bounded current-turn image in chat and stateful payloads', () => {
+  const modulePath = require.resolve('../server.js');
+  delete require.cache[modulePath];
+  const { buildLmStudioMessages, buildLmStudioStatefulInput } = require('../server.js');
+  const images = [
+    'data:image/png;base64,abc123',
+    'data:image/jpeg;base64,def456',
+  ];
+  const common = {
+    userText: 'Compare these two images.',
+    messages: [{ role: 'user', content: 'Compare these two images.' }],
+    memories: {},
+    image: images,
+  };
+
+  const chatMessages = buildLmStudioMessages(common);
+  const currentTurn = chatMessages.at(-1);
+  assert.deepEqual(
+    currentTurn.content.filter(part => part.type === 'image_url').map(part => part.image_url.url),
+    images,
+  );
+  assert.equal(currentTurn.content.at(-1).type, 'text');
+
+  const statefulInput = buildLmStudioStatefulInput({ ...common, hasThread: false });
+  assert.deepEqual(
+    statefulInput.filter(part => part.type === 'image').map(part => part.data_url),
+    images,
+  );
+  assert.equal(statefulInput.at(-1).type, 'text');
+});
+
 test('LM Studio prompt builders inject the turn-specific conversation voice guard on every chat transport shape', () => {
   const modulePath = require.resolve('../server.js');
   delete require.cache[modulePath];

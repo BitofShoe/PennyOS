@@ -6,7 +6,7 @@ import { escapeHtml, stripDraftMood } from './penny-expression-runtime.mjs';
  * @property {boolean} streaming
  * @property {string} mood
  * @property {string} content
- * @property {string | null} image
+ * @property {string[]} images
  * @property {{ name: string, meta: string } | null} file
  * @property {string} toolMeta
  * @property {boolean} loading
@@ -186,6 +186,11 @@ export function buildTranscriptMessageViewModels(messages = [], {
     const toolLabels = Array.isArray(message?.toolsUsed)
       ? message.toolsUsed.map((tool) => tool?.label || tool?.name).filter(Boolean)
       : [];
+    const images = role === 'user'
+      ? (Array.isArray(message?.images)
+        ? message.images.filter(image => typeof image === 'string' && image)
+        : (message?.image ? [message.image] : []))
+      : [];
 
     const decorKey = String(
       message?.id
@@ -199,7 +204,7 @@ export function buildTranscriptMessageViewModels(messages = [], {
       streaming: message?.streaming === true,
       mood,
       content,
-      image: role === 'user' ? (message?.image || null) : null,
+      images,
       file,
       toolMeta: message?.toolStatus || (toolLabels.length ? `checked ${toolLabels.join(' • ')}` : ''),
       loading: false,
@@ -214,7 +219,7 @@ export function buildTranscriptMessageViewModels(messages = [], {
       streaming: false,
       mood: 'thinking',
       content: '',
-      image: null,
+      images: [],
       file: null,
       toolMeta: '',
       loading: true,
@@ -308,11 +313,16 @@ export function renderTranscriptMessages({
       item.appendChild(header);
     }
 
-    if (row.image && row.role === 'user') {
-      const imgWrap = chatEl.ownerDocument.createElement('div');
-      imgWrap.className = 'msg-image';
-      imgWrap.innerHTML = `<img src="${row.image}" alt="Attached" />`;
-      item.appendChild(imgWrap);
+    if (row.images.length && row.role === 'user') {
+      const gallery = chatEl.ownerDocument.createElement('div');
+      gallery.className = `msg-images${row.images.length > 1 ? ' multiple' : ''}`;
+      for (let imageIndex = 0; imageIndex < row.images.length; imageIndex += 1) {
+        const imgWrap = chatEl.ownerDocument.createElement('div');
+        imgWrap.className = 'msg-image';
+        imgWrap.innerHTML = `<img src="${escapeHtmlFn(row.images[imageIndex])}" alt="Attached image ${imageIndex + 1}" />`;
+        gallery.appendChild(imgWrap);
+      }
+      item.appendChild(gallery);
     }
 
     if (row.file && row.role === 'user') {

@@ -84,3 +84,36 @@ test('state snapshots scrub legacy provider details on save and load', async () 
 
   delete global.localStorage;
 });
+
+test('state snapshots retain only multi-image count metadata, never raw image data URLs', async () => {
+  const store = new Map();
+  global.localStorage = {
+    getItem(key) {
+      return store.has(key) ? store.get(key) : null;
+    },
+    setItem(key, value) {
+      store.set(key, String(value));
+    },
+  };
+
+  const { saveStateSnapshot, loadStateSnapshot, DEFAULT_MEMORY } = await helpersPromise;
+  saveStateSnapshot({
+    memory: { ...DEFAULT_MEMORY },
+    messages: [{
+      role: 'user',
+      content: 'Compare these.',
+      images: ['data:image/png;base64,private-first', 'data:image/jpeg;base64,private-second'],
+    }],
+    mood: 'thinking',
+    turns: 1,
+  });
+
+  const serialized = store.get('penny:v3');
+  assert.doesNotMatch(serialized, /private-first|private-second/);
+  const snapshot = loadStateSnapshot();
+  assert.equal(snapshot.messages[0].hadImage, true);
+  assert.equal(snapshot.messages[0].imageCount, 2);
+  assert.equal(snapshot.messages[0].images, undefined);
+
+  delete global.localStorage;
+});

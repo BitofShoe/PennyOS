@@ -665,6 +665,8 @@ const PENNY_ENABLE_INTERNAL_ARCHIVE_SYNTHESIS = process.env.PENNY_ENABLE_INTERNA
 const PENNY_ENABLE_RESEARCH_LEDGER_PROMPT = process.env.PENNY_ENABLE_RESEARCH_LEDGER_PROMPT !== '0';
 const MAX_REQUEST_BODY_BYTES = Number(process.env.PENNY_MAX_REQUEST_BODY_BYTES || 10 * 1024 * 1024);
 const MAX_IMAGE_DATA_BYTES = Number(process.env.PENNY_MAX_IMAGE_DATA_BYTES || 2 * 1024 * 1024);
+const MAX_IMAGE_ATTACHMENT_COUNT = Number(process.env.PENNY_MAX_IMAGE_ATTACHMENT_COUNT || 4);
+const MAX_IMAGE_BATCH_BYTES = Number(process.env.PENNY_MAX_IMAGE_BATCH_BYTES || 5 * 1024 * 1024);
 const MAX_TEXT_ATTACHMENT_BYTES = Number(process.env.PENNY_MAX_TEXT_ATTACHMENT_BYTES || 220 * 1024);
 const MAX_TOOL_WRITE_BYTES = Number(process.env.PENNY_MAX_TOOL_WRITE_BYTES || 300 * 1024);
 const TOOL_COMMAND_TIMEOUT_MS = Number(process.env.PENNY_TOOL_COMMAND_TIMEOUT_MS || 30000);
@@ -1737,6 +1739,24 @@ function sanitizeImageDataUrl(value) {
     throw createHttpError(413, `Image is too large after compression (${formatBytes(bytes)}). Keep it under ${formatBytes(MAX_IMAGE_DATA_BYTES)}.`);
   }
   return { dataUrl: `data:${mime};base64,${base64}`, mime, bytes };
+}
+function sanitizeImageAttachments(value) {
+  const rawImages = Array.isArray(value) ? value : (value ? [value] : []);
+  if (rawImages.length > MAX_IMAGE_ATTACHMENT_COUNT) {
+    throw createHttpError(413, `Too many images. Keep each turn to ${MAX_IMAGE_ATTACHMENT_COUNT} images or fewer.`);
+  }
+  const images = rawImages.map(sanitizeImageDataUrl).filter(Boolean);
+  const totalBytes = images.reduce((total, image) => total + Number(image.bytes || 0), 0);
+  if (totalBytes > MAX_IMAGE_BATCH_BYTES) {
+    throw createHttpError(413, `Image batch is too large (${formatBytes(totalBytes)}). Keep the whole batch under ${formatBytes(MAX_IMAGE_BATCH_BYTES)}.`);
+  }
+  return images;
+}
+function normalizeImageDataUrls(value) {
+  const values = Array.isArray(value) ? value : (value ? [value] : []);
+  return values
+    .map(item => String(item || '').trim())
+    .filter(item => /^data:image\/[a-z0-9.+-]+;base64,/i.test(item));
 }
 function sanitizeFileAttachment(value) {
   if (!value) return null;
@@ -3073,7 +3093,7 @@ function buildLmStudioMessages({ userText, messages, memories, image, file, late
       break;
     }
   }
-  /** Only one vision payload per request: re-sending every past user `image` blows up JSON size and VRAM (LM Studio can reset → browser "fetch failed"). */
+  /** Vision stays current-turn-only: replaying prior image batches would inflate JSON and VRAM use. */
   const recent = slice
     .map((msg, idx) => {
       const role = msg?.role === 'assistant' ? 'assistant' : 'user';
@@ -3085,12 +3105,14 @@ function buildLmStudioMessages({ userText, messages, memories, image, file, late
       const guardedText = isLatestUser && voiceGuard
         ? `${text}\n\n${voiceGuard}`
         : text;
-      const imageUrl = isLatestUser ? (msg.image || image || null) : null;
-      if (imageUrl) {
+      const imageUrls = isLatestUser
+        ? normalizeImageDataUrls(msg.images || msg.image || image)
+        : [];
+      if (imageUrls.length) {
         return {
           role,
           content: [
-            { type: 'image_url', image_url: { url: imageUrl } },
+            ...imageUrls.map(imageUrl => ({ type: 'image_url', image_url: { url: imageUrl } })),
             { type: 'text', text: guardedText },
           ],
         };
@@ -3101,9 +3123,10 @@ function buildLmStudioMessages({ userText, messages, memories, image, file, late
   if (!recent.length) {
     const latestInput = appendAttachmentContext(userText, file);
     const guardedInput = voiceGuard ? `${latestInput}\n\n${voiceGuard}` : latestInput;
-    if (image) {
+    const imageUrls = normalizeImageDataUrls(image);
+    if (imageUrls.length) {
       recent.push({ role: 'user', content: [
-        { type: 'image_url', image_url: { url: image } },
+        ...imageUrls.map(imageUrl => ({ type: 'image_url', image_url: { url: imageUrl } })),
         { type: 'text', text: guardedInput },
       ] });
     } else {
@@ -3164,9 +3187,10 @@ function buildLmStudioStatefulInput({ userText, messages, memories, image, file,
       : latestInput
     : buildLmStudioStatefulSeedText({ userText: latestInput, messages, memories, file: null, latencyBudget: budget });
   const guardedText = voiceGuard ? `${text}\n\n${voiceGuard}` : text;
-  if (!image) return guardedText;
+  const imageUrls = normalizeImageDataUrls(image);
+  if (!imageUrls.length) return guardedText;
   return [
-    { type: 'image', data_url: image },
+    ...imageUrls.map(dataUrl => ({ type: 'image', data_url: dataUrl })),
     { type: 'text', content: guardedText },
   ];
 }
@@ -3671,6 +3695,7 @@ const routeHandlers = createPennyRouteHandlers({
   buildChatMemoryState,
   sanitizeChatMessages,
   sanitizeImageDataUrl,
+  sanitizeImageAttachments,
   sanitizeFileAttachment,
     appendAttachmentContext,
     buildRuntimeMemoryContext,

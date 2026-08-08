@@ -117,7 +117,7 @@
             </div>
 
             <div id="imagePreview" class="image-preview" hidden>
-              <img id="imagePreviewImg" alt="Attached" />
+              <div id="imagePreviewList" class="image-preview-list" aria-live="polite"></div>
               <button id="imagePreviewRemove" class="image-preview-remove" type="button">&times;</button>
             </div>
 
@@ -130,18 +130,21 @@
             </div>
 
             <div id="composerNotice" class="composer-notice" hidden></div>
+            <p class="attachment-hint">Drop up to 4 images or text/code files here. Pasted paths are not uploads; selected attachments are sent only with this turn.</p>
 
-            <div class="composer-wrap">
+            <div id="composerDropZone" class="composer-wrap">
               <div class="composer-frame">
                 <label class="composer-label" for="composer">Open channel</label>
                 <textarea id="composer" class="composer" placeholder="Say something to Penny..." autocomplete="off" rows="3" spellcheck="true"></textarea>
               </div>
 
               <div class="composer-tools">
-                <input type="file" id="imageInput" accept="image/*" hidden />
-                <button id="imageBtn" class="image-btn" type="button" title="Send image">&#128247;</button>
+                <input type="file" id="imageInput" accept="image/*" multiple hidden />
+                <button id="imageBtn" class="image-btn" type="button" title="Send up to 4 images">&#128247;</button>
                 <input type="file" id="fileInput" accept=".txt,.md,.json,.js,.mjs,.cjs,.ts,.tsx,.jsx,.css,.html,.svg,.yml,.yaml,.log,.ps1,.sh,.example,text/*,application/json,application/javascript" hidden />
-                <button id="fileBtn" class="file-btn" type="button" title="Attach file">&#128206;</button>
+                <button id="fileBtn" class="file-btn" type="button" title="Attach text or code file">&#128206;</button>
+                <input type="file" id="folderInput" accept=".txt,.md,.json,.js,.mjs,.cjs,.ts,.tsx,.jsx,.css,.html,.svg,.yml,.yaml,.log,.ps1,.sh,.example,text/*,application/json,application/javascript" webkitdirectory directory multiple hidden />
+                <button id="folderBtn" class="folder-btn" type="button" title="Attach selected text/code folder">&#128193;</button>
 
                 <div class="emoji-anchor">
                   <button id="emojiBtn" class="emoji-btn" type="button" title="Emoji">&#9786;</button>

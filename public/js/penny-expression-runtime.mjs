@@ -25,14 +25,14 @@ export const EXPRESSION_RENDER_MODES = Object.freeze(['legacy-chibi', 'registere
 export const EXPRESSION_TRANSITION_MODES = Object.freeze(['atomic-fade-swap']);
 
 export const CHIBI_AVATARS = {
-  calm: '/sprites/decor/chibi-avatar-calm.png',
-  happy: '/sprites/decor/chibi-avatar-happy.png',
-  excited: '/sprites/decor/chibi-avatar-excited.png',
-  thinking: '/sprites/decor/chibi-avatar-thinking.png',
-  surprised: '/sprites/decor/chibi-penny-peace.png',
-  flirty: '/sprites/decor/chibi-avatar-flirty.png',
-  smug: '/sprites/decor/chibi-avatar-smug.png',
-  annoyed: '/sprites/decor/chibi-avatar-annoyed.png',
+  calm: '/sprites/packs/default/chibi/calm.png',
+  happy: '/sprites/packs/default/chibi/happy.png',
+  excited: '/sprites/packs/default/chibi/excited.png',
+  thinking: '/sprites/packs/default/chibi/thinking.png',
+  surprised: '/sprites/packs/default/chibi/surprised.png',
+  flirty: '/sprites/packs/default/chibi/flirty.png',
+  smug: '/sprites/packs/default/chibi/smug.png',
+  annoyed: '/sprites/packs/default/chibi/annoyed.png',
 };
 
 export const BAKED_CHECKERBOARD_CHIBIS = new Set([
@@ -44,29 +44,29 @@ export const BAKED_CHECKERBOARD_CHIBIS = new Set([
 
 export const MOOD_SPRITES = {
   calm: [
-    { src: '/sprites/decor/chibi-avatar-calm.png', label: 'RIGHT HERE', pill: 'KNOWING', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.calm, fallbackSrc: '/sprites/packs/pen2/pen2-calm-composed.png', label: 'RIGHT HERE', pill: 'KNOWING', pos: '50% 48%' },
   ],
   happy: [
-    { src: '/sprites/decor/chibi-avatar-happy.png', label: 'CHARM MODE', pill: 'CHARMED', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.happy, fallbackSrc: '/sprites/packs/pen2/pen2-happy-bright.png', label: 'CHARM MODE', pill: 'CHARMED', pos: '50% 48%' },
   ],
   excited: [
-    { src: '/sprites/decor/chibi-avatar-excited.png', label: 'SPARKED UP', pill: 'SPARKED', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.excited, fallbackSrc: '/sprites/packs/pen2/pen2-excited-cheer.png', label: 'SPARKED UP', pill: 'SPARKED', pos: '50% 48%' },
     { src: '/sprites/decor/chibi-penny-peace.png', label: 'OH, HELL YES', pill: 'FIRED UP', pos: '50% 48%' },
   ],
   thinking: [
-    { src: '/sprites/decor/chibi-avatar-thinking.png', label: 'LOCKED IN', pill: 'LOCKED IN', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.thinking, fallbackSrc: '/sprites/packs/pen2/pen2-thinking-laptop-base.png', label: 'LOCKED IN', pill: 'LOCKED IN', pos: '50% 48%' },
   ],
   surprised: [
-    { src: '/sprites/decor/chibi-penny-peace.png', label: 'DID NOT SEE THAT COMING', pill: 'WHOA', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.surprised, fallbackSrc: '/sprites/packs/pen2/pen2-surprised-alert.png', label: 'DID NOT SEE THAT COMING', pill: 'WHOA', pos: '50% 48%' },
   ],
   flirty: [
-    { src: '/sprites/decor/chibi-avatar-flirty.png', label: 'COME HERE', pill: 'TEASING', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.flirty, fallbackSrc: '/sprites/packs/pen2/pen2-flirty-soft-tease.png', label: 'COME HERE', pill: 'TEASING', pos: '50% 48%' },
   ],
   smug: [
-    { src: '/sprites/decor/chibi-avatar-smug.png', label: 'TOLD YOU', pill: 'SMUG', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.smug, fallbackSrc: '/sprites/packs/pen2/pen2-smug-presenting.png', label: 'TOLD YOU', pill: 'SMUG', pos: '50% 48%' },
   ],
   annoyed: [
-    { src: '/sprites/decor/chibi-avatar-annoyed.png', label: 'REALLY NOW?', pill: 'ANNOYED', pos: '50% 48%' },
+    { src: CHIBI_AVATARS.annoyed, fallbackSrc: '/sprites/packs/pen2/pen2-annoyed-side-eye.png', label: 'REALLY NOW?', pill: 'ANNOYED', pos: '50% 48%' },
   ],
 };
 

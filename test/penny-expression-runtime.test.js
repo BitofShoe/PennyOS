@@ -131,7 +131,7 @@ test('expression URL normalization rejects remote, drive, data, and traversal pa
   );
 });
 
-test('public default manifest uses Pen2 sprites as the primary and rotating art for every mood', async () => {
+test('public default manifest leads with clean mood-specific chibis and retains Pen2 variants for every mood', async () => {
   const {
     DEFAULT_EXPRESSION_PACK_URL,
     LEGACY_EXPRESSION_PACK_URL,
@@ -161,10 +161,10 @@ test('public default manifest uses Pen2 sprites as the primary and rotating art 
       false,
       `${mood} main sprite rotation should not include baked-checkerboard chibi sprites`,
     );
-    const pen2Variants = variants.filter((variant) => variant.src.includes('/sprites/packs/pen2/'));
     assert.equal(getMoodAvatarSrc(pack, mood), variants[0].src, `${mood} primary avatar should be its first rotation sprite`);
-    assert.ok(getMoodAvatarSrc(pack, mood).includes('/sprites/packs/pen2/'), `${mood} primary avatar should be Pen2 art`);
-    assert.equal(pen2Variants.length, variants.length, `${mood} rotation should contain only Pen2 sprites`);
+    assert.equal(getMoodAvatarSrc(pack, mood), `/sprites/packs/default/chibi/${mood}.png`, `${mood} primary avatar should be its cleaned chibi`);
+    assert.equal(fs.existsSync(path.join(__dirname, '..', 'public', getMoodAvatarSrc(pack, mood))), true, `${mood} primary chibi file should ship`);
+    assert.ok(variants.some((variant) => variant.src.includes('/sprites/packs/pen2/')), `${mood} rotation should retain Pen2 art`);
 
     const selectedSrcs = new Set();
     for (let seed = 0; seed < variants.length; seed += 1) {
@@ -177,7 +177,7 @@ test('public default manifest uses Pen2 sprites as the primary and rotating art 
       selectedSrcs.add(getMoodSpriteVariant(pack, mood, profile.variantIndex).src);
     }
 
-    for (const variant of pen2Variants) {
+    for (const variant of variants) {
       assert.ok(selectedSrcs.has(variant.src), `${mood} should be able to select ${variant.src}`);
     }
   }
@@ -236,7 +236,7 @@ test('mood helpers pick the latest tag, theme, avatar, and decor sources', async
   assert.equal(parsed.text, 'Still thinkingbut now');
   assert.equal(stripped, 'Draft reply');
   assert.equal(getMoodTheme('thinking').label, 'thinking');
-  assert.equal(getMoodAvatarSrc(pack, 'unknown-mood'), '/sprites/decor/chibi-avatar-calm.png');
+  assert.equal(getMoodAvatarSrc(pack, 'unknown-mood'), '/sprites/packs/default/chibi/calm.png');
   assert.equal(variant.sceneHint, 'focused');
   assert.equal(variant.backgroundHint, '/sprites/penny-mood-thinking.png');
   assert.equal(variant.secondaryVariantCount, 2);
@@ -346,7 +346,7 @@ test('expression pack runtime loads a manifest and falls back cleanly on failure
   });
   const fallbackPack = await fallbackRuntime.load();
   assert.equal(fallbackPack.id, 'default');
-  assert.equal(fallbackPack.moods.calm.avatar.src, '/sprites/decor/chibi-avatar-calm.png');
+  assert.equal(fallbackPack.moods.calm.avatar.src, '/sprites/packs/default/chibi/calm.png');
 });
 
 test('expression pack runtime preloads calm and exposes bounded readiness status', async () => {
@@ -482,7 +482,7 @@ test('companion face html carries a fallback sprite for failed selected art load
   });
 
   assert.match(html, /class="penny-art penny-art-chibi"/);
-  assert.match(html, /data-fallback-src="\/sprites\/decor\/chibi-avatar-calm\.png"/);
+  assert.match(html, /data-fallback-src="\/sprites\/packs\/pen2\/pen2-calm-composed\.png"/);
 });
 
 test('registered companion face HTML uses internal classes and a distinct legacy fallback', async () => {

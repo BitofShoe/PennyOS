@@ -9,7 +9,8 @@ import {
   createAttachmentUi,
   formatBytes,
   prepareFileAttachment,
-  prepareImageAttachment,
+  prepareFolderAttachment,
+  prepareImageAttachments,
 } from './penny-attachments.js';
 import {
   DEFAULT_MEMORY,
@@ -192,15 +193,18 @@ const els = {
   imageInput: document.getElementById('imageInput'),
   imageBtn: document.getElementById('imageBtn'),
   imagePreview: document.getElementById('imagePreview'),
-  imagePreviewImg: document.getElementById('imagePreviewImg'),
+  imagePreviewList: document.getElementById('imagePreviewList'),
   imagePreviewRemove: document.getElementById('imagePreviewRemove'),
   fileInput: document.getElementById('fileInput'),
   fileBtn: document.getElementById('fileBtn'),
+  folderInput: document.getElementById('folderInput'),
+  folderBtn: document.getElementById('folderBtn'),
   filePreview: document.getElementById('filePreview'),
   filePreviewName: document.getElementById('filePreviewName'),
   filePreviewMeta: document.getElementById('filePreviewMeta'),
   filePreviewRemove: document.getElementById('filePreviewRemove'),
   composerNotice: document.getElementById('composerNotice'),
+  composerDropZone: document.getElementById('composerDropZone'),
 };
 
 function ensureMemoryInspectorUi() {
@@ -1251,20 +1255,20 @@ function serializeMessagesForApi(limit = 16) {
 
 async function sendMessage() {
   const userText = els.composer.value.trim();
-  const pendingImage = attachmentUi.getPendingImage();
+  const pendingImages = attachmentUi.getPendingImages();
   const pendingFile = attachmentUi.getPendingFile();
   if (!userText) {
-    if (pendingImage || pendingFile) setComposerNotice('Add a short prompt so Penny knows what to do with the attachment.', 'warn');
+    if (pendingImages.length || pendingFile) setComposerNotice('Add a short prompt so Penny knows what to do with the attachment.', 'warn');
     return;
   }
   const { requestId, signal, replacedRequestId } = chatRequestGuard.start();
   if (replacedRequestId !== null) {
     removeTrailingStreamingAssistantDraft();
   }
-  const imageData = pendingImage?.dataUrl || null;
+  const imageData = pendingImages.map(image => image?.dataUrl).filter(Boolean);
   const fileData = pendingFile ? { ...pendingFile } : null;
   const msgObj = { id: createMessageId('user'), role: 'user', content: userText };
-  if (imageData) msgObj.image = imageData;
+  if (imageData.length) msgObj.images = imageData;
   if (fileData) msgObj.file = { name: fileData.name, size: fileData.size, lineCount: fileData.lineCount, type: fileData.type };
   state.messages.push(msgObj);
   const assistantDraft = { id: createMessageId('assistant'), role: 'assistant', content: '', streaming: true, toolsUsed: [], mood: 'thinking' };
@@ -1274,7 +1278,7 @@ async function sendMessage() {
   attachmentUi.clearPendingAttachments(); state.loading = true; state.presence = 'thinking'; renderMessages({ forceStickToLatest: true }); updateTheme(); saveState();
   try {
     const body = { sessionId: state.memory.sessionId, messages: serializeMessagesForApi(), memories: buildChatMemoryPayload(state.memory), stream: true };
-    if (imageData) body.image = imageData;
+    if (imageData.length) body.images = imageData;
     if (fileData) body.file = fileData;
     const res = await apiFetch('/api/penny/chat?stream=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
     if (!chatRequestGuard.isActive(requestId)) return;
@@ -1414,32 +1418,99 @@ for (const tab of els.tabs) tab.addEventListener('click', () => switchPanel(tab.
 window.addEventListener('resize', queueStaticCyberDecorBoundsSync);
 els.send.addEventListener('click', sendMessage);
 
-if (els.imageBtn) els.imageBtn.addEventListener('click', () => els.imageInput?.click());
-if (els.imageInput) els.imageInput.addEventListener('change', async () => {
-  const file = els.imageInput.files?.[0];
-  if (!file) return;
+async function attachImageFiles(files) {
+  const selected = Array.from(files || []).filter(Boolean);
+  if (!selected.length) return;
   try {
-    const prepared = await prepareImageAttachment(file);
-    attachmentUi.attachImage(prepared);
+    const pending = attachmentUi.getPendingImages();
+    const prepared = await prepareImageAttachments(selected, {
+      existingCount: pending.length,
+      existingBytes: pending.reduce((total, image) => total + Number(image?.bytes || 0), 0),
+    });
+    attachmentUi.attachImages(prepared, { append: true });
   } catch (error) {
-    attachmentUi.clearPendingImage({ keepNotice: true });
-    setComposerNotice(error?.message || 'Image prep failed. Try a smaller file.', 'error');
+    setComposerNotice(error?.message || 'Image prep failed. Try a smaller batch.', 'error');
   }
-});
-if (els.imagePreviewRemove) els.imagePreviewRemove.addEventListener('click', () => attachmentUi.clearPendingImage());
-if (els.fileBtn) els.fileBtn.addEventListener('click', () => els.fileInput?.click());
-if (els.fileInput) els.fileInput.addEventListener('change', async () => {
-  const file = els.fileInput.files?.[0];
+}
+
+async function attachTextFile(file) {
   if (!file) return;
   try {
-    const prepared = await prepareFileAttachment(file);
-    attachmentUi.attachFile(prepared);
+    attachmentUi.attachFile(await prepareFileAttachment(file));
   } catch (error) {
     attachmentUi.clearPendingFile({ keepNotice: true });
     setComposerNotice(error?.message || 'File prep failed. Try a smaller text/code file.', 'error');
   }
+}
+
+async function attachTextFolder(files) {
+  const selected = Array.from(files || []).filter(Boolean);
+  if (!selected.length) return;
+  try {
+    attachmentUi.attachFile(await prepareFolderAttachment(selected));
+  } catch (error) {
+    attachmentUi.clearPendingFile({ keepNotice: true });
+    setComposerNotice(error?.message || 'Folder prep failed. Pick a few smaller text/code files.', 'error');
+  }
+}
+
+async function handleComposerDrop(files) {
+  const selected = Array.from(files || []).filter(Boolean);
+  const images = selected.filter(file => String(file?.type || '').startsWith('image/'));
+  const textFiles = selected.filter(file => !String(file?.type || '').startsWith('image/'));
+  if (!images.length && !textFiles.length) {
+    setComposerNotice('Drop images or text/code files here. Pasted paths are not uploads.', 'warn');
+    return;
+  }
+  if (images.length) await attachImageFiles(images);
+  if (textFiles.length === 1) await attachTextFile(textFiles[0]);
+  if (textFiles.length > 1) await attachTextFolder(textFiles);
+}
+
+if (els.imageBtn) els.imageBtn.addEventListener('click', () => els.imageInput?.click());
+if (els.imageInput) els.imageInput.addEventListener('change', async () => {
+  await attachImageFiles(els.imageInput.files);
+  els.imageInput.value = '';
+});
+if (els.imagePreviewRemove) els.imagePreviewRemove.addEventListener('click', () => attachmentUi.clearPendingImages());
+if (els.fileBtn) els.fileBtn.addEventListener('click', () => els.fileInput?.click());
+if (els.fileInput) els.fileInput.addEventListener('change', async () => {
+  await attachTextFile(els.fileInput.files?.[0]);
+  els.fileInput.value = '';
+});
+if (els.folderBtn) els.folderBtn.addEventListener('click', () => els.folderInput?.click());
+if (els.folderInput) els.folderInput.addEventListener('change', async () => {
+  await attachTextFolder(els.folderInput.files);
+  els.folderInput.value = '';
 });
 if (els.filePreviewRemove) els.filePreviewRemove.addEventListener('click', () => attachmentUi.clearPendingFile());
+if (els.composerDropZone) {
+  let dragDepth = 0;
+  const dragContainsFiles = (event) => Array.from(event.dataTransfer?.types || []).includes('Files');
+  els.composerDropZone.addEventListener('dragenter', (event) => {
+    if (!dragContainsFiles(event)) return;
+    event.preventDefault();
+    dragDepth += 1;
+    els.composerDropZone.classList.add('is-dragging-files');
+  });
+  els.composerDropZone.addEventListener('dragover', (event) => {
+    if (!dragContainsFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+  els.composerDropZone.addEventListener('dragleave', (event) => {
+    if (!dragContainsFiles(event)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) els.composerDropZone.classList.remove('is-dragging-files');
+  });
+  els.composerDropZone.addEventListener('drop', async (event) => {
+    if (!dragContainsFiles(event)) return;
+    event.preventDefault();
+    dragDepth = 0;
+    els.composerDropZone.classList.remove('is-dragging-files');
+    await handleComposerDrop(event.dataTransfer?.files);
+  });
+}
 els.composer.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); } });
 els.composer.addEventListener('focus', () => {
   els.shell?.classList.add('is-composing');

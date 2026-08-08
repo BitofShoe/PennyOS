@@ -1361,7 +1361,7 @@ test('chat route forwards direct single-tool LM evidence facts into the runtime 
   assert.equal(saved.lastRoute.artifact.toolEvidenceReceipt.summary.rawJsonItemCount, 1);
 });
 
-test('chat route keeps image uploads on the chat lane and records attachment-bounded reasoning', async () => {
+test('chat route keeps bounded image batches on the chat lane and records attachment-bounded reasoning', async () => {
   const memoryStore = new Map();
   let response = null;
   let runtimeContextArgs = null;
@@ -1380,7 +1380,10 @@ test('chat route keeps image uploads on the chat lane and records attachment-bou
             content: 'Tell me what you see in this image.',
           },
         ],
-        image: 'data:image/jpeg;base64,abc123',
+        images: [
+          'data:image/jpeg;base64,abc123',
+          'data:image/jpeg;base64,def456',
+        ],
         memories: { brainMode: 'local', memories: [] },
       });
     },
@@ -1432,7 +1435,8 @@ test('chat route keeps image uploads on the chat lane and records attachment-bou
       };
     },
     selectLocalLane(args = {}) {
-      assert.equal(typeof args.image, 'string');
+      assert.equal(Array.isArray(args.image), true);
+      assert.equal(args.image.length, 2);
       return {
         localLane: 'chat',
         directIntent: null,
@@ -1577,7 +1581,10 @@ test('chat route keeps image uploads on the chat lane and records attachment-bou
   assert.ok(response);
   assert.equal(response.statusCode, 200);
   assert.equal(runtimeContextArgs.attachmentType, 'image');
-  assert.equal(localSmartArgs.image, 'data:image/jpeg;base64,abc123');
+  assert.deepEqual(localSmartArgs.image, [
+    'data:image/jpeg;base64,abc123',
+    'data:image/jpeg;base64,def456',
+  ]);
   assert.equal(localSmartArgs.laneSelection.localLane, 'chat');
   assert.equal(response.json.meta.localLane, 'chat');
   assert.equal(response.json.meta.artifact.scope.selectedLane, 'chat');

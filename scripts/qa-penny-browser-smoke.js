@@ -15,6 +15,7 @@ const BASE_URL = process.env.PENNY_BROWSER_SMOKE_BASE_URL || `http://127.0.0.1:$
 const IMAGE_ONLY = process.env.PENNY_BROWSER_SMOKE_IMAGE_ONLY === '1';
 const OUTPUT_PATH = path.join(OUTPUT_DIR, `penny-browser-smoke-${STAMP}.json`);
 const SCREENSHOT_PATH = path.join(OUTPUT_DIR, `penny-browser-smoke-${STAMP}.png`);
+const ATTACHMENT_SCREENSHOT_PATH = path.join(OUTPUT_DIR, `penny-browser-smoke-attachments-${STAMP}.png`);
 const SERVER_STDOUT_PATH = path.join(OUTPUT_DIR, `penny-browser-smoke-${STAMP}.server.out.log`);
 const SERVER_STDERR_PATH = path.join(OUTPUT_DIR, `penny-browser-smoke-${STAMP}.server.err.log`);
 const STORAGE_KEY = 'penny:v3';
@@ -57,11 +58,13 @@ async function collectUiDebug(page) {
     const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
     const latestAssistant = [...messages].reverse().find((msg) => msg?.role === 'assistant') || null;
     const latestUser = [...messages].reverse().find((msg) => msg?.role === 'user') || null;
-    const latestUserWithImage = [...messages].reverse().find((msg) => msg?.role === 'user' && typeof msg?.image === 'string') || null;
+    const latestUserWithImage = [...messages].reverse().find((msg) => msg?.role === 'user' && (typeof msg?.image === 'string' || Array.isArray(msg?.images))) || null;
     const latestUserHadImage = latestUser?.hadImage === true || latestUserWithImage?.hadImage === true;
     const assistantRow = document.querySelector('#chat .msg-row.assistant:last-child');
     const assistantBubble = assistantRow?.querySelector('.bubble.assistant');
-    const latestUserImageRow = document.querySelector('#chat .msg-row.user:last-child .msg-image img');
+    const userRows = [...document.querySelectorAll('#chat .msg-row.user')];
+    const latestUserRow = userRows.at(-1) || null;
+    const latestUserImageRows = [...(latestUserRow?.querySelectorAll('.msg-image img') || [])];
     const chatFetch = window.__pennyDebug?.lastChatFetch && typeof window.__pennyDebug.lastChatFetch === 'object'
       ? window.__pennyDebug.lastChatFetch
       : null;
@@ -72,9 +75,11 @@ async function collectUiDebug(page) {
       latestAssistantBubbleText: String(assistantBubble?.textContent || '').trim(),
       latestAssistantStreaming: latestAssistant?.streaming === true,
       latestUserContent: typeof latestUser?.content === 'string' ? latestUser.content : '',
-      latestUserHasImage: typeof latestUserWithImage?.image === 'string' && latestUserWithImage.image.startsWith('data:image/'),
+      latestUserHasImage: (typeof latestUserWithImage?.image === 'string' && latestUserWithImage.image.startsWith('data:image/'))
+        || (Array.isArray(latestUserWithImage?.images) && latestUserWithImage.images.some(image => String(image).startsWith('data:image/'))),
       latestUserHadImage,
-      latestUserImageVisible: typeof latestUserImageRow?.getAttribute('src') === 'string' && latestUserImageRow.getAttribute('src').startsWith('data:image/'),
+      latestUserImageVisible: latestUserImageRows.some(image => String(image.getAttribute('src') || '').startsWith('data:image/')),
+      latestUserImageCount: latestUserImageRows.length,
       assistantRowStreaming: !!assistantRow?.classList.contains('streaming'),
       moodPill: String(document.querySelector('#moodPill')?.textContent || '').trim(),
       composerNotice: String(document.querySelector('#composerNotice')?.textContent || '').trim(),
@@ -188,11 +193,19 @@ function buildMockLmStudioReply(payload = {}) {
   return 'Mock Penny reply. [MOOD:thinking]';
 }
 
-function createTinyPngFixture(tmpDir) {
-  const imagePath = path.join(tmpDir, 'tiny-upload.png');
+function createTinyPngFixture(tmpDir, name = 'tiny-upload.png') {
+  const imagePath = path.join(tmpDir, name);
   const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAV0lEQVR4nO3PQQ3AIADAQEASmhCLrIngcVnSU9DOs+/4s6UDXjWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgfT1iAj0mLdegAAAAAElFTkSuQmCC';
   fs.writeFileSync(imagePath, Buffer.from(base64, 'base64'));
   return imagePath;
+}
+
+function createTextFolderFixture(tmpDir) {
+  const folderPath = path.join(tmpDir, 'attachment-folder');
+  fs.mkdirSync(path.join(folderPath, 'nested'), { recursive: true });
+  fs.writeFileSync(path.join(folderPath, 'README.md'), '# Attachment fixture\nA selected folder should be bounded.\n');
+  fs.writeFileSync(path.join(folderPath, 'nested', 'config.json'), '{"mode":"fixture","safe":true}\n');
+  return folderPath;
 }
 
 function writeSseFrame(res, payload, event = '') {
@@ -266,6 +279,8 @@ async function createMockLmStudioServer() {
     lastChatRequestPreview: '',
     lastChatReply: '',
     lastChatStream: false,
+    lastImagePartCount: 0,
+    lastFolderBundleSeen: false,
   };
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -314,6 +329,10 @@ async function createMockLmStudioServer() {
       stats.lastChatRequestPreview = rawBody.slice(0, 1200);
       stats.lastChatReply = reply;
       stats.lastChatStream = body?.stream === true;
+      stats.lastImagePartCount = (Array.isArray(body?.messages) ? body.messages : [])
+        .flatMap(message => Array.isArray(message?.content) ? message.content : [])
+        .filter(part => part?.type === 'image_url').length;
+      stats.lastFolderBundleSeen = /Selected text-folder bundle:/i.test(rawBody);
       if (body?.stream) {
         await streamMockChatCompletion(res, {
           model: body.model || 'unsloth/gemma-4-31b-it',
@@ -511,7 +530,11 @@ async function main() {
 
   ensureDir(OUTPUT_DIR);
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-browser-smoke-'));
-  const imageFixturePath = createTinyPngFixture(tmpDir);
+  const imageFixturePaths = [
+    createTinyPngFixture(tmpDir, 'tiny-upload-first.png'),
+    createTinyPngFixture(tmpDir, 'tiny-upload-second.png'),
+  ];
+  const folderFixturePath = createTextFolderFixture(tmpDir);
   const memoryFile = path.join(tmpDir, 'penny-memory.browser-smoke.json');
   const archiveFile = path.join(tmpDir, 'penny-memory-archive.browser-smoke.json');
   const embeddingsFile = path.join(tmpDir, 'penny-memory-embeddings.browser-smoke.json');
@@ -640,10 +663,24 @@ async function main() {
           debug.voice.lastSpeechStatus = Number(response.status || 0);
         }
         if (isChatStream) {
+          let requestAttachment = null;
+          try {
+            const payload = JSON.parse(requestBody);
+            const images = Array.isArray(payload?.images)
+              ? payload.images
+              : (payload?.image ? [payload.image] : []);
+            const file = payload?.file && typeof payload.file === 'object' ? payload.file : null;
+            requestAttachment = {
+              imageCount: images.filter(image => typeof image === 'string' && image.startsWith('data:image/')).length,
+              fileName: String(file?.name || ''),
+              folderBundle: /Selected text-folder bundle:/i.test(String(file?.text || '')),
+            };
+          } catch {}
           const entry = {
             url,
             status: Number(response.status || 0),
             requestBodyPreview: requestBody.slice(0, 1200),
+            requestAttachment,
             responseTextPreview: '',
             responseCloneError: '',
           };
@@ -676,6 +713,34 @@ async function main() {
     console.log('Opening Penny UI...');
     await page.goto(`${BASE_URL}/?debug=1`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(1000);
+
+    report.currentStep = 'default_sprite_catalog_renders_all_moods';
+    persistReport(report);
+    console.log('Checking the default sprite catalog across all eight moods...');
+    const spriteMoods = ['calm', 'happy', 'excited', 'thinking', 'surprised', 'flirty', 'smug', 'annoyed'];
+    const renderedSprites = [];
+    for (const mood of spriteMoods) {
+      await page.evaluate((nextMood) => window.__pennyDebug?.(nextMood, 0), mood);
+      await page.waitForTimeout(420);
+      renderedSprites.push(await page.evaluate(() => {
+        const image = document.querySelector('#coreFace .penny-art');
+        return {
+          src: String(image?.getAttribute('src') || ''),
+          fallbackSrc: String(image?.getAttribute('data-fallback-src') || ''),
+          complete: image?.complete === true,
+          naturalWidth: Number(image?.naturalWidth || 0),
+        };
+      }));
+    }
+    report.checks.push({
+      name: 'default_sprite_catalog_renders_clean_chibi_primary_for_all_eight_moods',
+      ok: renderedSprites.every((sprite, index) => sprite.src === `/sprites/packs/default/chibi/${spriteMoods[index]}.png`
+        && /^\/sprites\/packs\/pen2\//.test(sprite.fallbackSrc)
+        && sprite.complete === true
+        && sprite.naturalWidth > 0),
+      sprites: renderedSprites,
+    });
+    persistReport(report);
 
     if (!IMAGE_ONLY) {
       report.currentStep = 'expression_lock_applies';
@@ -818,21 +883,21 @@ async function main() {
     report.currentStep = 'image_attachment_prepares_preview';
     persistReport(report);
     console.log('Checking image upload prep and reply path...');
-    await page.setInputFiles('#imageInput', imageFixturePath);
+    await page.setInputFiles('#imageInput', imageFixturePaths);
     await waitForPagePredicate(page, () => {
       const preview = document.querySelector('#imagePreview');
-      const previewImg = document.querySelector('#imagePreviewImg');
+      const previewItems = document.querySelectorAll('#imagePreviewList .image-preview-item img');
       const notice = document.querySelector('#composerNotice')?.textContent || '';
       return preview && preview.hidden === false
-        && !!previewImg?.getAttribute('src')
-        && /image ready/i.test(notice);
+        && previewItems.length === 2
+        && /2 images ready/i.test(notice);
     }, undefined, { timeout: 10000 });
     report.checks.push({ name: 'image_attachment_prepares_preview', ok: true });
     persistReport(report);
 
     report.currentStep = 'image_upload_turn_send';
     persistReport(report);
-    await page.fill('#composer', 'Tell me what you see in this image.');
+    await page.fill('#composer', 'Tell me what you see in these two images.');
     const imageTurnsBefore = Number(await page.textContent('#turnsValue')) || 0;
     const voiceFetchesBeforeImage = IMAGE_ONLY
       ? 0
@@ -853,25 +918,30 @@ async function main() {
       const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
       const latestAssistant = [...messages].reverse().find((msg) => msg?.role === 'assistant' && !msg?.streaming);
       const latestUser = [...messages].reverse().find((msg) => msg?.role === 'user');
-      const latestUserWithImage = [...messages].reverse().find((msg) => msg?.role === 'user' && typeof msg?.image === 'string');
-      const latestUserImageRow = document.querySelector('#chat .msg-row.user:last-child .msg-image img');
+      const latestUserWithImage = [...messages].reverse().find((msg) => msg?.role === 'user' && (typeof msg?.image === 'string' || Array.isArray(msg?.images)));
+      const userRows = [...document.querySelectorAll('#chat .msg-row.user')];
+      const latestUserRow = userRows.at(-1) || null;
+      const latestUserImageRows = [...(latestUserRow?.querySelectorAll('.msg-image img') || [])];
       const turns = Number(snapshot?.turns || 0);
       return (
         turns >= minTurns
         && (
           (typeof latestUserWithImage?.image === 'string' && latestUserWithImage.image.startsWith('data:image/'))
+          || (Array.isArray(latestUserWithImage?.images) && latestUserWithImage.images.length === 2)
           || latestUser?.hadImage === true
-          || (typeof latestUserImageRow?.getAttribute('src') === 'string' && latestUserImageRow.getAttribute('src').startsWith('data:image/'))
+          || latestUserImageRows.length === 2
         )
       );
     }, { storageKey: STORAGE_KEY, minTurns: Math.max(1, imageTurnsBefore + 1) }, { timeout: 20000 });
     const imageUserDebug = await collectUiDebug(page);
     report.checks.push({
       name: 'image_upload_turn_persists_user_image',
-      ok: imageUserDebug?.latestUserHasImage === true
+      ok: (imageUserDebug?.latestUserHasImage === true
         || imageUserDebug?.latestUserHadImage === true
-        || imageUserDebug?.latestUserImageVisible === true,
+        || imageUserDebug?.latestUserImageVisible === true)
+        && imageUserDebug?.latestUserImageCount === 2,
       turns: Number(imageUserDebug?.turns || 0),
+      imageCount: Number(imageUserDebug?.latestUserImageCount || 0),
       composerNotice: imageUserDebug?.composerNotice || '',
     });
     persistReport(report);
@@ -913,6 +983,13 @@ async function main() {
       seconds: imageReplySeconds,
       replyMentionsImage: /image|square|attached/i.test(String(imageReplyDebug?.latestAssistantContent || imageReplyDebug?.latestAssistantBubbleText || '')),
       assistantPreview: String(imageReplyDebug?.latestAssistantContent || imageReplyDebug?.latestAssistantBubbleText || '').slice(0, 160),
+    });
+    persistReport(report);
+
+    report.checks.push({
+      name: 'image_batch_reaches_mock_vision_transport',
+      ok: mockLmStudio.stats.lastImagePartCount === 2,
+      imagePartCount: mockLmStudio.stats.lastImagePartCount,
     });
     persistReport(report);
 
@@ -1031,6 +1108,63 @@ async function main() {
       ...newChatDebug,
     });
     persistReport(report);
+
+    if (!IMAGE_ONLY) {
+      report.currentStep = 'folder_attachment_prepares_and_sends_bounded_bundle';
+      persistReport(report);
+      console.log('Checking selected text-folder attachment...');
+      await page.setInputFiles('#folderInput', folderFixturePath);
+      await waitForPagePredicate(page, () => {
+        const preview = document.querySelector('#filePreview');
+        const name = document.querySelector('#filePreviewName')?.textContent || '';
+        const meta = document.querySelector('#filePreviewMeta')?.textContent || '';
+        return preview?.hidden === false && /attachment-folder folder/i.test(name) && /2\/2 text files/i.test(meta);
+      }, undefined, { timeout: 10000 });
+      const folderPreviewDebug = await page.evaluate(() => ({
+        name: String(document.querySelector('#filePreviewName')?.textContent || ''),
+        meta: String(document.querySelector('#filePreviewMeta')?.textContent || ''),
+        notice: String(document.querySelector('#composerNotice')?.textContent || ''),
+      }));
+      report.checks.push({
+        ...folderPreviewDebug,
+        name: 'folder_attachment_prepares_visible_bounded_bundle',
+        ok: /attachment-folder folder/i.test(folderPreviewDebug.name)
+          && /2\/2 text files/i.test(folderPreviewDebug.meta)
+          && /sent only with this turn/i.test(folderPreviewDebug.notice),
+      });
+      await page.screenshot({ path: ATTACHMENT_SCREENSHOT_PATH, fullPage: true });
+      report.attachmentScreenshot = ATTACHMENT_SCREENSHOT_PATH;
+      persistReport(report);
+
+      const folderTurnsBefore = Number(await page.textContent('#turnsValue')) || 0;
+      await page.fill('#composer', 'Summarize the selected folder.');
+      await page.click('#send');
+      await waitForPagePredicate(page, ({ storageKey, minTurns }) => {
+        const raw = window.localStorage.getItem(storageKey);
+        if (!raw) return false;
+        try {
+          const snapshot = JSON.parse(raw);
+          const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
+          const latestAssistant = [...messages].reverse().find(message => message?.role === 'assistant');
+          const latestUser = [...messages].reverse().find(message => message?.role === 'user');
+          return Number(snapshot?.turns || 0) >= minTurns
+            && latestAssistant?.streaming !== true
+            && String(latestAssistant?.content || '').trim().length > 0
+            && /attachment-folder\.folder\.md/i.test(String(latestUser?.fileMeta?.name || ''));
+        } catch {
+          return false;
+        }
+      }, { storageKey: STORAGE_KEY, minTurns: Math.max(1, folderTurnsBefore + 1) }, { timeout: 20000 });
+      const folderRequestDebug = await page.evaluate(() => window.__pennyDebug?.lastChatFetch?.requestAttachment || null);
+      report.checks.push({
+        name: 'folder_attachment_reaches_mock_transport_as_current_turn_bundle',
+        ok: folderRequestDebug?.folderBundle === true
+          && /attachment-folder\.folder\.md/i.test(String(folderRequestDebug?.fileName || '')),
+        folderBundleSeen: folderRequestDebug?.folderBundle === true,
+        fileName: String(folderRequestDebug?.fileName || ''),
+      });
+      persistReport(report);
+    }
 
     report.currentStep = 'history_architecture_truth_answer';
     persistReport(report);
