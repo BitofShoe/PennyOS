@@ -155,6 +155,31 @@ test('memory archive and embedding stores fail closed without replacing malforme
   }
 });
 
+test('memory archive and embedding stores reject schema-corrupt JSON without replacement', () => {
+  const files = makeTempFiles('penny-archive-schema-');
+  const { api } = buildArchiveApi(files);
+  const schemaCorruptArchive = JSON.stringify({
+    meta: {},
+    global: { episodes: [], summaries: [], patterns: [], promotionQueue: [] },
+    sessions: [],
+  });
+  const schemaCorruptEmbeddings = JSON.stringify({ meta: {}, items: [] });
+
+  try {
+    fs.writeFileSync(files.archiveFile, schemaCorruptArchive, 'utf8');
+    fs.writeFileSync(files.embeddingsFile, schemaCorruptEmbeddings, 'utf8');
+
+    assert.deepEqual(api.readArchiveStore().sessions, {});
+    assert.deepEqual(api.readEmbeddingsStore().items, {});
+    assert.throws(() => api.writeArchiveStore({}), /invalid schema/i);
+    assert.throws(() => api.writeEmbeddingsStore({}), /invalid schema/i);
+    assert.equal(fs.readFileSync(files.archiveFile, 'utf8'), schemaCorruptArchive);
+    assert.equal(fs.readFileSync(files.embeddingsFile, 'utf8'), schemaCorruptEmbeddings);
+  } finally {
+    fs.rmSync(files.root, { recursive: true, force: true });
+  }
+});
+
 test('semantic memory probes a dedicated embedding base when chat models omit embeddings', async () => {
   const files = makeTempFiles();
   const fetchUrls = [];

@@ -398,3 +398,75 @@ test('project write tools refuse secret-bearing files before staging patch previ
     cleanup();
   }
 });
+
+test('project tools protect nested and aliased env files', () => {
+  const aliasRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-project-tools-alias-'));
+  const { api, projectRoot, cleanup } = buildApi({
+    pathAliases: { external: aliasRoot },
+    textExtensions: new Set(['', '.env', '.example', '.txt', '.md', '.js', '.json']),
+  });
+  try {
+    fs.mkdirSync(path.join(projectRoot, 'config'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'config', '.env'), 'NESTED_SECRET=1\n');
+    fs.writeFileSync(path.join(aliasRoot, '.env'), 'ALIASED_SECRET=1\n');
+
+    assert.throws(() => api.readProjectFileTool({ path: 'config/.env' }), /secret-bearing|not readable/i);
+    assert.throws(() => api.writeProjectFileTool({ path: 'config/.env', content: 'NESTED_SECRET=2\n' }), /secret-bearing|cannot be edited/i);
+    assert.throws(() => api.readProjectFileTool({ path: 'external/.env' }), /secret-bearing|not readable/i);
+    assert.throws(() => api.writeProjectFileTool({ path: 'external/.env', content: 'ALIASED_SECRET=2\n' }), /secret-bearing|cannot be edited/i);
+    assert.equal(api.listPendingWorkspaceWritesTool().count, 0);
+  } finally {
+    cleanup();
+    fs.rmSync(aliasRoot, { recursive: true, force: true });
+  }
+});
+
+test('project tools reject secret-bearing symlink targets and remove unsafe persisted previews', (t) => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'penny-project-tools-secret-link-'));
+  const secretPath = path.join(projectRoot, '.env');
+  const linkPath = path.join(projectRoot, 'logs', 'public.log');
+  try {
+    fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+    fs.writeFileSync(secretPath, 'PENNY_API_TOKEN=supersecret\n');
+    try {
+      fs.symlinkSync(secretPath, linkPath, 'file');
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'EINVAL'].includes(error?.code)) {
+        t.skip(`symlinks unavailable: ${error.code}`);
+        return;
+      }
+      throw error;
+    }
+
+    const pendingPath = path.join(projectRoot, 'data', 'penny-pending-workspace-writes.json');
+    fs.mkdirSync(path.dirname(pendingPath), { recursive: true });
+    fs.writeFileSync(pendingPath, JSON.stringify({
+      schema: 'penny-pending-workspace-writes.v1',
+      pending: [{
+        id: 'unsafe-secret-link',
+        path: 'logs/public.log',
+        before: 'PENNY_API_TOKEN=supersecret\n',
+        after: 'PENNY_API_TOKEN=replaced\n',
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+      }],
+    }), 'utf8');
+
+    const { api, cleanup } = buildApi({
+      projectRoot,
+      textExtensions: new Set(['', '.env', '.example', '.log', '.txt', '.md', '.js', '.json']),
+    });
+    try {
+      assert.throws(() => api.readProjectFileTool({ path: 'logs/public.log' }), /secret-bearing|not readable/i);
+      assert.throws(() => api.writeProjectFileTool({ path: 'logs/public.log', content: 'safe text\n' }), /symlink path|secret-bearing/i);
+      assert.equal(api.listPendingWorkspaceWritesTool().count, 0);
+      const persisted = fs.readFileSync(pendingPath, 'utf8');
+      assert.equal(persisted.includes('supersecret'), false);
+      assert.equal(fs.readFileSync(secretPath, 'utf8'), 'PENNY_API_TOKEN=supersecret\n');
+    } finally {
+      cleanup();
+    }
+  } finally {
+    fs.rmSync(projectRoot, { recursive: true, force: true });
+  }
+});

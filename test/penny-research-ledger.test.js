@@ -79,6 +79,19 @@ test('research ledger fails closed without replacing malformed JSON', () => {
   }
 });
 
+test('research ledger rejects schema-corrupt JSON without replacement', () => {
+  const { api, ledgerFile, cleanup } = buildApi();
+  const schemaCorrupt = JSON.stringify({ meta: {}, topics: [] });
+  try {
+    fs.writeFileSync(ledgerFile, schemaCorrupt, 'utf8');
+    assert.deepEqual(api.readLedgerStore().topics, {});
+    assert.throws(() => api.writeLedgerStore({}), /invalid schema/i);
+    assert.equal(fs.readFileSync(ledgerFile, 'utf8'), schemaCorrupt);
+  } finally {
+    cleanup();
+  }
+});
+
 test('research ledger ignores casual chat without verified evidence', () => {
   const { api, cleanup } = buildApi();
   try {

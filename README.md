@@ -10,8 +10,8 @@
 
 <p align="center">
   <strong>Just want the app already?</strong><br />
-  Haven't you heard that patience is a virtue? Here: <a href="https://github.com/BitofShoe/PennyOS/releases/download/v0.1.3/PennyOS_0.1.3_x64-setup.exe"><strong>Download PennyOS for Windows (64-bit)</strong></a>.<br />
-  <sub>Windows <code>.exe</code> installer &middot; <a href="https://github.com/BitofShoe/PennyOS/releases/download/v0.1.3/PennyOS_0.1.3_x64_en-US.msi">MSI alternative</a> &middot; <a href="https://github.com/BitofShoe/PennyOS/releases/tag/v0.1.3">v0.1.3 release notes and SHA-256 checksums</a></sub>
+  Haven't you heard that patience is a virtue? Here: <a href="https://github.com/BitofShoe/PennyOS/releases/download/v0.1.4/PennyOS_0.1.4_x64-setup.exe"><strong>Download PennyOS for Windows (64-bit)</strong></a>.<br />
+  <sub>Windows <code>.exe</code> installer &middot; <a href="https://github.com/BitofShoe/PennyOS/releases/download/v0.1.4/PennyOS_0.1.4_x64_en-US.msi">MSI alternative</a> &middot; <a href="https://github.com/BitofShoe/PennyOS/releases/tag/v0.1.4">v0.1.4 release notes and SHA-256 checksums</a></sub>
 </p>
 
 <p align="center">

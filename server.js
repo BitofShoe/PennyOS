@@ -800,6 +800,15 @@ function ensureDataDir() {
   fs.mkdirSync(path.dirname(MEMORY_LEDGER_FILE), { recursive: true });
 }
 function defaultMemoryStore() { return { sessions: {} }; }
+function validateMemoryStoreSchema(store) {
+  if (!store || typeof store !== 'object' || Array.isArray(store)) {
+    return 'canonical memory store must be a JSON object.';
+  }
+  if (!store.sessions || typeof store.sessions !== 'object' || Array.isArray(store.sessions)) {
+    return 'canonical memory store `sessions` must be an object.';
+  }
+  return true;
+}
 function ensureMemoryStoreFile() {
   ensureDataDir();
   if (fs.existsSync(MEMORY_FILE)) return;
@@ -858,17 +867,19 @@ const durableMemoryStore = createDurableJsonStore({
   filePath: MEMORY_FILE,
   name: 'canonical memory store',
   buildDefault: defaultMemoryStore,
+  validate: validateMemoryStoreSchema,
   normalize: (store) => (store && typeof store === 'object' && !Array.isArray(store) ? store : defaultMemoryStore()),
   ensureFile: ensureMemoryStoreFile,
 });
-function readMemoryStore() { return durableMemoryStore.read(); }
+function readMemoryStoreState() { return durableMemoryStore.readState(); }
+function readMemoryStore() { return readMemoryStoreState().value; }
 function writeMemoryStore(store) {
   return durableMemoryStore.write(store);
 }
 function getStoredMemory(sessionId = 'default') {
-  const store = readMemoryStore();
+  const { value: store, status } = readMemoryStoreState();
   const record = store.sessions?.[sessionId];
-  return { store, memory: normalizeMemoryRecord(record || {}, sessionId) };
+  return { store, memory: normalizeMemoryRecord(record || {}, sessionId), status };
 }
 function saveStoredMemory(sessionId = 'default', patch = {}) {
   const { store, memory } = getStoredMemory(sessionId);
