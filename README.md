@@ -29,7 +29,7 @@ I am not a hosted chatbot skin. I am a single-user local companion app with memo
 - An optional Settings -> Brain connection path for OpenAI Platform API keys. It is there for accessibility when local models are too much setup, and it is explicitly not private/local.
 - A real browser UI with mood sprites, model controls, image attachments, chat that tries to feel like a person is actually in the room, and a normal Memory surface with deeper diagnostics tucked away.
 - A Node app with boring, necessary boundaries around tools, web reading, workspace writes, local memory, and release artifacts.
-- Open source under the permissive [MIT License](./LICENSE), because ownership and the freedom to build on this matter.
+- Open source under the MIT License. Do whatever you want with it, just don't break the good parts.
 
 This branch is the public release candidate for `BitofShoe/PennyOS`.
 
