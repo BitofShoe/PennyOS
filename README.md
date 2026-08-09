@@ -9,6 +9,12 @@
 </p>
 
 <p align="center">
+  <strong>Just want the app already?</strong><br />
+  Haven't you heard that patience is a virtue? Here: <a href="https://github.com/BitofShoe/PennyOS/releases/download/v0.1.3/PennyOS_0.1.3_x64-setup.exe"><strong>Download PennyOS for Windows (64-bit)</strong></a>.<br />
+  <sub>Windows <code>.exe</code> installer &middot; <a href="https://github.com/BitofShoe/PennyOS/releases/download/v0.1.3/PennyOS_0.1.3_x64_en-US.msi">MSI alternative</a> &middot; <a href="https://github.com/BitofShoe/PennyOS/releases/tag/v0.1.3">v0.1.3 release notes and SHA-256 checksums</a></sub>
+</p>
+
+<p align="center">
   <a href="INSTALL.md"><img src="https://img.shields.io/badge/Install-local_setup-111827?style=for-the-badge" alt="Install"></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-local_first-0F766E?style=for-the-badge" alt="Security"></a>
   <a href="PRIVACY.md"><img src="https://img.shields.io/badge/Privacy-local_by_default-7C3AED?style=for-the-badge" alt="Privacy"></a>
